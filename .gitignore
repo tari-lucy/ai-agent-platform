@@ -1,0 +1,44 @@
+# Local secrets and authentication material
+.env
+.env.*
+!.env.example
+.secrets/
+credentials/
+*.pem
+*.key
+*token*.json
+
+# Runtime state, personal memory, recordings and generated artifacts
+data/
+runtime/
+logs/
+recordings/
+artifacts/
+backups/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+config/local.*
+profiles/private/
+
+# Tooling and build outputs
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+.gradle/
+*.egg-info/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
