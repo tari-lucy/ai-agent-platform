@@ -25,6 +25,10 @@
 !packages/*/
 !packages/*/src/
 !packages/*/src/**
+!migrations/
+!migrations/env.py
+!migrations/versions/
+!migrations/versions/*.py
 !deploy/
 !deploy/core.py
 !deploy/worker.py

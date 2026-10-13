@@ -31,6 +31,7 @@ COPY deploy/healthcheck.py ./healthcheck.py
 USER 10001:10001
 
 FROM runtime AS core
+COPY migrations ./migrations
 COPY --from=core-deps /opt/platform/.venv ./.venv
 COPY --from=panel /build/panel/dist ./panel
 COPY deploy/core.py ./core.py
