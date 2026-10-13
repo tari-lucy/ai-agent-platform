@@ -25,6 +25,7 @@
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
+| M1-03 | assigned | Codex / task/m1-03-supervisor | d9af647; supervisor/direct STOP, pause/resume, synthetic failure checks; отдельный checkout |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -84,6 +85,16 @@ M1-02 интегрирована fast-forward; head 0002 — принятая б
 Packaging request из отчёта: перед runtime wiring назначить одного владельца
 .dockerignore/deploy/Dockerfile для включения migrations только в core image.
 Это не изменение схемы/контрактов; текущий Compose/runtime ещё не использует DB adapter.
+
+M1-03 владеет packages/application/src/ai_agent_application/control,
+packages/adapters/src/ai_agent_adapters/control, apps/core bootstrap wiring,
+tests/control и своим report. Дополнительно назначены .dockerignore и
+deploy/Dockerfile только для упаковки принятой migrations history в core image.
+База назначения d9af647; ветка task/m1-03-supervisor, отдельный checkout.
+Исключены contracts, migrations, manifests/locks, Compose, access/HTTP handlers,
+job dispatcher, UI и реальные внешние адаптеры. Разрешены synthetic SQLite,
+offline Linux checks и одна локальная image packaging probe с отдельными данными.
+STOP не ждёт DB/Redis/LLM; restart и сон не возобновляют старые допуски.
 
 ## M0. Воспроизводимая основа и технические пробы
 
