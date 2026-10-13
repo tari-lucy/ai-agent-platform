@@ -3161,6 +3161,61 @@
       "title": "OperationState",
       "type": "string"
     },
+    "OperatorLogin": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "password"
+      ],
+      "title": "OperatorLogin",
+      "type": "object"
+    },
+    "OperatorSession": {
+      "additionalProperties": false,
+      "properties": {
+        "csrf_token": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "title": "Csrf Token",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "principal_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/Scope"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "principal_id",
+        "scopes",
+        "expires_at",
+        "csrf_token"
+      ],
+      "title": "OperatorSession",
+      "type": "object"
+    },
     "Opportunity": {
       "additionalProperties": false,
       "properties": {
@@ -6519,6 +6574,54 @@
       "title": "ServiceClaimCommand",
       "type": "object"
     },
+    "ServiceClaimReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "acquired": {
+          "title": "Acquired",
+          "type": "boolean"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionCommand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Lease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "command",
+        "lease",
+        "acquired"
+      ],
+      "title": "ServiceClaimReceipt",
+      "type": "object"
+    },
     "ServiceCommand": {
       "discriminator": {
         "mapping": {
@@ -6611,6 +6714,31 @@
         "lease"
       ],
       "title": "ServiceLeaseCommand",
+      "type": "object"
+    },
+    "ServiceLeaseReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "lease"
+      ],
+      "title": "ServiceLeaseReceipt",
       "type": "object"
     },
     "ServiceResultCommand": {
@@ -8391,6 +8519,12 @@
     "OperationProjectionPage": {
       "$ref": "#/$defs/Page_OperationProjection_"
     },
+    "OperatorLogin": {
+      "$ref": "#/$defs/OperatorLogin"
+    },
+    "OperatorSession": {
+      "$ref": "#/$defs/OperatorSession"
+    },
     "Opportunity": {
       "$ref": "#/$defs/Opportunity"
     },
@@ -8475,11 +8609,17 @@
     "ServiceClaimCommand": {
       "$ref": "#/$defs/ServiceClaimCommand"
     },
+    "ServiceClaimReceipt": {
+      "$ref": "#/$defs/ServiceClaimReceipt"
+    },
     "ServiceCommand": {
       "$ref": "#/$defs/ServiceCommand"
     },
     "ServiceLeaseCommand": {
       "$ref": "#/$defs/ServiceLeaseCommand"
+    },
+    "ServiceLeaseReceipt": {
+      "$ref": "#/$defs/ServiceLeaseReceipt"
     },
     "ServiceResultCommand": {
       "$ref": "#/$defs/ServiceResultCommand"

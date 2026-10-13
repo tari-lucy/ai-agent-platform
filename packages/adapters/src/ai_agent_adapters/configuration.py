@@ -45,6 +45,7 @@ class WorkspaceProfile(BaseModel):
     pending_jobs: int = Field(default=256, ge=1, le=256)
     recall_fragments: int = Field(default=8, ge=1, le=8)
     recall_tokens: int = Field(default=2000, ge=128, le=2000)
+    operator_origin: str | None = Field(default=None, max_length=128)
     autostart: Literal[False] = False
 
     @field_validator("autostart", mode="before")
@@ -81,11 +82,20 @@ class BootstrapSettings(WorkspaceProfile, BaseSettings):
         # The loader already merged its explicit allowlist; no implicit environment/files.
         return (init_settings,)
 
+    operator_password_hash: SecretStr | None = None
+    worker_service_token: SecretStr | None = None
     redis_password: SecretStr | None = None
     llm_endpoint: SecretStr | None = None
     llm_api_key: SecretStr | None = None
 
-    @field_validator("redis_password", "llm_endpoint", "llm_api_key", mode="before")
+    @field_validator(
+        "redis_password",
+        "llm_endpoint",
+        "llm_api_key",
+        "operator_password_hash",
+        "worker_service_token",
+        mode="before",
+    )
     @classmethod
     def blank_secret(cls, value: Any) -> Any:
         return None if value == "" else value
@@ -165,7 +175,50 @@ def read_profile(path: Path, *, partial: bool = False) -> dict[str, Any]:
     return data
 
 
+def operator_origin(settings: BootstrapSettings) -> str:
+    """Single explicit loopback origin; proxy headers never expand this allowlist."""
+    value = settings.operator_origin or f"http://127.0.0.1:{settings.core_host_port}"
+    try:
+        parsed = urlsplit(value)
+        valid = (
+            parsed.scheme in ("http", "https")
+            and parsed.hostname in ("127.0.0.1", "localhost", "::1")
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.port is not None
+            and 1 <= parsed.port <= 65535
+            and value == parsed.scheme + "://" + parsed.netloc
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ConfigurationError("operator_origin", "loopback_origin_required")
+    return value
+
+
 def validate_bindings(settings: BootstrapSettings) -> None:
+    operator_origin(settings)
+    if (
+        settings.operator_password_hash is not None
+        and re.fullmatch(
+            r"scrypt-v1\$[a-f0-9]{32}\$[a-f0-9]{64}",
+            settings.operator_password_hash.get_secret_value(),
+        )
+        is None
+    ):
+        raise ConfigurationError("operator_password_hash", "scrypt_v1_hash_required")
+    if (
+        settings.worker_service_token is not None
+        and re.fullmatch(
+            r"[a-f0-9]{64}",
+            settings.worker_service_token.get_secret_value(),
+        )
+        is None
+    ):
+        raise ConfigurationError("worker_service_token", "64_hex_characters_required")
     if settings.redis_password is not None:
         value = settings.redis_password.get_secret_value()
         if re.fullmatch(r"[0-9a-fA-F]{64}", value) is None:

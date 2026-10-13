@@ -4,12 +4,13 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04 и M1-06, M2-01–M2-05 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-06, M2-01–M2-05 интегрированы.**
 Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
 контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
 с direct STOP/pause/resume и durable jobs/Redis. Модули профилей персонажей и памяти/recall
 и социальная память проверены на изолированной SQLite; их подключение к runtime остаётся отдельной работой.
-HTTP управления, диалог и LLM ещё не реализованы.
+HTTP управления/auth/service identity и WebSocket events проверены в M1-05.
+Диалог и LLM provider runtime ещё не подключены.
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
 [M0-03](docs/implementation-reports/M0-03.md),
@@ -20,6 +21,7 @@ HTTP управления, диалог и LLM ещё не реализован�
 [M1-02](docs/implementation-reports/M1-02.md),
 [M1-03](docs/implementation-reports/M1-03.md),
 [M1-04](docs/implementation-reports/M1-04.md),
+[M1-05](docs/implementation-reports/M1-05.md),
 [M1-06](docs/implementation-reports/M1-06.md),
 [M2-01](docs/implementation-reports/M2-01.md),
 [M2-02](docs/implementation-reports/M2-02.md),
@@ -103,23 +105,23 @@ HTTP управления, диалог и LLM ещё не реализован�
 
 ## Следующий этап
 
-Следующая задача — M1-05: operator auth/session/CSRF/Origin и service identity.
-M1-04 проверяет durable Job/outbox, fencing/retry/reconciliation и настоящий Redis;
-SQLite head 0003. Supervisor refresh сохраняет исходный cancellation_id,
-длинный heartbeat проверен. Повторный Claim.acquired=False не запускает работу.
-Перед объединением с M2: Windows 247 tests (4 Redis skipped), equivalent-source Linux 253
-tests с настоящим Redis, AOF restart, types/lint/export/hash checks прошли.
-Bootstrap остаётся STOPPED; bounded telemetry/resource scheduler принят в M1-06.
-Authenticated handlers/service identity — следующая M1-05.
-Cold Docker build остаётся отдельной пробой при подготовленном публичном cache.
-Блок M2 ведёт второй агент; здесь его файлы/задачи не изменяются.
-Совместная версия после M1-06 + M2-01–03: Windows 429 / Linux 430 tests прошли
-(Redis fixture tests пропущены; Windows FIFO недоступен), types/lint/import/export passed.
-Windows symlink import исправлен; общий runner — python scripts/check_combined.py.
-[Отчёт интеграции](docs/implementation-reports/M1-M2-integration.md).
-Работа ведётся по назначению doc24 в отдельном checkout.
+M1-01–M1-06 приняты: contracts/storage, supervisor/direct STOP, durable jobs,
+операторский HTTP/WS/service access и bounded telemetry/resource scheduler.
+M1-06 опубликована перед M1-05 по поручению оператора. Блок M2 ведёт второй агент;
+его бизнес-модули и отчёты этой задачей не менялись. Все зависимости M2-04 закрыты.
 
-Несколько разработчиков работают в отдельных ветках/checkout, с одним
-владельцем общих контрактов/миграций и последовательной интеграцией.
-Неизвестные версии игры, голос/rig и данные площадок нужны на входе своих
-эпиков; они не блокируют завершённый план текстового MVP.
+После обновления main выполнить uv sync --locked (общий recall suite использует
+--extra recall), затем python scripts/check_combined.py своим Python3.14.
+Добавлен required WebSocket backend websockets17.2; остальные lock versions сохранены.
+Локальные .env/session/worker bindings через Git не передаются; создание нового
+binding и trusted owner composition описаны в [access README](apps/core/src/ai_agent_core/access/README.md).
+Без настройки доступа и владельцев bootstrap остаётся STOPPED/fail closed.
+
+Совместная версия M1 + M2-01–03: Windows510 / Linux511 tests passed,
+ruff/types77/import/export/lock checks passed. 78 access cases также прошли
+в CPU1/RAM768 MiB isolated Linux container без OOM; actual HTTP/WS Upgrade/STOP,
+scope/CSRF/Origin/session revocation и SQLite owner paths проверены.
+4 Redis fixture cases пропущены; дополнительный Windows skip — POSIX FIFO.
+6 legacy WS deprecation warnings учтены; обновление backend требует framing/backpressure пробы.
+Точный VPS venv, реальные provider calls, полный dialogue/worker loop и cold image
+build остаются соответствующим этапам. Работа — по назначениям [doc24](docs/24-mvp-implementation-plan.md).

@@ -1,8 +1,9 @@
 # Готовность к реализации: итог планирования
 
-Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-04 и M1-06, M2-01–M2-05 интегрированы.**
+Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-06, M2-01–M2-05 интегрированы.**
 Среда, каркас, Compose, RU recall, безопасный bootstrap, contracts, SQLite и
-внутренний supervisor/direct STOP и durable jobs/Redis проверены; HTTP управления/диалог/LLM ещё не реализованы. Текущие
+supervisor/direct STOP, durable jobs/Redis, telemetry/scheduler и
+authenticated HTTP/WS/service access проверены; dialogue/LLM runtime ещё не подключены. Текущие
 назначения/интеграция — [doc24](24-mvp-implementation-plan.md).
 Пользователь поручил самостоятельно довести план до конца; дополнительные
 технические defaults выбраны в этих пределах, а не выданы за отдельно
@@ -111,3 +112,10 @@ M1-06 по поручению оператора реализована перв
 согласованная локальная интеграция назначенных задач разрешена оператором.
 Реальные LLM/публичные/игровые эффекты требуют отдельной авторизации. Новая
 миграция получает очередной номер после принятого head 0003 у координатора.
+
+M1-05 integrated62a8fb7: operator/session/CSRF/Origin/service grants, direct STOP,
+real HTTP/WS and SQLite paths verified. Combined Windows510/Linux511 и strict
+types77/lint/import/export passed; core768 MiB auth78 cases no OOM.
+Единственное новое runtime prerequisite — websockets17.2 в frozen uv.lock.
+После pull синхронизировать своё окружение; реальный VPS/cold image/live provider
+этими проверками не объявляются принятыми. Подробности — [M1-05](implementation-reports/M1-05.md).

@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event
 from time import monotonic
@@ -27,6 +27,8 @@ class ControlAuthority:
     principal_id: str
     partitions: frozenset[tuple[str, str, str, str]]
     expires_at: float
+    # Optional process-local auth/session revocation. Never a client-supplied callback.
+    is_current: Callable[[], bool] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.expires_at):

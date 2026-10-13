@@ -1,0 +1,74 @@
+{
+  "task": "M1-05",
+  "date": "2026-10-13",
+  "base": "a614c36",
+  "contract_commit": "6081bdf",
+  "revocation_port_commit": "957a9c6",
+  "windows": {
+    "python": "3.14.8",
+    "combined_passed": 510,
+    "skipped": 5,
+    "seconds": 141.56,
+    "warnings": 6
+  },
+  "linux": {
+    "python": "3.14.8",
+    "combined_passed": 511,
+    "skipped": 4,
+    "seconds": 75.09,
+    "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97",
+    "uid": 10001,
+    "network": "none",
+    "read_only": true,
+    "exit": 0,
+    "oom": false,
+    "ports": {},
+    "warnings": 6,
+    "verified_websocket_distribution": "17.2"
+  },
+  "access_resource_probe": {
+    "passed": 78,
+    "seconds": 27.78,
+    "cpu": 1,
+    "memory_mib": 768,
+    "memory_peak_bytes": 264081408,
+    "uid": 10001,
+    "network": "none",
+    "read_only": true,
+    "exit": 0,
+    "oom": false,
+    "ports": {},
+    "warnings": 6
+  },
+  "checks": {
+    "ruff": "passed",
+    "strict_mypy_source_files": 77,
+    "imports": "passed",
+    "contract_export": "passed",
+    "real_loopback_http": "passed",
+    "sqlite_acl_ttl_api_transfer": "passed",
+    "sqlite_service_claim_renew_result_cancel": "passed",
+    "compose_actual_synthetic_hash_env": "passed",
+    "worker_no_operator_hash": "passed",
+    "source_hash_files": 135,
+    "privacy_review": "passed",
+    "real_websocket_upgrade_scope_stop_frame_limit": "passed",
+    "lock_preserves_other_package_versions": "passed",
+    "uv_locked_offline": "passed"
+  },
+  "lock_sha256": "5b9f8f555763b656a5b464d5a181002731c67b2b56281f0899c436e5eaa72f91",
+  "not_checked": [
+    "actual VPS environment",
+    "real TLS/proxy/browser UI",
+    "live providers",
+    "cold build/new wheel",
+    "full worker/dialogue/recall owner runtime",
+    "real Redis without isolated host"
+  ],
+  "dependencies": {
+    "added": "websockets17.2",
+    "license": "BSD-3-Clause",
+    "universal_wheel_sha256": "6aa59f0ef92e796b2db6f5f26550c4713c0e4036899fadf02f55e2ed4db0b7ae",
+    "other_versions_changed": false
+  }
+}
