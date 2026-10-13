@@ -39,7 +39,8 @@ migrations, Compose/deploy и application packages. Разрешены лока�
 проба с 2 CPU threads/batch 4/лимитом 1,5 ГиБ; без LLM/игры/публикации.
 M0-05 corpus/quality benchmark не входит в M0-03.
 
-M0-04 владеет deploy (Compose/Docker build/resource/health scripts),
+M0-04 владеет root .dockerignore (allowlist build context), deploy
+(Compose/Docker build/resource/health scripts),
 tests/probes/m0_04 и своим report. Исключены manifests/locks, migrations,
 contracts/application logic, config M0-06 и общий UI client. Разрешён один
 локальный synthetic Compose stack core/worker/Redis с отдельным project name
