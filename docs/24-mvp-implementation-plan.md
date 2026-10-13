@@ -27,6 +27,7 @@
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
+| M1-06 | in_progress | Codex / task/m1-06-telemetry-scheduler | Base a48ae0f; по поручению оператора перед M1-05; M1-03/M1-04 приняты; bounded telemetry/health/trace и resource scheduler |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
@@ -126,6 +127,18 @@ WorkerAuthority/Policy ports, claim acquired flag, verify/renew/cancel receipt �
 metadata-only settle_unknown. Реальная auth/composition — M1-05, runtime loops/
 ресурсный scheduler — M1-06. Вторая расходящаяся migration history не допускается;
 следующий номер после 0003 назначает координатор. Блок M2 остаётся за вторым агентом.
+
+M1-06 назначена перед M1-05 по прямому поручению оператора; база a48ae0f.
+Владеет packages/application/src/ai_agent_application/telemetry и scheduling,
+tests/operations, своим отчётом. Узкие coordinator shared changes:
+apps/core/src/ai_agent_core/bootstrap.py для закрытой runtime-композиции и
+scripts/check_combined.py только для включения нового acceptance набора.
+Contracts, migrations, manifests/lock, Compose, API/auth, M2 feature development
+исключены. Используются принятые Supervisor/Admission/ResourceTicket и
+ExecutionCommand/Capability; scheduler даёт бюджет, не заменяет Policy/JobOwner.
+Компоненты/пулы/лимиты конфигурируются доверенной композицией. Неизвестный
+результат не освобождает ресурс без фактической квитанции; restart не start.
+Только синтетические bounded проверки Windows/Linux; без live API/LLM/игры.
 
 M2-01 владеет packages/application/src/ai_agent_application/persona,
 packages/adapters/src/ai_agent_adapters/persona, tests/persona и своим report.
