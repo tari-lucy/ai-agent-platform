@@ -59,8 +59,9 @@ locks, Compose, contracts, migrations и реальная LLM/публикаци
 
 M0-06 владеет config, root .env.example, apps/core и apps/worker bootstrap/settings,
 packages/adapters/src/ai_agent_adapters/configuration.py (общий config adapter),
+deploy/core.py и deploy/worker.py (только wiring проверенного bootstrap),
 tests/probes/m0_06 и своим report. Отдельный worktree task/m0-06-safe-startup.
-Исключены manifests/locks, contracts, migrations, Compose/deploy и UI client.
+Исключены manifests/locks, contracts, migrations, Compose/Docker build/resource files и UI client.
 Разрешены offline validation/bootstrap checks на synthetic profiles;
 LLM/игра/публичный выход не разрешены. Supervisor/STOP implementation — M1.
 
