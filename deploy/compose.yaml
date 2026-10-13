@@ -1,0 +1,111 @@
+name: ai-agent-platform
+x-runtime: &runtime
+  platform: linux/amd64
+  init: true
+  restart: "no"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  networks: [platform]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  core:
+    <<: *runtime
+    image: ai-agent-platform/core:m0-04
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: core
+    user: "10001:10001"
+    networks: [platform, core-loopback]
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 1.0
+    environment:
+      CORE_CONTAINER_PORT: ${AI_PLATFORM_CORE_CONTAINER_PORT:-8080}
+      REDIS_PASSWORD: ${AI_PLATFORM_REDIS_PASSWORD:?Create a local Redis auth binding}
+    ports:
+      - "127.0.0.1:${AI_PLATFORM_CORE_HOST_PORT:-8765}:${AI_PLATFORM_CORE_CONTAINER_PORT:-8080}"
+    volumes:
+      - core-data:/var/lib/platform/core
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001"]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "/opt/platform/healthcheck.py", "core"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+
+  worker:
+    <<: *runtime
+    image: ai-agent-platform/worker:m0-04
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: worker
+    user: "10001:10001"
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 2.0
+    volumes:
+      - worker-cache:/var/lib/platform/models
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001"]
+    depends_on:
+      core: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "/opt/platform/healthcheck.py", "worker"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 10s
+
+  redis:
+    <<: *runtime
+    image: redis:8.10.2-trixie@sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6
+    user: "999:999"
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    environment:
+      REDIS_PASSWORD: ${AI_PLATFORM_REDIS_PASSWORD:?Create a local Redis auth binding}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        case "$$REDIS_PASSWORD" in ''|*[!a-fA-F0-9]*) echo 'Invalid Redis auth binding' >&2; exit 64;; esac
+        test "$${#REDIS_PASSWORD}" -eq 64 || { echo 'Invalid Redis auth binding' >&2; exit 64; }
+        umask 077
+        printf 'include /usr/local/etc/redis/platform.conf\nrequirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf
+        exec redis-server /tmp/redis-auth.conf
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/platform.conf:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,uid=999,gid=999"]
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping']
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+
+networks:
+  platform: {internal: true}
+  core-loopback: {}
+volumes:
+  core-data:
+  worker-cache:
+  redis-data:

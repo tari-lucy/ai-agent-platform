@@ -1,0 +1,117 @@
+{
+  "checks": {
+    "resource_caps": "pass",
+    "worker_cache": "pass",
+    "restart": "pass",
+    "panel": "pass",
+    "loopback_private_ports": "pass",
+    "core_redis_persistence": "pass",
+    "recreate": "pass"
+  },
+  "wsl_working_set_mib": 1194.09,
+  "services": [
+    {
+      "role": "core",
+      "image": "sha256:309580bd0cb29f7b85f5986e967c1c349478905585c1307e25b8e0671c8d5f34",
+      "health": "healthy",
+      "oom": false,
+      "memory": 805306368,
+      "swap": 805306368,
+      "cpu": 1000000000,
+      "read_only": true,
+      "restart": "no",
+      "bindings": {
+        "8080/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "62509"
+          }
+        ]
+      },
+      "network": "ai-platform-m0-04-493da277ab10_core-loopback",
+      "mount_targets": [
+        "/var/lib/platform/core"
+      ]
+    },
+    {
+      "role": "redis",
+      "image": "sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6",
+      "health": "healthy",
+      "oom": false,
+      "memory": 268435456,
+      "swap": 268435456,
+      "cpu": 500000000,
+      "read_only": true,
+      "restart": "no",
+      "bindings": {},
+      "network": "ai-platform-m0-04-493da277ab10_platform",
+      "mount_targets": [
+        "/usr/local/etc/redis/platform.conf",
+        "/data"
+      ]
+    },
+    {
+      "role": "worker",
+      "image": "sha256:481226ba3652fd7711ff723a5f4a0465d7466e2676e0bec13126f09fca61188f",
+      "health": "healthy",
+      "oom": false,
+      "memory": 1610612736,
+      "swap": 1610612736,
+      "cpu": 2000000000,
+      "read_only": true,
+      "restart": "no",
+      "bindings": {},
+      "network": "ai-platform-m0-04-493da277ab10_platform",
+      "mount_targets": [
+        "/var/lib/platform/models"
+      ]
+    }
+  ],
+  "persistence": [
+    {
+      "sqlite": "3.40.1",
+      "redis": "8.10.2",
+      "sqlite_row": "pass",
+      "redis_marker_stream_pending": "pass",
+      "wal_full_integrity": "pass",
+      "redis_settings": {
+        "appendfsync": "everysec",
+        "maxmemory": "134217728",
+        "appendonly": "yes",
+        "maxmemory-policy": "noeviction"
+      }
+    },
+    {
+      "sqlite": "3.40.1",
+      "redis": "8.10.2",
+      "sqlite_row": "pass",
+      "redis_marker_stream_pending": "pass",
+      "wal_full_integrity": "pass",
+      "redis_settings": {
+        "maxmemory": "134217728",
+        "appendfsync": "everysec",
+        "maxmemory-policy": "noeviction",
+        "appendonly": "yes"
+      }
+    },
+    {
+      "sqlite": "3.40.1",
+      "redis": "8.10.2",
+      "sqlite_row": "pass",
+      "redis_marker_stream_pending": "pass",
+      "wal_full_integrity": "pass",
+      "redis_settings": {
+        "maxmemory-policy": "noeviction",
+        "appendonly": "yes",
+        "appendfsync": "everysec",
+        "maxmemory": "134217728"
+      }
+    }
+  ],
+  "container_memory_snapshot": [
+    "36.71MiB / 768MiB",
+    "4.398MiB / 256MiB",
+    "9.656MiB / 1.5GiB"
+  ],
+  "scope": "synthetic idle scaffold; no agent/jobs/models"
+}
