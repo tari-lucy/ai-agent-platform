@@ -198,6 +198,7 @@ class Supervisor:
         self.poll()
         if (
             self.clock.elapsed() >= authority.expires_at
+            or (authority.is_current is not None and authority.is_current() is not True)
             or scope.partition not in authority.partitions
             or scope.partition != self._base.partition
             or target != self._agent
