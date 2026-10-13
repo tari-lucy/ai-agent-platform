@@ -24,7 +24,7 @@
 | M0-05 | integrated | Codex / task/m0-05-recall-baseline | cffe60f; 60 RU/1k/10k gates прошли, combined Linux 21 tests/lint passed |
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
-| M1-02 | in_progress | Codex / task/m1-02-storage | c587409; M1-01/M0-03 integrated; отдельный managed checkout от проверенного main |
+| M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -80,6 +80,11 @@ report. База назначения c587409; ветка task/m1-02-storage. И
 manifests/locks, Compose/deploy, UI/access/supervisor/job dispatcher и recall.
 Разрешены synthetic SQLite tests, isolated offline Linux named volume;
 рабочая DB/profiles/env, LLM, игра и публичный выход не используются.
+M1-02 интегрирована fast-forward; head 0002 — принятая база следующей миграции.
+Packaging request из отчёта: перед runtime wiring назначить одного владельца
+.dockerignore/deploy/Dockerfile для включения migrations только в core image.
+Это не изменение схемы/контрактов; текущий Compose/runtime ещё не использует DB adapter.
+
 ## M0. Воспроизводимая основа и технические пробы
 
 | ID | Зависит от | Результат / зона | Критерий завершения |
