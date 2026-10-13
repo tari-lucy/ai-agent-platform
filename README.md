@@ -4,12 +4,13 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-03, M2-01 и M2-02 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-03 и M2-01–M2-03 интегрированы.**
 Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
 контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
 с direct STOP/pause/resume; модуль профилей персонажей (импорт Markdown, снимки версий,
 отдельное состояние) и жизненный цикл памяти с recall (права перед контекстом, дедуп
-опыта, FTS fallback) проверены на изолированной SQLite и не подключены к runtime.
+опыта, FTS fallback) и социальная память (люди по подтверждённым platform ID, резервы вопросов, точные
+обещания) проверены на изолированной SQLite и не подключены к runtime.
 HTTP управления, диалог и LLM ещё не реализованы.
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
@@ -21,7 +22,8 @@ HTTP управления, диалог и LLM ещё не реализован�
 [M1-02](docs/implementation-reports/M1-02.md),
 [M1-03](docs/implementation-reports/M1-03.md),
 [M2-01](docs/implementation-reports/M2-01.md),
-[M2-02](docs/implementation-reports/M2-02.md).
+[M2-02](docs/implementation-reports/M2-02.md),
+[M2-03](docs/implementation-reports/M2-03.md).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:

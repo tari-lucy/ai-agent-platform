@@ -28,6 +28,7 @@
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
+| M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -129,6 +130,17 @@ repository для цели доступа; дедуп по исходному о
 владельцем — M1-02-владелец или M5-01; (2) отдельная задача на FastEmbed-адаптер и упаковку
 extra `recall` в core/worker image; (3) переключение синхронизации индекса на outbox после
 M1-04; (4) grants memory-owner и reader_access в core bootstrap.
+
+M2-03 владеет packages/application/src/ai_agent_application/social, tests/social и своим
+report; зона подтверждена координатором. Решения: идентичность только по подтверждённой
+паре platform_id+account_id в области (ник, текст и тот же ID на другой площадке/сервере людей
+не объединяют); резерв вопроса — атомарный через версию темы; обещание создаётся только по
+DELIVERED реплике; точные обязательства читаются полным сканом без recall. Открытые запросы:
+(1) storage-запрос по семантическим ключам/полям вместо сканирования — владелец M1-02/0003;
+(2) отдельное назначение на подтверждённое слияние/разделение людей; (3) grants social-владельцу
+(SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
+M2-04 остаётся blocked: M1-04 (job/outbox dispatcher) и M1-06 (telemetry/resource scheduler)
+не интегрированы; M2-05/06/07 зависят от M2-04.
 
 ## M0. Воспроизводимая основа и технические пробы
 
