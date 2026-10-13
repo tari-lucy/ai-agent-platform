@@ -26,6 +26,7 @@
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
+| M1-04 | assigned | Codex / task/m1-04-jobs | 542da6e; отдельный checkout, job/outbox/lease/retry/reconciliation |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -104,6 +105,17 @@ packaging request M1-02 закрыт; schema head не менялся. Admission
 и direct STOP — принятые внутренние ports, не HTTP authorization. До длинных
 jobs назначить supervisor-owner heartbeat/refresh; full cold core/worker build
 по новому lock остаётся отдельной пробой при подготовленном cache.
+
+M1-04 владеет packages/application/src/ai_agent_application/jobs,
+packages/adapters/src/ai_agent_adapters/jobs и broker, tests/jobs и своим report.
+Назначены узкие shared changes: supervisor.refresh для продления исходного
+admission без восстановления отозванного допуска; единственная миграция 0003
+для scheduling/attempt metadata и storage/migrations.py HEAD. Интерфейс refresh
+принимается отдельным коммитом до реализации потребителя. Contracts, manifests,
+locks, Compose, HTTP/access/UI и весь блок M2 исключены: M2 ведёт второй агент.
+Зависимости M1-02/M0-04/M1-03 интегрированы. Только synthetic SQLite/Redis
+проверки, отдельные данные/volumes, один тяжёлый runtime; без live LLM/API.
+Migration owner на время M1-04 — этот исполнитель; M2 не выдаются shared files.
 
 ## M0. Воспроизводимая основа и технические пробы
 
