@@ -24,4 +24,8 @@ if __name__ == "__main__":
         workers=1,
         access_log=False,
         log_level="warning",
+        ws_max_size=4096,
+        ws_max_queue=1,
+        backlog=128,
+        timeout_keep_alive=5,
     )

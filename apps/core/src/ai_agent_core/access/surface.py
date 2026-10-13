@@ -1,0 +1,604 @@
+"""ASGI boundary: direct in-memory STOP, bounded requests, closed owner ports."""
+
+import asyncio
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Protocol
+from urllib.parse import parse_qsl, urlsplit
+from uuid import uuid4
+
+from ai_agent_adapters.configuration import BootstrapSettings, operator_origin
+from ai_agent_application.control import Supervisor
+from ai_agent_application.jobs.owner import JobOwner
+from ai_agent_contracts.access import (
+    OperatorLogin,
+    ServiceClaimReceipt,
+    ServiceLeaseReceipt,
+)
+from ai_agent_contracts.api import (
+    ControlCommand,
+    EventSubscription,
+    Page,
+    PanelEvent,
+    Receipt,
+    ServiceClaimCommand,
+    ServiceLeaseCommand,
+    ServiceResultCommand,
+    StopCommand,
+)
+from ai_agent_contracts.catalogue import ADAPTERS, READ_MODELS
+from ai_agent_contracts.codec import ContractError, from_wire, to_wire
+from ai_agent_contracts.common import MAX_BODY_BYTES, Contract, Scope
+from ai_agent_contracts.control import RunSession
+from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.states import ErrorCode
+from fastapi import FastAPI
+from pydantic import TypeAdapter
+from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Send
+from starlette.types import Scope as ASGIScope
+
+from .events import Events, Subscriber
+from .sessions import COOKIE, AccessLimits, SessionAuthority, Sessions, WorkerGrant
+
+
+class Reader(Protocol):
+    """Must apply current record ACL/source rights/TTL/api_transfer before returning."""
+
+    async def read(
+        self,
+        resource: str,
+        principal_id: str,
+        scope: Scope,
+        resource_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> Contract | None: ...
+
+
+@dataclass(frozen=True)
+class AccessPorts:
+    """Explicit trusted composition. Defaults grant no worker capabilities/data access."""
+
+    reader: Reader | None = None
+    jobs: JobOwner | None = None
+    worker: WorkerGrant | None = None
+    extensions: ExtensionRegistry | None = None
+    events: Events | None = None
+    scopes: tuple[Scope, ...] | None = None
+    limits: AccessLimits | None = None
+
+
+class Rejection(Exception):
+    def __init__(self, status: int, code: ErrorCode) -> None:
+        self.status, self.code = status, code
+        super().__init__(code.value)
+
+
+STATUS = {
+    ErrorCode.ACCESS_DENIED: 403,
+    ErrorCode.RESOURCE_BUSY: 429,
+    ErrorCode.SERVICE_UNAVAILABLE: 503,
+    ErrorCode.CAPABILITY_UNAVAILABLE: 503,
+    ErrorCode.VERSION_CONFLICT: 409,
+    ErrorCode.IDEMPOTENCY_CONFLICT: 409,
+    ErrorCode.STALE_CONTEXT: 409,
+    ErrorCode.EXPIRED: 409,
+    ErrorCode.OUTCOME_UNKNOWN: 409,
+}
+
+
+def _headers(scope: ASGIScope) -> dict[str, str]:
+    result: dict[str, str] = {}
+    raw = scope.get("headers", [])
+    if sum(len(k) + len(v) for k, v in raw) > 16384:
+        raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+    for key, value in raw:
+        name = key.decode("latin-1").lower()
+        # Never fold security headers: duplicate credentials/cookies/origins are ambiguous.
+        if name in result and name in (
+            "host",
+            "origin",
+            "authorization",
+            "cookie",
+            "x-csrf-token",
+            "content-length",
+            "content-type",
+            "content-encoding",
+            "sec-fetch-site",
+        ):
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        result[name] = value.decode("latin-1")
+    return result
+
+
+def _cookie(headers: Mapping[str, str]) -> str:
+    matches = []
+    for item in headers.get("cookie", "").split(";"):
+        key, separator, value = item.strip().partition("=")
+        if separator and key == COOKIE:
+            matches.append(value)
+    if len(matches) != 1:
+        raise Rejection(401, ErrorCode.ACCESS_DENIED)
+    return matches[0]
+
+
+async def _body(headers: Mapping[str, str], receive: Receive, maximum: int) -> bytes:
+    if headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+    if "content-encoding" in headers:
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+    if "content-length" in headers:
+        try:
+            size = int(headers["content-length"])
+        except ValueError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        if not 0 <= size <= maximum:
+            raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+    result = bytearray()
+    async with asyncio.timeout(2):
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            chunk = message.get("body", b"")
+            if len(result) + len(chunk) > maximum:
+                raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+            result.extend(chunk)
+            if not message.get("more_body", False):
+                break
+    return bytes(result)
+
+
+def _json(
+    model: Contract, extensions: ExtensionRegistry | None = None, status: int = 200
+) -> Response:
+    return Response(
+        to_wire(model, extensions=extensions),
+        status_code=status,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+def _error(status: int, code: ErrorCode) -> Response:
+    # No inbound request ID, body, header, exception or credential is reflected.
+    return _json(ContractError(code).error, status=status)
+
+
+class Surface:
+    def __init__(
+        self, supervisor: Supervisor, settings: BootstrapSettings, ports: AccessPorts
+    ) -> None:
+        if ports.jobs is not None and ports.jobs.supervisor is not supervisor:
+            raise ValueError("ACCESS_JOB_OWNER")
+        self.supervisor, self.ports = supervisor, ports
+        self.origin = operator_origin(settings)
+        self.host = urlsplit(self.origin).netloc
+        self.secure_cookie = self.origin.startswith("https://")
+        self.limits = ports.limits or AccessLimits()
+        base = supervisor.snapshot.scope
+        default = Scope(
+            workspace_id=base.workspace_id,
+            persona_id=base.persona_id,
+            memory_space_id=base.memory_space_id,
+            memory_mode=base.memory_mode,
+        )
+        self.sessions = Sessions(
+            ports.scopes or (default,),
+            clock=supervisor.clock,
+            password=settings.operator_password_hash,
+            service_token=settings.worker_service_token,
+            worker=ports.worker,
+            limits=self.limits,
+        )
+        if ports.events is not None and ports.events.limits != self.limits:
+            raise ValueError("ACCESS_EVENT_LIMITS")
+        self.events = ports.events or Events(self.limits)
+        self._requests = 0
+        self._stops = 0
+        self._websockets = 0
+
+    def run_changed(self) -> None:
+        run = self.supervisor.snapshot
+        identifier = uuid4().hex
+        self.events.publish(
+            PanelEvent(
+                id=identifier,
+                event_id=identifier,
+                scope=run.scope,
+                created_at=run.updated_at,
+                occurred_at=run.updated_at,
+                type="run.changed",
+                resource_id=run.id,
+                resource_version=run.version,
+                causal_id=None,
+                operation_id=None,
+            )
+        )
+
+    def browser(self, headers: Mapping[str, str], *, mutation: bool) -> None:
+        if headers.get("host") != self.host or "authorization" in headers:
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        origin = headers.get("origin")
+        if (mutation and origin != self.origin) or (origin is not None and origin != self.origin):
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        if headers.get("sec-fetch-site", "none") not in ("none", "same-origin"):
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+
+    def operator(self, headers: Mapping[str, str], *, mutation: bool) -> SessionAuthority:
+        self.browser(headers, mutation=mutation)
+        try:
+            authority = self.sessions.authorize(_cookie(headers))
+        except ContractError:
+            raise Rejection(401, ErrorCode.ACCESS_DENIED) from None
+        if mutation:
+            self.sessions.csrf(authority, headers.get("x-csrf-token", ""))
+        return authority
+
+    def query(self, scope: ASGIScope, *, reading: bool = False) -> dict[str, str]:
+        raw = scope.get("query_string", b"")
+        if len(raw) > 2048:
+            raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+        try:
+            pairs = parse_qsl(raw.decode("ascii"), strict_parsing=True, max_num_fields=8)
+        except ValueError, UnicodeError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        allowed = {
+            "workspace_id",
+            "persona_id",
+            "memory_space_id",
+            "memory_mode",
+            "limit",
+            "cursor",
+        }
+        result: dict[str, str] = {}
+        for key, value in pairs:
+            if not reading or key not in allowed or key in result:
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            result[key] = value
+        return result
+
+    async def http(self, scope: ASGIScope, receive: Receive) -> Response:
+        headers = _headers(scope)
+        path, method = scope["path"], scope["method"]
+        self.query(scope, reading=method == "GET" and "/auth/" not in path)
+        if path.startswith("/internal/"):
+            return await self.service(path, method, headers, receive)
+        if method == "OPTIONS":
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        mutation = method not in ("GET", "HEAD")
+        self.browser(headers, mutation=mutation)
+        if path == "/api/v1/auth/login" and method == "POST":
+            # Ignore any previous cookie; mint a new unpredictable session after verification.
+            request = from_wire(TypeAdapter(OperatorLogin), await _body(headers, receive, 8192))
+            cookie, authority = await self.sessions.login(request.password)
+            response = _json(self.sessions.info(authority))
+            response.set_cookie(
+                COOKIE,
+                cookie,
+                max_age=self.limits.session_seconds,
+                httponly=True,
+                secure=self.secure_cookie,
+                samesite="strict",
+                path="/",
+            )
+            return response
+        authority = self.operator(headers, mutation=mutation)
+        if path == "/api/v1/auth/session" and method == "GET":
+            return _json(self.sessions.info(authority))
+        if path == "/api/v1/auth/logout" and method == "POST":
+            self.sessions.logout(authority)
+            response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+            response.delete_cookie(
+                COOKIE, path="/", httponly=True, secure=self.secure_cookie, samesite="strict"
+            )
+            return response
+        stop_path = re.fullmatch(r"/api/v1/agents/([^/]+)/stop", path)
+        if method == "POST" and (stop_path or path == "/api/v1/commands"):
+            raw = await _body(headers, receive, 4096 if stop_path else MAX_BODY_BYTES)
+            request = from_wire(
+                ADAPTERS["StopCommand" if stop_path else "PanelCommand"],
+                raw,
+                extensions=self.ports.extensions,
+            )
+            self.sessions.check_scope(authority, request.scope)
+            if stop_path and (
+                not isinstance(request, StopCommand) or stop_path.group(1) != request.target
+            ):
+                raise Rejection(403, ErrorCode.ACCESS_DENIED)
+            if isinstance(request, StopCommand):
+                # No lock, journal flush, broker, password hash, readiness or model await.
+                stopped = self.supervisor.stop(authority.control, request)
+                self.run_changed()
+                return _json(stopped)
+            if isinstance(request, ControlCommand):
+                previous = self.supervisor.snapshot.version
+                try:
+                    receipt = await self.supervisor.control(authority.control, request)
+                finally:
+                    if self.supervisor.snapshot.version != previous:
+                        self.run_changed()
+                self.sessions.current(authority)
+                return _json(receipt)
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        if method == "GET":
+            return await self.read(path, scope, authority)
+        if method == "POST" and path == "/api/v1/recall":
+            request = from_wire(
+                ADAPTERS["RecallRequest"], await _body(headers, receive, MAX_BODY_BYTES)
+            )
+            self.sessions.check_scope(authority, request.scope)
+            # Recall owner is assigned to M2, not bypassed here.
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+
+    async def read(self, path: str, asgi: ASGIScope, authority: SessionAuthority) -> Response:
+        match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
+        if match is None or match.group(1) not in READ_MODELS:
+            raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+        query = self.query(asgi, reading=True)
+        try:
+            scope = Scope.model_validate(
+                {
+                    key: query[key]
+                    for key in ("workspace_id", "persona_id", "memory_space_id", "memory_mode")
+                }
+            )
+            limit = int(query.get("limit", "50"))
+            if not 1 <= limit <= 200:
+                raise ValueError("LIMIT")
+            cursor = query.get("cursor")
+            if cursor is not None:
+                TypeAdapter(str).validate_python(cursor)
+                if len(cursor) > 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", cursor):
+                    raise ValueError("CURSOR")
+        except ValueError, KeyError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        self.sessions.check_scope(authority, scope)
+        resource, identifier = match.groups()
+        if resource == "sessions":
+            run = self.supervisor.snapshot
+            items = [run] if run.scope.partition == scope.partition else []
+            if identifier is not None:
+                model: Contract | None = run if items and run.id == identifier else None
+            else:
+                model = Page[RunSession](
+                    items=items if cursor is None or run.id > cursor else [],
+                    limit=limit,
+                    next_cursor=None,
+                    complete=True,
+                )
+        elif self.ports.reader is None:
+            raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
+        else:
+            model = await self.ports.reader.read(
+                resource, authority.control.principal_id, scope, identifier, limit, cursor
+            )
+        self.sessions.check_scope(authority, scope)  # logout/expiry while DB was awaited
+        if model is None:
+            raise Rejection(404, ErrorCode.ACCESS_DENIED)
+        raw = to_wire(model, extensions=self.ports.extensions)
+        expected = READ_MODELS[resource].__name__ + ("Page" if identifier is None else "")
+        validated = from_wire(ADAPTERS[expected], raw, extensions=self.ports.extensions)
+        rows = validated.items if identifier is None else [validated]
+        if any(row.scope.partition != scope.partition for row in rows):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        if identifier is None and (validated.limit != limit or len(rows) > limit):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        return Response(
+            raw,
+            media_type="application/json",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    async def service(
+        self,
+        path: str,
+        method: str,
+        headers: Mapping[str, str],
+        receive: Receive,
+    ) -> Response:
+        if "origin" in headers or "cookie" in headers or "x-csrf-token" in headers:
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        authorization = headers.get("authorization", "")
+        if not authorization.startswith("Bearer "):
+            raise Rejection(401, ErrorCode.ACCESS_DENIED)
+        try:
+            authority = self.sessions.worker(authorization[7:])
+        except ContractError:
+            raise Rejection(401, ErrorCode.ACCESS_DENIED) from None
+        match = re.fullmatch(r"/internal/v1/jobs/([^/]+)/(claim|lease|result)", path)
+        if match is None or method != "POST":
+            raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+        action = match.group(2)
+        adapters = {
+            "claim": "ServiceClaimCommand",
+            "lease": "ServiceLeaseCommand",
+            "result": "ServiceResultCommand",
+        }
+        request = from_wire(
+            ADAPTERS[adapters[action]],
+            await _body(headers, receive, MAX_BODY_BYTES),
+            extensions=self.ports.extensions,
+        )
+        if request.target != match.group(1) or request.scope.partition not in authority.partitions:
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        if not authority.capability_ids:
+            raise Rejection(403, ErrorCode.ACCESS_DENIED)
+        jobs = self.ports.jobs
+        if jobs is None:
+            raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
+        if isinstance(request, ServiceClaimCommand):
+            claim = await jobs.claim(authority, request)
+            return _json(
+                ServiceClaimReceipt(
+                    request_id=request.request_id,
+                    scope=request.scope,
+                    command=None if claim is None else claim.command,
+                    lease=None if claim is None else claim.lease,
+                    acquired=False if claim is None else claim.acquired,
+                ),
+                self.ports.extensions,
+            )
+        if isinstance(request, ServiceLeaseCommand):
+            if request.type == "job.renew":
+                lease = await jobs.renew(authority, request)
+                return _json(
+                    ServiceLeaseReceipt(
+                        request_id=request.request_id,
+                        scope=request.scope,
+                        lease=lease,
+                    )
+                )
+            if request.type != "job.cancel_receipt":
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            job = await jobs.cancel_receipt(authority, request)
+        elif isinstance(request, ServiceResultCommand):
+            # Client cannot set transient/retry_safe or choose another attempt.
+            job = await jobs.accept(authority, request)
+        else:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        return _json(
+            Receipt(
+                request_id=request.request_id,
+                scope=job.scope,
+                status="completed",
+                resource_id=job.id,
+                operation_id=job.operation_id,
+                version=job.version,
+            )
+        )
+
+    async def websocket(self, scope: ASGIScope, receive: Receive, send: Send) -> None:
+        client: Subscriber | None = None
+        reserved = False
+        try:
+            if self._websockets >= self.limits.websocket_clients:
+                raise ContractError(ErrorCode.RESOURCE_BUSY)
+            self._websockets += 1
+            reserved = True
+            if scope["path"] != "/api/v1/events":
+                raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+            self.query(scope)  # never allow tokens, credentials, arbitrary query scopes in URLs
+            headers = _headers(scope)
+            authority = self.operator(headers, mutation=False)
+            self.browser(headers, mutation=True)  # WS always requires explicit Origin
+            if await receive() != {"type": "websocket.connect"}:
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            # Handshake authorized before accept; scope is authorized before any event.
+            await send({"type": "websocket.accept"})
+            async with asyncio.timeout(2):
+                message = await receive()
+            if message["type"] != "websocket.receive" or message.get("bytes") is not None:
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            raw = message.get("text", "").encode("utf-8")
+            if len(raw) > 4096:
+                raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+            subscription = from_wire(TypeAdapter(EventSubscription), raw)
+            self.sessions.check_scope(authority, subscription.scope)
+            client = self.events.subscribe(subscription)
+            while True:
+                self.sessions.check_scope(authority, subscription.scope)
+                if client.closed:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                while client.buffer:
+                    self.sessions.check_scope(authority, subscription.scope)
+                    async with asyncio.timeout(0.25):
+                        await send(
+                            {"type": "websocket.send", "text": client.buffer.popleft().decode()}
+                        )
+                try:
+                    async with asyncio.timeout(0.1):
+                        message = await receive()
+                    if message["type"] == "websocket.disconnect":
+                        return
+                    # Subscriptions cannot submit commands, streams, replays or change scope.
+                    raise Rejection(403, ErrorCode.ACCESS_DENIED)
+                except TimeoutError:
+                    continue
+        except ContractError as error:
+            await send(
+                {
+                    "type": "websocket.close",
+                    "code": 1013 if error.error.code == ErrorCode.RESOURCE_BUSY else 1008,
+                }
+            )
+        except Rejection, TimeoutError, ValueError:
+            await send({"type": "websocket.close", "code": 1008})
+        finally:
+            if reserved:
+                self._websockets -= 1
+            if client is not None:
+                self.events.remove(client)
+
+
+class AccessMiddleware:
+    def __init__(self, app: ASGIApp, surface: Surface) -> None:
+        self.app, self.surface = app, surface
+
+    async def __call__(self, scope: ASGIScope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "websocket":
+            await self.surface.websocket(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope["path"]
+        if len(path) > 2048:
+            await _error(413, ErrorCode.INVALID_ARGUMENTS)(scope, receive, send)
+            return
+        if not path.startswith(("/api/", "/internal/")):
+            try:
+                self.surface.browser(
+                    _headers(scope), mutation=scope["method"] not in ("GET", "HEAD")
+                )
+                if scope.get("query_string"):
+                    raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            except Rejection as error:
+                await _error(error.status, error.code)(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+            return
+        direct_stop = bool(re.fullmatch(r"/api/v1/agents/[^/]+/stop", path))
+        if direct_stop and self.surface._stops >= self.surface.limits.sessions:
+            await _error(429, ErrorCode.RESOURCE_BUSY)(scope, receive, send)
+            return
+        if direct_stop:
+            self.surface._stops += 1
+        counted = not direct_stop
+        if counted and self.surface._requests >= self.surface.limits.requests:
+            await _error(429, ErrorCode.RESOURCE_BUSY)(scope, receive, send)
+            return
+        if counted:
+            self.surface._requests += 1
+        try:
+            async with asyncio.timeout(10):
+                response = await self.surface.http(scope, receive)
+        except Rejection as error:
+            response = _error(error.status, error.code)
+        except ContractError as error:
+            response = _error(STATUS.get(error.error.code, 400), error.error.code)
+        except TimeoutError:
+            response = _error(503, ErrorCode.SERVICE_UNAVAILABLE)
+        except Exception:
+            # Provider/SQL/Pydantic/raw input errors never enter network responses or logs.
+            response = _error(503, ErrorCode.SERVICE_UNAVAILABLE)
+        finally:
+            if counted:
+                self.surface._requests -= 1
+            if direct_stop:
+                self.surface._stops -= 1
+        await response(scope, receive, send)
+
+
+def install_access(
+    app: FastAPI,
+    supervisor: Supervisor,
+    settings: BootstrapSettings,
+    ports: AccessPorts | None = None,
+) -> Surface:
+    surface = Surface(supervisor, settings, ports or AccessPorts())
+    app.add_middleware(AccessMiddleware, surface=surface)
+    return surface

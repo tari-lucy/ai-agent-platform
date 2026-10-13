@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from importlib.metadata import version
@@ -22,11 +22,17 @@ from ai_agent_application.telemetry import HealthState, Telemetry
 from ai_agent_contracts.common import Scope
 from fastapi import FastAPI
 
+from .access import AccessPorts, install_access
+
 
 def create_app(
-    settings: BootstrapSettings | None = None, *, previous_state: str | None = None
+    settings: BootstrapSettings | None = None,
+    *,
+    previous_state: str | None = None,
+    access_ports: AccessPorts | None = None,
+    access_factory: Callable[[Supervisor], AccessPorts] | None = None,
 ) -> FastAPI:
-    """Construct a fresh stopped supervisor; M1-05 supplies authenticated handlers."""
+    """Construct a stopped supervisor with fail-closed authenticated access."""
     configuration = from_environment() if settings is None else settings
     validate_bindings(configuration)
     startup = fresh_startup(previous_state)
@@ -69,6 +75,7 @@ def create_app(
         try:
             yield
         finally:
+            access.sessions.shutdown()
             supervisor.shutdown()
             scheduler.poll()
             watchdog.cancel()
@@ -91,6 +98,11 @@ def create_app(
     app.state.scheduler = scheduler
     # Credentials are not attached to API state or returned via a route.
     app.state.bootstrap_manifest = startup.safe_manifest(configuration)
+    if access_factory is not None:
+        if access_ports is not None:
+            raise ConfigurationError("access", "single_composition_required")
+        access_ports = access_factory(supervisor)
+    access = install_access(app, supervisor, configuration, access_ports)
     return app
 
 
