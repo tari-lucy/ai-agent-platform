@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-agent-platform"
+version = "0.1.0"
+description = "Independent AI Agent Platform: bootstrap only"
+requires-python = ">=3.14,<3.15"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+dependencies = [
+  "fastapi>=0.135,<1",
+  "pydantic>=2.12,<3",
+  "pydantic-settings>=2.13,<3",
+  "uvicorn>=0.42,<1",
+  "sqlalchemy>=2.0,<3",
+  "aiosqlite>=0.22,<1",
+  "alembic>=1.18,<2",
+  "httpx>=0.28,<1",
+  "httpx-sse>=0.4,<1",
+  "redis>=6,<9",
+]
+
+[project.optional-dependencies]
+recall = ["sqlite-vec>=0.1,<1", "fastembed>=0.7,<1", "onnxruntime>=1.24.2,<2"]
+
+[project.scripts]
+ai-platform-core-check = "ai_agent_core.bootstrap:main"
+ai-platform-worker-check = "ai_agent_worker.bootstrap:main"
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.15,<1", "mypy>=1.19,<2", "build>=1.4,<2", "playwright>=1.58,<2"]
+
+[tool.uv]
+required-version = "==0.12.23"
+environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
+required-environments = [
+  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.setuptools.package-dir]
+ai_agent_core = "apps/core/src/ai_agent_core"
+ai_agent_worker = "apps/worker/src/ai_agent_worker"
+ai_agent_contracts = "packages/contracts/src/ai_agent_contracts"
+ai_agent_domain = "packages/domain/src/ai_agent_domain"
+ai_agent_application = "packages/application/src/ai_agent_application"
+ai_agent_adapters = "packages/adapters/src/ai_agent_adapters"
+
+[tool.setuptools.packages.find]
+where = ["apps/core/src", "apps/worker/src", "packages/contracts/src", "packages/domain/src", "packages/application/src", "packages/adapters/src"]
+namespaces = false
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+extend-exclude = ["runtime", "build", "dist"]
+src = ["apps/core/src", "apps/worker/src", "packages", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["apps/core/src", "apps/worker/src", "packages", "scripts"]
+exclude = ["runtime", "build"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/tooling"]
+addopts = "-ra"
