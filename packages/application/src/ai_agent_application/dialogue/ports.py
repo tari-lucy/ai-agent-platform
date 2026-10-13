@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from ai_agent_contracts.api import CommandBase
 from ai_agent_contracts.common import Id, Scope, SourceRef
@@ -76,7 +76,7 @@ class SocialPort(Protocol):
         person_id: str,
         topic_key: str,
         operation_id: Id,
-        outcome: str,
+        outcome: Literal["delivered", "not_delivered", "unknown"],
         utterance_id: Id | None = None,
     ) -> Any: ...
 

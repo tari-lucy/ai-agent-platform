@@ -14,7 +14,7 @@ from collections import Counter, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from ai_agent_contracts.api import MessageArguments, MessageCommand
 from ai_agent_contracts.common import Scope, SourceRef
@@ -427,10 +427,11 @@ class DialogueController:
         person_id = draft.person_id
         question = None
         if draft.question_topic is not None and person_id is not None:
-            result = {
-                DeliveryState.DELIVERED: "delivered",
-                DeliveryState.UNKNOWN: "unknown",
-            }.get(status, "not_delivered")
+            result: Literal["delivered", "not_delivered", "unknown"] = "not_delivered"
+            if status is DeliveryState.DELIVERED:
+                result = "delivered"
+            elif status is DeliveryState.UNKNOWN:
+                result = "unknown"
             await self.social.settle_question(
                 self._command(f"qset-{utterance_id}"),
                 person_id,

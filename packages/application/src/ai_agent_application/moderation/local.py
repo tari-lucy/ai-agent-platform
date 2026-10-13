@@ -18,6 +18,11 @@ _PHONE = re.compile(r"(?<!\d)(?:\+?\d[\s().-]?){10,15}(?!\d)")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]")
 
 
+def secret_like(text: str) -> bool:
+    """True if the text looks like it carries a credential (no private-data heuristics)."""
+    return any(pattern.search(text) for pattern in _SECRETS)
+
+
 def local_block(text: str) -> str | None:
     """Reason code if the text must not leave the machine, else None."""
     if _CONTROL.search(text):
