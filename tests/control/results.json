@@ -1,0 +1,99 @@
+{
+  "task": "M1-03",
+  "date": "2026-10-13",
+  "checked_base": "aa17459",
+  "windows": {
+    "tests": 213,
+    "control_cases": 42,
+    "python": "3.14.8",
+    "sqlite": "3.53.1",
+    "mypy_source_files": 36,
+    "stop_latency_ms": {
+      "samples": 40,
+      "p95": 1.2166,
+      "p99": 1.4087,
+      "resources": 200,
+      "admissions": 256
+    }
+  },
+  "linux": {
+    "tests": 215,
+    "python": "3.14.8",
+    "sqlite": "3.40.1",
+    "receipt": {
+      "contract_export_sha256": {
+        "openapi.json": "917fa24b8887f751e36e2e1c0cad64e93c0690d68a2db20dede5d56acdfe208f",
+        "contracts.schema.json": "ab1a17eadf3bef06c28dd3cb7aef363ae2e63bd10b072575b7816972b802f610",
+        "contracts.ts": "916fd3e32c7d459024a166fa7e502495be7717740e1dcb3e3dd50279367e9859"
+      },
+      "container": {
+        "exit": 0,
+        "oom": false,
+        "network": "none"
+      },
+      "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97",
+      "volume": "ai-platform-m1-03-41772a27b45d-sqlite",
+      "uv_lock_sha256": "ff945230247e32227145f1421dcfc8f0cc00d0686c5b476342dabf5693c166c7"
+    }
+  },
+  "installed_image": {
+    "container": "ai-platform-m1-03-image-2abfdbea4dc4",
+    "state": {
+      "exit": 0,
+      "oom": false,
+      "network": "none",
+      "user": "10001:10001"
+    },
+    "probe": {
+      "migration_sha256_lf": {
+        "env.py": "957a18d652edcdddfe87ca5665c7fde1eefddbff6c55f3c3fb83ba6772f02e80",
+        "versions/0001_scopes.py": "75b19fea1cf94bb2a9a75cdc17eb4afae3e86253e0133ba41a1fb12ee3404b6b",
+        "versions/0002_records.py": "b23b50862797fe374bf7244532feb97f11bce332a6ab768cc903cdd3e811a4e6"
+      },
+      "probe": "M1-03-offline-core-packaging",
+      "schema_head": "0002",
+      "source_sha256_lf": {
+        "ai_agent_adapters.control.journal": "9174900120a36b65a7d050e3d3ac1031b573423f30f44d3849ff8a76f6be70a7",
+        "ai_agent_application.control.ports": "e68542b42de0289c2333a221aa3c3f5ed4bc2dc849dbc9f498609ce580b92167",
+        "ai_agent_application.control.supervisor": "37dd7659af4d9ee05f4577168f16f47ffbb63bc0ee9189e8edd685021f298fa8",
+        "ai_agent_core.bootstrap": "6272a372142e0196272e888ee76ad30076c42d7c2c59c94c64483d6fce25c30b"
+      },
+      "sqlite": "3.40.1",
+      "status": "passed",
+      "versions": {
+        "SQLAlchemy": "2.1.4",
+        "ai-agent-platform": "0.1.0",
+        "aiosqlite": "0.22.1",
+        "alembic": "1.20.0",
+        "greenlet": "3.5.6"
+      }
+    },
+    "image": "sha256:ab85587ca5a54a519b562328e9fd87862845bade989c54ecbbdf595752e23687"
+  },
+  "lock_check": "uv lock --check --offline and locked no-dev export passed",
+  "unchanged_package_versions_and_artifacts": 64,
+  "cold_docker_build": "not passed: incomplete offline build metadata cache",
+  "readiness_llm_redis": "synthetic fixtures; real SQLite blocked writer verified",
+  "source_sha256_lf": {
+    ".dockerignore": "a4659e049e1176c93834189c28f0ff7430574118f3fd47d4368e40fea6659077",
+    "apps/core/src/ai_agent_core/bootstrap.py": "6272a372142e0196272e888ee76ad30076c42d7c2c59c94c64483d6fce25c30b",
+    "deploy/Dockerfile": "40491fb8a21ce3ef67159b0ddbeaa14abe014f2135c3c66d53ecdd1f16ba9931",
+    "packages/adapters/src/ai_agent_adapters/control/__init__.py": "91b9a90ef311358c75b9d0d8c021aabdedb8070ffdee3d04ff79ff274659fd5f",
+    "packages/adapters/src/ai_agent_adapters/control/journal.py": "9174900120a36b65a7d050e3d3ac1031b573423f30f44d3849ff8a76f6be70a7",
+    "packages/application/src/ai_agent_application/control/__init__.py": "0bbc4439e72bfaefb365d25a8a97a771dbb9a67aa59a53d9d556470be6f2a379",
+    "packages/application/src/ai_agent_application/control/ports.py": "e68542b42de0289c2333a221aa3c3f5ed4bc2dc849dbc9f498609ce580b92167",
+    "packages/application/src/ai_agent_application/control/supervisor.py": "37dd7659af4d9ee05f4577168f16f47ffbb63bc0ee9189e8edd685021f298fa8",
+    "pyproject.toml": "b385bb1cea3cedb8d3ac60b1df730614250af2b60e725680d9961e48e8c0a26d",
+    "tests/control/check-image.ps1": "1f97cad17299f9314c25e1230fc00db024b25766aae41e6315c060215262a046",
+    "tests/control/image_probe.py": "18749245b78d80eaf4c697c27feedcecc797fdca0786cb790f10d6a225fc7d01",
+    "tests/control/run-linux.ps1": "04bd56ec6ebb89e2a815bcc8bc8379a6aaa322689b921ca1746f617749ed9cb1",
+    "tests/control/test_supervisor.py": "4abc6ab0df84213d34501f45fca2a43933109a63973f62b50e6b3951c2f14db1",
+    "uv.lock": "9a8ba6dcf035085c033d8ad383a29595e7b4a2ba3dc372c8ee784996e9882ab7"
+  },
+  "versions": {
+    "SQLAlchemy": "2.1.4",
+    "alembic": "1.20.0",
+    "aiosqlite": "0.22.1",
+    "greenlet": "3.5.6"
+  }
+}
