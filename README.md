@@ -4,10 +4,12 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06 и M1-01–M1-04 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04, M2-01 и M2-02 интегрированы.**
 Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
 контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
-с direct STOP/pause/resume и durable jobs/Redis. HTTP управления, диалог и LLM ещё не реализованы.
+с direct STOP/pause/resume и durable jobs/Redis. Модули профилей персонажей и памяти/recall
+проверены на изолированной SQLite; их подключение к runtime остаётся отдельной работой.
+HTTP управления, диалог и LLM ещё не реализованы.
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
 [M0-03](docs/implementation-reports/M0-03.md),
@@ -17,7 +19,9 @@ Live2D, эфиры и медиапроизводство — применени�
 [M1-01](docs/implementation-reports/M1-01.md),
 [M1-02](docs/implementation-reports/M1-02.md),
 [M1-03](docs/implementation-reports/M1-03.md),
-[M1-04](docs/implementation-reports/M1-04.md).
+[M1-04](docs/implementation-reports/M1-04.md),
+[M2-01](docs/implementation-reports/M2-01.md),
+[M2-02](docs/implementation-reports/M2-02.md).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:
@@ -99,7 +103,7 @@ Live2D, эфиры и медиапроизводство — применени�
 M1-04 проверяет durable Job/outbox, fencing/retry/reconciliation и настоящий Redis;
 SQLite head 0003. Supervisor refresh сохраняет исходный cancellation_id,
 длинный heartbeat проверен. Повторный Claim.acquired=False не запускает работу.
-Combined main Windows 247 tests (4 Redis skipped), equivalent-source Linux 253
+Перед объединением с M2: Windows 247 tests (4 Redis skipped), equivalent-source Linux 253
 tests с настоящим Redis, AOF restart, types/lint/export/hash checks прошли.
 Bootstrap остаётся STOPPED; authenticated handlers и scheduler — M1-05/06.
 Cold Docker build остаётся отдельной пробой при подготовленном публичном cache.

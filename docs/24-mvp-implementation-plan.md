@@ -27,6 +27,8 @@
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
+| M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
+| M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -123,6 +125,30 @@ WorkerAuthority/Policy ports, claim acquired flag, verify/renew/cancel receipt �
 metadata-only settle_unknown. Реальная auth/composition — M1-05, runtime loops/
 ресурсный scheduler — M1-06. Вторая расходящаяся migration history не допускается;
 следующий номер после 0003 назначает координатор. Блок M2 остаётся за вторым агентом.
+
+M2-01 владеет packages/application/src/ai_agent_application/persona,
+packages/adapters/src/ai_agent_adapters/persona, tests/persona и своим report.
+База 542da6e; задача выдана оператором напрямую, исполнитель сдал её в ветке
+codex/m2-01-persona-profile, координатор принял fast-forward. Принято решение
+координатора: формат Markdown `ai-agent-persona-profile/1` (README модуля)
+утверждён как формат профиля MVP; снимок профиля = неизменяемая версия Profile,
+`accepted_revision_id = rev-<sha256>`; persona.edit (серверные черновики) не входит —
+для него потребуется новый тип записи и следующая миграция отдельным назначением;
+номер 0003 уже принят для jobs (M1-04), не использовать его повторно.
+Открытые запросы из отчёта, адресованные владельцу core bootstrap: регистрация
+`register_persona_extensions` в общем ExtensionRegistry, grants persona-владельцу
+и reader_access оператору/Readiness. Потребители (Readiness M1-03, M2-06) проверяют
+версию профиля при допуске; хот-релоада профиля нет. M2-06 теперь ждёт M2-02/03/04.
+
+M2-02 владеет packages/application/src/ai_agent_application/memory,
+packages/adapters/src/ai_agent_adapters/recall, tests/memory и своим report; зона
+подтверждена координатором. Решения: производный индекс FTS5/sqlite-vec живёт в
+отдельном SQLite-файле вне Alembic; recall перепроверяет каждый фрагмент через
+repository для цели доступа; дедуп по исходному опыту только через эпизоды, не по тексту.
+Открытые запросы из отчёта: (1) storage API для чтения/очистки просроченных (TTL) Source
+владельцем — M1-02-владелец или M5-01; (2) отдельная задача на FastEmbed-адаптер и упаковку
+extra `recall` в core/worker image; (3) переключение синхронизации индекса на outbox после
+M1-04; (4) grants memory-owner и reader_access в core bootstrap.
 
 ## M0. Воспроизводимая основа и технические пробы
 

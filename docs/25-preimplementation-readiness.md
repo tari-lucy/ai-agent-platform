@@ -1,6 +1,6 @@
 # Готовность к реализации: итог планирования
 
-Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06 и M1-01–M1-04 интегрированы.**
+Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-04, M2-01 и M2-02 интегрированы.**
 Среда, каркас, Compose, RU recall, безопасный bootstrap, contracts, SQLite и
 внутренний supervisor/direct STOP и durable jobs/Redis проверены; HTTP управления/диалог/LLM ещё не реализованы. Текущие
 назначения/интеграция — [doc24](24-mvp-implementation-plan.md).
@@ -100,7 +100,8 @@
 
 Планирование завершено; по поручению оператора M0-01–M0-06 и M1-01–M1-04
 интегрированы. Созданы каркас, contract schemas, Compose, SQLite/migrations,
-supervisor и durable job/outbox/lease/reconciliation. Это базовые компоненты,
+supervisor, durable job/outbox/lease/reconciliation и отдельные модули persona/memory.
+Runtime-подключение persona/memory ещё не выполнено. Это базовые компоненты,
 а не завершённый текстовый MVP: access handlers, scheduler, dialogue/LLM и
 остальные owners ещё требуют своих задач и meaningful acceptance.
 
