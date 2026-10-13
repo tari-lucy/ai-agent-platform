@@ -21,7 +21,8 @@
 | M0-02 | integrated | Codex / task/m0-02-project-scaffold | 4280cb1; Windows/Linux clean lock install, lint/types/7 tests/build прошли; combined revision совпадает |
 | M0-03 | integrated | Codex / task/m0-03-storage-recall-probe | 1d797bf; load/crash/restart/delete/rebuild/RU/RAM/digests прошли; combined 9 tests passed |
 | M0-04 | integrated | Codex / task/m0-04-compose-foundation | be20427; health/persistence/recreate/loopback/auth/resources прошли; combined config/lint/types passed |
-| M0-05 | in_progress | Codex / task/m0-05-recall-baseline | Проверенный main be20427 после M0-04 и этой записи назначения |
+| M0-05 | integrated | Codex / task/m0-05-recall-baseline | cffe60f; 60 RU/1k/10k gates прошли, combined Linux 21 tests/lint passed |
+| M0-06 | in_progress | Codex / task/m0-06-safe-startup | Проверенный main cffe60f после M0-05 и этой записи назначения |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -29,7 +30,7 @@ packages (только каркас, без contract schemas), scripts, tests/to
 LICENSE/THIRD_PARTY_NOTICES.md и своим implementation report.
 Отдельный worktree; manifest/lock owner один — исполнитель M0-02.
 Исключены: Compose/deploy, migrations, schema/API/business contracts,
-реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04/M0-05
+реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04/M0-05/M0-06
 не назначены. M0-02 проверяет установку/минимальную сборку, без моделей,
 платных API и запуска полного runtime. Общие статусы обновляет координатор.
 
@@ -55,6 +56,12 @@ M0-05 владеет tests/fixtures/recall, tests/probes/m0_05 и своим rep
 повторное использование public pinned model cache M0-03; отдельный Linux
 volume, CPU 2/1536 MiB/batch 4. Исключены application schemas, manifests,
 locks, Compose, contracts, migrations и реальная LLM/публикация.
+
+M0-06 владеет config, root .env.example, apps/core и apps/worker bootstrap/settings,
+tests/probes/m0_06 и своим report. Отдельный worktree task/m0-06-safe-startup.
+Исключены manifests/locks, contracts, migrations, Compose/deploy и UI client.
+Разрешены offline validation/bootstrap checks на synthetic profiles;
+LLM/игра/публичный выход не разрешены. Supervisor/STOP implementation — M1.
 
 ## M0. Воспроизводимая основа и технические пробы
 
