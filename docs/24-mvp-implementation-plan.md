@@ -36,6 +36,7 @@
 | M2-05 | integrated | Claude Code / codex/m2-05-usage-ledger | e21ff97..18a627b, fast-forward в main от 8256a8a; 39 usage tests (реальная SQLite), combined 513 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **сверка с биллингом агрегатора и runtime-интеграция не проверены** |
 | M2-06 | integrated | Claude Code / codex/m2-06-dialogue-controller | fast-forward в main после M1-05 (841b52c); 57 dialogue tests (реальная SQLite memory/recall/social, шлюз M2-04 mock), combined 573 passed + известные env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный провайдер и runtime-интеграция не проверены** |
 | M2-07 | integrated | Claude Code / codex/m2-07-moderation-gate | fast-forward в main; 41 moderation tests (реальная SQLite, mock-модератор), combined 614 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-модератор, качество классификации и runtime не проверены** |
+| M3-01 | integrated | Claude Code / codex/m3-01-extraction | fast-forward в main от a50b2e3; 21 extraction tests (реальная SQLite, mock-экстрактор), combined 635 passed + 4 известных env-failure, lint/types/imports passed; **качество реальной модели-экстрактора и runtime не проверены** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -182,7 +183,7 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-Блок M2 (M2-01..M2-07) интегрирован.
+Блок M2 (M2-01..M2-07) и M3-01 интегрированы.
 
 M2-04 владеет packages/application/src/ai_agent_application/llm,
 packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
