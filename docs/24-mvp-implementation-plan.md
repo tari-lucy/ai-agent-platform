@@ -18,7 +18,8 @@
 | ID | Статус | Исполнитель / ветка | База / результат |
 | --- | --- | --- | --- |
 | M0-01 | integrated | Codex / task/m0-01-environment-audit | 4872a17; отчёт принят оператором, fast-forward в main, combined diff/check пройдены |
-| M0-02 | in_progress | Codex / task/m0-02-project-scaffold | Проверенный main после интеграции M0-01 и этой записи назначения |
+| M0-02 | integrated | Codex / task/m0-02-project-scaffold | 4280cb1; Windows/Linux clean lock install, lint/types/7 tests/build прошли; combined revision совпадает |
+| M0-03 | in_progress | Codex / task/m0-03-storage-recall-probe | Проверенный main после M0-02 и этой записи назначения |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -26,9 +27,16 @@ packages (только каркас, без contract schemas), scripts, tests/to
 LICENSE/THIRD_PARTY_NOTICES.md и своим implementation report.
 Отдельный worktree; manifest/lock owner один — исполнитель M0-02.
 Исключены: Compose/deploy, migrations, schema/API/business contracts,
-реализация памяти/LLM/STOP/UI экранов. Пробы M0-03 и последующие задачи
+реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03
 не назначены. M0-02 проверяет установку/минимальную сборку, без моделей,
 платных API и запуска полного runtime. Общие статусы обновляет координатор.
+
+M0-03 владеет tests/probes/m0_03 и своим implementation report; отдельный
+worktree task/m0-03-storage-recall-probe. Исключены manifests/locks, contracts,
+migrations, Compose/deploy и application packages. Разрешены локальная
+публичная MiniLM ONNX загрузка в изолированный cache и одна synthetic Docker
+проба с 2 CPU threads/batch 4/лимитом 1,5 ГиБ; без LLM/игры/публикации.
+M0-05 corpus/quality benchmark не входит в M0-03.
 
 ## M0. Воспроизводимая основа и технические пробы
 
