@@ -26,7 +26,7 @@
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
-| M1-04 | assigned | Codex / task/m1-04-jobs | 542da6e; отдельный checkout, job/outbox/lease/retry/reconciliation |
+| M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -110,14 +110,19 @@ M1-04 владеет packages/application/src/ai_agent_application/jobs,
 packages/adapters/src/ai_agent_adapters/jobs и broker, tests/jobs и своим report.
 Назначены узкие shared changes: supervisor.refresh для продления исходного
 admission без восстановления отозванного допуска; единственная миграция 0003
-для scheduling/attempt metadata и storage/migrations.py HEAD. Интерфейс refresh
+для scheduling/attempt/reconciliation metadata и storage/migrations.py HEAD.
+Интерфейс refresh принят отдельным коммитом до реализации потребителя.
 Также назначен tests/storage/test_storage.py только для ожидаемого single head
-0003; остальные storage acceptance не менять.
-принимается отдельным коммитом до реализации потребителя. Contracts, manifests,
+0003; остальные storage acceptance не менялись. Contracts, manifests,
 locks, Compose, HTTP/access/UI и весь блок M2 исключены: M2 ведёт второй агент.
 Зависимости M1-02/M0-04/M1-03 интегрированы. Только synthetic SQLite/Redis
 проверки, отдельные данные/volumes, один тяжёлый runtime; без live LLM/API.
-Migration owner на время M1-04 — этот исполнитель; M2 не выдаются shared files.
+M1-04 интегрирована fast-forward, combined main проверки прошли; source hashes
+совпадают с финальной Linux квитанцией. Приняты JobOwner/OutboxDispatcher,
+WorkerAuthority/Policy ports, claim acquired flag, verify/renew/cancel receipt и
+metadata-only settle_unknown. Реальная auth/composition — M1-05, runtime loops/
+ресурсный scheduler — M1-06. Вторая расходящаяся migration history не допускается;
+следующий номер после 0003 назначает координатор. Блок M2 остаётся за вторым агентом.
 
 ## M0. Воспроизводимая основа и технические пробы
 
