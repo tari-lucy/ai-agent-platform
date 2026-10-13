@@ -540,6 +540,34 @@ class Supervisor:
         self.validate(admission)
         return admission
 
+
+    async def refresh(self, admission: Admission, *, seconds: float | None = None) -> Admission:
+        """Renew the SAME cancellation identity after current readiness checks.
+
+        Never revives an expired, paused or stopped admission. The old snapshot
+        becomes invalid; resources share its cancellation Event. Worker fencing
+        and per-action rights remain the job owner's responsibility.
+        """
+        self.validate(admission)
+        duration = self.limits.lease_seconds if seconds is None else seconds
+        if not math.isfinite(duration) or not 0 < duration <= self.limits.lease_seconds:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        approval = await self.readiness.check(self.snapshot)
+        self.validate(admission)
+        self._approval_valid(approval, self._run)
+        if (approval.profile_version, approval.policy_version) != (
+            admission.freshness.profile_version, admission.freshness.policy_version
+        ):
+            self.critical_failure(ErrorCode.STALE_CONTEXT)
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        self._approval = approval
+        renewed = Admission(
+            admission.id, admission.scope, admission.freshness, admission.kind,
+            min(self.clock.elapsed() + duration, approval.expires_at), admission.cancelled,
+        )
+        self._admissions[admission.id] = renewed
+        return renewed
+
     def finish[T](self, admission: Admission, apply: Callable[[], T]) -> T:
         """Validate at the final local owner handoff, with NO await between check and apply.
 

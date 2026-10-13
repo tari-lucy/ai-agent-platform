@@ -925,3 +925,53 @@ def test_wire_cancellation_id_cannot_be_reissued_after_pause_or_stop():
         )
 
     asyncio.run(scenario())
+
+def test_refresh_preserves_cancellation_and_extends_only_live_admission():
+    async def scenario():
+        owner, authority, clock, _, _ = await active()
+        token = owner.admit("activity")
+        ticket = owner.register(token, "synthetic-long-job")
+        for _ in range(15):
+            clock.advance(4)
+            owner.poll()
+        # Polling alone did not extend the original 20 second admission.
+        with pytest.raises(ContractError):
+            await owner.refresh(token)
+        owner.acknowledge(ticket)
+
+    asyncio.run(scenario())
+
+
+def test_heartbeat_extends_original_id_beyond_readiness_expiry():
+    async def scenario():
+        owner, authority, clock, _, _ = await active()
+        token = owner.admit("activity")
+        original_id, event = token.id, token.cancelled
+        for _ in range(24):
+            clock.advance(4)
+            token = await owner.refresh(token)
+            assert token.id == original_id and token.cancelled is event
+            owner.validate(token)
+        owner.stop(authority, stop_command(owner))
+        assert event.is_set()
+        with pytest.raises(ContractError):
+            await owner.refresh(token)
+
+    asyncio.run(scenario())
+
+
+def test_stop_while_refresh_waits_cannot_reopen_admission():
+    async def scenario():
+        owner, authority, clock, _, readiness = await active()
+        token = owner.admit("activity")
+        readiness.block = asyncio.Event()
+        readiness.entered.clear()
+        pending = asyncio.create_task(owner.refresh(token))
+        await readiness.entered.wait()
+        owner.stop(authority, stop_command(owner))
+        readiness.block.set()
+        with pytest.raises(ContractError):
+            await pending
+        assert token.cancelled.is_set() and owner.snapshot.state == RunState.STOPPED
+
+    asyncio.run(scenario())
