@@ -25,7 +25,7 @@
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
-| M1-03 | assigned | Codex / task/m1-03-supervisor | d9af647; supervisor/direct STOP, pause/resume, synthetic failure checks; отдельный checkout |
+| M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -99,6 +99,11 @@ STOP не ждёт DB/Redis/LLM; restart и сон не возобновляют
 владельцем pyproject.toml/uv.lock только для SQLAlchemy asyncio extra. Runtime
 без dev dependencies не содержал greenlet, хотя SQLite async adapter требует его.
 Версии остальных пакетов не обновлять; lock и no-dev image проверить отдельно.
+M1-03 интегрирована fast-forward, combined main проверки прошли. Migrations
+packaging request M1-02 закрыт; schema head не менялся. Admission resolve/finish
+и direct STOP — принятые внутренние ports, не HTTP authorization. До длинных
+jobs назначить supervisor-owner heartbeat/refresh; full cold core/worker build
+по новому lock остаётся отдельной пробой при подготовленном cache.
 
 ## M0. Воспроизводимая основа и технические пробы
 

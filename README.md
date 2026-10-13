@@ -4,9 +4,10 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06 и M1-01–M1-02 интегрированы.**
-Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap, контрактные схемы/OpenAPI/TS и SQLite repositories/миграции. Функциональное
-приложение ещё не реализовано; остальные пробы и критерии остаются планом.
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06 и M1-01–M1-03 интегрированы.**
+Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
+контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
+с direct STOP/pause/resume. HTTP управления, диалог и LLM ещё не реализованы.
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
 [M0-03](docs/implementation-reports/M0-03.md),
@@ -14,7 +15,8 @@ Live2D, эфиры и медиапроизводство — применени�
 [M0-05](docs/implementation-reports/M0-05.md),
 [M0-06](docs/implementation-reports/M0-06.md),
 [M1-01](docs/implementation-reports/M1-01.md),
-[M1-02](docs/implementation-reports/M1-02.md).
+[M1-02](docs/implementation-reports/M1-02.md),
+[M1-03](docs/implementation-reports/M1-03.md).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:
@@ -92,11 +94,14 @@ Live2D, эфиры и медиапроизводство — применени�
 
 ## Следующий этап
 
-Следующая задача — M1-03: supervisor, direct STOP и отдельные pause/resume.
-Зависимости M1-01/M1-02 интегрированы; SQLite head 0002, owner repositories,
-receipt/outbox atomicity и права проверены. HTTP authorization/handlers и
-job dispatcher реализуются следующими владельцами. Перед runtime wiring
-нужно включить миграции в core image по запросу из отчёта M1-02.
+Следующая задача — M1-04: job/outbox dispatcher, lease/retry/reconciliation.
+Supervisor закрывает допуск без DB/Redis/LLM; restart/sleep не возобновляют работу.
+Зависимости приняты, SQLite head 0002. Миграции включены только в core stage;
+SQLAlchemy asyncio extra исправляет отсутствие greenlet в no-dev runtime.
+Проверены Windows 213 / Linux 215 tests и installed offline image. Полная cold
+Docker build по новому lock остаётся пробой при подготовленном публичном cache.
+Перед длинными jobs требуется согласованный owner heartbeat/refresh port;
+старый cancellation_id нельзя заменить новым admission. HTTP access — M1-05.
 Работа ведётся по назначению doc24 в отдельном checkout.
 
 Несколько разработчиков работают в отдельных ветках/checkout, с одним
