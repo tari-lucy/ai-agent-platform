@@ -324,3 +324,8 @@ ControlAuthority/проверке Supervisor для отзыва ожидающ�
 WebSocket frame/queue/backlog/keepalive; worker/Redis listener и ресурсы не меняются.
 Проверка optional ControlAuthority callback перенесена в tests/access,
 чтобы исторический standalone M1-03 runner не зависел от новых test helpers.
+
+Обнаруженный M1-05 integration blocker: uvicorn без optional WebSocket backend
+не может обслужить canonical events endpoint. Координатор выдаёт минимальные
+pyproject.toml/uv.lock/THIRD_PARTY_NOTICES изменения только для websockets,
+без обновления остальных зависимостей; проверить реальный HTTP Upgrade и framing.
