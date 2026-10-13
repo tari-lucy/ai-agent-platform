@@ -1,0 +1,128 @@
+"""Versioned public type catalogue, shared by JSON Schema, OpenAPI and TS exports."""
+
+from typing import Annotated, Any, cast
+
+from pydantic import Field, TypeAdapter
+
+from ai_agent_contracts import api, common, control, llm, memory, persona, workspace
+
+# Explicit list: accidentally importing a new class does not silently change wire exports.
+MODELS = (
+    workspace.Workspace,
+    workspace.Capability,
+    workspace.Artifact,
+    workspace.OutboxEntry,
+    workspace.ProcessedOperation,
+    workspace.DeletionTombstone,
+    workspace.LaboratoryReport,
+    common.Scope,
+    common.SourceRef,
+    common.ArtifactRef,
+    common.ExtensionPayload,
+    common.Record,
+    common.VersionedRecord,
+    persona.Profile,
+    persona.CharacterState,
+    persona.Briefing,
+    persona.StoryArc,
+    persona.Opportunity,
+    persona.StateChange,
+    memory.Retention,
+    memory.Source,
+    memory.Episode,
+    memory.Claim,
+    memory.Summary,
+    memory.AccountLink,
+    memory.Person,
+    memory.Encounter,
+    memory.Relationship,
+    memory.Topic,
+    memory.Promise,
+    memory.RecallRequest,
+    memory.RecallFragment,
+    memory.RecallResult,
+    control.Freshness,
+    control.RunSession,
+    control.MessageEnvelope,
+    control.ActionProposal,
+    control.ExecutionCommand,
+    control.Lease,
+    control.Job,
+    control.ExecutionResult,
+    control.Utterance,
+    control.ModerationCheck,
+    control.Delivery,
+    control.OperationProjection,
+    llm.Connection,
+    llm.LLMAssignment,
+    llm.TokenUsage,
+    llm.LLMAttempt,
+    llm.Tariff,
+    llm.CostCalculation,
+    api.StopReceipt,
+    api.EventSubscription,
+    api.ApiError,
+    api.StopCommand,
+    api.ControlArguments,
+    api.ControlCommand,
+    api.MessageArguments,
+    api.MessageCommand,
+    api.CreateCommand,
+    api.EditCommand,
+    api.PlanCommand,
+    api.ExecutePlanArguments,
+    api.ExecutePlanCommand,
+    api.Receipt,
+    api.PlanDependency,
+    api.ConsequencePlan,
+    api.PanelEvent,
+    api.StreamChunk,
+    api.StreamTerminal,
+    api.ServiceClaimCommand,
+    api.ServiceLeaseCommand,
+    api.ServiceResultCommand,
+    api.Permission,
+)
+
+ADAPTERS: dict[str, TypeAdapter[Any]] = {model.__name__: TypeAdapter(model) for model in MODELS}
+ADAPTERS["PanelCommand"] = TypeAdapter(cast(Any, api.PanelCommand))
+ADAPTERS["ServiceCommand"] = TypeAdapter(cast(Any, api.ServiceCommand))
+type StreamEvent = Annotated[
+    api.PanelEvent | api.StreamChunk | api.StreamTerminal, Field(discriminator="type")
+]
+ADAPTERS["StreamEvent"] = TypeAdapter(cast(Any, StreamEvent))
+
+READ_MODELS = {
+    "workspaces": workspace.Workspace,
+    "capabilities": workspace.Capability,
+    "artifacts": workspace.Artifact,
+    "laboratory-reports": workspace.LaboratoryReport,
+    "personas": persona.Profile,
+    "character-states": persona.CharacterState,
+    "sessions": control.RunSession,
+    "briefings": persona.Briefing,
+    "sources": memory.Source,
+    "episodes": memory.Episode,
+    "claims": memory.Claim,
+    "summaries": memory.Summary,
+    "people": memory.Person,
+    "encounters": memory.Encounter,
+    "relationships": memory.Relationship,
+    "topics": memory.Topic,
+    "promises": memory.Promise,
+    "utterances": control.Utterance,
+    "deliveries": control.Delivery,
+    "arcs": persona.StoryArc,
+    "opportunities": persona.Opportunity,
+    "changes": persona.StateChange,
+    "operations": control.OperationProjection,
+    "connections": llm.Connection,
+    "permissions": api.Permission,
+    "llm-assignments": llm.LLMAssignment,
+    "llm-attempts": llm.LLMAttempt,
+    "tariffs": llm.Tariff,
+    "cost-calculations": llm.CostCalculation,
+    "plans": api.ConsequencePlan,
+}
+for model in READ_MODELS.values():
+    ADAPTERS[model.__name__ + "Page"] = TypeAdapter(api.Page[model])  # type: ignore[valid-type]
