@@ -1,13 +1,18 @@
 """M0 container composition: static panel plus empty core, no agent runtime."""
 
-import os
+import sys
 
 import uvicorn
+from ai_agent_adapters.configuration import ConfigurationError
 from starlette.staticfiles import StaticFiles
 
 from ai_agent_core.bootstrap import create_app
 
-app = create_app()
+try:
+    app = create_app()
+except ConfigurationError as error:
+    print(str(error), file=sys.stderr)
+    raise SystemExit(78) from None
 app.mount("/", StaticFiles(directory="/opt/platform/panel", html=True), name="panel")
 
 if __name__ == "__main__":
@@ -15,7 +20,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=int(os.environ.get("CORE_CONTAINER_PORT", "8080")),
+        port=int(app.state.bootstrap_manifest["core_container_port"]),
         workers=1,
         access_log=False,
         log_level="warning",

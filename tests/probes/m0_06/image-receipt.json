@@ -1,0 +1,6 @@
+{
+  "published_ports": "none",
+  "worker": "sha256:fecc62e9ce706741c66c5c919611e4e4f836dcf1ad6a790c902210b0efe71dae",
+  "real_entrypoints": "invalid exit 78; valid core HTTP200/worker heartbeat",
+  "core": "sha256:417e6ed0177900efddbe4fc7d35446e1faeb9174d8031e626794e308f487e83a"
+}

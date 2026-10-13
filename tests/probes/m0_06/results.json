@@ -1,0 +1,10 @@
+{
+  "tests_container": {
+    "exit": 0,
+    "oom": false,
+    "network": "none"
+  },
+  "uv_lock_sha256": "1d2c3ffd7b1661f2a3ff9c6222fa89640ecdbbdd6c96b21dae44e1b38eba702d",
+  "bootstrap_processes": 2,
+  "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97"
+}

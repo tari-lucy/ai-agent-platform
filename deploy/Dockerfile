@@ -16,9 +16,9 @@ COPY apps/core/src ./apps/core/src
 COPY apps/worker/src ./apps/worker/src
 COPY packages ./packages
 FROM builder AS core-deps
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable --reinstall-package ai-agent-platform
 FROM builder AS worker-deps
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --all-extras --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --all-extras --no-editable --reinstall-package ai-agent-platform
 
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS runtime
 RUN groupadd --gid 10001 platform && useradd --uid 10001 --gid 10001 --no-create-home platform \
