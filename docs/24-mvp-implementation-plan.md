@@ -39,6 +39,7 @@
 | M3-01 | integrated | Claude Code / codex/m3-01-extraction | fast-forward в main от a50b2e3; 21 extraction tests (реальная SQLite, mock-экстрактор), combined 635 passed + 4 известных env-failure, lint/types/imports passed; **качество реальной модели-экстрактора и runtime не проверены** |
 | M3-02 | integrated | Claude Code / codex/m3-02-gamemaster | fast-forward в main от a32cdd4; 22 gamemaster tests (реальная SQLite, mock-модель), combined 657 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-гейммастер, качество и runtime не проверены** |
 | M3-03 | integrated | Claude Code / codex/m3-03-development | fast-forward в main от 16581c0; 34 development tests (реальная SQLite persona+memory, mock-рефлексия), combined 691 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-рефлексия и проявление изменений не проверены** |
+| M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; пробел: нет лимита скорости изменения отношений** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -185,7 +186,7 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-Блок M2 (M2-01..M2-07) и M3-01..M3-03 интегрированы.
+Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы.
 
 M2-04 владеет packages/application/src/ai_agent_application/llm,
 packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
