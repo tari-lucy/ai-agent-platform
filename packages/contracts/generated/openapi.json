@@ -3221,6 +3221,61 @@
         "title": "OperationState",
         "type": "string"
       },
+      "OperatorLogin": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "format": "password",
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "OperatorLogin",
+        "type": "object"
+      },
+      "OperatorSession": {
+        "additionalProperties": false,
+        "properties": {
+          "csrf_token": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Csrf Token",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "principal_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "principal_id",
+          "scopes",
+          "expires_at",
+          "csrf_token"
+        ],
+        "title": "OperatorSession",
+        "type": "object"
+      },
       "Opportunity": {
         "additionalProperties": false,
         "properties": {
@@ -6579,6 +6634,54 @@
         "title": "ServiceClaimCommand",
         "type": "object"
       },
+      "ServiceClaimReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "acquired": {
+            "title": "Acquired",
+            "type": "boolean"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionCommand"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Lease"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "request_id",
+          "scope",
+          "command",
+          "lease",
+          "acquired"
+        ],
+        "title": "ServiceClaimReceipt",
+        "type": "object"
+      },
       "ServiceCommand": {
         "discriminator": {
           "mapping": {
@@ -6671,6 +6774,31 @@
           "lease"
         ],
         "title": "ServiceLeaseCommand",
+        "type": "object"
+      },
+      "ServiceLeaseReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "lease": {
+            "$ref": "#/components/schemas/Lease"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "request_id",
+          "scope",
+          "lease"
+        ],
+        "title": "ServiceLeaseReceipt",
         "type": "object"
       },
       "ServiceResultCommand": {
@@ -8713,6 +8841,147 @@
             "OperatorSession": []
           }
         ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "operator_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSession"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [],
+        "x-origin-check": true
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "operator_logout",
+        "responses": {
+          "204": {
+            "description": "Session revoked"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "CSRF": [],
+            "OperatorSession": []
+          }
+        ],
+        "x-origin-check": true
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "operationId": "operator_session",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSession"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ],
+        "x-origin-check": true
       }
     },
     "/api/v1/briefings": {
@@ -13300,7 +13569,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "$ref": "#/components/schemas/ServiceClaimReceipt"
                 }
               }
             },
@@ -13310,7 +13579,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "$ref": "#/components/schemas/ServiceClaimReceipt"
                 }
               }
             },
@@ -13384,17 +13653,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ServiceLeaseReceipt"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Receipt"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Known or completed operation"
+            "description": "Renewed exact lease or factual cancellation receipt"
           },
           "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "$ref": "#/components/schemas/ServiceLeaseReceipt"
                 }
               }
             },

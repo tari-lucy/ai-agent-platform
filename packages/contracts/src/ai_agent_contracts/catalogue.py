@@ -4,10 +4,14 @@ from typing import Annotated, Any, cast
 
 from pydantic import Field, TypeAdapter
 
-from ai_agent_contracts import api, common, control, llm, memory, persona, workspace
+from ai_agent_contracts import access, api, common, control, llm, memory, persona, workspace
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
+    access.OperatorLogin,
+    access.OperatorSession,
+    access.ServiceClaimReceipt,
+    access.ServiceLeaseReceipt,
     workspace.Workspace,
     workspace.Capability,
     workspace.Artifact,

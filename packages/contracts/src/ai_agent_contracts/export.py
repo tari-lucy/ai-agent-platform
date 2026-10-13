@@ -132,7 +132,11 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         }
 
     def command(path: str, name: str, identity: str, security: list[Schema]) -> None:
-        receipt_type = "StopReceipt" if name == "StopCommand" else "Receipt"
+        receipt_type = {
+            "StopCommand": "StopReceipt",
+            "ServiceClaimCommand": "ServiceClaimReceipt",
+            "ServiceLeaseCommand": "ServiceLeaseReceipt",
+        }.get(name, "Receipt")
         params = []
         for key in ("agent_id", "operation_id"):
             if "{" + key + "}" in path:
@@ -171,6 +175,33 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
     command(
         "/internal/v1/jobs/{operation_id}/result", "ServiceResultCommand", "submit_result", service
     )
+    for action, method, security, body in (
+        ("login", "post", [], "OperatorLogin"),
+        ("session", "get", operator, None),
+        ("logout", "post", writing, None),
+    ):
+        operation: Schema = {
+            "operationId": "operator_" + action,
+            "security": security,
+            "responses": (
+                {"204": {"description": "Session revoked"}, **errors}
+                if action == "logout"
+                else {"200": response("OperatorSession"), **errors}
+            ),
+            "x-origin-check": True,
+        }
+        if body:
+            operation["requestBody"] = {
+                "required": True,
+                "content": {"application/json": {"schema": ref(body)}},
+            }
+        paths["/api/v1/auth/" + action] = {method: operation}
+    paths["/internal/v1/jobs/{operation_id}/lease"]["post"]["responses"]["200"] = {
+        "description": "Renewed exact lease or factual cancellation receipt",
+        "content": {
+            "application/json": {"schema": {"oneOf": [ref("ServiceLeaseReceipt"), ref("Receipt")]}}
+        },
+    }
     paths["/api/v1/recall"] = {
         "post": {
             "operationId": "recall",
