@@ -1,0 +1,49 @@
+{
+  "task": "M1-02",
+  "date": "2026-10-13",
+  "base_commit": "dc9585c",
+  "storage_tests": 40,
+  "native": {
+    "python": "3.14.8",
+    "sqlite": "3.53.1",
+    "combined_passed": 171
+  },
+  "linux": {
+    "python": "3.14.8",
+    "sqlite": "3.40.1",
+    "combined_passed": 173,
+    "container_exit": 0,
+    "oom": false,
+    "network": "none",
+    "user": "10001:10001",
+    "cpus": 2,
+    "memory_mib": 1536
+  },
+  "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97",
+  "uv_lock_sha256": "1d2c3ffd7b1661f2a3ff9c6222fa89640ecdbbdd6c96b21dae44e1b38eba702d",
+  "contract_export_sha256": {
+    "contracts.schema.json": "ab1a17eadf3bef06c28dd3cb7aef363ae2e63bd10b072575b7816972b802f610",
+    "openapi.json": "917fa24b8887f751e36e2e1c0cad64e93c0690d68a2db20dede5d56acdfe208f",
+    "contracts.ts": "916fd3e32c7d459024a166fa7e502495be7717740e1dcb3e3dd50279367e9859"
+  },
+  "migration_chain": [
+    "0001",
+    "0002"
+  ],
+  "mypy_source_files": 31,
+  "source_sha256_lf": {
+    "packages/application/src/ai_agent_application/storage.py": "1bf172338b5377667d119b712ab017552ab1e6fc72b5f69179fe9a7c039bc145",
+    "packages/adapters/src/ai_agent_adapters/storage/__init__.py": "7a8a7d14d2345eb6be69e31dbea2d5d04dc77306f6f5ec384c870e6a9b1e6549",
+    "packages/adapters/src/ai_agent_adapters/storage/catalogue.py": "784b0e4372d5378cc7c428dede2d3f59813c466bb2713127d5d4548a46aa98ec",
+    "packages/adapters/src/ai_agent_adapters/storage/database.py": "28a5059be7e4808d2ea10c9df9f85fa10b4ec9e54bd9e6ec1e64dd14b66e46a0",
+    "packages/adapters/src/ai_agent_adapters/storage/migrations.py": "a7746e2ee07770cff627c7c6cae363126e43059e795ea690d3719b15713ded90",
+    "packages/adapters/src/ai_agent_adapters/storage/policy.py": "f9de0bcd97f21f351665d068f41f6170237a5ce50966b9c1ab507feafce743e1",
+    "packages/adapters/src/ai_agent_adapters/storage/schema.py": "65514522a1f106b39a6458e00f6ef30661e8f2c0cc9a6f70bed911058d9ddc1a",
+    "packages/adapters/src/ai_agent_adapters/storage/unit_of_work.py": "e2c97f2040d397af009c61159cb627334d9e9cd91cea2f3b7f61c9e553bba26d",
+    "migrations/env.py": "957a18d652edcdddfe87ca5665c7fde1eefddbff6c55f3c3fb83ba6772f02e80",
+    "migrations/versions/0001_scopes.py": "75b19fea1cf94bb2a9a75cdc17eb4afae3e86253e0133ba41a1fb12ee3404b6b",
+    "migrations/versions/0002_records.py": "b23b50862797fe374bf7244532feb97f11bce332a6ab768cc903cdd3e811a4e6",
+    "tests/storage/test_storage.py": "82a44b73a5671a8541e6dd7a204a0421c0bb458f884a07a539d2e05867d411a7",
+    "tests/storage/run-linux.ps1": "ff3f1f6ddfd5363b9288c8c875657b256468937b715e1ac1f7f185366089b867"
+  }
+}
