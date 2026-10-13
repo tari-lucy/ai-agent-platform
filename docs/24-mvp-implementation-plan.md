@@ -23,7 +23,7 @@
 | M0-04 | integrated | Codex / task/m0-04-compose-foundation | be20427; health/persistence/recreate/loopback/auth/resources прошли; combined config/lint/types passed |
 | M0-05 | integrated | Codex / task/m0-05-recall-baseline | cffe60f; 60 RU/1k/10k gates прошли, combined Linux 21 tests/lint passed |
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
-| M1-01 | in_progress | Codex / task/m1-01-contracts | 9ddabcc; M0-06 integrated, отдельный managed worktree от проверенного main |
+| M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -31,8 +31,7 @@ packages (только каркас, без contract schemas), scripts, tests/to
 LICENSE/THIRD_PARTY_NOTICES.md и своим implementation report.
 Отдельный worktree; manifest/lock owner один — исполнитель M0-02.
 Исключены: Compose/deploy, migrations, schema/API/business contracts,
-реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04/M0-05/M0-06
-не назначены. M0-02 проверяет установку/минимальную сборку, без моделей,
+реализация памяти/LLM/STOP/UI экранов. Последующие назначения отражены в таблице выше. M0-02 проверяет установку/минимальную сборку, без моделей,
 платных API и запуска полного runtime. Общие статусы обновляет координатор.
 
 M0-03 владеет tests/probes/m0_03 и своим implementation report; отдельный
