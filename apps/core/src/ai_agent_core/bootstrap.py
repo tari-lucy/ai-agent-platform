@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from importlib.metadata import version
 
 from ai_agent_adapters.configuration import (
@@ -15,6 +16,9 @@ from ai_agent_adapters.configuration import (
 )
 from ai_agent_adapters.control.journal import UnavailableJournal, UnavailableReadiness
 from ai_agent_application.control import Supervisor
+from ai_agent_application.scheduling import ResourceScheduler, SchedulerLimits
+from ai_agent_application.scheduling.model import DEFAULT_POOLS
+from ai_agent_application.telemetry import HealthState, Telemetry
 from ai_agent_contracts.common import Scope
 from fastapi import FastAPI
 
@@ -38,16 +42,40 @@ def create_app(
         UnavailableReadiness(),
     )
 
+    telemetry = Telemetry(clock=supervisor.clock, critical_failure=supervisor.critical_failure)
+    telemetry.register("control")
+    telemetry.update_health("control", HealthState.READY)
+    pools = tuple(
+        replace(pool, capacity=configuration.worker_memory_mib) if pool.id == "ram" else pool
+        for pool in DEFAULT_POOLS
+    )
+    scheduler = ResourceScheduler(
+        supervisor,
+        telemetry,
+        pools=pools,
+        limits=SchedulerLimits(pending=configuration.pending_jobs),
+    )
+
+    async def operational_watchdog() -> None:
+        while True:
+            scheduler.poll()
+            telemetry.update_health("control", HealthState.READY)
+            await asyncio.sleep(0.05)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         watchdog = asyncio.create_task(supervisor.watchdog())
+        operations = asyncio.create_task(operational_watchdog())
         try:
             yield
         finally:
             supervisor.shutdown()
+            scheduler.poll()
             watchdog.cancel()
-            with suppress(asyncio.CancelledError):
-                await watchdog
+            operations.cancel()
+            for task in (watchdog, operations):
+                with suppress(asyncio.CancelledError):
+                    await task
 
     app = FastAPI(
         title="AI Agent Platform",
@@ -59,6 +87,8 @@ def create_app(
     )
     app.state.bootstrap = startup
     app.state.supervisor = supervisor
+    app.state.telemetry = telemetry
+    app.state.scheduler = scheduler
     # Credentials are not attached to API state or returned via a route.
     app.state.bootstrap_manifest = startup.safe_manifest(configuration)
     return app

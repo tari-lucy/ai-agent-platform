@@ -14,8 +14,16 @@ SOURCES = (
     "packages/application/src",
     "packages/adapters/src",
 )
-HELPERS = ("tests/persona", "tests/memory", "tests/social", "tests/jobs", "tests/probes/m0_05")
+HELPERS = (
+    "tests/persona",
+    "tests/memory",
+    "tests/social",
+    "tests/jobs",
+    "tests/probes/m0_05",
+    "tests/operations",
+)
 TESTS = (
+    "tests/operations",
     "tests/jobs",
     "tests/control",
     "tests/storage",
