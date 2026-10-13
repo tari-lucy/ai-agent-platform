@@ -26,6 +26,7 @@
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
+| M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -104,6 +105,19 @@ packaging request M1-02 закрыт; schema head не менялся. Admission
 и direct STOP — принятые внутренние ports, не HTTP authorization. До длинных
 jobs назначить supervisor-owner heartbeat/refresh; full cold core/worker build
 по новому lock остаётся отдельной пробой при подготовленном cache.
+
+M2-01 владеет packages/application/src/ai_agent_application/persona,
+packages/adapters/src/ai_agent_adapters/persona, tests/persona и своим report.
+База 542da6e; задача выдана оператором напрямую, исполнитель сдал её в ветке
+codex/m2-01-persona-profile, координатор принял fast-forward. Принято решение
+координатора: формат Markdown `ai-agent-persona-profile/1` (README модуля)
+утверждён как формат профиля MVP; снимок профиля = неизменяемая версия Profile,
+`accepted_revision_id = rev-<sha256>`; persona.edit (серверные черновики) не входит —
+для него потребуется новый тип записи и миграция 0003 отдельным назначением.
+Открытые запросы из отчёта, адресованные владельцу core bootstrap: регистрация
+`register_persona_extensions` в общем ExtensionRegistry, grants persona-владельцу
+и reader_access оператору/Readiness. Потребители (Readiness M1-03, M2-06) проверяют
+версию профиля при допуске; хот-релоада профиля нет. M2-06 теперь ждёт M2-02/03/04.
 
 ## M0. Воспроизводимая основа и технические пробы
 
