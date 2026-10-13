@@ -1,0 +1,109 @@
+{
+  "load": {
+    "phase": "load",
+    "python": "3.14.8",
+    "sqlite": "3.40.1",
+    "packages": {
+      "sqlite-vec": "0.1.9",
+      "fastembed": "0.9.0",
+      "onnxruntime": "1.31.0",
+      "numpy": "2.5.4",
+      "sqlalchemy": "2.1.4",
+      "aiosqlite": "0.22.1"
+    },
+    "model_revision": "faf4aa4225822f3bc6376869cb1164e8e3feedd0",
+    "threads": 2,
+    "batch": 4,
+    "cold_model_init_ms": 1562.083,
+    "rss_after_model_mib": 663.078,
+    "extension": "v0.1.9",
+    "index_16_rows_ms": 93.368,
+    "rss_after_index_mib": 663.078,
+    "queries": {
+      "count": 30,
+      "ru_top1_ids": [
+        1,
+        2,
+        3
+      ],
+      "median_ms": 6.218,
+      "p95_ms": 7.385,
+      "max_ms": 7.754
+    },
+    "async_driver": {
+      "commit_rollback_reconnect": "pass",
+      "sqlite_vec": "v0.1.9"
+    },
+    "load": "pass",
+    "peak_rss_mib": 683.402,
+    "cgroup_memory": {
+      "current_mib": 642.164,
+      "peak_mib": 644.082,
+      "max_mib": 1536.0
+    }
+  },
+  "receipt": {
+    "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97",
+    "uv_lock_sha256": "1d2c3ffd7b1661f2a3ff9c6222fa89640ecdbbdd6c96b21dae44e1b38eba702d",
+    "phases": [
+      {
+        "phase": "load",
+        "wall_ms": 5831
+      },
+      {
+        "phase": "crash",
+        "wall_ms": 1416
+      },
+      {
+        "phase": "restart",
+        "wall_ms": 5502
+      }
+    ],
+    "restart_container": {
+      "exit": 0,
+      "oom": false,
+      "memory": 1610612736,
+      "nano_cpus": 2000000000,
+      "network": "none"
+    }
+  },
+  "restart": {
+    "phase": "restart",
+    "python": "3.14.8",
+    "sqlite": "3.40.1",
+    "packages": {
+      "sqlite-vec": "0.1.9",
+      "fastembed": "0.9.0",
+      "onnxruntime": "1.31.0",
+      "numpy": "2.5.4",
+      "sqlalchemy": "2.1.4",
+      "aiosqlite": "0.22.1"
+    },
+    "model_revision": "faf4aa4225822f3bc6376869cb1164e8e3feedd0",
+    "threads": 2,
+    "batch": 4,
+    "cold_model_init_ms": 1762.918,
+    "rss_after_model_mib": 663.355,
+    "extension": "v0.1.9",
+    "queries": {
+      "count": 30,
+      "ru_top1_ids": [
+        1,
+        2,
+        3
+      ],
+      "median_ms": 6.05,
+      "p95_ms": 8.631,
+      "max_ms": 8.736
+    },
+    "restart_and_uncommitted_recovery": "pass",
+    "rebuild_ms": 95.279,
+    "delete_stale_gate_rebuild_reopen": "pass",
+    "peak_rss_mib": 663.355,
+    "cgroup_memory": {
+      "current_mib": 614.77,
+      "peak_mib": 623.242,
+      "max_mib": 1536.0
+    }
+  }
+}

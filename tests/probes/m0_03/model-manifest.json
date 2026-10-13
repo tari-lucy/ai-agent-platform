@@ -1,0 +1,40 @@
+{
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "repo": "Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q",
+  "revision": "faf4aa4225822f3bc6376869cb1164e8e3feedd0",
+  "license": "apache-2.0",
+  "files": {
+    "README.md": {
+      "sha256": "c96c17d91a9e83ec840da5a517277f5164315bd765e21da4216a568008c4f74e",
+      "bytes": 855
+    },
+    "config.json": {
+      "sha256": "c8ec081fdad2df991bf5abbf18418fec7a5cdaa421f60ffb060a30040b8c376f",
+      "bytes": 673
+    },
+    "model_optimized.onnx": {
+      "sha256": "634d0f66c29dc934c8fa72b8a4fe91dd4d420a22f1d82a241058d4316e659a99",
+      "bytes": 235052644
+    },
+    "ort_config.json": {
+      "sha256": "99881c45e073696289224931dd48694398bc6bcd1fe7cb7018bca1e0cc00e1fc",
+      "bytes": 1272
+    },
+    "special_tokens_map.json": {
+      "sha256": "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835",
+      "bytes": 964
+    },
+    "tokenizer.json": {
+      "sha256": "fa685fc160bbdbab64058d4fc91b60e62d207e8dc60b9af5c002c5ab946ded00",
+      "bytes": 17083009
+    },
+    "tokenizer_config.json": {
+      "sha256": "0666eebf692422757e1dddf3c9fb1ded73ba3dc726c5828671fc89e45bf3609f",
+      "bytes": 1416
+    },
+    "unigram.json": {
+      "sha256": "da145b5e7700ae40f16691ec32a0b1fdc1ee3298db22a31ea55f57a966c4a65d",
+      "bytes": 14763260
+    }
+  }
+}
