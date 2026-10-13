@@ -1,6 +1,6 @@
 # Готовность к реализации: итог планирования
 
-Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-06, M2-01–M2-07, M3-01–M3-02 интегрированы.**
+Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-06, M2-01–M2-07, M3-01–M3-03 интегрированы.**
 Среда, каркас, Compose, RU recall, безопасный bootstrap, contracts, SQLite и
 supervisor/direct STOP, durable jobs/Redis, telemetry/scheduler и
 authenticated HTTP/WS/service access проверены; dialogue/LLM runtime ещё не подключены. Текущие
