@@ -313,3 +313,9 @@ tests/access и свой отчёт; узкая composition-правка core/bo
 contracts (api/catalogue/export/generated + их tests): сначала контракт и проверки,
 затем runtime. Исключены M2 business modules, migrations, dependencies/lockfiles,
 Compose, UI, платные вызовы и публичный доступ. Зависимости M1-01/M0-06 приняты.
+
+Уточнение зоны M1-05 координатором: optional RAM validity callback в принятом
+ControlAuthority/проверке Supervisor для отзыва ожидающих команд при logout;
+минимальный проброс auth bindings/host port в deploy/compose.yaml и описание
+в .env.example. Формат команд, owner state machine, ресурсы и зависимости
+не переопределяются. Проверки только synthetic bindings; реальные .env не читаются.
