@@ -111,6 +111,8 @@ packages/adapters/src/ai_agent_adapters/jobs и broker, tests/jobs и своим
 Назначены узкие shared changes: supervisor.refresh для продления исходного
 admission без восстановления отозванного допуска; единственная миграция 0003
 для scheduling/attempt metadata и storage/migrations.py HEAD. Интерфейс refresh
+Также назначен tests/storage/test_storage.py только для ожидаемого single head
+0003; остальные storage acceptance не менять.
 принимается отдельным коммитом до реализации потребителя. Contracts, manifests,
 locks, Compose, HTTP/access/UI и весь блок M2 исключены: M2 ведёт второй агент.
 Зависимости M1-02/M0-04/M1-03 интегрированы. Только synthetic SQLite/Redis
