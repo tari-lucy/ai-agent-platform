@@ -4,7 +4,7 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04 и M1-06, M2-01–M2-03 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04 и M1-06, M2-01–M2-04 интегрированы.**
 Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
 контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
 с direct STOP/pause/resume и durable jobs/Redis. Модули профилей персонажей и памяти/recall
@@ -23,7 +23,8 @@ HTTP управления, диалог и LLM ещё не реализован�
 [M1-06](docs/implementation-reports/M1-06.md),
 [M2-01](docs/implementation-reports/M2-01.md),
 [M2-02](docs/implementation-reports/M2-02.md),
-[M2-03](docs/implementation-reports/M2-03.md).
+[M2-03](docs/implementation-reports/M2-03.md),
+[M2-04](docs/implementation-reports/M2-04.md).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:

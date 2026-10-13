@@ -31,6 +31,7 @@
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
+| M2-04 | integrated | Claude Code / codex/m2-04-llm-adapter | 2bd70cc..aae3938, fast-forward в main от a614c36; 94 llm tests (mock, MockTransport, loopback SSE), combined 474 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный агрегатор и runtime-интеграция не проверены** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -177,7 +178,15 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-M2-04 и остальные задачи M2 выполняет второй агент; M2-05/06/07 зависят от M2-04.
+M2-04 интегрирована; M2-05/06/07 зависят от неё и теперь разблокированы.
+
+M2-04 владеет packages/application/src/ai_agent_application/llm,
+packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
+координатором. Решения: шлюз не знает про Job/Redis/scheduler — доверенный исполнитель держит claim
+и BudgetLease и передаёт Admission; журнал попыток и тарифы остаются за M2-05 (шлюз отдаёт
+AttemptReport в AttemptSink); результат — только целый строгий JSON после завершающего события.
+Открытые запросы из отчёта: (1) регистрация `register_llm_extensions` и настроек `AI_PLATFORM_*`
+в core bootstrap; (2) проверка реального агрегатора оператором (usage при обрыве, параметр длины).
 
 ## M0. Воспроизводимая основа и технические пробы
 
