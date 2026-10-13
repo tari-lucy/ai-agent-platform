@@ -91,10 +91,14 @@ packages/adapters/src/ai_agent_adapters/control, apps/core bootstrap wiring,
 tests/control и своим report. Дополнительно назначены .dockerignore и
 deploy/Dockerfile только для упаковки принятой migrations history в core image.
 База назначения d9af647; ветка task/m1-03-supervisor, отдельный checkout.
-Исключены contracts, migrations, manifests/locks, Compose, access/HTTP handlers,
+Исключены contracts, migrations, Compose, access/HTTP handlers,
 job dispatcher, UI и реальные внешние адаптеры. Разрешены synthetic SQLite,
 offline Linux checks и одна локальная image packaging probe с отдельными данными.
 STOP не ждёт DB/Redis/LLM; restart и сон не возобновляют старые допуски.
+Дополнение координатора после installed-image probe: M1-03 назначен единственным
+владельцем pyproject.toml/uv.lock только для SQLAlchemy asyncio extra. Runtime
+без dev dependencies не содержал greenlet, хотя SQLite async adapter требует его.
+Версии остальных пакетов не обновлять; lock и no-dev image проверить отдельно.
 
 ## M0. Воспроизводимая основа и технические пробы
 
