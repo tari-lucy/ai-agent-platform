@@ -109,6 +109,10 @@ tests с настоящим Redis, AOF restart, types/lint/export/hash checks п
 Bootstrap остаётся STOPPED; authenticated handlers и scheduler — M1-05/06.
 Cold Docker build остаётся отдельной пробой при подготовленном публичном cache.
 Блок M2 ведёт второй агент; здесь его файлы/задачи не изменяются.
+Совместная версия M1-04 + M2-01–03: Windows 382 / Linux 383 tests прошли
+(Redis fixture tests пропущены; Windows FIFO недоступен), types/lint/import/export passed.
+Windows symlink import исправлен; общий runner — python scripts/check_combined.py.
+[Отчёт интеграции](docs/implementation-reports/M1-M2-integration.md).
 Работа ведётся по назначению doc24 в отдельном checkout.
 
 Несколько разработчиков работают в отдельных ветках/checkout, с одним
