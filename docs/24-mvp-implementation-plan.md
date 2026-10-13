@@ -24,6 +24,7 @@
 | M0-05 | integrated | Codex / task/m0-05-recall-baseline | cffe60f; 60 RU/1k/10k gates прошли, combined Linux 21 tests/lint passed |
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
 | M1-01 | integrated | Codex / task/m1-01-contracts | 43d8687 + eb321c3; schemas/OpenAPI/TS, Windows 119 и combined main Linux 133 tests/types/lint passed |
+| M1-02 | in_progress | Codex / task/m1-02-storage | c587409; M1-01/M0-03 integrated; отдельный managed checkout от проверенного main |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -72,6 +73,13 @@ M1-01 владеет packages/contracts (Python schemas/converters, offline Open
 application/runtime handlers, access implementation, migrations, manifests/locks,
 Compose/deploy и общий UI client. Проверки только synthetic/offline; не запускать
 LLM/игру/публичный выход. Схемы API не предоставляют права и не открывают listener.
+M1-02 владеет packages/application/src/ai_agent_application/storage.py
+(repository/UoW ports), packages/adapters/src/ai_agent_adapters/storage,
+migrations (единственная Alembic history 0001 → 0002), tests/storage и своим
+report. База назначения c587409; ветка task/m1-02-storage. Исключены contracts,
+manifests/locks, Compose/deploy, UI/access/supervisor/job dispatcher и recall.
+Разрешены synthetic SQLite tests, isolated offline Linux named volume;
+рабочая DB/profiles/env, LLM, игра и публичный выход не используются.
 ## M0. Воспроизводимая основа и технические пробы
 
 | ID | Зависит от | Результат / зона | Критерий завершения |
