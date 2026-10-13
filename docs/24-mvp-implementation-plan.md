@@ -19,7 +19,8 @@
 | --- | --- | --- | --- |
 | M0-01 | integrated | Codex / task/m0-01-environment-audit | 4872a17; отчёт принят оператором, fast-forward в main, combined diff/check пройдены |
 | M0-02 | integrated | Codex / task/m0-02-project-scaffold | 4280cb1; Windows/Linux clean lock install, lint/types/7 tests/build прошли; combined revision совпадает |
-| M0-03 | in_progress | Codex / task/m0-03-storage-recall-probe | Проверенный main после M0-02 и этой записи назначения |
+| M0-03 | integrated | Codex / task/m0-03-storage-recall-probe | 1d797bf; load/crash/restart/delete/rebuild/RU/RAM/digests прошли; combined 9 tests passed |
+| M0-04 | in_progress | Codex / task/m0-04-compose-foundation | Проверенный main после M0-03 и этой записи назначения |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -27,7 +28,7 @@ packages (только каркас, без contract schemas), scripts, tests/to
 LICENSE/THIRD_PARTY_NOTICES.md и своим implementation report.
 Отдельный worktree; manifest/lock owner один — исполнитель M0-02.
 Исключены: Compose/deploy, migrations, schema/API/business contracts,
-реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03
+реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04
 не назначены. M0-02 проверяет установку/минимальную сборку, без моделей,
 платных API и запуска полного runtime. Общие статусы обновляет координатор.
 
@@ -37,6 +38,14 @@ migrations, Compose/deploy и application packages. Разрешены лока�
 публичная MiniLM ONNX загрузка в изолированный cache и одна synthetic Docker
 проба с 2 CPU threads/batch 4/лимитом 1,5 ГиБ; без LLM/игры/публикации.
 M0-05 corpus/quality benchmark не входит в M0-03.
+
+M0-04 владеет deploy (Compose/Docker build/resource/health scripts),
+tests/probes/m0_04 и своим report. Исключены manifests/locks, migrations,
+contracts/application logic, config M0-06 и общий UI client. Разрешён один
+локальный synthetic Compose stack core/worker/Redis с отдельным project name
+и named volumes; published port только loopback core. Реальные LLM/игра/эфир
+не разрешены. Runtime entrypoints остаются остановленным scaffold; настоящий
+supervisor/jobs/access будут в M1.
 
 ## M0. Воспроизводимая основа и технические пробы
 
