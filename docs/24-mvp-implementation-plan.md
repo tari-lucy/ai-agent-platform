@@ -352,3 +352,11 @@ core/access и business M2–M5 не меняются. Приёмка UI-only д
 backend; отдельная проверка реальных login/session/STOP/events M1-05.
 Synthetic fixtures/локальный loopback browser допустимы; без настоящих
 env/профилей/памяти, LLM API, публикации и новых прав.
+
+
+Уточнение shared зоны M4-01 координатором: deploy/Dockerfile только panel
+build stage/layout и COPY его dist; scripts/verify-linux.ps1 только allowlist/
+panel recipe для canonical generated contracts и frontend tests. Runtime
+Python stages/Compose/migrations/locks не меняются. Причина: импорт shared
+contracts.ts требует прежнего repo layout в build stage, иначе Docker build
+не воспроизводит проверенную native сборку. Один владелец — M4-01.
