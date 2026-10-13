@@ -59,7 +59,10 @@ CORS middleware отсутствует. UI login входит в M4-01.
   after_event_id пока закрывается: refresh projections, без повторения model call.
   STOP/control публикуют run.changed; фоновый outbox всех владельцев ещё не подключён.
   Producers публикуют только canonical PanelEvent в Events; stream/chunk owner
-  не подключён. deploy/core.py ограничивает ws_max_size4096/ws_max_queue1.
+  не подключён. deploy/core.py ограничивает ws_max_size4096/ws_max_queue1; deflate отключён.
+  Явно выбран проверенный backend websockets (locked17.2/Uvicorn0.54).
+  Legacy backend выдаёт deprecation warnings; при смене lock отдельно проверить
+  backpressure/queue semantics нового backend. Не менять auto mode без этой пробы.
 
 ## Service identity и композиция
 
