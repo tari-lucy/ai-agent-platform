@@ -161,7 +161,7 @@ def test_empty_migration_single_head_pragmas(tmp_path):
                 assert (await connection.execute(text("PRAGMA foreign_key_check"))).all() == []
             config = Config()
             config.set_main_option("script_location", str(MIGRATIONS))
-            assert ScriptDirectory.from_config(config).get_heads() == ["0002"]
+            assert ScriptDirectory.from_config(config).get_heads() == ["0003"]
         finally:
             await store.close()
 

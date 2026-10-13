@@ -1,0 +1,98 @@
+{
+  "uv_lock_sha256": "ff945230247e32227145f1421dcfc8f0cc00d0686c5b476342dabf5693c166c7",
+  "source_sha256": {
+    "packages/application/src/ai_agent_application/control/__init__.py": "0bbc4439e72bfaefb365d25a8a97a771dbb9a67aa59a53d9d556470be6f2a379",
+    "packages/application/src/ai_agent_application/__init__.py": "54af61ccb2115decccb90e027aa4769732c05f186e9b71665cd2a2590199110f",
+    "packages/contracts/src/ai_agent_contracts/persona.py": "7ed694a47a30f6a7d64c171c7bae96b5ac86d6f28c8994c0b4fe99f8c2874882",
+    "apps/core/src/ai_agent_core/bootstrap.py": "6272a372142e0196272e888ee76ad30076c42d7c2c59c94c64483d6fce25c30b",
+    "packages/adapters/src/ai_agent_adapters/storage/schema.py": "65514522a1f106b39a6458e00f6ef30661e8f2c0cc9a6f70bed911058d9ddc1a",
+    "packages/contracts/src/ai_agent_contracts/catalogue.py": "d023211fb5fb93c331abf2b6cd400f834eb2f036dfbbec1f20add4f69eb7b94b",
+    "packages/contracts/src/ai_agent_contracts/states.py": "3dc73bb3c4eddad8d54a77fd4006a6da0ca1933f4a98f61d0e7332608c15e5f7",
+    "packages/adapters/src/ai_agent_adapters/broker/__init__.py": "dec489c910af2345130d90ab7d7e1ac7d735a541c68fc4ff343a0cb465fc5448",
+    "packages/contracts/src/ai_agent_contracts/common.py": "c4451d2451b2e75061ace8a0caf0ed215682ad1152c5e211c6917054d28385e6",
+    "migrations/versions/0002_records.py": "b23b50862797fe374bf7244532feb97f11bce332a6ab768cc903cdd3e811a4e6",
+    "apps/worker/src/ai_agent_worker/bootstrap.py": "250c99cdc137b4f1a86940c8eccd44bd42a3b9cc4a94afe01542494205734c44",
+    "packages/contracts/src/ai_agent_contracts/workspace.py": "ab254a37dcbd22e73d898216caf590db193c58317c673ad6934d02d86ad73464",
+    "packages/adapters/src/ai_agent_adapters/__init__.py": "d3521b59398b59929683395f9d3cbd9f2973f45812da50171adf536a0d7b2859",
+    "migrations/versions/0001_scopes.py": "75b19fea1cf94bb2a9a75cdc17eb4afae3e86253e0133ba41a1fb12ee3404b6b",
+    "packages/contracts/src/ai_agent_contracts/control.py": "b61111c6eeca533e2c1bc95ef9dbbec2a1d0bd69ee2e2fd375f8c41a77848b21",
+    "packages/adapters/src/ai_agent_adapters/storage/unit_of_work.py": "e2c97f2040d397af009c61159cb627334d9e9cd91cea2f3b7f61c9e553bba26d",
+    "apps/worker/src/ai_agent_worker/__init__.py": "f1679d88fd39f7fd90f0a0e78c1b3b5adca73c06775db1dc898bdcb114b6d993",
+    "apps/core/src/ai_agent_core/__init__.py": "afcdfea02ee6b037dfe36f9b34223b239d226e7e2d1fc1f088b86f1aaa30278a",
+    "packages/adapters/src/ai_agent_adapters/control/journal.py": "9174900120a36b65a7d050e3d3ac1031b573423f30f44d3849ff8a76f6be70a7",
+    "packages/adapters/src/ai_agent_adapters/jobs/schema.py": "1d0d42519c71fd27469d903f8726e9253dd5c8eaa1002501bf0a4226c5a9d651",
+    "migrations/env.py": "957a18d652edcdddfe87ca5665c7fde1eefddbff6c55f3c3fb83ba6772f02e80",
+    "packages/application/src/ai_agent_application/jobs/__init__.py": "edbb0760dba78f0227a409329c0814f008bdc9d3216c5e85feae973302f0f34f",
+    "packages/adapters/src/ai_agent_adapters/control/__init__.py": "91b9a90ef311358c75b9d0d8c021aabdedb8070ffdee3d04ff79ff274659fd5f",
+    "packages/contracts/src/ai_agent_contracts/api.py": "284fccb4e72497550e499ad18809692b1bfe17d7ffdafa6e52eca720553e3d29",
+    "packages/application/src/ai_agent_application/control/ports.py": "e68542b42de0289c2333a221aa3c3f5ed4bc2dc849dbc9f498609ce580b92167",
+    "packages/contracts/src/ai_agent_contracts/memory.py": "f0830310f2306048b180c366d2d97951b17326c14f5f3729c0921252678bdd0c",
+    "packages/contracts/src/ai_agent_contracts/export.py": "c90b8cc215dd3e19e3cf98c57c2089c5ee77b50c84cecf886fe832ec49708282",
+    "packages/application/src/ai_agent_application/jobs/owner.py": "30ca578668a59f09b9676daae4f2875d59b811f86bd5c9ed43c1309393b785be",
+    "scripts/check_imports.py": "3a2269632875b1a820faa0d0499705e7b5dcee0dc1ebd3991de7363ec79e0ac4",
+    "packages/adapters/src/ai_agent_adapters/storage/migrations.py": "5e37b92c1db8f2165ea5cd6a0741f44dfcfcf6cfe0b313b64a3543070fd113b7",
+    "packages/adapters/src/ai_agent_adapters/jobs/store.py": "e3b43859d57fb592e1aeca7417e6f8d5859c6d25f867819e1c989c698ab5e5d3",
+    "packages/adapters/src/ai_agent_adapters/storage/policy.py": "f9de0bcd97f21f351665d068f41f6170237a5ce50966b9c1ab507feafce743e1",
+    "packages/adapters/src/ai_agent_adapters/storage/database.py": "28a5059be7e4808d2ea10c9df9f85fa10b4ec9e54bd9e6ec1e64dd14b66e46a0",
+    "packages/adapters/src/ai_agent_adapters/jobs/__init__.py": "6ec3fb615e43e2b91c82d4183be3094340838504c27d7734c315824e84a7ed2c",
+    "packages/adapters/src/ai_agent_adapters/configuration.py": "6108919ba34e4bc6268fbbae95f2fae5f8e65c0eba44df698a0c9374c80ed2e1",
+    "packages/domain/src/ai_agent_domain/__init__.py": "0d822e98a8d57fefd7faec27c167f0732871dcb72a66f779fd4605aa2a42e23f",
+    "packages/adapters/src/ai_agent_adapters/storage/catalogue.py": "784b0e4372d5378cc7c428dede2d3f59813c466bb2713127d5d4548a46aa98ec",
+    "migrations/versions/0003_jobs.py": "8351a48c8878ea1b59a9ed56ce28c0ee6c3fee130b442315e6e03f5cf614e41d",
+    "packages/contracts/src/ai_agent_contracts/llm.py": "ede7d70f5fc191ad6cbce42ee2b2b5f4b32e63c1daa42edf27ce8ed79c2c3fda",
+    "packages/application/src/ai_agent_application/storage.py": "1bf172338b5377667d119b712ab017552ab1e6fc72b5f69179fe9a7c039bc145",
+    "packages/contracts/src/ai_agent_contracts/codec.py": "49519795b7d56fc164177c561fe4ac568a3c610891aa203651254174bdfb0905",
+    "packages/adapters/src/ai_agent_adapters/storage/__init__.py": "7a8a7d14d2345eb6be69e31dbea2d5d04dc77306f6f5ec384c870e6a9b1e6549",
+    "packages/adapters/src/ai_agent_adapters/broker/streams.py": "f785b80e9a53416f5d934a9eb21de0de955cc375b8fdcffa00a6233857a1c844",
+    "packages/application/src/ai_agent_application/control/supervisor.py": "6d061e627be4154066590286a1e43cddd8a6ffa2303087e415aa44cd932b1c07",
+    "packages/application/src/ai_agent_application/jobs/ports.py": "5c40c602ab298abfdbf9459297a4a5cddf561c439057d1d7bb3156288ec2bf24",
+    "scripts/check.py": "786873cee302e8a47b4f5b833d6b39d78ac8c280af04f39784ff12138ee9e9a8",
+    "packages/contracts/src/ai_agent_contracts/extensions.py": "20937731011494a632990baab4f79feef3bce206f63aa0f908e66955ca1bc16c",
+    "packages/contracts/src/ai_agent_contracts/__init__.py": "481a3263d028cad9499d09cf5eef43967633db45c4b1c29a01e5b5bf0503dc36"
+  },
+  "container": {
+    "exit": 0,
+    "oom": false,
+    "ports": {}
+  },
+  "internal_network": "true",
+  "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97",
+  "redis_image": "sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6",
+  "redis": {
+    "oom": false,
+    "ports": {}
+  },
+  "task": "M1-04",
+  "run_id": "ai-platform-m1-04-90af4e06486f",
+  "windows": {
+    "passed": 247,
+    "skipped": 4,
+    "note": "real Redis cases executed in Linux only"
+  },
+  "linux": {
+    "passed": 253,
+    "skipped": 0,
+    "job_cases": 35,
+    "real_redis_cases": 4,
+    "mypy_source_files": 44
+  },
+  "checks": {
+    "ruff": "passed",
+    "mypy": "passed",
+    "imports": "passed",
+    "contract_export": "passed",
+    "redis_restart_aof": "passed",
+    "single_schema_head": "0003"
+  },
+  "installed_python_packages": {
+    "redis": "8.1.0",
+    "SQLAlchemy": "2.1.4",
+    "aiosqlite": "0.22.1",
+    "alembic": "1.20.0",
+    "pydantic": "2.14.1"
+  },
+  "test_source_sha256": {
+    "tests/jobs/test_jobs.py": "22699bea531bf5d2f0574fdbb008e57ac2a24c2bac605e7353912176520939a9",
+    "tests/jobs/test_redis.py": "e058b61f63b68a495c98f0b38abb3f09dfcde8637d62c44700229602c247d013"
+  }
+}
