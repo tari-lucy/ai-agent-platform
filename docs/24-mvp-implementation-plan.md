@@ -34,6 +34,8 @@
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
 | M2-04 | integrated | Claude Code / codex/m2-04-llm-adapter | 2bd70cc..aae3938, fast-forward в main от a614c36; 94 llm tests (mock, MockTransport, loopback SSE), combined 474 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный агрегатор и runtime-интеграция не проверены** |
 | M2-05 | integrated | Claude Code / codex/m2-05-usage-ledger | e21ff97..18a627b, fast-forward в main от 8256a8a; 39 usage tests (реальная SQLite), combined 513 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **сверка с биллингом агрегатора и runtime-интеграция не проверены** |
+| M2-06 | integrated | Claude Code / codex/m2-06-dialogue-controller | fast-forward в main после M1-05 (841b52c); 57 dialogue tests (реальная SQLite memory/recall/social, шлюз M2-04 mock), combined 573 passed + известные env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный провайдер и runtime-интеграция не проверены** |
+| M2-07 | integrated | Claude Code / codex/m2-07-moderation-gate | fast-forward в main; 41 moderation tests (реальная SQLite, mock-модератор), combined 614 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-модератор, качество классификации и runtime не проверены** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -180,7 +182,7 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-M2-04 и M2-05 интегрированы; M2-06/07 разблокированы.
+Блок M2 (M2-01..M2-07) интегрирован.
 
 M2-04 владеет packages/application/src/ai_agent_application/llm,
 packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
@@ -196,6 +198,17 @@ M2-05 владеет packages/application/src/ai_agent_application/usage, tests/
 неизвестный usage/ставка/тариф — unknown/partial, не 0. Открытые запросы из отчёта: (1) storage-запрос
 по полям (период/роль/модель) и политика хранения агрегатов; (2) хук «перед вызовом» шлюза для записи
 running и composition AttemptSink→ledger, grants Owner.LLM.
+
+M2-06 владеет packages/application/src/ai_agent_application/dialogue и tests/dialogue; M2-07 —
+packages/application/src/ai_agent_application/moderation и tests/moderation; зоны подтверждены
+координатором. Решения M2-06: контроллер выдаёт черновик и предложение действия, не публикует и не
+исполняет; обещание, вопрос и память — по факту доставки (`settle`); инициатива из точного скана
+обязательств и лимитов doc22. Решения M2-07: проверка другой моделью по точной редакции,
+недоступность/невалидность = отказ, выпуск только через `release` с привязкой к hash, аудитории, каналам,
+контексту, версии политики и поколению управления. Открытые запросы: composition (grants, ControlView,
+ProposalSink, PrivateStream, роль moderator с другой моделью, Publisher), читаемый ключ темы в social/storage,
+запись Utterance.moderation_status владельцем gateway, реальные политики и испытания классификатора,
+уникальные basename тестов (tests/access/test_service.py ↔ tests/persona/test_service.py).
 
 ## M0. Воспроизводимая основа и технические пробы
 
