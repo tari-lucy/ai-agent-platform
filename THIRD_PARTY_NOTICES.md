@@ -19,3 +19,7 @@ Redis server не устанавливается M0-02. Для будущей Re
 вариант AGPLv3 из upstream triple licensing; digest, полный license/notice и
 проверка конкретного образа принадлежат M0-04. redis-py имеет отдельную MIT-лицензию.
 Это не меняет лицензию приложения и не объявляет ещё не проверенный Redis image принятым.
+
+M1-05 WebSocket transport: websockets17.2 — BSD-3-Clause, license text включён
+в distribution. [Upstream](https://github.com/python-websockets/websockets).
+Добавлена только эта прямая dependency; остальные версии lock сохранены.

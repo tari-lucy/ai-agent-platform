@@ -39,6 +39,9 @@ def test_openapi_model_references_ids_and_auth_boundaries():
             security = operation["security"]
             if path.startswith("/internal"):
                 assert security == [{"ServiceIdentity": []}]
+            elif path == "/api/v1/auth/login":
+                assert security == []
+                assert operation["x-origin-check"] is True
             elif method == "post":
                 assert security == [{"OperatorSession": [], "CSRF": []}]
             else:

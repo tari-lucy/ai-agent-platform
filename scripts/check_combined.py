@@ -20,10 +20,13 @@ HELPERS = (
     "tests/social",
     "tests/jobs",
     "tests/probes/m0_05",
+    "tests/storage",
     "tests/operations",
+    "tests/access",
 )
 TESTS = (
     "tests/operations",
+    "tests/access",
     "tests/jobs",
     "tests/control",
     "tests/storage",

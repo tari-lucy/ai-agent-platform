@@ -29,6 +29,10 @@ services:
     memswap_limit: 768m
     cpus: 1.0
     environment:
+      AI_PLATFORM_CORE_HOST_PORT: ${AI_PLATFORM_CORE_HOST_PORT:-8765}
+      AI_PLATFORM_OPERATOR_ORIGIN: ${AI_PLATFORM_OPERATOR_ORIGIN:-http://127.0.0.1:${AI_PLATFORM_CORE_HOST_PORT:-8765}}
+      AI_PLATFORM_OPERATOR_PASSWORD_HASH: ${AI_PLATFORM_OPERATOR_PASSWORD_HASH:-}
+      AI_PLATFORM_WORKER_SERVICE_TOKEN: ${AI_PLATFORM_WORKER_SERVICE_TOKEN:-}
       CORE_CONTAINER_PORT: ${AI_PLATFORM_CORE_CONTAINER_PORT:-8080}
       REDIS_PASSWORD: ${AI_PLATFORM_REDIS_PASSWORD:?Create a local Redis auth binding}
     ports:
@@ -58,6 +62,8 @@ services:
     mem_limit: 1536m
     memswap_limit: 1536m
     cpus: 2.0
+    environment:
+      AI_PLATFORM_WORKER_SERVICE_TOKEN: ${AI_PLATFORM_WORKER_SERVICE_TOKEN:-}
     volumes:
       - worker-cache:/var/lib/platform/models
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001"]
