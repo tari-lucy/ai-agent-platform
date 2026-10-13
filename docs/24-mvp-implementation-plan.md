@@ -23,6 +23,7 @@
 | M0-04 | integrated | Codex / task/m0-04-compose-foundation | be20427; health/persistence/recreate/loopback/auth/resources прошли; combined config/lint/types passed |
 | M0-05 | integrated | Codex / task/m0-05-recall-baseline | cffe60f; 60 RU/1k/10k gates прошли, combined Linux 21 tests/lint passed |
 | M0-06 | integrated | Codex / task/m0-06-safe-startup | 19f7862; safe config/STOPPED/source image hashes passed, combined Linux 55 tests/types/lint passed |
+| M1-01 | in_progress | Codex / task/m1-01-contracts | 9ddabcc; M0-06 integrated, отдельный managed worktree от проверенного main |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -66,6 +67,12 @@ tests/probes/m0_06 и своим report. Отдельный worktree task/m0-06-
 Разрешены offline validation/bootstrap checks на synthetic profiles;
 LLM/игра/публичный выход не разрешены. Supervisor/STOP implementation — M1.
 
+M1-01 владеет packages/contracts (Python schemas/converters, offline OpenAPI,
+детерминированный TypeScript/schema export), tests/contracts и своим report.
+База назначения 9ddabcc; отдельный worktree task/m1-01-contracts. Исключены
+application/runtime handlers, access implementation, migrations, manifests/locks,
+Compose/deploy и общий UI client. Проверки только synthetic/offline; не запускать
+LLM/игру/публичный выход. Схемы API не предоставляют права и не открывают listener.
 ## M0. Воспроизводимая основа и технические пробы
 
 | ID | Зависит от | Результат / зона | Критерий завершения |
