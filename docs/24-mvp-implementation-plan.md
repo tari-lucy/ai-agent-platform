@@ -20,7 +20,8 @@
 | M0-01 | integrated | Codex / task/m0-01-environment-audit | 4872a17; отчёт принят оператором, fast-forward в main, combined diff/check пройдены |
 | M0-02 | integrated | Codex / task/m0-02-project-scaffold | 4280cb1; Windows/Linux clean lock install, lint/types/7 tests/build прошли; combined revision совпадает |
 | M0-03 | integrated | Codex / task/m0-03-storage-recall-probe | 1d797bf; load/crash/restart/delete/rebuild/RU/RAM/digests прошли; combined 9 tests passed |
-| M0-04 | in_progress | Codex / task/m0-04-compose-foundation | Проверенный main после M0-03 и этой записи назначения |
+| M0-04 | integrated | Codex / task/m0-04-compose-foundation | be20427; health/persistence/recreate/loopback/auth/resources прошли; combined config/lint/types passed |
+| M0-05 | in_progress | Codex / task/m0-05-recall-baseline | Проверенный main be20427 после M0-04 и этой записи назначения |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -28,7 +29,7 @@ packages (только каркас, без contract schemas), scripts, tests/to
 LICENSE/THIRD_PARTY_NOTICES.md и своим implementation report.
 Отдельный worktree; manifest/lock owner один — исполнитель M0-02.
 Исключены: Compose/deploy, migrations, schema/API/business contracts,
-реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04
+реализация памяти/LLM/STOP/UI экранов. Последующие задачи кроме M0-03/M0-04/M0-05
 не назначены. M0-02 проверяет установку/минимальную сборку, без моделей,
 платных API и запуска полного runtime. Общие статусы обновляет координатор.
 
@@ -47,6 +48,13 @@ contracts/application logic, config M0-06 и общий UI client. Разреш�
 и named volumes; published port только loopback core. Реальные LLM/игра/эфир
 не разрешены. Runtime entrypoints остаются остановленным scaffold; настоящий
 supervisor/jobs/access будут в M1.
+
+M0-05 владеет tests/fixtures/recall, tests/probes/m0_05 и своим report.
+Отдельный worktree task/m0-05-recall-baseline; 60 synthetic RU queries,
+1k/10k corpus, offline MiniLM/FTS5/sqlite-vec probe. Разрешено read-only
+повторное использование public pinned model cache M0-03; отдельный Linux
+volume, CPU 2/1536 MiB/batch 4. Исключены application schemas, manifests,
+locks, Compose, contracts, migrations и реальная LLM/публикация.
 
 ## M0. Воспроизводимая основа и технические пробы
 

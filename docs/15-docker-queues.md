@@ -4,7 +4,7 @@
 Redis Streams и три базовых Compose-сервиса с Windows-адаптерами согласованы
 в D38–D39. Broker client — redis-py asyncio, fsync/лимиты —
 [doc23](23-project-delivery-operations.md); exact versions фиксирует M0.
-Compose-файлы и приложение не создаются.
+Compose scaffold проверен в M0-04; функциональные очереди/приложение ещё не реализованы.
 
 ## Граница Docker и Windows
 

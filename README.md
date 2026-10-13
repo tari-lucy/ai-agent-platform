@@ -4,12 +4,13 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-03 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-04 интегрированы.**
 Проверены среда, каркас Windows/Linux и storage/RU embeddings probe. Функциональное
 приложение ещё не реализовано; остальные пробы и критерии остаются планом.
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
-[M0-03](docs/implementation-reports/M0-03.md).
+[M0-03](docs/implementation-reports/M0-03.md),
+[M0-04](docs/implementation-reports/M0-04.md).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:
