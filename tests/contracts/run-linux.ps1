@@ -38,6 +38,7 @@ set -e
 /check/.venv/bin/python -m mypy apps/core/src apps/worker/src packages scripts
 /check/.venv/bin/python -m pytest tests/tooling tests/contracts tests/probes/m0_03 tests/probes/m0_05 tests/probes/m0_06/test_configuration.py -q -p no:cacheprovider --tb=short
 '@
+$taskCommand = $taskCommand.Replace("`r`n","`n")
 docker run @taskArgs $taskImage /bin/sh -c $taskCommand
 if ($LASTEXITCODE -ne 0) { throw 'M1-01 Linux combined checks failed' }
 $taskReceipt = @{
