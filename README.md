@@ -4,7 +4,7 @@
 и подключаемых инструментов, сред и каналов общения. Minecraft, голос,
 Live2D, эфиры и медиапроизводство — применения общего рабочего пространства.
 
-**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04, M2-01–M2-03 интегрированы.**
+**Статус: базовый план 1.0 от 2026-10-13; M0-01–M0-06, M1-01–M1-04 и M1-06, M2-01–M2-03 интегрированы.**
 Проверены среда, каркас Windows/Linux, Compose, RU recall, безопасный bootstrap,
 контрактные схемы/OpenAPI/TS, SQLite repositories/миграции и внутренний supervisor
 с direct STOP/pause/resume и durable jobs/Redis. Модули профилей персонажей и памяти/recall
@@ -20,6 +20,7 @@ HTTP управления, диалог и LLM ещё не реализован�
 [M1-02](docs/implementation-reports/M1-02.md),
 [M1-03](docs/implementation-reports/M1-03.md),
 [M1-04](docs/implementation-reports/M1-04.md),
+[M1-06](docs/implementation-reports/M1-06.md),
 [M2-01](docs/implementation-reports/M2-01.md),
 [M2-02](docs/implementation-reports/M2-02.md),
 [M2-03](docs/implementation-reports/M2-03.md).
@@ -106,10 +107,11 @@ SQLite head 0003. Supervisor refresh сохраняет исходный cancell
 длинный heartbeat проверен. Повторный Claim.acquired=False не запускает работу.
 Перед объединением с M2: Windows 247 tests (4 Redis skipped), equivalent-source Linux 253
 tests с настоящим Redis, AOF restart, types/lint/export/hash checks прошли.
-Bootstrap остаётся STOPPED; authenticated handlers и scheduler — M1-05/06.
+Bootstrap остаётся STOPPED; bounded telemetry/resource scheduler принят в M1-06.
+Authenticated handlers/service identity — следующая M1-05.
 Cold Docker build остаётся отдельной пробой при подготовленном публичном cache.
 Блок M2 ведёт второй агент; здесь его файлы/задачи не изменяются.
-Совместная версия M1-04 + M2-01–03: Windows 382 / Linux 383 tests прошли
+Совместная версия после M1-06 + M2-01–03: Windows 429 / Linux 430 tests прошли
 (Redis fixture tests пропущены; Windows FIFO недоступен), types/lint/import/export passed.
 Windows symlink import исправлен; общий runner — python scripts/check_combined.py.
 [Отчёт интеграции](docs/implementation-reports/M1-M2-integration.md).
