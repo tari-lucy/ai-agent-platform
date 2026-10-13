@@ -27,6 +27,7 @@
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
+| M1-05 | in_progress | Codex / task/m1-05-access | a614c36; отдельный checkout, auth/session/CSRF/Origin/service API, проверки M1-05 |
 | M1-06 | integrated | Codex / task/m1-06-telemetry-scheduler | ebc32bf; 47 operations cases, combined Windows429 / Linux430, bounded buffers/reserved budgets/UNKNOWN/actual SQLite retry, types/lint/export passed; M1-05 ещё не реализована |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
@@ -303,3 +304,12 @@ Task report: изменённые файлы, принятые решения, �
 
 Только координатор обновляет общий статус task list на integration branch.
 Неперечисленные в таблице назначений задачи остаются `planned`.
+
+M1-05 назначена по прямому поручению оператора после публикации M1-06.
+База a614c36, отдельный checkout/ветка task/m1-05-access. Зона: apps/core/access,
+tests/access и свой отчёт; узкая composition-правка core/bootstrap, auth binding
+в adapters/configuration и включение тестов в scripts/check_combined.py.
+Координатор выдаёт additive canonical auth/session и service claim/lease response
+contracts (api/catalogue/export/generated + их tests): сначала контракт и проверки,
+затем runtime. Исключены M2 business modules, migrations, dependencies/lockfiles,
+Compose, UI, платные вызовы и публичный доступ. Зависимости M1-01/M0-06 приняты.
