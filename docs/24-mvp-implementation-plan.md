@@ -29,6 +29,7 @@
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
 | M1-05 | integrated | Codex / task/m1-05-access | 6081bdf/957a9c6 + a69f404/585b73d/62a8fb7; Windows510/Linux511, 78 auth cases, real HTTP/WS/SQLite/STOP, strict types/lint/export/lock; core768 MiB no OOM |
 | M1-06 | integrated | Codex / task/m1-06-telemetry-scheduler | ebc32bf; 47 operations cases, combined Windows429 / Linux430, bounded buffers/reserved budgets/UNKNOWN/actual SQLite retry, types/lint/export passed; M1-05 также интегрирована |
+| M4-01 | in_progress | Codex / task/m4-01-panel-shell | база 841b52c; shell/auth/API/WS/query cache; до backend приёмка UI-only |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
@@ -338,3 +339,16 @@ exit0/OOMfalse. uv lock --check --offline passed; только websockets17.2 д
 Перед использованием обновить свой venv по frozen lock. Credentials локальны.
 Функциональные границы и незапущенные части — implementation-reports/M1-05.md;
 runtime не начинает работу без readiness/owner/grants. M2 принадлежит второму агенту.
+
+
+M4-01 назначена оператором 2026-10-14 после M1. Отдельный checkout/ветка
+task/m4-01-panel-shell, база 841b52c. Владелец apps/panel (shared shell/client,
+manifest scripts при необходимости, без обновления dependency versions),
+tests/panel и своего implementation report. Координатор владеет только
+назначением/итогом doc24 и указателями README/doc25/doc27 при сдаче.
+Зависимости M1-01/M1-05 integrated. Canonical generated contracts только
+импортируются; contract schemas/exports, migrations, Python lock, Compose,
+core/access и business M2–M5 не меняются. Приёмка UI-only до полного
+backend; отдельная проверка реальных login/session/STOP/events M1-05.
+Synthetic fixtures/локальный loopback browser допустимы; без настоящих
+env/профилей/памяти, LLM API, публикации и новых прав.
