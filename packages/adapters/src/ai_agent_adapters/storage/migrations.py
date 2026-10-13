@@ -8,7 +8,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Connection
 
-HEAD = "0002"
+HEAD = "0003"
 
 
 def migrate(connection: Connection, directory: Path, revision: str = "head") -> None:
