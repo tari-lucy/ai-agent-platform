@@ -319,3 +319,8 @@ ControlAuthority/проверке Supervisor для отзыва ожидающ�
 минимальный проброс auth bindings/host port в deploy/compose.yaml и описание
 в .env.example. Формат команд, owner state machine, ресурсы и зависимости
 не переопределяются. Проверки только synthetic bindings; реальные .env не читаются.
+
+Транспортная часть M1-05 также владеет deploy/core.py только для bounded
+WebSocket frame/queue/backlog/keepalive; worker/Redis listener и ресурсы не меняются.
+Проверка optional ControlAuthority callback перенесена в tests/access,
+чтобы исторический standalone M1-03 runner не зависел от новых test helpers.
