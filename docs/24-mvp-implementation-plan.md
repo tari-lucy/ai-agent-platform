@@ -58,6 +58,7 @@ volume, CPU 2/1536 MiB/batch 4. Исключены application schemas, manifest
 locks, Compose, contracts, migrations и реальная LLM/публикация.
 
 M0-06 владеет config, root .env.example, apps/core и apps/worker bootstrap/settings,
+packages/adapters/src/ai_agent_adapters/configuration.py (общий config adapter),
 tests/probes/m0_06 и своим report. Отдельный worktree task/m0-06-safe-startup.
 Исключены manifests/locks, contracts, migrations, Compose/deploy и UI client.
 Разрешены offline validation/bootstrap checks на synthetic profiles;
