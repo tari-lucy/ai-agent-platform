@@ -1,0 +1,683 @@
+{
+  "corpora": [
+    {
+      "querying": {
+        "phase": "query",
+        "chunks": 1000,
+        "corpus_sha256": "4ff938c47fdeb01a7ee5de4e16f825086a61e65b3e0afee1e81fd0d074812e56",
+        "queries_sha256": "9d427ec8f8295d6b94e01d009c383b60fb1d4dd8fd887c5f824dc1b3d186e9d6",
+        "cold_from_script_ms": 5533.079,
+        "model_init_ms": 2383.269,
+        "versions": {
+          "fastembed": "0.9.0",
+          "onnxruntime": "1.31.0",
+          "sqlite-vec": "0.1.9",
+          "numpy": "2.5.4"
+        },
+        "sqlite": "3.40.1",
+        "measurements": [
+          {
+            "mode": "fts",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 0.8125,
+            "p95_ms": 0.565,
+            "median_ms": 0.382,
+            "max_ms": 1.219,
+            "embedding_p95_ms": 0.0,
+            "search_p95_ms": 0.565,
+            "forbidden_disclosures": 0,
+            "misses": [
+              {
+                "query_id": "q01",
+                "gold": [
+                  1
+                ],
+                "chunk_ids": [
+                  19,
+                  7
+                ]
+              },
+              {
+                "query_id": "q11",
+                "gold": [
+                  6
+                ],
+                "chunk_ids": [
+                  66,
+                  84,
+                  90,
+                  108,
+                  132,
+                  138,
+                  156,
+                  162
+                ]
+              },
+              {
+                "query_id": "q15",
+                "gold": [
+                  8
+                ],
+                "chunk_ids": [
+                  68,
+                  92,
+                  116,
+                  140,
+                  164,
+                  194,
+                  212,
+                  218
+                ]
+              },
+              {
+                "query_id": "q16",
+                "gold": [
+                  8
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q23",
+                "gold": [
+                  12
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q40",
+                "gold": [
+                  20
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q41",
+                "gold": [
+                  21
+                ],
+                "chunk_ids": [
+                  369,
+                  537,
+                  705,
+                  3,
+                  81,
+                  105,
+                  129,
+                  153
+                ]
+              },
+              {
+                "query_id": "q44",
+                "gold": [
+                  22
+                ],
+                "chunk_ids": [
+                  370,
+                  706,
+                  538,
+                  16,
+                  76,
+                  100,
+                  130,
+                  148
+                ]
+              },
+              {
+                "query_id": "q47",
+                "gold": [
+                  24
+                ],
+                "chunk_ids": [
+                  18
+                ]
+              }
+            ]
+          },
+          {
+            "mode": "vector",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 1.0,
+            "p95_ms": 11.657,
+            "median_ms": 8.567,
+            "max_ms": 15.157,
+            "embedding_p95_ms": 10.673,
+            "search_p95_ms": 1.31,
+            "forbidden_disclosures": 0,
+            "misses": []
+          },
+          {
+            "mode": "hybrid",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 0.916667,
+            "p95_ms": 11.294,
+            "median_ms": 8.8,
+            "max_ms": 14.106,
+            "embedding_p95_ms": 9.735,
+            "search_p95_ms": 2.185,
+            "forbidden_disclosures": 0,
+            "misses": [
+              {
+                "query_id": "q11",
+                "gold": [
+                  6
+                ],
+                "chunk_ids": [
+                  90,
+                  138,
+                  498,
+                  426,
+                  522,
+                  660,
+                  570,
+                  204
+                ]
+              },
+              {
+                "query_id": "q15",
+                "gold": [
+                  8
+                ],
+                "chunk_ids": [
+                  68,
+                  164,
+                  194,
+                  242,
+                  290,
+                  92,
+                  116,
+                  284
+                ]
+              },
+              {
+                "query_id": "q41",
+                "gold": [
+                  21
+                ],
+                "chunk_ids": [
+                  369,
+                  3,
+                  705,
+                  537,
+                  129,
+                  105,
+                  81,
+                  201
+                ]
+              },
+              {
+                "query_id": "q44",
+                "gold": [
+                  22
+                ],
+                "chunk_ids": [
+                  370,
+                  706,
+                  538,
+                  196,
+                  202,
+                  130,
+                  220,
+                  100
+                ]
+              }
+            ]
+          }
+        ],
+        "memory": {
+          "rss_current_mib": 658.402,
+          "rss_peak_mib": 664.703,
+          "cgroup": {
+            "current_mib": 616.648,
+            "peak_mib": 624.477,
+            "max_mib": 1536.0
+          }
+        },
+        "lifecycle": {
+          "stale_cache_gate": true,
+          "source_delete": true,
+          "permission_revoke": true,
+          "version_gate": true,
+          "rebuild_removed": 258,
+          "reopen_gate": true,
+          "restore_ledger_overlay": true,
+          "scope": "disposable fixture; production backup/lifecycle is M5"
+        },
+        "acceptance": {
+          "recall": true,
+          "latency": true,
+          "memory": true,
+          "privacy": true
+        }
+      },
+      "indexing": {
+        "phase": "index",
+        "chunks": 1000,
+        "corpus_sha256": "4ff938c47fdeb01a7ee5de4e16f825086a61e65b3e0afee1e81fd0d074812e56",
+        "queries_sha256": "9d427ec8f8295d6b94e01d009c383b60fb1d4dd8fd887c5f824dc1b3d186e9d6",
+        "cold_from_script_ms": 6430.204,
+        "model_init_ms": 2614.904,
+        "versions": {
+          "fastembed": "0.9.0",
+          "onnxruntime": "1.31.0",
+          "sqlite-vec": "0.1.9",
+          "numpy": "2.5.4"
+        },
+        "sqlite": "3.40.1",
+        "index_ms": 13554.073,
+        "memory": {
+          "rss_current_mib": 665.719,
+          "rss_peak_mib": 665.719,
+          "cgroup": {
+            "current_mib": 672.883,
+            "peak_mib": 673.086,
+            "max_mib": 1536.0
+          }
+        },
+        "vector_rows": 1000
+      }
+    },
+    {
+      "querying": {
+        "phase": "query",
+        "chunks": 10000,
+        "corpus_sha256": "16e45b36383825c049b6912bb1dbd627654d91ab311c2df17c34441fdb39e978",
+        "queries_sha256": "9d427ec8f8295d6b94e01d009c383b60fb1d4dd8fd887c5f824dc1b3d186e9d6",
+        "cold_from_script_ms": 5131.573,
+        "model_init_ms": 2110.523,
+        "versions": {
+          "fastembed": "0.9.0",
+          "onnxruntime": "1.31.0",
+          "sqlite-vec": "0.1.9",
+          "numpy": "2.5.4"
+        },
+        "sqlite": "3.40.1",
+        "measurements": [
+          {
+            "mode": "fts",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 0.8125,
+            "p95_ms": 2.985,
+            "median_ms": 2.116,
+            "max_ms": 3.639,
+            "embedding_p95_ms": 0.0,
+            "search_p95_ms": 2.985,
+            "forbidden_disclosures": 0,
+            "misses": [
+              {
+                "query_id": "q01",
+                "gold": [
+                  1
+                ],
+                "chunk_ids": [
+                  19,
+                  7
+                ]
+              },
+              {
+                "query_id": "q11",
+                "gold": [
+                  6
+                ],
+                "chunk_ids": [
+                  66,
+                  84,
+                  90,
+                  108,
+                  132,
+                  138,
+                  156,
+                  162
+                ]
+              },
+              {
+                "query_id": "q15",
+                "gold": [
+                  8
+                ],
+                "chunk_ids": [
+                  68,
+                  92,
+                  116,
+                  140,
+                  164,
+                  194,
+                  212,
+                  218
+                ]
+              },
+              {
+                "query_id": "q16",
+                "gold": [
+                  8
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q23",
+                "gold": [
+                  12
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q40",
+                "gold": [
+                  20
+                ],
+                "chunk_ids": []
+              },
+              {
+                "query_id": "q41",
+                "gold": [
+                  21
+                ],
+                "chunk_ids": [
+                  369,
+                  537,
+                  705,
+                  1179,
+                  1569,
+                  1737,
+                  2769,
+                  2937
+                ]
+              },
+              {
+                "query_id": "q44",
+                "gold": [
+                  22
+                ],
+                "chunk_ids": [
+                  370,
+                  706,
+                  1570,
+                  1906,
+                  3106,
+                  3412,
+                  3580,
+                  3970
+                ]
+              },
+              {
+                "query_id": "q47",
+                "gold": [
+                  24
+                ],
+                "chunk_ids": [
+                  18
+                ]
+              }
+            ]
+          },
+          {
+            "mode": "vector",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 0.895833,
+            "p95_ms": 15.112,
+            "median_ms": 13.297,
+            "max_ms": 17.61,
+            "embedding_p95_ms": 8.614,
+            "search_p95_ms": 6.892,
+            "forbidden_disclosures": 0,
+            "misses": [
+              {
+                "query_id": "q01",
+                "gold": [
+                  1
+                ],
+                "chunk_ids": [
+                  6667,
+                  3427,
+                  7747,
+                  9427,
+                  2467,
+                  7387,
+                  2227,
+                  8587
+                ]
+              },
+              {
+                "query_id": "q10",
+                "gold": [
+                  5
+                ],
+                "chunk_ids": [
+                  4403,
+                  5603,
+                  2003,
+                  6467,
+                  8603,
+                  6803,
+                  1361,
+                  8867
+                ]
+              },
+              {
+                "query_id": "q25",
+                "gold": [
+                  13
+                ],
+                "chunk_ids": [
+                  6745,
+                  2425,
+                  7705,
+                  1387,
+                  9907,
+                  2419,
+                  5707,
+                  7777
+                ]
+              },
+              {
+                "query_id": "q28",
+                "gold": [
+                  14
+                ],
+                "chunk_ids": [
+                  4322,
+                  2228,
+                  5522,
+                  2954,
+                  6554,
+                  8228,
+                  7028,
+                  722
+                ]
+              },
+              {
+                "query_id": "q32",
+                "gold": [
+                  16
+                ],
+                "chunk_ids": [
+                  4042,
+                  6772,
+                  2962,
+                  2644,
+                  6844,
+                  2290,
+                  8002,
+                  9484
+                ]
+              }
+            ]
+          },
+          {
+            "mode": "hybrid",
+            "calls": 180,
+            "positive_queries": 48,
+            "negative_queries": 12,
+            "recall_at_8": 0.9375,
+            "p95_ms": 20.883,
+            "median_ms": 15.126,
+            "max_ms": 25.18,
+            "embedding_p95_ms": 9.457,
+            "search_p95_ms": 11.99,
+            "forbidden_disclosures": 0,
+            "misses": [
+              {
+                "query_id": "q01",
+                "gold": [
+                  1
+                ],
+                "chunk_ids": [
+                  19,
+                  6667,
+                  7,
+                  3427,
+                  7747,
+                  9427,
+                  2467,
+                  7387
+                ]
+              },
+              {
+                "query_id": "q41",
+                "gold": [
+                  21
+                ],
+                "chunk_ids": [
+                  1179,
+                  2769,
+                  369,
+                  5979,
+                  1569,
+                  705,
+                  8769,
+                  4779
+                ]
+              },
+              {
+                "query_id": "q44",
+                "gold": [
+                  22
+                ],
+                "chunk_ids": [
+                  706,
+                  1570,
+                  5506,
+                  3970,
+                  3412,
+                  5170,
+                  3106,
+                  370
+                ]
+              }
+            ]
+          }
+        ],
+        "memory": {
+          "rss_current_mib": 674.641,
+          "rss_peak_mib": 674.816,
+          "cgroup": {
+            "current_mib": 632.129,
+            "peak_mib": 634.48,
+            "max_mib": 1536.0
+          }
+        },
+        "lifecycle": {
+          "stale_cache_gate": true,
+          "source_delete": true,
+          "permission_revoke": true,
+          "version_gate": true,
+          "rebuild_removed": 2508,
+          "reopen_gate": true,
+          "restore_ledger_overlay": true,
+          "scope": "disposable fixture; production backup/lifecycle is M5"
+        },
+        "acceptance": {
+          "recall": true,
+          "latency": true,
+          "memory": true,
+          "privacy": true
+        }
+      },
+      "indexing": {
+        "phase": "index",
+        "chunks": 10000,
+        "corpus_sha256": "16e45b36383825c049b6912bb1dbd627654d91ab311c2df17c34441fdb39e978",
+        "queries_sha256": "9d427ec8f8295d6b94e01d009c383b60fb1d4dd8fd887c5f824dc1b3d186e9d6",
+        "cold_from_script_ms": 5864.266,
+        "model_init_ms": 2309.088,
+        "versions": {
+          "fastembed": "0.9.0",
+          "onnxruntime": "1.31.0",
+          "sqlite-vec": "0.1.9",
+          "numpy": "2.5.4"
+        },
+        "sqlite": "3.40.1",
+        "index_ms": 128864.657,
+        "memory": {
+          "rss_current_mib": 678.508,
+          "rss_peak_mib": 678.508,
+          "cgroup": {
+            "current_mib": 665.297,
+            "peak_mib": 665.297,
+            "max_mib": 1536.0
+          }
+        },
+        "vector_rows": 10000
+      }
+    }
+  ],
+  "receipt": {
+    "containers": [
+      {
+        "phase": "index",
+        "state": {
+          "exit": 0,
+          "oom": false,
+          "memory": 1610612736,
+          "nano_cpus": 2000000000,
+          "network": "none"
+        },
+        "chunks": 1000
+      },
+      {
+        "phase": "query",
+        "state": {
+          "exit": 0,
+          "oom": false,
+          "memory": 1610612736,
+          "nano_cpus": 2000000000,
+          "network": "none"
+        },
+        "chunks": 1000
+      },
+      {
+        "phase": "index",
+        "state": {
+          "exit": 0,
+          "oom": false,
+          "memory": 1610612736,
+          "nano_cpus": 2000000000,
+          "network": "none"
+        },
+        "chunks": 10000
+      },
+      {
+        "phase": "query",
+        "state": {
+          "exit": 0,
+          "oom": false,
+          "memory": 1610612736,
+          "nano_cpus": 2000000000,
+          "network": "none"
+        },
+        "chunks": 10000
+      }
+    ],
+    "uv_lock_sha256": "1d2c3ffd7b1661f2a3ff9c6222fa89640ecdbbdd6c96b21dae44e1b38eba702d",
+    "image": "sha256:a35928bd28aab333eed5a98e165ff8402f3b6c7f7fcba776c0f1e459f8cd0d97"
+  }
+}
