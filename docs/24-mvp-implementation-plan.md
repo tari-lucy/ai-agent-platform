@@ -27,8 +27,8 @@
 | M1-02 | integrated | Codex / task/m1-02-storage | 04b454c + 4807f8f; SQLite head 0002, 40 storage tests; combined main Windows 171 / equivalent-source Linux 173, lint/types/export/hash checks passed |
 | M1-03 | integrated | Codex / task/m1-03-supervisor | add6ebd + 5c82995; 42 control cases, combined main Windows 213 / equivalent-source Linux 215; types/lint/export/hash and installed no-dev image passed; cold Docker build ограничена metadata cache |
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
-| M1-05 | in_progress | Codex / task/m1-05-access | a614c36; отдельный checkout, auth/session/CSRF/Origin/service API, проверки M1-05 |
-| M1-06 | integrated | Codex / task/m1-06-telemetry-scheduler | ebc32bf; 47 operations cases, combined Windows429 / Linux430, bounded buffers/reserved budgets/UNKNOWN/actual SQLite retry, types/lint/export passed; M1-05 ещё не реализована |
+| M1-05 | integrated | Codex / task/m1-05-access | 6081bdf/957a9c6 + a69f404/585b73d/62a8fb7; Windows510/Linux511, 78 auth cases, real HTTP/WS/SQLite/STOP, strict types/lint/export/lock; core768 MiB no OOM |
+| M1-06 | integrated | Codex / task/m1-06-telemetry-scheduler | ebc32bf; 47 operations cases, combined Windows429 / Linux430, bounded buffers/reserved budgets/UNKNOWN/actual SQLite retry, types/lint/export passed; M1-05 также интегрирована |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
@@ -142,7 +142,7 @@ ExecutionCommand/Capability; scheduler даёт бюджет, не заменя�
 Только синтетические bounded проверки Windows/Linux; без live API/LLM/игры.
 Приняты ports/README и ebc32bf; integrated main source/lock hashes совпали с
 финальной квитанцией Linux. Network access/authentication — M1-05; реальные
-provider/worker IO не проверены. Следующая задача этого исполнителя — M1-05.
+provider/worker IO не проверены. M1-05 впоследствии интегрирована; итог ниже.
 
 M2-01 владеет packages/application/src/ai_agent_application/persona,
 packages/adapters/src/ai_agent_adapters/persona, tests/persona и своим report.
@@ -329,3 +329,12 @@ WebSocket frame/queue/backlog/keepalive; worker/Redis listener и ресурсы
 не может обслужить canonical events endpoint. Координатор выдаёт минимальные
 pyproject.toml/uv.lock/THIRD_PARTY_NOTICES изменения только для websockets,
 без обновления остальных зависимостей; проверить реальный HTTP Upgrade и framing.
+
+Итог M1-05: integrated62a8fb7, зависимые M2/M4 могут использовать auth/service
+contracts и ports. Final source135 совпадает с проверенным checkout после
+нормализации line endings; root smoke45 passed, включая настоящий WS Upgrade.
+Windows510/Linux511 и core-only78/768 MiB passed; memory.peak264081408 bytes,
+exit0/OOMfalse. uv lock --check --offline passed; только websockets17.2 добавлен.
+Перед использованием обновить свой venv по frozen lock. Credentials локальны.
+Функциональные границы и незапущенные части — implementation-reports/M1-05.md;
+runtime не начинает работу без readiness/owner/grants. M2 принадлежит второму агенту.
