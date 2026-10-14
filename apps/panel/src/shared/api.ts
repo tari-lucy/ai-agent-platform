@@ -1,11 +1,11 @@
 import type {
   ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeStatePage, EditCommand,
-  Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
+  ArtifactRef, LaboratoryReport, Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
+  laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
   characterStates, costCalculations, encounters, laboratoryReports, people, promises, relationships, topics, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
@@ -58,7 +58,8 @@ export class PanelApi {
     for (const controller of this.#requests) controller.abort();
     this.#requests.clear();
   }
-  async #request(path: string, body?: unknown, signal?: AbortSignal, timeout = 15000): Promise<unknown> {
+  async #request(path: string, body?: unknown, signal?: AbortSignal, timeout = 15000,
+    download?: { reference: ArtifactRef; scenario: string; version: number }): Promise<unknown> {
     // Relative allowlisted paths only: no endpoints, credentials or redirects to other sites.
     if (!/^\/api\/v1\//.test(path) || path.includes('..') || path.includes('#')) throw new ApiFailure('INVALID_ARGUMENTS');
     const generation = this.#generation;
@@ -87,18 +88,31 @@ export class PanelApi {
       const reader = response.body?.getReader();
       if (!reader) throw new ApiFailure('NETWORK');
       const chunks: Uint8Array[] = []; let length = 0;
+      const limit = download && response.ok ? download.reference.size_bytes : 1048576;
       try {
         while (true) {
           const part = await reader.read();
           if (part.done) break;
           length += part.value.byteLength;
-          if (length > 1048576) { await reader.cancel(); throw new ApiFailure('NETWORK'); }
+          if (length > limit) { await reader.cancel(); throw new ApiFailure('NETWORK'); }
           chunks.push(part.value);
         }
       } finally { reader.releaseLock(); }
       if (generation !== this.#generation || controller.signal.aborted) throw new ApiFailure('STALE_CONTEXT');
       const bytes = new Uint8Array(length); let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      if (download && response.ok) {
+        const { reference } = download;
+        if (length !== reference.size_bytes || response.headers.get('Content-Type')?.split(';')[0] !== 'application/json' ||
+            response.headers.get('ETag') !== `"${reference.checksum}"`) throw new ApiFailure('NETWORK');
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
+        if (generation !== this.#generation || controller.signal.aborted) throw new ApiFailure('STALE_CONTEXT');
+        if (digest !== reference.checksum) throw new ApiFailure('NETWORK');
+        const report: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        if (!object(report) || report.mock !== true || report.scenario_id !== download.scenario ||
+            report.scenario_version !== download.version) throw new ApiFailure('NETWORK');
+        return new Blob([bytes], { type: 'application/json' });
+      }
       let value: unknown;
       try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
       catch { throw new ApiFailure('NETWORK'); }
@@ -142,6 +156,13 @@ export class PanelApi {
   }
   async laboratoryCatalogue(scope: Scope, signal?: AbortSignal): Promise<LaboratoryCatalogue> {
     return laboratoryCatalogue(await this.#read('laboratory-catalogue', scope, signal), scope);
+  }
+  async laboratoryReportContent(scope: Scope, report: LaboratoryReport, signal?: AbortSignal): Promise<Blob> {
+    const checked = laboratoryDownload(report, scope);
+    const reference = { ...checked.report_artifact! };
+    const query = new URLSearchParams(partition(scope) as Record<string, string>);
+    return await this.#request(`/api/v1/laboratory-reports/${checked.id}/content?${query}`, undefined, signal, 15000,
+      { reference, scenario: checked.scenario_id, version: checked.scenario_version }) as Blob;
   }
   async runs(scope: Scope, signal?: AbortSignal): Promise<RunSessionPage> {
     return runs(await this.#read('sessions', scope, signal), scope);

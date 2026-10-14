@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ai_agent_application.laboratory.report import ScenarioReport
 from ai_agent_application.memory.service import derived_id
-from ai_agent_application.storage import Owner, Principal, RecordAccess, Storage
+from ai_agent_application.storage import Owner, Principal, ReadPurpose, RecordAccess, Storage
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import ArtifactRef, Scope, SourceRef
 from ai_agent_contracts.extensions import ExtensionRegistry
@@ -30,6 +30,7 @@ class Reports:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         ttl: timedelta = timedelta(days=30),
         readers: tuple[RecordAccess, ...] = (),
+        api_transfer_allowed: bool = False,
         max_bytes: int = 2_000_000,
         quota_bytes: int = 32_000_000,
     ):
@@ -40,6 +41,7 @@ class Reports:
             raise ValueError("REPORT_LIMIT")
         self.root, self.storage, self.registry = root.resolve(), storage, registry
         self.clock, self.ttl, self.readers = clock, ttl, readers
+        self.api_transfer_allowed = api_transfer_allowed
         self.max_bytes, self.quota_bytes = max_bytes, quota_bytes
 
     def _path(self, scope: Scope, source_id: str) -> Path:
@@ -89,7 +91,7 @@ class Reports:
             retention=Retention(policy_id="laboratory-30d", expires_at=now + self.ttl),
             availability="available",
             read_allowed=True,
-            api_transfer_allowed=False,
+            api_transfer_allowed=self.api_transfer_allowed,
             public_disclosure_allowed=False,
         )
         prior_source = await self.storage.repository(Source, PRINCIPALS[Owner.MEMORY], scope).get(
@@ -160,22 +162,46 @@ class Reports:
         )
         return reference
 
-    async def read(self, scope: Scope, artifact_id: str, principal: Principal) -> bytes:
-        artifact = await self.storage.repository(Artifact, principal, scope).get(artifact_id)
+    async def read(
+        self,
+        scope: Scope,
+        artifact_id: str,
+        principal: Principal,
+        *,
+        purpose: ReadPurpose = "private",
+        expected: ArtifactRef | None = None,
+    ) -> bytes:
+        artifact = await self.storage.repository(Artifact, principal, scope).get(
+            artifact_id, purpose=purpose
+        )
         if artifact is None or artifact.expires_at is None or artifact.expires_at <= self.clock():
             raise ContractError(ErrorCode.ACCESS_DENIED)
-        path = self._path(scope, artifact.provenance_source.source_id)
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > self.max_bytes:
+        if expected is not None and artifact.reference != expected:
             raise ContractError(ErrorCode.STALE_CONTEXT)
-        body = path.read_bytes()
+        path = self._path(scope, artifact.provenance_source.source_id)
+        limit = self.max_bytes if expected is None else min(self.max_bytes, expected.size_bytes)
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        try:
+            with path.open("rb") as handle:
+                body = handle.read(limit + 1)
+        except OSError:
+            raise ContractError(ErrorCode.STALE_CONTEXT) from None
         if (
             len(body) != artifact.reference.size_bytes
             or hashlib.sha256(body).hexdigest() != artifact.reference.checksum
         ):
             raise ContractError(ErrorCode.STALE_CONTEXT)
         # A revoke/delete during file IO must also close the response.
-        again = await self.storage.repository(Artifact, principal, scope).get(artifact_id)
-        if again is None or again != artifact:
+        again = await self.storage.repository(Artifact, principal, scope).get(
+            artifact_id, purpose=purpose
+        )
+        if (
+            again is None
+            or again != artifact
+            or again.expires_at is None
+            or again.expires_at <= self.clock()
+        ):
             raise ContractError(ErrorCode.ACCESS_DENIED)
         return body
 

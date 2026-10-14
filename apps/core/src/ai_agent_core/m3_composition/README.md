@@ -141,3 +141,33 @@ session.reflect перед session.end создаёт конечный job по 
 Чтения/DTO/CAS и public TS builders: docs/implementation-reports/Integration-contracts.md.
 Это минимальный private operator путь; публичные каналы, реальные модели,
 все M4 формы и M5 эксплуатационный bootstrap требуют отдельных gates.
+
+## Полный mock lab report через HTTP
+
+GET /api/v1/laboratory-reports/{report_id}/content с четырьмя partition query
+полями возвращает точные сохранённые JSON bytes как attachment
+laboratory-report.json; ETag — quoted SHA-256. Максимум 2 000 000 bytes,
+no-store/nosniff, без pathname/URL от клиента, без redirects/range/cache replay.
+Требуется обычная operator session/Host/Origin и разрешённая TEST partition.
+Чтение после STOP допустимо при сохранённых правах; нового запуска нет.
+
+Downloads проверяет api_transfer для LaboratoryReport, Artifact и Source,
+версию полной ArtifactRef, TTL/доступность/размер/checksum. После file IO
+повторяются проверки Artifact/Source, отчёта и сессии. Нет записи/LLM/job IO.
+Если Reports не передан или artifact ещё не создан — CAPABILITY_UNAVAILABLE;
+неизвестный/недоступный отчёт — ACCESS_DENIED, повреждение/смена reference —
+STALE_CONTEXT. Ошибки не содержат пути, тела отчёта или raw исключений.
+
+Reports по умолчанию сохраняет Source.api_transfer_allowed=False.
+Доверенный host может явно выбрать api_transfer_allowed=True для новых
+mock reports и минимальные grants operator read+api_transfer к owners
+laboratory/catalogue/memory, отдельные RecordAccess для отчёта/artifact/source.
+Это независимые условия; endpoint не вызывает provision. Существующие
+закрытые Source не открываются сменой настройки или повторным save.
+Default deploy остаётся закрытым, миграции/содержимое локальной БД не меняются.
+
+Shared PanelApi.laboratoryReportContent(scope, report, signal) возвращает Blob
+после сверки TEST partition, ArtifactRef, byte limit, ETag, SHA-256,
+mock/scenario ID/version. Session clear/abort удаляет ожидающий результат;
+redirects/автоповторов нет. Feature owner подключает кнопку скачивания,
+освобождая созданный object URL; остальные M4-06 действия пока UI-only.

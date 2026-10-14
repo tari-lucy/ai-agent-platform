@@ -379,3 +379,15 @@ export function gmSettings(value: unknown, selected: Scope): import('./contracts
     Array.isArray(r.rules.data.rules)));
   return value as unknown as import('./contracts.ts').GmRuntimeStatePage;
 }
+
+// Full bytes use a separate bounded route, never an Artifact pathname or remote URL.
+export function laboratoryDownload(value: unknown, selected: Scope): LaboratoryReportPage['items'][number] {
+  laboratoryReports({ items: [value], limit: 50, next_cursor: null, complete: true }, selected);
+  demand(object(value) && object(value.report_artifact));
+  const ref = value.report_artifact;
+  demand(isScope(ref.scope) && samePartition(selected, ref.scope) && version(ref.version) &&
+    typeof ref.checksum === 'string' && /^[a-f0-9]{64}$/.test(ref.checksum) &&
+    Number.isSafeInteger(ref.size_bytes) && Number(ref.size_bytes) > 0 && Number(ref.size_bytes) <= 2000000 &&
+    ref.media_type === 'application/json');
+  return value as LaboratoryReportPage['items'][number];
+}

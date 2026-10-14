@@ -572,3 +572,28 @@ Windows6 HTTP, Edge1 actual browser path, TS146, lint/typecheck/build passed.
 mypy170/ruff/imports/exports passed. Весь backend повторно не запускался.
 Default deploy/host preparation, прочие UI-only формы, M5 operations/live models
 остаются отдельно; весь M4/M5 не переводится в integrated этим изменением.
+
+## Integration-lab-report — назначение 2026-10-15
+
+По поручению оператора продолжить сведение M4/M5: Codex, base d97c5ee,
+отдельная ветка codex/integration-lab-report. Зона: access download port,
+m3_composition Reports/HTTP wiring, shared panel client, canonical OpenAPI,
+целевые tests/access/m3_runtime/panel и собственный отчёт.
+Цель: authenticated скачивание полного mock lab report по ID отчёта, без
+pathname/URL от клиента; действующие ACL/API-transfer, TEST partition, TTL,
+версия/размер/checksum и повторная проверка после IO. Default closed;
+предоставление прав только явно доверенным host, без автопровижининга.
+Второму агенту остаются feature forms; migrations/deps/Compose/модели,
+реальные API и прочие owner actions не входят. Приёмка: реальный ASGI/SQLite
+положительный путь и отказы/отзыв/logout/повреждение/TTL; shared client
+bounds/integrity/session tests, статика/exports. Полный backend не повторять
+без нового непокрытого риска; использовать affected-набор.
+
+### Приёмка Integration-lab-report
+
+Ограниченный private/mock full-report download принят: Linux affected184,
+TS152, типизация/lint/build/exports passed. После Linux добавлен version
+regression, Windows2 targeted passed; full backend не повторялся.
+Порты/права/ограничения: [Integration-lab-report](implementation-reports/Integration-lab-report.md).
+M4-06 feature wiring/TEST scope allocation и остальные owner/operations задачи
+сохраняют свои gates; автоматических grants и готового host setup нет.

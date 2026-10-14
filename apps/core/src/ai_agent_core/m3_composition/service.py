@@ -180,11 +180,13 @@ class Runtime:
         from ai_agent_core.access.reads import SQLiteReader
 
         from .access import Mutations
+        from .downloads import Downloads
         from .views import Views
 
         return AccessPorts(
             reader=SQLiteReader(self.store),
             views=Views(self),
+            downloads=Downloads(self),
             mutations=Mutations(self),
             jobs=self.jobs,
             events=self.events,

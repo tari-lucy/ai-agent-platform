@@ -1,3 +1,7 @@
+Обновление координатора 2026-10-15: полный mock lab JSON доступен через
+authenticated content route и shared PanelApi; [приёмка](Integration-lab-report.md).
+Автовыделение TEST scopes, feature button и прочие owner requests остаются отдельно.
+
 # M4 / M5-03 — сверка запросов и порядок интеграции
 
 Обновление координатора: canonical public схемы/чтения и private mock HTTP путь —

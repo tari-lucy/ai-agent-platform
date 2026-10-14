@@ -1,6 +1,7 @@
 """ASGI boundary: direct in-memory STOP, bounded requests, closed owner ports."""
 
 import asyncio
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,7 +32,7 @@ from ai_agent_contracts.api import (
 )
 from ai_agent_contracts.catalogue import ADAPTERS, READ_MODELS
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
-from ai_agent_contracts.common import MAX_BODY_BYTES, Contract, Scope
+from ai_agent_contracts.common import MAX_BODY_BYTES, ArtifactRef, Contract, Scope
 from ai_agent_contracts.control import RunSession
 from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.states import ErrorCode
@@ -69,6 +70,12 @@ class Views(Protocol):
     ) -> Contract: ...
 
 
+class Downloads(Protocol):
+    async def read(
+        self, principal_id: str, scope: Scope, report_id: str
+    ) -> tuple[ArtifactRef, bytes]: ...
+
+
 class Mutations(Protocol):
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
 
@@ -86,6 +93,7 @@ class AccessPorts:
     events: Events | None = None
     scopes: tuple[Scope, ...] | None = None
     limits: AccessLimits | None = None
+    downloads: Downloads | None = None
 
 
 class Rejection(Exception):
@@ -372,6 +380,44 @@ class Surface:
         raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
 
     async def read(self, path: str, asgi: ASGIScope, authority: SessionAuthority) -> Response:
+        download = re.fullmatch(
+            r"/api/v1/laboratory-reports/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})/content", path
+        )
+        if download is not None:
+            if self.ports.downloads is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            query = self.query(asgi, reading=True)
+            if set(query) != {"workspace_id", "persona_id", "memory_space_id", "memory_mode"}:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            try:
+                selected = Scope.model_validate(query)
+            except ValueError:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
+            self.sessions.check_scope(authority, selected)
+            reference, body = await self.ports.downloads.read(
+                authority.control.principal_id, selected, download.group(1)
+            )
+            self.sessions.check_scope(authority, selected)
+            if (
+                reference.scope.partition != selected.partition
+                or selected.memory_mode != "test"
+                or reference.media_type != "application/json"
+                or not 0 < len(body) <= 2_000_000
+                or len(body) != reference.size_bytes
+            ):
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            if hashlib.sha256(body).hexdigest() != reference.checksum:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            return Response(
+                body,
+                media_type="application/json",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Disposition": 'attachment; filename="laboratory-report.json"',
+                    "ETag": '"' + reference.checksum + '"',
+                },
+            )
         custom = re.fullmatch(r"/api/v1/(laboratory-catalogue|persona-markdown)(?:/([^/]+))?", path)
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
         if match is None or (match.group(1) not in READ_MODELS and custom is None):
