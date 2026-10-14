@@ -1,19 +1,22 @@
 """Core-only SQLite adapter. No startup migration, live env, model or network access."""
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+import builtins
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ai_agent_application.storage import Grant, Principal, ReadPurpose, Storage
+from ai_agent_application.storage import Grant, Owner, Principal, ReadPurpose, Storage
 from ai_agent_contracts.api import CommandBase, PanelCommand, ServiceCommand
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import ExtensionPayload, Record, Scope, SourceRef
 from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.persona import Opportunity
 from ai_agent_contracts.states import ErrorCode
 from pydantic import BaseModel, TypeAdapter
-from sqlalchemy import URL, and_, delete, event, insert, select, text
+from sqlalchemy import URL, and_, delete, event, insert, literal, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
@@ -40,6 +43,9 @@ class SQLiteStore(Storage):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if not timedelta(0) < receipt_retention <= timedelta(days=365):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        self._fences: ContextVar[tuple[Callable[[], None], ...]] = ContextVar(
+            "owner_write_fences", default=()
+        )
         self.receipt_retention = receipt_retention
         self.clock, self.extensions = clock, extensions
         self.engine = create_async_engine(
@@ -65,6 +71,19 @@ class SQLiteStore(Storage):
         def begin(connection: Any) -> None:
             write = connection.get_execution_options().get("write_transaction", False)
             connection.exec_driver_sql("BEGIN IMMEDIATE" if write else "BEGIN")
+
+    @contextmanager
+    def fence(self, guard: Callable[[], None]) -> Iterator[None]:
+        """Trusted task-local write admission; nested fences never replace an older one."""
+        token = self._fences.set((*self._fences.get(), guard))
+        try:
+            yield
+        finally:
+            self._fences.reset(token)
+
+    def check_fence(self) -> None:
+        for guard in self._fences.get():
+            guard()
 
     async def close(self) -> None:
         await self.engine.dispose()
@@ -202,12 +221,20 @@ class Repository[T: Record]:
         purpose: ReadPurpose = "private",
         limit: int = 50,
         after_id: str | None = None,
+        lifecycle: bool = False,
     ) -> list[T]:
         check_principal(self.principal)
         if type(limit) is not int or not 1 <= limit <= 200:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if version is not None and (type(version) is not int or version < 1):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        if lifecycle and (
+            self.model is not Opportunity
+            or self.principal.role != "core_owner"
+            or self.principal.owner is not Owner.GM
+            or purpose != "private"
+        ):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
         await self.store.check_schema()
         now = stamp(self.store.clock())
         revision = db.revisions
@@ -227,8 +254,15 @@ class Repository[T: Record]:
                 db.records.c.scope_id == scope_key(self.scope),
                 db.records.c.kind == self.model.__name__,
                 revision.c.version == (version if version is not None else db.records.c.version),
-                unexpired(revision.c.expires_at, now),
-                visible(db.records, revision.c.version, self.principal, purpose, now),
+                literal(True) if lifecycle else unexpired(revision.c.expires_at, now),
+                visible(
+                    db.records,
+                    revision.c.version,
+                    self.principal,
+                    purpose,
+                    now,
+                    lifecycle=lifecycle,
+                ),
             )
         )
         if record_id is not None:
@@ -329,3 +363,12 @@ class Repository[T: Record]:
         purpose: ReadPurpose = "private",
     ) -> list[T]:
         return await self._rows(limit=limit, after_id=after_id, purpose=purpose)
+
+    async def get_for_lifecycle(self, record_id: str) -> T | None:
+        rows = await self._rows(record_id=record_id, lifecycle=True, limit=1)
+        return rows[0] if rows else None
+
+    async def list_for_lifecycle(
+        self, *, limit: int = 50, after_id: str | None = None
+    ) -> builtins.list[T]:
+        return await self._rows(limit=limit, after_id=after_id, lifecycle=True)

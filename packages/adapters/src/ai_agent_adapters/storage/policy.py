@@ -106,6 +106,8 @@ def visible(
     principal: Principal,
     purpose: ReadPurpose,
     now: str,
+    *,
+    lifecycle: bool = False,
 ) -> ColumnElement[bool]:
     link = db.links.alias()
     source = db.records.alias()
@@ -183,7 +185,11 @@ def visible(
         )
         .correlate(row, db.revisions)
     )
-    return and_(base_visible(row, principal, purpose, now), ~invalid_link)
+    return and_(
+        base_visible(row, principal, purpose, now, allow_expired=lifecycle),
+        row.c.available.is_(True),
+        ~invalid_link,
+    )
 
 
 def source_refs(value: object, extensions: ExtensionRegistry | None = None) -> list[SourceRef]:

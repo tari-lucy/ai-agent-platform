@@ -1,6 +1,8 @@
 """Owner-facing ports; trusted core composition establishes identities and grants."""
 
-from contextlib import AbstractAsyncContextManager
+import builtins
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -80,8 +82,18 @@ class RecordRepository[T: Record](Protocol):
         self, *, limit: int = 50, after_id: str | None = None, purpose: ReadPurpose = "private"
     ) -> list[T]: ...
 
+    async def get_for_lifecycle(self, record_id: str) -> T | None: ...
+
+    async def list_for_lifecycle(
+        self, *, limit: int = 50, after_id: str | None = None
+    ) -> builtins.list[T]: ...
+
 
 class Storage(Protocol):
+    def fence(self, guard: Callable[[], None]) -> AbstractContextManager[None]: ...
+
+    def check_fence(self) -> None: ...
+
     def repository[T: Record](
         self, model: type[T], principal: Principal, scope: Scope
     ) -> RecordRepository[T]: ...

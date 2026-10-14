@@ -43,6 +43,7 @@ class SQLiteUnitOfWork:
         command: CommandBase,
     ) -> None:
         self.store, self.connection, self.principal = store, connection, principal
+        self.guards = store._fences.get()
         self.scope, self.command = scope, command
         self.fingerprint = command_fingerprint(command)
         self.key = scope_key(scope)
@@ -58,7 +59,12 @@ class SQLiteUnitOfWork:
         self.failed = True
         raise ContractError(code, self.command.request_id, current)
 
+    def check_fence(self) -> None:
+        for guard in self.guards:
+            guard()
+
     async def authorize(self) -> None:
+        self.check_fence()
         if self.principal.role != "core_owner" or self.owner is None:
             self.fail(ErrorCode.ACCESS_DENIED)
         allowed = await self.connection.scalar(
@@ -390,3 +396,4 @@ class SQLiteUnitOfWork:
             await self.validate_reference(ref)
         if self.replay is None and not self.completed:
             self.fail(ErrorCode.INVALID_ARGUMENTS)
+        self.check_fence()
