@@ -561,7 +561,8 @@ def test_protected_sources_survive_the_test_inactivity_limit(tmp_path):
         )
 
     report, kept, ledger = run(scenario())
-    assert report.expired == () and kept.has_content and ledger == []
+    assert report.expired == () and report.pending == ()  # skipped, not half-processed
+    assert kept.has_content and kept.availability == "available" and ledger == []
 
 
 def test_a_deletion_needs_known_sources(tmp_path):
