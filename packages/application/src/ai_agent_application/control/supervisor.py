@@ -66,6 +66,7 @@ class Supervisor:
         self._pause_deadline: float | None = None
         self._last_elapsed, self._last_utc = self.clock.elapsed(), self.clock.utc()
         self.last_error: ErrorCode | None = None
+        self._observers: list[Callable[[RunSession, float], None]] = []
 
     def _owned(self) -> None:
         if get_ident() != self._thread:
@@ -105,12 +106,52 @@ class Supervisor:
     def persistence_pending(self) -> bool:
         return self._dirty
 
+    def observe(self, callback: Callable[[RunSession, float], None]) -> Callable[[], None]:
+        """Trusted bounded synchronous bookkeeping only; no IO in the STOP path."""
+        self._owned()
+        if len(self._observers) >= 8:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        callback(self._run.model_copy(deep=True), self.clock.elapsed())
+        self._observers.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._observers:
+                self._observers.remove(callback)
+
+        return unsubscribe
+
+    def authorize_operator(self, authority: ControlAuthority, scope: Scope) -> None:
+        """Reuse the control boundary for owner configuration, with no state transition."""
+        self._owned()
+        self.poll()
+        self._authority(authority, scope, self._agent)
+        self._current_scope(scope)
+
     def _change(self, **changes: object) -> None:
         now = max(self.clock.utc(), self._run.updated_at)
         values = self._run.model_dump()
         values.update(changes, version=self._run.version + 1, updated_at=now)
         self._run = RunSession.model_validate(values)
         self._dirty = True
+        self._notify()
+
+    def _notify(self) -> None:
+        for callback in tuple(self._observers):
+            try:
+                callback(self._run.model_copy(deep=True), self.clock.elapsed())
+            except Exception:
+                self._observers.remove(callback)
+                self._cancel()
+                self._approval = None
+                self.last_error = ErrorCode.SERVICE_UNAVAILABLE
+                self._run = self._run.model_copy(
+                    update={
+                        "state": RunState.FAULTED,
+                        "control_epoch": self._run.control_epoch + 1,
+                        "version": self._run.version + 1,
+                    }
+                )
+                self._dirty = True
 
     def _cancel(self, kinds: frozenset[WorkKind] | None = None) -> None:
         for admission_id, admission in list(self._admissions.items()):
@@ -420,6 +461,9 @@ class Supervisor:
             if token != (self._run.run_id, self._run.control_epoch, self._run.version):
                 raise ContractError(ErrorCode.STALE_CONTEXT)
             self._run, self._approval, self._dirty = candidate, approval, False
+            self._notify()
+            if self._run.state != RunState.ACTIVE:
+                raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
             self.last_error = None
             receipt = self._receipt(command)
             self._remember(authority, command, receipt)

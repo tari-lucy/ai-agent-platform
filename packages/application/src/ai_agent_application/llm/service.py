@@ -35,7 +35,7 @@ from .model import (
     Started,
     UsageReported,
 )
-from .ports import Admission, AttemptSink, LLMProvider, ProviderFactory
+from .ports import Admission, AttemptJournal, AttemptSink, LLMProvider, ProviderFactory
 
 MAX_RETRY_PAUSE_SECONDS = 30.0
 MAX_RESULT_BYTES = 256_000
@@ -94,6 +94,7 @@ class LLMGateway:
         resolve: Callable[[str], ResolvedAssignment],
         *,
         sink: AttemptSink | None = None,
+        journal: AttemptJournal | None = None,
         admission: Admission | None = None,
         clock: Clock | None = None,
         max_attempts: int = 2,
@@ -105,7 +106,7 @@ class LLMGateway:
             raise ValueError("MAX_ATTEMPTS_BOUNDS")
         self._providers = providers
         self._resolve = resolve
-        self._sink = sink
+        self._sink, self._journal = sink, journal
         self._admission = admission
         self._clock = clock or (lambda: datetime.now(UTC))
         self._max_attempts = max_attempts
@@ -244,7 +245,32 @@ class LLMGateway:
         outcome = _Outcome()
         started_at = self._clock()
         events: Any = None
+        journal_started = False
         try:
+            if self._journal is not None:
+                before = AttemptReport(
+                    operation_id=request.operation_id,
+                    attempt_id=f"{request.operation_id}.a{number}",
+                    role_id=request.role_id,
+                    assignment_id=assignment.assignment_id,
+                    assignment_version=assignment.assignment_version,
+                    connection_id=assignment.connection_id,
+                    requested_model_id=assignment.model_id,
+                    reported_model_id=None,
+                    status="unknown",
+                    failure=None,
+                    started_at=started_at,
+                    completed_at=started_at,
+                    usage=UNKNOWN_USAGE,
+                    delivered_chars=0,
+                )
+                try:
+                    await self._journal.begin(before)
+                except Exception:
+                    raise ProviderError(Failure.NOT_ADMITTED) from None
+                journal_started = True
+            if self._stopped(cancel):
+                raise ProviderError(Failure.NOT_ADMITTED)
             provider: LLMProvider = self._providers(assignment.adapter_id)
             events = provider.stream(ProviderCall(assignment=assignment, messages=request.messages))
             async with asyncio.timeout(assignment.parameters.timeout_seconds):
@@ -280,6 +306,13 @@ class LLMGateway:
                 usage=outcome.usage,
                 delivered_chars=len(outcome.text),
             )
+            if self._journal is not None and journal_started:
+                technical = asyncio.create_task(self._journal.finish(report))
+                try:
+                    await asyncio.shield(technical)
+                except asyncio.CancelledError:
+                    await technical
+                    raise
             if self._sink is not None:
                 self._sink(report)
         return outcome, report

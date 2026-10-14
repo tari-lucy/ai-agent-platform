@@ -30,3 +30,10 @@ type Admission = Callable[[], bool]
 
 def register_llm_extensions(registry: ExtensionRegistry) -> None:
     registry.register("llm.generation-parameters", GenerationParameters)
+
+
+class AttemptJournal(Protocol):
+    """Durable before-call reservation and technical final receipt, with no prompts."""
+
+    async def begin(self, report: AttemptReport) -> None: ...
+    async def finish(self, report: AttemptReport) -> None: ...

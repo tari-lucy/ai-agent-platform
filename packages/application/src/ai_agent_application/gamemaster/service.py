@@ -121,6 +121,7 @@ class GameMaster:
     admitted: Callable[[], bool] = lambda: False
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     reader_access: tuple[RecordAccess, ...] = ()
+    active_clock: Callable[[], float] | None = None
     paused: bool = False
     intensity: float = 1.0
 
@@ -333,7 +334,16 @@ class GameMaster:
         same = [o for o in opportunities if o.id.startswith(prefix)]
         if any(o.status in UNRESOLVED for o in same):
             return ProposalResult(None, False, "ALREADY_OPEN", rolls)
-        if arc.cooldown_until is not None and now < arc.cooldown_until:
+        active_now = self.active_clock() if self.active_clock else None
+        if (
+            active_now is not None
+            and arc.cooldown_active_until is not None
+            and active_now < arc.cooldown_active_until
+        ) or (
+            (active_now is None or arc.cooldown_active_until is None)
+            and arc.cooldown_until is not None
+            and now < arc.cooldown_until
+        ):
             return ProposalResult(None, False, "COOLDOWN", rolls)
         declined = [
             o
@@ -347,7 +357,12 @@ class GameMaster:
         recent = [
             o
             for o in opportunities
-            if o.status is not S.BLOCKED and now - o.created_at < self.policy.window
+            if o.status is not S.BLOCKED
+            and (
+                active_now - o.offered_active_at < self.policy.window.total_seconds()
+                if active_now is not None and o.offered_active_at is not None
+                else now - o.created_at < self.policy.window
+            )
         ]
         if len(recent) >= max(1, int(self.policy.max_in_window * self.intensity)):
             return ProposalResult(None, False, "WINDOW_LIMIT", rolls)
@@ -357,7 +372,15 @@ class GameMaster:
             old_grounds = {g.source_id for o in same for g in o.grounds}
             if not any(g.source_id not in old_grounds for g in grounds):
                 return ProposalResult(None, False, "NO_NEW_GROUNDS", rolls)
-            if now - max(o.updated_at for o in same) < self.policy.repeat_cooldown:
+            if (
+                active_now
+                - max(
+                    (o.updated_active_at if o.updated_active_at is not None else 0.0) for o in same
+                )
+                < self.policy.repeat_cooldown.total_seconds()
+                if active_now is not None and all(o.updated_active_at is not None for o in same)
+                else now - max(o.updated_at for o in same) < self.policy.repeat_cooldown
+            ):
                 return ProposalResult(None, False, "REPEAT_COOLDOWN", rolls)
         if not await self._grounded(scope, grounds):
             return ProposalResult(None, False, "BAD_GROUNDS", rolls)
@@ -390,6 +413,8 @@ class GameMaster:
                 "choice": None,
                 "actual_outcome": None,
                 "family_id": family_id,
+                "offered_active_at": active_now,
+                "updated_active_at": active_now,
                 "topic_key": fold(topic_key),
                 "reason_code": verdict.reason,
                 "rules_version": self.rules.version,
@@ -410,6 +435,9 @@ class GameMaster:
                         version=arc.version + 1,
                         updated_at=max(now, arc.updated_at).isoformat(),
                         cooldown_until=(now + cool).isoformat(),
+                        cooldown_active_until=(active_now + cool.total_seconds())
+                        if active_now is not None
+                        else None,
                     ),
                     arc.version,
                 )
@@ -545,6 +573,9 @@ class GameMaster:
             revised = self._revised(
                 opp,
                 status=to.value,
+                updated_active_at=self.active_clock()
+                if self.active_clock
+                else opp.updated_active_at,
                 scope=scope.model_dump(mode="json"),
                 version=opp.version + 1,
                 updated_at=max(self.clock(), opp.updated_at).isoformat(),
@@ -629,9 +660,9 @@ class GameMaster:
                 provenance="simulation" if scope.memory_mode == "test" else "observation",
             ),
         )
-        existing = await self.memory.storage.repository(
-            Episode, self.memory.principal, scope
-        ).get(episode_id)
+        existing = await self.memory.storage.repository(Episode, self.memory.principal, scope).get(
+            episode_id
+        )
         if existing is None:
             raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
         if (

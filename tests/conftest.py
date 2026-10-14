@@ -18,6 +18,7 @@ def close_m3_test_pools(request, monkeypatch):
         "development",
         "laboratory",
         "m3_review",
+        "m3_runtime",
         "moderation",
         "dialogue",
     }

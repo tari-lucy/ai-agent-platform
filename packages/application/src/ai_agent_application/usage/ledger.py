@@ -157,6 +157,17 @@ class UsageLedger:
 
     # ---- attempts ---------------------------------------------------------------------
 
+    async def begin_attempt(self, command: CommandBase, report: AttemptReport) -> LLMAttempt:
+        """Pin one attempt before IO. A repeated reservation cannot call the provider twice."""
+        scope = command.scope
+        record_id = attempt_record_id(scope, report.attempt_id)
+        if await self._repo(LLMAttempt, scope).get(record_id) is not None:
+            raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT, command.request_id)
+        created = self._new_attempt(scope, record_id, report, await self._pin(scope, report))
+        pending = self._revised(created, status="running", completed_at=None)
+        await self._write(command, pending, None)
+        return pending
+
     async def record_attempt(self, command: CommandBase, report: AttemptReport) -> AttemptWritten:
         """Create the attempt once; later receipts of the same attempt only refine it."""
         scope = command.scope

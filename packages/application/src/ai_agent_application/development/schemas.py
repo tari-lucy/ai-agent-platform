@@ -38,3 +38,4 @@ class ReflectionResult(Contract):
 
 def register_development_extensions(registry: ExtensionRegistry) -> None:
     registry.register("development.patch", Patch)
+    registry.register("development.reflection-result", ReflectionResult)
