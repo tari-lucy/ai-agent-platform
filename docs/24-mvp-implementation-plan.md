@@ -408,3 +408,20 @@ Edge11 cases, responsive/keyboard passed. Новые M2/M3 модули из3a5d
 сохранены, независимый review следует отдельно; их runtime не объявляется
 проверенным этим task. До полной backend приёмки не переводить M4-01
 в integrated и не считать M4-02–08 реализованными.
+
+
+## Координаторская проверка M3 — 2026-10-14
+
+По поручению оператора: M3-review-integration, база6755f43, отдельная ветка
+codex/m3-review-integration. Зона: независимые tests/m3_review, application
+extraction/gamemaster/development/laboratory и их acceptance; один владелец
+узких storage guard/lifecycle ports и связанных тестов; scripts/check_combined.py
+для включения новых принятых наборов. При подтверждённой необходимости:
+additive metadata contracts/exports для GM и закрытая core composition
+(регистрация/owner grants/Scope+Supervisor bindings), без автозапуска.
+Никаких UI/M4 новых экранов, deps/locks/Compose, реальных API/моделей/каналов.
+Узкие social changes только для закрытия обхода проверенного M3 relationship
+development, без новой социальной feature/передачи владения БД.
+Цель: воспроизвести M3 acceptance Windows/Linux, исправить найденные ошибки,
+разобрать каждый coordinator request в своём отчёте M3-review-integration.md.
+Наличие M3 модулей в main не означает принятого runtime wiring/качества модели.
