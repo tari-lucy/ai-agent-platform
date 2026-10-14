@@ -105,6 +105,10 @@ async def new_bworld(tmp_path, scopes, *, policy=None, quota=None, upgrade_stage
         )
         return SQLiteRestoreTarget(staged, retention, memory, physical, index.close)
 
+    async def close_live():
+        world.index.close()
+        await world.store.close()
+
     switcher = FileSwitcher(live_db, live_index, base / "replaced")
     service = BackupService(
         snapshotter,
@@ -115,7 +119,7 @@ async def new_bworld(tmp_path, scopes, *, policy=None, quota=None, upgrade_stage
         switcher,
         work_dir=base / "work",
         current_head=HEAD,
-        close_live=world.store.close,
+        close_live=close_live,
         ledger_dir=base / "ledger-copies",
         extra=extra,
         upgrade_staged=upgrade_staged,

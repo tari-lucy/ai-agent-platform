@@ -462,3 +462,11 @@ Source/Claim/Episode/Profile/CharacterState/StoryArc с api_transfer перед
 Координаторское уточнение проверок M3: закрытие test pools также для
 dialogue/moderation; tests/llm — только portable synthetic SSE handshake.
 Итоги и оставшиеся runtime gates: [review](implementation-reports/M3-review-integration.md).
+
+Coordinator compatibility при поступлении M5-02 во время M3-review: узкая
+правка backup/directory.py — fsync требует writable file handle на Windows.
+POSIX mode не подтверждает Windows ACL; native backup до ACL-проверки не принят.
+
+Та же узкая compatibility зона: tests/backup/backup_support.py закрывает
+live recall index вместе с authority перед заменой файлов. Windows:
+36 backup tests passed, 1 POSIX-mode/ACL test failed; native backup gate открыт.

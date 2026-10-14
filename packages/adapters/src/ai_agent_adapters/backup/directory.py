@@ -88,7 +88,7 @@ class DirectoryBackupStore:
             (temporary / MANIFEST).write_text(_encode(manifest), encoding="utf-8")
             (temporary / MANIFEST).chmod(0o600)
             for item in temporary.iterdir():  # durable before the copy becomes visible
-                with item.open("rb") as handle:
+                with item.open("r+b") as handle:
                     os.fsync(handle.fileno())
             temporary.rename(final)
         except BaseException:
