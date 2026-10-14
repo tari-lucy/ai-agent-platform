@@ -31,6 +31,11 @@ export function latestRevisions(items: Utterance[]): Utterance[] {
 // Delivery state is per channel. One bad or unknown channel must not look like success.
 export function deliveryStatus(utterance: Utterance, rows: Delivery[]): { status: Status; detail: string } {
   if (utterance.moderation_status === 'blocked') return { status: 'cancelled', detail: 'Модерация закрыла выпуск.' };
+  if (utterance.audience_id === 'operator-panel' && utterance.channel_ids.length === 1 && utterance.channel_ids[0] === 'operator-panel' && utterance.operation_id) {
+    const delivered = rows.some((r) => r.utterance_id === utterance.utterance_id && r.revision === utterance.revision && r.channel_id === 'operator-panel' && r.status === 'DELIVERED');
+    return delivered ? { status: 'done', detail: 'Приватная панель подтвердила получение.' } :
+      { status: 'saved', detail: 'Приватный ответ сохранён. Получение ещё не подтверждено.' };
+  }
   if (utterance.moderation_status === 'draft') return { status: 'preview', detail: 'Черновик, ещё не проверен.' };
   if (utterance.moderation_status === 'checking') return { status: 'preview', detail: 'Проверяется модератором.' };
   const mine = latestAttempts(rows.filter((row) => row.utterance_id === utterance.utterance_id &&

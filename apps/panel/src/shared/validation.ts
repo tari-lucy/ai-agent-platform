@@ -333,3 +333,49 @@ export function promises(value: unknown, selected: Scope): PromisePage {
     (!['fulfilled', 'withdrawn'].includes(String(row.status)) || row.closure_result != null)));
   return value as PromisePage;
 }
+
+export function privateStream(value: unknown): import('./contracts.ts').StreamChunk | import('./contracts.ts').StreamTerminal {
+  demand(object(value) && isScope(value.scope) && id(value.id) &&
+    id(value.generation_id) && id(value.utterance_id) && id(value.attempt_id) &&
+    Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1);
+  demand(id(value.scope.run_id) && id(value.scope.agent_id));
+  if (value.type === 'generation.chunk') {
+    demand(value.preliminary === true && value.data_type === 'text' &&
+      typeof value.data === 'string' && value.data.length <= 16000);
+  } else {
+    demand(value.type === 'generation.terminal' &&
+      ['completed', 'rejected', 'cancelled', 'incomplete'].includes(String(value.status)) &&
+      (value.saved_result_id === null || id(value.saved_result_id)));
+    demand(value.status !== 'completed' || id(value.saved_result_id));
+  }
+  return value as import('./contracts.ts').StreamChunk | import('./contracts.ts').StreamTerminal;
+}
+export function profileMarkdown(value: unknown, selected: Scope): import('./contracts.ts').ProfileMarkdown {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    id(value.profile_id) && value.profile_id === selected.persona_id && version(value.version) &&
+    typeof value.markdown === 'string' && value.markdown.length <= 30000);
+  return value as import('./contracts.ts').ProfileMarkdown;
+}
+export function profileValidation(value: unknown, selected: Scope, requestId: string): import('./contracts.ts').ProfileValidation {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    value.request_id === requestId && typeof value.ready === 'boolean' &&
+    typeof value.version_conflict === 'boolean' && typeof value.unchanged === 'boolean' &&
+    Array.isArray(value.issues) && Array.isArray(value.blockers) &&
+    (value.digest === null || typeof value.digest === 'string' && /^[a-f0-9]{64}$/.test(value.digest)) &&
+    (value.current_version === null || version(value.current_version)));
+  return value as import('./contracts.ts').ProfileValidation;
+}
+export function laboratoryCatalogue(value: unknown, selected: Scope): import('./contracts.ts').LaboratoryCatalogue {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    value.mode === 'mock' && Array.isArray(value.scenarios) && value.scenarios.length <= 100 &&
+    value.scenarios.every((s) => object(s) && id(s.scenario_id) && version(s.version) &&
+      typeof s.title === 'string' && Array.isArray(s.tags) && s.tags.every((t) => typeof t === 'string')));
+  return value as import('./contracts.ts').LaboratoryCatalogue;
+}
+export function gmSettings(value: unknown, selected: Scope): import('./contracts.ts').GmRuntimeStatePage {
+  page(value, selected);
+  demand(value.items.every((r) => typeof r.intensity === 'number' && r.intensity >= 0 && r.intensity <= 1 &&
+    version(r.rules_version) && object(r.rules) && r.rules.schema_id === 'm3.rules' && object(r.rules.data) &&
+    Array.isArray(r.rules.data.rules)));
+  return value as unknown as import('./contracts.ts').GmRuntimeStatePage;
+}

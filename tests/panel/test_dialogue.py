@@ -210,7 +210,9 @@ def test_send_posts_one_command_and_clears_only_after_the_receipt(page, live_pan
     box.fill("Привет, как дела?")
     expect(send).to_be_enabled()
     send.click()
-    expect(page.get_by_text("Сообщение принято и сохранено ядром.")).to_be_visible()
+    expect(
+        page.get_by_text("Сообщение принято ядром. Обработка выполняется отдельно.")
+    ).to_be_visible()
     expect(box).to_have_value("")
     assert len(posted) == 1
     body, headers = posted[0]
@@ -246,7 +248,9 @@ def test_lost_reply_is_checked_with_the_same_command_never_doubled(page, live_pa
     expect(page.get_by_role("button", name="Отправить", exact=True)).to_be_disabled()
     assert len(attempts) == 1  # no automatic retry
     page.get_by_role("button", name="Проверить исход").click()
-    expect(page.get_by_text("Сообщение принято и сохранено ядром.")).to_be_visible()
+    expect(
+        page.get_by_text("Сообщение принято ядром. Обработка выполняется отдельно.")
+    ).to_be_visible()
     assert len(attempts) == 2 and attempts[0] == attempts[1]  # same id, same body
     expect(box).to_have_value("")
 

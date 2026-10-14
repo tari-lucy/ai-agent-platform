@@ -47,7 +47,7 @@ export function controlAvailability(run: RunSession | undefined, kind: ControlKi
 }
 // ASSUMPTION (owner decision pending): start/pause/resume address the agent, session.end the session.
 export function controlCommand(run: RunSession, kind: ControlKind, autonomy: 'observation' | 'autonomous' | null, requestId: string): ControlCommand {
-  return { type: kind, request_id: requestId, scope: run.scope, target: kind === 'session.end' ? run.session_id : run.agent_id,
+  return { type: kind, request_id: requestId, scope: run.scope, target: run.agent_id,
     expected_version: run.version, arguments: kind === 'agent.start' && autonomy ? { autonomy } : {} };
 }
 export type Control =

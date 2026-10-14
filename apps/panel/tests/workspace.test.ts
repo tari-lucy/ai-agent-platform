@@ -60,11 +60,11 @@ test('control availability follows the state; transitions and faults close every
   assert.deepEqual(on('FAULTED'), [false, false, false, false]);
   assert.equal(controlAvailability(undefined, 'agent.start').enabled, false);
 });
-test('control commands carry the version seen; autonomy only on start; session end targets the session', () => {
+test('control commands carry the version seen; autonomy only on start; session end targets the agent', () => {
   const start = controlCommand(run({ state: 'STOPPED' }), 'agent.start', 'autonomous', 'req-1');
   assert.deepEqual([start.type, start.expected_version, start.target, start.arguments], ['agent.start', 4, 'primary', { autonomy: 'autonomous' }]);
   assert.deepEqual(controlCommand(run(), 'agent.pause', 'autonomous', 'req-2').arguments, {});
-  assert.equal(controlCommand(run(), 'session.end', null, 'req-3').target, 'session-1');
+  assert.equal(controlCommand(run(), 'session.end', null, 'req-3').target, 'primary');
   assert.deepEqual(start.scope, runScope);
 });
 test('an unknown control outcome keeps the identical command; a refusal does not', () => {

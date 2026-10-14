@@ -1,6 +1,6 @@
 import type { EventSubscription, PanelEvent, Scope } from './contracts.ts';
 import { partition, permits } from './scope.ts';
-import { event } from './validation.ts';
+import { event, object, privateStream } from './validation.ts';
 
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'denied';
 interface Socket {
@@ -18,6 +18,7 @@ export interface EventOptions {
   cancel?: (timer: ReturnType<typeof setTimeout>) => void;
   refresh: () => void;
   changed: (event: PanelEvent) => void;
+  stream?: (event: import('./contracts.ts').StreamChunk | import('./contracts.ts').StreamTerminal) => void;
   state: (state: ConnectionState) => void;
 }
 // Five automatic reconnects per lifetime (even if handshakes flap), then explicit retry.
@@ -48,7 +49,16 @@ export function connectEvents(options: EventOptions): () => void {
       let parsed: PanelEvent;
       try {
         if (typeof message.data !== 'string' || new TextEncoder().encode(message.data).length > 16384) throw new Error();
-        parsed = event(JSON.parse(message.data));
+        const value: unknown = JSON.parse(message.data);
+        if (object(value) && (value.type === 'generation.chunk' || value.type === 'generation.terminal')) {
+          const piece = privateStream(value);
+          if (permits(options.scope, piece.scope)) {
+            options.stream?.(piece);
+            if (piece.type === 'generation.terminal') options.refresh();
+          }
+          return;
+        }
+        parsed = event(value);
       } catch { current.close(); return; }
       if (!permits(options.scope, parsed.scope) || seen.has(parsed.event_id)) return;
       const key = `${parsed.type}:${parsed.resource_id}`;

@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { Briefing, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
+import { acknowledgeReply } from '../../shared/owner-commands.ts';
+import { previewKey, type PrivatePreview } from '../../shared/private-preview.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
   afterSend, briefingStatuses, briefingTypes, buildTimeline, canSend, cancelBriefing, createBriefing,
@@ -66,7 +68,7 @@ function Composer({ api, run, scope }: { api: PanelApi; run: RunSession | undefi
       <Text size="xs" c="dimmed" role="status">{verdict.ok ? 'Готово к отправке.' : verdict.reason}</Text>
       <Button onClick={send} disabled={!verdict.ok}>{phase.phase === 'sending' ? 'Отправляем…' : 'Отправить'}</Button>
     </Group>
-    {phase.phase === 'saved' && <Alert color="teal" mt="sm" role="status">Сообщение принято и сохранено ядром.</Alert>}
+    {phase.phase === 'saved' && <Alert color="teal" mt="sm" role="status">Сообщение принято ядром. Обработка выполняется отдельно.</Alert>}
     {phase.phase === 'rejected' && <Alert color="orange" mt="sm" role="alert">
       {failureMessage(new ApiFailure(phase.code))} Сообщение не отправлено; текст сохранён в поле.</Alert>}
     {phase.phase === 'unknown' && <Alert color="orange" mt="sm" role="alert" title="Результат отправки неизвестен">
@@ -135,6 +137,24 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
   const utterances = useProjection(api, scope, 'utterances', (s, signal) => api.utterances(s, signal));
   const deliveries = useProjection(api, scope, 'deliveries', (s, signal) => api.deliveries(s, signal));
   const operations = useProjection(api, scope, 'operations', (s, signal) => api.operations(s, signal));
+  const cache = useQueryClient();
+  const preview = useQuery<PrivatePreview>({ queryKey: previewKey(scope), enabled: false });
+  const [receiving, setReceiving] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  async function receiveReply(row: import('../../shared/contracts.ts').Utterance) {
+    setReceiving(row.id); setReceiptError(null);
+    try { await api.command(acknowledgeReply(row, 'panel-receipt-' + row.id + '-' + row.revision)); }
+    catch (error) { setReceiptError(failureMessage(error)); }
+    finally {
+      setReceiving(null);
+      for (const resource of ['deliveries', 'episodes', 'sources']) {
+        void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+      }
+    }
+  }
+  const privateRows = (utterances.data?.items ?? []).filter((row) => row.operation_id &&
+    row.audience_id === 'operator-panel' && row.scope.run_id === run?.run_id &&
+    !(deliveries.data?.items ?? []).some((d) => d.utterance_id === row.id && d.revision === row.revision && d.status === 'DELIVERED'));
   const failed = [sources, utterances, deliveries, operations].filter((query) => query.isError);
   const timeline = buildTimeline(sources.data?.items ?? [], utterances.data?.items ?? [], deliveries.data?.items ?? []);
   const operationRows = operations.data?.items ?? [];
@@ -150,7 +170,11 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       {summary.reasons.map((reason) => <Text key={reason} size="sm" c="dimmed">{reason}</Text>)}
       {!!summary.pending.length && <><Text size="sm" fw={500} mt="xs">Ожидающие дела ({openOperations(operationRows).length})</Text>
         <ul>{summary.pending.map((line) => <li key={line}><Text size="sm" className="plain-text">{line}</Text></li>)}</ul></>}
-      <Text size="xs" c="dimmed" mt="xs">Текст ответа по мере генерации здесь не показывается: приватный поток ещё не подключён. После завершения ответ появится в ленте.</Text>
+      {preview.data?.status === 'preview' && preview.data.scope.run_id === run?.run_id && run?.state === 'ACTIVE' &&
+        <Paper withBorder p="xs" mt="sm" aria-label="Предварительный ответ">
+          <Text size="xs" c="dimmed">Предварительно{preview.data.incomplete ? ' · поток неполный' : ''}</Text>
+          <Text className="plain-text">{preview.data.text}</Text>
+        </Paper>}
     </Paper>
     {!!failed.length && <Alert color="orange" title="Часть диалога недоступна">
       {failureMessage(failed[0].error)} Лента может быть неполной. Попытки отправки не повторяются автоматически.</Alert>}
@@ -161,6 +185,11 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
         !timeline.length ? <Text size="sm" c="dimmed">Пока нет сообщений.</Text> :
           <ol className="timeline" aria-label="Лента диалога" aria-live="polite">{timeline.map((entry) => <EntryRow key={entry.key} entry={entry} />)}</ol>}
     </Paper>
+    {receiptError && <Alert color="orange">{receiptError}</Alert>}
+    {run?.state === 'ACTIVE' && privateRows.map((row) =>
+      <Button key={row.id} variant="light" disabled={receiving !== null} onClick={() => void receiveReply(row)}>
+        Подтвердить получение приватного ответа
+      </Button>)}
     <Composer api={api} run={run} scope={scope} />
     <BriefingPanel api={api} scope={scope} run={run} />
   </Stack>;

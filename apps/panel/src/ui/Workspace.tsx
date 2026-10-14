@@ -6,6 +6,7 @@ import type { OperatorSession, RunSessionPage, Scope, StopReceipt } from '../sha
 import { failureMessage, type PanelApi } from '../shared/api.ts';
 import { affectedResources, connectEvents, eventsUrl, type ConnectionState } from '../shared/events.ts';
 import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.ts';
+import { appendPreview, previewKey, type PrivatePreview } from '../shared/private-preview.ts';
 import { mergeRuns, stopTarget, stopObservation } from '../shared/projections.ts';
 import { Dialogue } from './dialogue/Dialogue.tsx';
 import { Memory } from './memory/Memory.tsx';
@@ -41,7 +42,14 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
     return connectEvents({
       scope: selected, url: eventsUrl(window.location), state: setStatus,
       refresh: () => { void cache.invalidateQueries({ queryKey: ['projection', key] }); },
+      stream: (event) => {
+        const run = cache.getQueryData<RunSessionPage>(projectionKey('sessions', selected))?.items[0];
+        if (!run || run.scope.run_id !== event.scope.run_id || run.scope.session_id !== event.scope.session_id ||
+            run.state !== 'ACTIVE' || run.activity !== 'OPEN') return;
+        cache.setQueryData<PrivatePreview>(previewKey(selected), (previous) => appendPreview(previous, event));
+      },
       changed: (event) => {
+        if (event.type === 'run.changed') cache.removeQueries({ queryKey: previewKey(selected) });
         for (const resource of affectedResources[event.type]) {
           void cache.invalidateQueries({ queryKey: projectionKey(resource, selected) });
         }

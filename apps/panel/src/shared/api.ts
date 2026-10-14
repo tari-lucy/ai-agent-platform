@@ -1,9 +1,11 @@
 import type {
+  ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeStatePage, EditCommand,
   Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
+  profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
   characterStates, costCalculations, encounters, laboratoryReports, people, promises, relationships, topics, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
@@ -34,7 +36,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+type ReadResource = 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
   'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises';
 
@@ -127,6 +129,19 @@ export class PanelApi {
     if (identifier !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identifier)) throw new ApiFailure('INVALID_ARGUMENTS');
     const path = identifier === undefined ? resource : `${resource}/${identifier}`;
     return this.#request(`/api/v1/${path}?${query}`, undefined, signal);
+  }
+  async profileMarkdown(scope: Scope, signal?: AbortSignal): Promise<ProfileMarkdown> {
+    return profileMarkdown(await this.#read('persona-markdown', scope, signal, undefined, scope.persona_id), scope);
+  }
+  async validateProfile(command: EditCommand): Promise<ProfileValidation> {
+    if (command.type !== 'persona.validate' || command.target !== command.scope.persona_id) throw new ApiFailure('INVALID_ARGUMENTS');
+    return profileValidation(await this.#request(`/api/v1/personas/${encodeURIComponent(command.target)}/validate`, command), command.scope, command.request_id);
+  }
+  async gmSettings(scope: Scope, signal?: AbortSignal): Promise<GmRuntimeStatePage> {
+    return gmSettings(await this.#read('gm-settings', scope, signal), scope);
+  }
+  async laboratoryCatalogue(scope: Scope, signal?: AbortSignal): Promise<LaboratoryCatalogue> {
+    return laboratoryCatalogue(await this.#read('laboratory-catalogue', scope, signal), scope);
   }
   async runs(scope: Scope, signal?: AbortSignal): Promise<RunSessionPage> {
     return runs(await this.#read('sessions', scope, signal), scope);
