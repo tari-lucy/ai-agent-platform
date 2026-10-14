@@ -118,3 +118,17 @@ test('laboratory reads use the allowlisted resource, the test partition and a va
   await assert.rejects(api.laboratoryReports(test_, undefined, 'a&b'), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
   assert.equal(paths.length, 1);
 });
+test('the summary must match to its very end and the digest must be hexadecimal', () => {
+  assert.equal(parseSummary(summary() + ' lorem'), null);
+  assert.equal(parseSummary(summary() + '\nsecond line'), null);
+  assert.equal(parseSummary('MOCK passed: 1 checks, 0 failed; seed s; digest ghijkl'), null);
+  assert.equal(parseSummary('MOCK passed: 1 checks, 0 failed; seed s; digest abcdef12345g'), null);
+  assert.equal(parseSummary('MOCK passed: 1 checks, 0 failed; seed s; digest abc'), null); // too short to be a digest
+  assert.notEqual(parseSummary('MOCK passed: 1 checks, 0 failed; seed s; digest abcdef'), null);
+});
+test('a start command carries the chosen scenario and seed, whatever they are', () => {
+  const data = startCommand(test_, start({ scenario: 'same-nickname', seed: 'seed-42' }), undefined, 'r').arguments.data as Record<string, unknown>;
+  assert.deepEqual([data.scenario_id, data.seed], ['same-nickname', 'seed-42']);
+  const other = startCommand(test_, start({ scenario: 'deletion-is-final', seed: 'x.y:z' }), undefined, 'r').arguments.data as Record<string, unknown>;
+  assert.deepEqual([other.scenario_id, other.seed], ['deletion-is-final', 'x.y:z']);
+});
