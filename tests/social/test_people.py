@@ -189,9 +189,28 @@ def test_returning_person_is_recognised_after_a_restart_without_a_new_introducti
 
 def test_relationships_are_per_persona_versioned_and_idempotent(tmp_path):
     async def scenario():
-        world = await new_world(tmp_path, [A, B])
+        from ai_agent_application.memory import EpisodeDraft
+        from ai_agent_application.social import AspectLimit, SocialPolicy
+
+        world = await new_world(
+            tmp_path,
+            [A, B],
+            policy=SocialPolicy(aspect_limits=(AspectLimit("trust", 0.0, 1.0, 0.05, 0.05),)),
+        )
+        world.social.admitted = lambda: True
         a_person, evidence = await world.person(A, "acct-1")
         b_person, b_evidence = await world.person(B, "acct-1")
+        await world.memory.record_episode(
+            command(A),
+            EpisodeDraft(
+                sources=(evidence,),
+                participant_ids=(a_person.id,),
+                choice="Встретилась.",
+                actual_outcome="Состоялся разговор.",
+                operation_id="relationship-experience",
+                provenance="observation",
+            ),
+        )
         defaults = {"trust": 0.5, "warmth": 0.5, "tension": 0.0}
         social = world.social
         rel = await social.ensure_relationship(command(A), a_person.id, defaults)
@@ -215,7 +234,7 @@ def test_relationships_are_per_persona_versioned_and_idempotent(tmp_path):
         )
         # Replaying the same change does not apply it twice.
         again = await social.apply_aspects(
-            command(A), a_person.id, 2, {"trust": 0.60}, [evidence], "change-1"
+            command(A), a_person.id, 1, {"trust": 0.55}, [evidence], "change-1"
         )
         assert again.version == 2
         assert (await social.get_relationship(A, a_person.id)).version == 2

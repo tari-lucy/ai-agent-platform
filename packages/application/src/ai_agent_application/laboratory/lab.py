@@ -54,10 +54,16 @@ from ai_agent_application.llm.model import ProviderEvent
 from ai_agent_application.memory import IndexHealth, MemoryService, RecallService
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.persona import PersonaService, register_persona_extensions
-from ai_agent_application.social import SocialService, register_social_extensions
+from ai_agent_application.social import (
+    AspectLimit,
+    SocialPolicy,
+    SocialService,
+    register_social_extensions,
+)
 from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess, Storage
 
 from .clock import VirtualClock
+from .profile import REFERENCE_RELATIONSHIP_LIMITS
 from .report import Finding
 
 MEMORY = Principal("lab-memory", "core_owner", Owner.MEMORY)
@@ -81,10 +87,10 @@ def lab_grants() -> tuple[Grant, ...]:
         Grant(SOCIAL, Owner.MEMORY, read=True),
         Grant(SOCIAL, Owner.CHANNEL, read=True),
         Grant(CHANNEL, Owner.CHANNEL, read=True, write=True),
-        Grant(PERSONA, Owner.PERSONA, read=True, write=True),
+        Grant(PERSONA, Owner.PERSONA, read=True, write=True, api_transfer=True),
         Grant(PERSONA, Owner.MEMORY, read=True),
-        Grant(GM, Owner.GM, read=True, write=True),
-        Grant(GM, Owner.MEMORY, read=True),
+        Grant(GM, Owner.GM, read=True, write=True, api_transfer=True),
+        Grant(GM, Owner.MEMORY, read=True, api_transfer=True),
         Grant(LABORATORY, Owner.LABORATORY, read=True, write=True),
     )
 
@@ -215,13 +221,30 @@ class Lab:
         register_development_extensions(registry)
         brain = LabBrain()
         control = LabControl()
-        access = tuple(RecordAccess(p.id) for p in (SOCIAL, GM, PERSONA))
+        access = tuple(
+            RecordAccess(p.id, api_transfer=p in (GM, PERSONA)) for p in (SOCIAL, GM, PERSONA)
+        )
         health = IndexHealth()
         memory = MemoryService(
             storage, MEMORY, registry, index=index, health=health, clock=clock, reader_access=access
         )
         recall = RecallService(storage, MEMORY, index, health=health, clock=clock)
-        social = SocialService(storage, SOCIAL, registry, clock=clock, reader_access=access)
+        social = SocialService(
+            storage,
+            SOCIAL,
+            registry,
+            clock=clock,
+            reader_access=access,
+            policy=SocialPolicy(
+                aspect_limits=tuple(AspectLimit(*rule) for rule in REFERENCE_RELATIONSHIP_LIMITS)
+            ),
+            admitted=lambda: (
+                control.admitted
+                and control.run_state is RunState.ACTIVE
+                and control.activity is ActivityState.OPEN
+                and control.autonomy == "autonomous"
+            ),
+        )
         persona = PersonaService(storage, PERSONA, registry, clock=clock)
         generator = LLMGateway(
             lambda _a: brain,

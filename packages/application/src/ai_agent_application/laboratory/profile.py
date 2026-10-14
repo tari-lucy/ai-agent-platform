@@ -63,3 +63,12 @@ REFERENCE_PROFILE = "\n\n".join(
         ),
     ]
 )
+
+
+# Reference data only; runtime takes its own accepted profile policy.
+REFERENCE_RELATIONSHIP_LIMITS = (
+    ("familiarity", 0.0, 1.0, 0.03, 0.0),
+    ("trust", 0.0, 1.0, 0.05, 0.05),
+    ("warmth", 0.0, 1.0, 0.05, 0.05),
+    ("tension", 0.0, 1.0, 0.08, 0.08),
+)

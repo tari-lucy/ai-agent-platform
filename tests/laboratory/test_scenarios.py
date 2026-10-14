@@ -37,15 +37,15 @@ def test_the_catalogue_covers_the_doc22_scenes_and_the_operational_cases():
     assert sum("doc22" in s.tags for s in SCENARIOS.values()) == 8
 
 
-def test_the_only_known_gap_is_reported_as_a_soft_finding_not_hidden(tmp_path):
+def test_relationship_rate_limit_is_now_a_hard_passing_invariant(tmp_path):
     async def scenario():
         env = await new_env(tmp_path)
         return await env.runner.run(SCENARIOS["quarrel-then-help"])
 
     report = run(scenario())
-    soft = [f for f in report.failed]
-    assert report.status == "passed" and [f.hard for f in soft] == [False]
-    assert "rate limit" in soft[0].detail
+    assert report.status == "passed" and report.failed == ()
+    finding = next(f for f in report.findings if "rate-limited" in f.name)
+    assert finding.hard and finding.ok
 
 
 def test_a_whole_run_of_the_catalogue_never_touches_the_work_scope(tmp_path):

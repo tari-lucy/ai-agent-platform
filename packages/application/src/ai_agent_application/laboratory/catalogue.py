@@ -9,12 +9,14 @@ from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
+from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.memory import Claim
 from ai_agent_contracts.persona import CharacterState, Opportunity, Profile
 from ai_agent_contracts.states import ErrorCode, Provenance
 
 from ai_agent_application.development import Candidate
 from ai_agent_application.llm import Failure, ProviderError
+from ai_agent_application.memory import EpisodeDraft
 
 from .lab import GM, MEMORY, PERSONA, SOCIAL, Lab, Visitor
 from .runner import Scenario
@@ -174,6 +176,17 @@ async def quarrel_then_joint_action(lab: Lab) -> None:
     assert out is not None and out.person_id is not None
     await lab.social.ensure_relationship(lab.command(), out.person_id, {"trust": 0.5})
     ground = await lab.source("Вместе починили мост после ссоры.")
+    await lab.memory.record_episode(
+        lab.command(),
+        EpisodeDraft(
+            sources=(ground,),
+            participant_ids=(out.person_id,),
+            choice="Помогла починить мост.",
+            actual_outcome="Мост починен вместе.",
+            operation_id="joint-help-experience",
+            provenance="simulation",
+        ),
+    )
     relation = await lab.social.get_relationship(lab.scope, out.person_id)
     assert relation is not None
     try:
@@ -205,20 +218,20 @@ async def quarrel_then_joint_action(lab: Lab) -> None:
         "a small change with grounds is applied",
         lab.social.aspects_of(after).values["trust"] == 0.52,
     )
-    # known gap: nothing enforces the doc22 rate limit unless the caller passes bounds
-    unbounded = await lab.social.get_relationship(lab.scope, out.person_id)
-    assert unbounded is not None
-    await lab.social.apply_aspects(
-        lab.command(), out.person_id, unbounded.version, {"trust": 0.99}, [ground], "free-jump"
-    )
+    current = await lab.social.get_relationship(lab.scope, out.person_id)
+    assert current is not None
+    rejected = False
+    try:
+        await lab.social.apply_aspects(
+            lab.command(), out.person_id, current.version, {"trust": 0.99}, [ground], "free-jump"
+        )
+    except ContractError:
+        rejected = True
     final = await lab.social.get_relationship(lab.scope, out.person_id)
     assert final is not None
     lab.check(
         "relationship change is rate-limited by the platform itself",
-        abs(float(lab.social.aspects_of(final).values["trust"]) - 0.52) <= 0.05,
-        "known gap: SocialService.apply_aspects has no built-in rate limit (needs a relationship"
-        " development validator)",
-        hard=False,
+        rejected and lab.social.aspects_of(final).values["trust"] == 0.52,
     )
 
 

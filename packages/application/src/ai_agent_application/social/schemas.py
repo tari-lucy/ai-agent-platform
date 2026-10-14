@@ -6,6 +6,8 @@ from ai_agent_contracts.common import Contract, Id
 from ai_agent_contracts.extensions import ExtensionRegistry
 from pydantic import Field
 
+from .relationships import RelationshipDelta
+
 MAX_ASPECTS = 100
 ASPECTS_SCHEMA = "social.relationship-aspects"
 
@@ -25,3 +27,4 @@ class RelationshipAspects(Contract):
 
 def register_social_extensions(registry: ExtensionRegistry) -> None:
     registry.register(ASPECTS_SCHEMA, RelationshipAspects)
+    registry.register("social.relationship-change", RelationshipDelta)

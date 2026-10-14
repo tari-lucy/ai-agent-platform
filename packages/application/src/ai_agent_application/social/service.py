@@ -11,6 +11,7 @@ for the single core process of the MVP (see the task report for the storage requ
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -20,10 +21,21 @@ from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import Id, Record, Scope, SourceRef
 from ai_agent_contracts.control import Delivery
 from ai_agent_contracts.extensions import ExtensionRegistry
-from ai_agent_contracts.memory import Encounter, Person, Promise, Relationship, Topic
-from ai_agent_contracts.states import DeliveryState, ErrorCode
+from ai_agent_contracts.memory import (
+    Encounter,
+    Episode,
+    Person,
+    Promise,
+    Relationship,
+    Source,
+    Topic,
+)
+from ai_agent_contracts.persona import StateChange
+from ai_agent_contracts.states import ChangeState, DeliveryState, ErrorCode
 from pydantic import TypeAdapter
 
+from ai_agent_application.extraction.evidence import classify, experience_groups
+from ai_agent_application.fencing import admission_guard, fenced
 from ai_agent_application.storage import (
     Owner,
     Principal,
@@ -33,6 +45,7 @@ from ai_agent_application.storage import (
 )
 
 from .keys import derived_id, normalize_topic_key, person_id_for, topic_id_for
+from .relationships import AspectLimit, RelationshipDelta
 from .schemas import ASPECTS_SCHEMA, ContactPreference, RelationshipAspects
 
 LIST_PAGE = 200
@@ -45,6 +58,7 @@ type BlockReason = Literal[
 
 @dataclass(frozen=True)
 class SocialPolicy:
+    aspect_limits: tuple[AspectLimit, ...] = ()
     reservation_ttl: timedelta = timedelta(minutes=2)
     cooldown_after_question: timedelta = timedelta(minutes=10)
     unknown_delivery_hold: timedelta = timedelta(minutes=30)
@@ -104,14 +118,19 @@ class SocialService:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         policy: SocialPolicy | None = None,
         reader_access: tuple[RecordAccess, ...] = (),
+        admitted: Callable[[], bool] = lambda: False,
     ) -> None:
         if principal.role != "core_owner" or principal.owner is not Owner.SOCIAL:
             raise ContractError(ErrorCode.ACCESS_DENIED)
         self.storage, self.principal, self.extensions = storage, principal, extensions
         self.clock, self.reader_access = clock, reader_access
+        self.admitted = admitted
         self.policy = policy if policy is not None else SocialPolicy()
         self._accounts: dict[tuple[str, ...], dict[tuple[str, str], str]] = {}
         self._encounters: dict[tuple[str, ...], dict[str, list[Encounter]]] = {}
+
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.storage.fence(admission_guard(self.admitted))
 
     # ---- plumbing -------------------------------------------------------------------------
 
@@ -465,6 +484,7 @@ class SocialService:
             raise
         return record
 
+    @fenced
     async def apply_aspects(
         self,
         command: CommandBase,
@@ -476,46 +496,153 @@ class SocialService:
         *,
         bounds: Mapping[str, tuple[float, float]] | None = None,
     ) -> Receipt:
-        """Versioned write of an already-validated development change (rate limits: M3-03)."""
+        """Apply configured, per-experience bounds; audit and relationship have one owner/commit."""
         scope = command.scope
+        audit_id = derived_id("relationship-change", scope, person_id, change_id)
+        old = await self._repo(StateChange, scope).get(audit_id)
+        if old is not None:
+            previous = self.extensions.validate(
+                old.patch.schema_id, old.patch.schema_version, old.patch.data
+            )
+            assert isinstance(previous, RelationshipDelta)
+            if (
+                dict(values) != previous.after
+                or old.base_version != expected_version
+                or {(g.source_id, g.version) for g in grounds}
+                != {(g.source_id, g.version) for g in old.evidence}
+            ):
+                raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT, command.request_id)
+            return Receipt(
+                request_id=command.request_id,
+                scope=scope,
+                status="completed",
+                resource_id=self._relationship_id(scope, person_id),
+                version=old.new_version,
+            )
         current = await self.get_relationship(scope, person_id)
         if current is None:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
         if current.version != expected_version:
             raise ContractError(ErrorCode.VERSION_CONFLICT, command.request_id, current.version)
-        if change_id in current.change_ids:
-            return Receipt(
-                request_id=command.request_id,
-                scope=scope,
-                status="completed",
-                resource_id=current.id,
-                version=current.version,
-            )
+        configured = {limit.name: limit for limit in self.policy.aspect_limits}
+        if not self.admitted() or not configured:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE, command.request_id)
+        if not values or not grounds:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+        episodes = await self._all(Episode, scope)
+        group_by_source = experience_groups(episodes)
+        expected = "simulation" if scope.memory_mode == "test" else "observation"
+        groups: set[str] = set()
+        for ref in grounds:
+            source = await self._repo(Source, scope).get(ref.source_id)
+            if (
+                source is None
+                or source.version != ref.version
+                or not source.read_allowed
+                or source.availability != "available"
+                or ref.scope.partition != scope.partition
+                or ref.source_id not in group_by_source
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+            evidence = classify(source, scope)
+            if not evidence.independent or evidence.reject:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+            if not any(
+                e.provenance == expected and any(r.source_id == ref.source_id for r in e.sources)
+                for e in episodes
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+            groups.add(group_by_source[ref.source_id])
+        previous_patches: list[tuple[RelationshipDelta, StateChange]] = []
+        for record in await self._all(StateChange, scope):
+            if (
+                record.status is ChangeState.APPLIED
+                and record.patch.schema_id == "social.relationship-change"
+            ):
+                patch = self.extensions.validate(
+                    record.patch.schema_id, record.patch.schema_version, record.patch.data
+                )
+                assert isinstance(patch, RelationshipDelta)
+                if patch.person_id == person_id:
+                    previous_patches.append((patch, record))
         aspects = self.aspects_of(current)
         merged = dict(aspects.values)
+        before: dict[str, float] = {}
+        after: dict[str, float] = {}
         for name, value in values.items():
-            if name not in merged or isinstance(value, str) != isinstance(merged[name], str):
+            rule = configured.get(name)
+            current_value = merged.get(name)
+            if (
+                rule is None
+                or isinstance(value, (str, bool))
+                or not isinstance(current_value, float)
+            ):
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
-            if bounds is not None and not isinstance(value, str):
-                low, high = bounds.get(name, (float("-inf"), float("inf")))
-                if not low <= value <= high:
-                    raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+            low, high = rule.minimum, rule.maximum
+            if bounds is not None:
+                extra_low, extra_high = bounds.get(name, (low, high))
+                low, high = max(low, extra_low), min(high, extra_high)
+            spent = {
+                group_by_source.get(ref.source_id, ref.source_id)
+                for patch, audit in previous_patches
+                if name in patch.after
+                for ref in audit.evidence
+            }
+            count = len(groups - spent)
+            delta = value - current_value
+            if (
+                not low <= value <= high
+                or not count
+                or delta == 0
+                or delta > rule.max_increase * count + 1e-9
+                or -delta > rule.max_decrease * count + 1e-9
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
+            before[name], after[name] = current_value, float(value)
             merged[name] = value
-        if not grounds:
-            raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
-        now = self.clock()
+        now = max(self.clock(), current.updated_at)
         revised = self._revised(
             current,
             version=current.version + 1,
-            updated_at=max(now, current.updated_at).isoformat(),
+            updated_at=now.isoformat(),
             aspects=self._aspects_payload(
                 RelationshipAspects(values=merged, contact=aspects.contact)
             ),
             change_ids=[*current.change_ids, change_id][-200:],
             grounds=[*self._dump(current.grounds), *self._dump(grounds)][-200:],
         )
+        audit = self._record(
+            StateChange,
+            {
+                "id": audit_id,
+                "scope": scope.model_dump(mode="json"),
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "version": 1,
+                "proposal_id": change_id,
+                "owner": "social",
+                "base_version": current.version,
+                "patch": {
+                    "schema_id": "social.relationship-change",
+                    "schema_version": "1.0",
+                    "data": RelationshipDelta(
+                        person_id=person_id,
+                        before=before,
+                        after=after,
+                        episode_groups=sorted(groups),
+                    ).model_dump(mode="json"),
+                },
+                "evidence": self._dump(grounds),
+                "interpretation": "Проверенное изменение отношения по опыту.",
+                "uncertainty": 0,
+                "expected_manifestation": "Проверить поведение в следующей встрече.",
+                "checks": ["per-experience-limit"],
+                "status": "APPLIED",
+                "new_version": revised.version,
+            },
+        )
         receipt, _ = await self._write(
-            command, [(revised, current.version)], current.id, revised.version
+            command, [(revised, current.version), (audit, None)], current.id, revised.version
         )
         return receipt
 
