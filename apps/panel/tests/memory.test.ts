@@ -4,7 +4,7 @@ import { PanelApi, ApiFailure } from '../src/shared/api.ts';
 import { artifact, claims, episodes, memorySources, operation, plan as parsePlan, summaries } from '../src/shared/validation.ts';
 import {
   afterExecute, basisAvailability, basisSummary, buildCards, claimCard, conflictsOf, correctCommand, dependencyCount, episodeCard,
-  executeCommand, filterCards, noFilters, planProblem, previewCommand, progress, retentionText, sourceCard, summaryCard,
+  executeCommand, filterCards, noFilters, planProblem, previewCommand, progress, retentionText, rightsText, sourceCard, summaryCard,
   validCorrection, visibleText,
 } from '../src/ui/memory/model.ts';
 import type {
@@ -214,4 +214,25 @@ test('execute and preview post once with CSRF; a lost reply is checked by the sa
   const checked = await api.command(command) as Receipt;
   assert.equal(checked.operation_id, 'op-9');
   assert.equal(JSON.stringify(bodies[0]), JSON.stringify(bodies[1]));
+});
+test('availability and rights are read from the source itself, not assumed', () => {
+  // a stale copy of text on a source that is no longer available stays hidden
+  assert.equal(visibleText(sourceCard(source({ availability: 'expired', content: 'остаток' }))), null);
+  assert.equal(visibleText(sourceCard(source({ availability: 'deleted', content: 'остаток' }))), null);
+  assert.equal(visibleText(sourceCard(source({ availability: 'unavailable', content: 'остаток' }))), null);
+  assert.deepEqual(rightsText(source({ read_allowed: true, api_transfer_allowed: false, public_disclosure_allowed: true })),
+    ['Чтение: да', 'Передача в API: нет', 'Публичное раскрытие: да']);
+  assert.deepEqual(rightsText(source({ read_allowed: false, api_transfer_allowed: true, public_disclosure_allowed: false })),
+    ['Чтение: нет', 'Передача в API: да', 'Публичное раскрытие: нет']);
+});
+test('cursor and resource ids with separators or query syntax are refused before any request', async () => {
+  const paths: string[] = [];
+  const api = new PanelApi(fetcher(async (path) => { paths.push(path); return json(page([])); }));
+  for (const cursor of ['a&limit=200', 'a b', 'a/b', 'a#b', 'x'.repeat(129), '']) {
+    await assert.rejects(api.sources(scope, undefined, cursor), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
+  }
+  for (const id of ['a/b', 'a?b=c', 'a b', 'a#b', '', 'x'.repeat(129)]) {
+    await assert.rejects(api.plan(scope, id), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
+  }
+  assert.equal(paths.length, 0);
 });
