@@ -11,7 +11,8 @@
     "dev": "vite --host 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@mantine/core": "9.7.2",

@@ -6,11 +6,11 @@ New-Item -ItemType Directory -Path $taskContext -Force | Out-Null
 $taskAllowlist = @(
     'pyproject.toml', 'uv.lock', '.python-version', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
     'apps/core/src', 'apps/worker/src',
-    'packages/contracts/src', 'packages/domain/src',
+    'packages/contracts/src', 'packages/contracts/generated', 'packages/domain/src',
     'packages/application/src', 'packages/adapters/src',
     'scripts/check_imports.py', 'tests/tooling',
     'apps/panel/package.json', 'apps/panel/package-lock.json', 'apps/panel/.npmrc',
-    'apps/panel/index.html', 'apps/panel/src', 'apps/panel/tsconfig.json',
+    'apps/panel/index.html', 'apps/panel/src', 'apps/panel/tests', 'apps/panel/tsconfig.json',
     'apps/panel/vite.config.ts', 'apps/panel/eslint.config.js'
 )
 foreach ($taskItem in $taskAllowlist) {
@@ -25,7 +25,8 @@ WORKDIR /check/apps/panel
 COPY apps/panel/package.json apps/panel/package-lock.json apps/panel/.npmrc ./
 RUN npm ci
 COPY apps/panel/ ./
-RUN --network=none npm run lint && npm run typecheck && npm run build
+COPY packages/contracts/generated /check/packages/contracts/generated
+RUN --network=none npm run lint && npm run typecheck && npm test && npm run build
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS check
 COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1 HF_HUB_OFFLINE=1

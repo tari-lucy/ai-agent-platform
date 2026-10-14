@@ -1,0 +1,128 @@
+import type { OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope, StopCommand, StopReceipt } from './contracts.ts';
+import { object, profiles, runs, session, stopReceipt, receipt } from './validation.ts';
+import { partition } from './scope.ts';
+
+const messages: Record<string, string> = {
+  ACCESS_DENIED: 'Доступ запрещён. Войдите снова или проверьте разрешённую область.',
+  VERSION_CONFLICT: 'Данные изменились. Обновите их перед повторной правкой.',
+  IDEMPOTENCY_CONFLICT: 'Операция с этим идентификатором уже имеет другое содержимое.',
+  STALE_CONTEXT: 'Контекст устарел. Получите актуальное состояние.',
+  EXPIRED: 'Срок допуска истёк. Нужна новая проверка.',
+  INVALID_ARGUMENTS: 'Запрос не принят. Проверьте поля.',
+  CAPABILITY_UNAVAILABLE: 'Эта функция пока недоступна.',
+  MODERATION_UNAVAILABLE: 'Модерация недоступна. Публичный выпуск закрыт.',
+  RESOURCE_BUSY: 'Служба занята. Повторите действие позднее.',
+  SERVICE_UNAVAILABLE: 'Служба недоступна или ещё не подключена.',
+  OUTCOME_UNKNOWN: 'Результат неизвестен. Обновите состояние; не повторяйте действие вслепую.',
+};
+export class ApiFailure extends Error {
+  readonly code: string;
+  readonly status: number;
+  constructor(code: string, status = 0) {
+    super((Object.hasOwn(messages, code) ? messages[code] : undefined) ?? 'Связь с ядром потеряна или получен некорректный ответ.');
+    this.code = code; this.status = status;
+  }
+}
+export const failureMessage = (error: unknown) =>
+  error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
+type Fetcher = typeof fetch;
+
+export class PanelApi {
+  #auth: OperatorSession | null = null;
+  #generation = 0;
+  #requests = new Set<AbortController>();
+  readonly fetcher: Fetcher;
+  readonly unauthorized: () => void;
+  constructor(fetcher: Fetcher = fetch, unauthorized: () => void = () => {}) {
+    this.fetcher = fetcher.bind(globalThis); this.unauthorized = unauthorized;
+  }
+  get authenticated(): boolean { return this.#auth !== null; }
+  authorize(value: OperatorSession): void {
+    this.clear(); this.#auth = value;
+  }
+  clear(): void {
+    this.#generation++; this.#auth = null;
+    for (const controller of this.#requests) controller.abort();
+    this.#requests.clear();
+  }
+  async #request(path: string, body?: unknown, signal?: AbortSignal, timeout = 15000): Promise<unknown> {
+    // Relative allowlisted paths only: no endpoints, credentials or redirects to other sites.
+    if (!/^\/api\/v1\//.test(path) || path.includes('..') || path.includes('#')) throw new ApiFailure('INVALID_ARGUMENTS');
+    const generation = this.#generation;
+    const controller = new AbortController();
+    if (signal?.aborted) controller.abort();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    this.#requests.add(controller);
+    const timer = setTimeout(abort, timeout);
+    try {
+      const response = await this.fetcher(path, {
+        method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin',
+        cache: 'no-store', redirect: 'error', signal: controller.signal,
+        headers: body === undefined ? {} : {
+          'Content-Type': 'application/json', ...(this.#auth ? { 'X-CSRF-Token': this.#auth.csrf_token } : {}),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (generation !== this.#generation || controller.signal.aborted) throw new ApiFailure('STALE_CONTEXT');
+      if (response.status === 401) {
+        const wasAuthenticated = this.#auth !== null;
+        this.clear(); if (wasAuthenticated) this.unauthorized();
+        throw new ApiFailure('ACCESS_DENIED', 401);
+      }
+      if (response.status === 204 && response.ok) return null;
+      const reader = response.body?.getReader();
+      if (!reader) throw new ApiFailure('NETWORK');
+      const chunks: Uint8Array[] = []; let length = 0;
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          length += part.value.byteLength;
+          if (length > 1048576) { await reader.cancel(); throw new ApiFailure('NETWORK'); }
+          chunks.push(part.value);
+        }
+      } finally { reader.releaseLock(); }
+      if (generation !== this.#generation || controller.signal.aborted) throw new ApiFailure('STALE_CONTEXT');
+      const bytes = new Uint8Array(length); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      let value: unknown;
+      try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+      catch { throw new ApiFailure('NETWORK'); }
+      if (!response.ok) throw new ApiFailure(
+        object(value) && typeof value.code === 'string' && Object.hasOwn(messages, value.code) ? value.code : 'NETWORK',
+        response.status,
+      );
+      return value;
+    } catch (error) {
+      if (error instanceof ApiFailure) throw error;
+      throw new ApiFailure('NETWORK');
+    } finally {
+      clearTimeout(timer); signal?.removeEventListener('abort', abort); this.#requests.delete(controller);
+    }
+  }
+  async restore(): Promise<OperatorSession> { return session(await this.#request('/api/v1/auth/session')); }
+  async login(password: string): Promise<OperatorSession> {
+    const body: OperatorLogin = { password };
+    return session(await this.#request('/api/v1/auth/login', body));
+  }
+  async logout(): Promise<void> { await this.#request('/api/v1/auth/logout', {}); }
+  async #read(resource: 'sessions' | 'personas', scope: Scope, signal?: AbortSignal): Promise<unknown> {
+    const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, limit: '50' });
+    return this.#request(`/api/v1/${resource}?${query}`, undefined, signal);
+  }
+  async runs(scope: Scope, signal?: AbortSignal): Promise<RunSessionPage> {
+    return runs(await this.#read('sessions', scope, signal), scope);
+  }
+  async profiles(scope: Scope, signal?: AbortSignal): Promise<ProfilePage> {
+    return profiles(await this.#read('personas', scope, signal), scope);
+  }
+  async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
+    const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };
+    return stopReceipt(await this.#request(`/api/v1/agents/${encodeURIComponent(target)}/stop`, body, undefined, 6000), body.scope, requestId);
+  }
+  // Future screen owners may use this explicit port. Never retry mutations automatically.
+  async command(command: PanelCommand): Promise<Receipt | StopReceipt> {
+    return receipt(await this.#request('/api/v1/commands', command), command);
+  }
+}

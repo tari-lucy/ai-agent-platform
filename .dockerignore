@@ -25,6 +25,8 @@
 !packages/*/
 !packages/*/src/
 !packages/*/src/**
+!packages/contracts/generated/
+!packages/contracts/generated/contracts.ts
 !migrations/
 !migrations/env.py
 !migrations/versions/

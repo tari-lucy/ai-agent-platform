@@ -1,10 +1,11 @@
 # Build stages only contact public package registries; runtime has no model download.
 FROM node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df AS panel
-WORKDIR /build/panel
+WORKDIR /build/apps/panel
 COPY apps/panel/package.json apps/panel/package-lock.json apps/panel/.npmrc ./
 RUN npm ci
 COPY apps/panel/index.html apps/panel/tsconfig.json apps/panel/vite.config.ts ./
 COPY apps/panel/src ./src
+COPY packages/contracts/generated /build/packages/contracts/generated
 RUN --network=none npm run build
 
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS builder
@@ -33,7 +34,7 @@ USER 10001:10001
 FROM runtime AS core
 COPY migrations ./migrations
 COPY --from=core-deps /opt/platform/.venv ./.venv
-COPY --from=panel /build/panel/dist ./panel
+COPY --from=panel /build/apps/panel/dist ./panel
 COPY deploy/core.py ./core.py
 EXPOSE 8080
 CMD ["python", "/opt/platform/core.py"]
