@@ -360,3 +360,8 @@ panel recipe для canonical generated contracts и frontend tests. Runtime
 Python stages/Compose/migrations/locks не меняются. Причина: импорт shared
 contracts.ts требует прежнего repo layout в build stage, иначе Docker build
 не воспроизводит проверенную native сборку. Один владелец — M4-01.
+
+
+Для той же packaging-правки M4-01 назначена .dockerignore: добавить только
+allowlist packages/contracts/generated/contracts.ts. Остальные исключения
+секретов/данных и runtime context остаются прежними.
