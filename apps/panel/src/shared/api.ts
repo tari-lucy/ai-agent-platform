@@ -1,5 +1,12 @@
-import type { OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope, StopCommand, StopReceipt } from './contracts.ts';
-import { object, profiles, runs, session, stopReceipt, receipt } from './validation.ts';
+import type {
+  BriefingPage, DeliveryPage, OperationProjectionPage,
+  OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
+  SourcePage, StopCommand, StopReceipt, UtterancePage,
+} from './contracts.ts';
+import {
+  briefings, deliveries, inbound, object, operations, profiles, receipt, runs, session, stopReceipt,
+  utterances,
+} from './validation.ts';
 import { partition } from './scope.ts';
 
 const messages: Record<string, string> = {
@@ -26,6 +33,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
+type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -107,7 +115,7 @@ export class PanelApi {
     return session(await this.#request('/api/v1/auth/login', body));
   }
   async logout(): Promise<void> { await this.#request('/api/v1/auth/logout', {}); }
-  async #read(resource: 'sessions' | 'personas', scope: Scope, signal?: AbortSignal): Promise<unknown> {
+  async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal): Promise<unknown> {
     const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, limit: '50' });
     return this.#request(`/api/v1/${resource}?${query}`, undefined, signal);
   }
@@ -116,6 +124,22 @@ export class PanelApi {
   }
   async profiles(scope: Scope, signal?: AbortSignal): Promise<ProfilePage> {
     return profiles(await this.#read('personas', scope, signal), scope);
+  }
+  // M4-02 dialogue projections: server-ordered first page (limit 50); incompleteness is returned.
+  async utterances(scope: Scope, signal?: AbortSignal): Promise<UtterancePage> {
+    return utterances(await this.#read('utterances', scope, signal), scope);
+  }
+  async deliveries(scope: Scope, signal?: AbortSignal): Promise<DeliveryPage> {
+    return deliveries(await this.#read('deliveries', scope, signal), scope);
+  }
+  async briefings(scope: Scope, signal?: AbortSignal): Promise<BriefingPage> {
+    return briefings(await this.#read('briefings', scope, signal), scope);
+  }
+  async inbound(scope: Scope, signal?: AbortSignal): Promise<SourcePage> {
+    return inbound(await this.#read('sources', scope, signal), scope);
+  }
+  async operations(scope: Scope, signal?: AbortSignal): Promise<OperationProjectionPage> {
+    return operations(await this.#read('operations', scope, signal), scope);
   }
   async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
     const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };

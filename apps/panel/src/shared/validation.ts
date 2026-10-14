@@ -1,4 +1,7 @@
-import type { OperatorSession, PanelCommand, PanelEvent, ProfilePage, Receipt, RunSessionPage, Scope, StopReceipt } from './contracts.ts';
+import type {
+  BriefingPage, DeliveryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  ProfilePage, Receipt, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
+} from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
 
 // Defensive checks at the browser boundary. Canonical schemas and all rights stay server-owned.
@@ -87,4 +90,45 @@ export function receipt(value: unknown, command: PanelCommand): Receipt | StopRe
     (value.version == null || version(value.version)) &&
     ['resource_id', 'operation_id'].every((key) => value[key] == null || id(value[key])));
   return value as Receipt;
+}
+
+// M4-02: dialogue projections. Same defensive stance: scope, ids, enumerations and sizes only.
+const text = (value: unknown, max = 20000) => typeof value === 'string' && value.length <= max;
+const moderation = new Set(['draft', 'checking', 'approved', 'blocked']);
+const deliveryStates = new Set(['QUEUED', 'SENDING', 'DELIVERED', 'PARTIAL', 'FAILED', 'CANCELLED', 'UNKNOWN']);
+const operationStates = new Set(['PROPOSED', 'AWAITING_APPROVAL', 'READY', 'QUEUED', 'RUNNING', 'WAITING',
+  'SUCCEEDED', 'REJECTED', 'FAILED', 'CANCELLED', 'EXPIRED', 'OUTCOME_UNKNOWN']);
+export function utterances(value: unknown, selected: Scope): UtterancePage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.utterance_id) && version(row.revision) && text(row.content) &&
+    moderation.has(String(row.moderation_status)) && id(row.audience_id) && date(row.created_at) &&
+    Array.isArray(row.channel_ids) && row.channel_ids.length >= 1 && row.channel_ids.length <= 200 &&
+    row.channel_ids.every(id)));
+  return value as UtterancePage;
+}
+export function deliveries(value: unknown, selected: Scope): DeliveryPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.utterance_id) && version(row.revision) && id(row.channel_id) &&
+    id(row.attempt_id) && deliveryStates.has(String(row.status)) && date(row.created_at)));
+  return value as DeliveryPage;
+}
+export function briefings(value: unknown, selected: Scope): BriefingPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.author_id) && text(row.content) &&
+    ['context', 'canon_proposal', 'scenario'].includes(String(row.type)) &&
+    ['active', 'cancelled', 'expired'].includes(String(row.status)) && date(row.expires_at)));
+  return value as BriefingPage;
+}
+export function inbound(value: unknown, selected: Scope): SourcePage {
+  page(value, selected);
+  demand(value.items.every((row) => typeof row.provenance === 'string' && date(row.occurred_at) &&
+    (row.content == null || text(row.content)) && (row.author_id == null || id(row.author_id)) &&
+    ['available', 'expired', 'deleted', 'unavailable'].includes(String(row.availability))));
+  return value as SourcePage;
+}
+export function operations(value: unknown, selected: Scope): OperationProjectionPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.operation_id) && operationStates.has(String(row.status)) &&
+    date(row.deadline) && (row.waiting_reason == null || text(row.waiting_reason, 500))));
+  return value as OperationProjectionPage;
 }
