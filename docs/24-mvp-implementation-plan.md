@@ -425,3 +425,33 @@ development, без новой социальной feature/передачи в�
 Цель: воспроизвести M3 acceptance Windows/Linux, исправить найденные ошибки,
 разобрать каждый coordinator request в своём отчёте M3-review-integration.md.
 Наличие M3 модулей в main не означает принятого runtime wiring/качества модели.
+
+Для M3-review назначен tests/conftest.py только для закрытия test SQLite pools
+до остановки короткого asyncio.run в M3/independent review; остальные наборы
+не затрагиваются. Базовая Windows проверка:117 passed, но15 thread warnings.
+
+
+M3-review закрывает relationship gap расширением M3-03: доверенные aspect
+limits, независимые подтверждённые эпизоды, история StateChange владельца
+SOCIAL и atomic Relationship+history write; узкая зона social/service.py,
+schemas/relationship policy и соответствующие fixtures/tests. Contract
+StateChange.owner остаётся динамическим: UoW уже проверяет точного владельца.
+Имена/лимиты тестового персонажа — только данные laboratory/profile.
+
+
+Подтверждённый composition blocker: MemoryService.reader_access не
+передавался создаваемым Episode. M3-review назначена узкая правка
+memory/service.py: применять уже доверенно переданные ACL при записи
+Episode; Claim сохраняет отдельный private ACL. Значения grants не расширяются автоматически; public/API
+purposes по-прежнему закрыты без своих RecordAccess flags.
+
+
+M3-review проверяет также API-transfer purpose всех данных контекста M3:
+узкий optional purpose в MemoryService.get_source/EvidenceReader, чтение
+Source/Claim/Episode/Profile/CharacterState/StoryArc с api_transfer перед
+моделью; apply/история остаются private. Trusted fixture grants/ACL
+уточняются явно, production права автоматически не расширяются.
+
+Координаторское уточнение проверок M3: закрытие test pools также для
+dialogue/moderation; tests/llm — только portable synthetic SSE handshake.
+Итоги и оставшиеся runtime gates: [review](implementation-reports/M3-review-integration.md).
