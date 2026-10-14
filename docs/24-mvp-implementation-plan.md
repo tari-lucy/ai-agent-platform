@@ -469,4 +469,10 @@ POSIX mode не подтверждает Windows ACL; native backup до ACL-п�
 
 Та же узкая compatibility зона: tests/backup/backup_support.py закрывает
 live recall index вместе с authority перед заменой файлов. Windows:
-36 backup tests passed, 1 POSIX-mode/ACL test failed; native backup gate открыт.
+36 backup tests passed, 1 POSIX-mode/ACL test failed; native Windows backup не принят.
+
+Итог review M3: Linux combined 948 passed/4 Redis skipped; ruff, mypy144,
+imports и canonical exports passed. Windows M3/affected suites passed;
+M5-02 native ACL test остаётся failure (36 passed/1 failed backup suite).
+Runtime composition и реальные модели M3 отдельно не приняты; подробности
+и ответы на все запросы — в [отчёте](implementation-reports/M3-review-integration.md).
