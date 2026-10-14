@@ -150,6 +150,8 @@ class ReflectionCheckpoint(VersionedRecord):
     """Persona-owned validated model result; restart never invents a second proposal."""
 
     trigger_id: Id
+    episode_ids: list[Id] = Field(default_factory=list, max_length=200)
+    input_digest: Digest | None = None
     profile_version: Version
     state_version: Version
     sources: list[SourceRef] = Field(min_length=1, max_length=200)

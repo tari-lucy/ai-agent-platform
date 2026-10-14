@@ -6397,12 +6397,36 @@
             "title": "Created At",
             "type": "string"
           },
+          "episode_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Episode Ids",
+            "type": "array"
+          },
           "id": {
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
             "title": "Id",
             "type": "string"
+          },
+          "input_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Digest"
           },
           "profile_version": {
             "minimum": 1,
