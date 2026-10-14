@@ -58,7 +58,7 @@ function TariffEditor({ api, run, connections, onSaved }: { api: PanelApi; run: 
     catch (error) { setProblem(failureMessage(error)); }
     finally { setBusy(false); }
   }
-  return <Paper withBorder p="md" radius="lg" aria-label="Новый тариф"><Title order={3} size="h5" mb="xs">Новая версия тарифа</Title>
+  return <Paper withBorder p="md" radius="lg" aria-label="Новая версия тарифа"><Title order={3} size="h5" mb="xs">Новая версия тарифа</Title>
     <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
       <Select label="Подключение" data={connections} value={draft.connection || null} onChange={(v) => set({ connection: v ?? '' })} />
       <TextInput label="ID модели" value={draft.model} onChange={(e) => set({ model: e.currentTarget.value.trim() })} />
