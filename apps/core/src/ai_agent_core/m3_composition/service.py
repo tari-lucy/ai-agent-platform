@@ -731,6 +731,19 @@ class Runtime:
 
             async def allocated(label: str) -> Scope:
                 assert self.lab is not None and request.lab_scope is not None
+                from ai_agent_contracts.workspace import LaboratoryScopeReservation
+
+                from .lab_scopes import identifier
+
+                reserved = await self.store.repository(
+                    LaboratoryScopeReservation,
+                    PRINCIPALS[Owner.LABORATORY],
+                    execution.command.scope,
+                ).get(identifier(execution.command.scope, request.lab_scope))
+                if reserved is not None:
+                    if reserved.lab_scope != request.lab_scope:
+                        raise ContractError(ErrorCode.ACCESS_DENIED)
+                    return request.lab_scope
                 chosen = await self.lab.scope_factory(label)
                 if chosen != request.lab_scope:
                     raise ContractError(ErrorCode.ACCESS_DENIED)

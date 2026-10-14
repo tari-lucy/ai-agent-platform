@@ -15,7 +15,7 @@ from ai_agent_application.gamemaster import StoryRule, StoryRules
 from ai_agent_application.llm import ProviderFactory, ResolvedAssignment
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.moderation.local import secret_like
-from ai_agent_application.storage import Principal, Storage
+from ai_agent_application.storage import Principal, RecordAccess, Storage
 
 from .clock import VirtualClock
 from .lab import LABORATORY, PERSONA, Lab
@@ -59,6 +59,8 @@ class LabRunner:
     reports: list[ScenarioReport] = field(default_factory=list)
     scopes: list[Scope] = field(default_factory=list)
 
+    # Explicit trusted host ACL; the runner never grants access by itself.
+    report_access: tuple[RecordAccess, ...] = ()
     artifact_writer: Callable[[Scope, ScenarioReport], Awaitable[ArtifactRef]] | None = None
 
     async def run(
@@ -197,7 +199,7 @@ class LabRunner:
         )
         async with self.storage.transaction(self.principal, lab.scope, command) as unit:
             if unit.replay is None:
-                await unit.put(record)
+                await unit.put(record, access=self.report_access)
                 await unit.complete(
                     Receipt(
                         request_id=record_id,

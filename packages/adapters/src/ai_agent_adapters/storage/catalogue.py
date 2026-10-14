@@ -55,6 +55,7 @@ SPECS = {
     "CostCalculation": Spec(llm.CostCalculation, Owner.LLM),
     "Artifact": Spec(workspace.Artifact, Owner.CATALOGUE),
     "LaboratoryReport": Spec(workspace.LaboratoryReport, Owner.LABORATORY),
+    "LaboratoryScopeReservation": Spec(workspace.LaboratoryScopeReservation, Owner.LABORATORY),
     "ConsequencePlan": Spec(api.ConsequencePlan, None),
 }
 

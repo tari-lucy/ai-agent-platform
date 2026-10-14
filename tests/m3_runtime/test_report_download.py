@@ -1,138 +1,16 @@
 """Real ASGI/SQLite download; no full lab scenario or model execution."""
 
 import hashlib
-from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import timedelta
 
-import httpx
 import pytest
-from access_support import ORIGIN, PASSWORD, configured_hash
-from ai_agent_adapters.configuration import BootstrapSettings
-from ai_agent_application.laboratory.report import Finding, ScenarioReport
-from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
+from ai_agent_application.storage import Owner, RecordAccess
 from ai_agent_contracts.memory import Source
-from ai_agent_contracts.workspace import Artifact, LaboratoryReport
-from composition_support import run, setup
-from fastapi import FastAPI
+from ai_agent_contracts.workspace import Artifact
+from composition_support import run
+from report_support import prepared
 
-from ai_agent_core.access import install_access
-from ai_agent_core.m3_composition.artifacts import Reports
 from ai_agent_core.m3_composition.state import PRINCIPALS, put
-
-
-@asynccontextmanager
-async def prepared(tmp_path, *, missing=None):
-    env = await setup(tmp_path, start=False)
-    rt, store = env.runtime, env.world.store
-    scope = env.world.scope.model_copy(
-        update={"memory_mode": "test", "memory_space_id": "report-test"}
-    )
-    operator = Principal("operator", "operator")
-    owners = (Owner.MEMORY, Owner.CATALOGUE, Owner.LABORATORY)
-    grants = env.grants + tuple(
-        Grant(operator, owner, read=True, api_transfer=missing != owner.value + "-grant")
-        for owner in owners
-    )
-    await store.provision(scope, grants)
-    rt.scopes += (scope,)
-    readers = (
-        RecordAccess(PRINCIPALS[Owner.CATALOGUE].id),
-        RecordAccess("operator", api_transfer=missing != "artifact-acl"),
-    )
-    reports = Reports(
-        tmp_path / "reports",
-        store,
-        rt.registry,
-        clock=env.world.clock,
-        readers=readers,
-        **({} if missing == "source-rights" else {"api_transfer_allowed": True}),
-        ttl=timedelta(seconds=10),
-    )
-    now = env.world.clock()
-    full = ScenarioReport(
-        "synthetic",
-        1,
-        "seed",
-        now,
-        now,
-        "passed",
-        (Finding("STOP", True),),
-        ({"detail": "synthetic full report"},),
-        0,
-    )
-    reference = await reports.save(scope, full)
-    if missing == "source-acl":
-        artifact = await store.repository(Artifact, PRINCIPALS[Owner.CATALOGUE], scope).get(
-            reference.artifact_id
-        )
-        source = await store.repository(Source, PRINCIPALS[Owner.MEMORY], scope).get(
-            artifact.provenance_source.source_id
-        )
-        await put(
-            store,
-            rt.registry,
-            Owner.MEMORY,
-            scope,
-            "revoke-source-acl",
-            source.model_copy(update={"version": 2}),
-            1,
-            (RecordAccess(PRINCIPALS[Owner.CATALOGUE].id),),
-        )
-    report = LaboratoryReport(
-        id="report-1",
-        scope=scope,
-        version=1,
-        created_at=now,
-        updated_at=now,
-        scenario_id="synthetic",
-        scenario_version=1,
-        operation_id="lab-op",
-        status="passed",
-        summary="Synthetic",
-        report_artifact=reference,
-    )
-    await put(
-        store,
-        rt.registry,
-        Owner.LABORATORY,
-        scope,
-        "save-report",
-        report,
-        None,
-        (RecordAccess("operator", api_transfer=missing != "report-acl"),),
-    )
-    rt.reports = None if missing == "owner" else reports
-    app = FastAPI()
-    install_access(
-        app,
-        rt.supervisor,
-        BootstrapSettings(operator_origin=ORIGIN, operator_password_hash=configured_hash()),
-        rt.access_ports(),
-    )
-    env.query = dict(
-        zip(
-            ("workspace_id", "persona_id", "memory_space_id", "memory_mode"),
-            scope.partition,
-            strict=True,
-        )
-    )
-    env.scope, env.report, env.reports, env.grants = scope, report, reports, grants
-    env.url = "/api/v1/laboratory-reports/report-1/content"
-    try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url=ORIGIN
-        ) as client:
-            assert (await client.get(env.url, params=env.query)).status_code == 401
-            login = await client.post(
-                "/api/v1/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
-            )
-            assert login.status_code == 200
-            env.client = client
-            env.headers = {"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]}
-            yield env
-    finally:
-        await rt.close()
 
 
 def test_download_exact_bytes_and_bounded_safe_http_surface(tmp_path):
@@ -323,10 +201,14 @@ def test_stale_artifact_version_never_falls_back_to_existing_bytes(tmp_path):
         async with prepared(tmp_path) as env:
             ref = env.report.report_artifact.model_copy(update={"version": 2})
             await put(
-                env.world.store, env.runtime.registry, Owner.LABORATORY, env.scope,
+                env.world.store,
+                env.runtime.registry,
+                Owner.LABORATORY,
+                env.scope,
                 "stale-report-ref",
                 env.report.model_copy(update={"version": 2, "report_artifact": ref}),
-                1, (RecordAccess("operator", api_transfer=True),),
+                1,
+                (RecordAccess("operator", api_transfer=True),),
             )
             response = await env.client.get(env.url, params=env.query)
             assert response.status_code == 409

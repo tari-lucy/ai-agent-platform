@@ -141,6 +141,20 @@ class SQLiteStore(Storage):
             if current != [HEAD]:
                 raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
 
+    async def empty_test_scope(self, scope: Scope) -> bool:
+        """Trusted host metadata check, including hidden/tombstoned rows; never provisions."""
+        if scope.memory_mode != "test" or scope.agent_id is not None:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        key = scope_key(scope)
+        async with self.connection() as connection:
+            registered = await connection.scalar(
+                select(db.scopes.c.scope_id).where(db.scopes.c.scope_id == key)
+            )
+            occupied = await connection.scalar(
+                select(db.records.c.id).where(db.records.c.scope_id == key).limit(1)
+            )
+            return registered is not None and occupied is None
+
     async def provision(self, scope: Scope, grants: tuple[Grant, ...]) -> None:
         """Trusted administrative composition only. Never expose this through client JSON.
 

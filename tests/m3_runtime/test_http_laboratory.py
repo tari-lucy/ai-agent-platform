@@ -9,7 +9,7 @@ from ai_agent_adapters.configuration import BootstrapSettings
 from ai_agent_adapters.recall import SQLiteRecallIndex
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.laboratory import LabRunner, VirtualClock, lab_grants
-from ai_agent_application.storage import Owner, RecordAccess
+from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
 from ai_agent_contracts.states import OperationState, RunState
 from ai_agent_contracts.workspace import LaboratoryReport
 from composition_support import run, setup
@@ -115,11 +115,19 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
         scope = env.world.scope.model_copy(
             update={"memory_mode": "test", "memory_space_id": "lab-job"}
         )
-        await rt.store.provision(scope, lab_grants() + env.grants)
+        await rt.store.provision(
+            scope,
+            lab_grants()
+            + env.grants
+            + tuple(
+                Grant(Principal("operator", "operator"), owner, read=True, api_transfer=True)
+                for owner in (Owner.LABORATORY, Owner.CATALOGUE, Owner.MEMORY)
+            ),
+        )
         rt.scopes += (scope,)
 
         async def allocate(label):
-            return scope
+            raise AssertionError("Reserved scope must be pinned, not allocated twice")
 
         from ai_agent_application.social import register_social_extensions
 
@@ -131,7 +139,11 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
             rt.store,
             rt.registry,
             clock=env.world.clock,
-            readers=(RecordAccess(PRINCIPALS[Owner.CATALOGUE].id),),
+            readers=(
+                RecordAccess(PRINCIPALS[Owner.CATALOGUE].id),
+                RecordAccess("operator", api_transfer=True),
+            ),
+            api_transfer_allowed=True,
         )
         index = SQLiteRecallIndex(tmp_path / "lab-index.sqlite")
         rt.lab = LabRunner(
@@ -140,6 +152,7 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
             lambda: index,
             clock=VirtualClock(env.world.clock()),
             artifact_writer=reports.save,
+            report_access=(RecordAccess("operator", api_transfer=True),),
         )
         rt.reports = reports
         called = []
@@ -167,6 +180,22 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
                 "/api/v1/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
             )
             assert login.status_code == 200
+            prepared = await client.post(
+                "/api/v1/commands",
+                headers={"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]},
+                json={
+                    "type": "laboratory.create",
+                    "request_id": "prepare-lab-job",
+                    "scope": env.world.scope.model_dump(mode="json"),
+                    "target": "laboratory",
+                    "arguments": {
+                        "schema_id": "laboratory.create-args",
+                        "data": {"persona_id": scope.persona_id},
+                    },
+                },
+            )
+            assert prepared.status_code == 200, prepared.text
+            assert prepared.json()["resource_id"] == scope.memory_space_id
             response = await client.post(
                 "/api/v1/commands",
                 headers={"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]},
@@ -208,6 +237,28 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
             )
         )
         assert raw["mock"] and raw["findings"] and raw["log"]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=ORIGIN
+        ) as client:
+            login = await client.post(
+                "/api/v1/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
+            )
+            assert login.status_code == 200
+            query = dict(
+                zip(
+                    ("workspace_id", "persona_id", "memory_space_id", "memory_mode"),
+                    scope.partition,
+                    strict=True,
+                )
+            )
+            listed = await client.get("/api/v1/laboratory-reports", params=query)
+            assert listed.status_code == 200
+            assert listed.json()["items"][0]["id"] == record.id
+            downloaded = await client.get(
+                f"/api/v1/laboratory-reports/{record.id}/content", params=query
+            )
+            assert downloaded.status_code == 200
+            assert downloaded.json() == raw
         assert not env.world.provider.calls
         import pytest
         from ai_agent_contracts.codec import ContractError

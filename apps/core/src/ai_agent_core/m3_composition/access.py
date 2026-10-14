@@ -15,7 +15,7 @@ from ai_agent_contracts.api import (
     ReflectCommand,
 )
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.panel import LaboratoryStartArguments
+from ai_agent_contracts.panel import LaboratoryCreateArguments, LaboratoryStartArguments
 from ai_agent_contracts.states import ErrorCode
 
 from .schemas import ConfigureGM, TaskInput, TransferInput
@@ -31,6 +31,21 @@ class Mutations:
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt:
         runtime = self.runtime
         runtime.authorize_configuration(authority, request.scope)
+        if isinstance(request, CreateCommand) and request.type == "laboratory.create":
+            args = runtime.registry.validate(
+                request.arguments.schema_id,
+                request.arguments.schema_version,
+                request.arguments.data,
+            )
+            if (
+                not isinstance(args, LaboratoryCreateArguments)
+                or request.target != "laboratory"
+                or args.persona_id != request.scope.persona_id
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            from .lab_scopes import prepare
+
+            return await prepare(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 
