@@ -12,7 +12,8 @@ Live2D, эфиры и медиапроизводство — применени�
 HTTP управления/auth/service identity и WebSocket events проверены в M1-05.
 Фоновая M3 composition (SQLite/jobs/GM/reflection/usage/mock-lab) проверена:
 [отчёт](docs/implementation-reports/M3-runtime-integration.md).
-Настоящий HTTP-диалог и общая M2/M4/M5 сборка ещё не подключены; следующий
+Приватный mock HTTP-диалог подключён и проверен на подготовленной SQLite: [отчёт](docs/implementation-reports/Integration-dialogue.md).
+Общая M4/M5 сборка и host setup остаются следующим этапом; исходный
 порядок согласования — [сверка стыков](docs/implementation-reports/M4-M5-integration-readiness.md).
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),

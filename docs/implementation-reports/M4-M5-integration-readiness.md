@@ -1,5 +1,9 @@
 # M4 / M5-03 — сверка запросов и порядок интеграции
 
+Обновление координатора: canonical public схемы/чтения и private mock HTTP путь —
+[Integration-contracts](Integration-contracts.md), [Integration-dialogue](Integration-dialogue.md).
+Ниже сохранён исходный аудит; остальные feature формы остаются UI-only.
+
 Дата: 2026-10-14. Координатор: Codex. Сверка кода combined branch
 M3-runtime-integration + origin/main d407263 (включая M5-04 prep).
 Это аудит стыков и назначение следующей работы; экраны и M5 повторно целиком

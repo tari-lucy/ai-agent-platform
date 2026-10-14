@@ -560,3 +560,15 @@ Private context/stream использует права оператора; ис�
 доверенный WorkKind dialogue. Он допускает именно ответ оператору в режиме
 observation, сохраняет ACTIVE/OPEN и pause/STOP revocation/resource receipts.
 Автономные activity/GM/reflection и права инструментов не расширяются.
+
+### Приёмка Integration-contracts / Integration-dialogue
+
+Техническая private/mock приёмка согласованного набора закрыта координатором.
+Shared contract commit e47c6a1; окончательные consumers и validation —
+[Integration-dialogue](implementation-reports/Integration-dialogue.md).
+Windows6 HTTP, Edge1 actual browser path, TS146, lint/typecheck/build passed.
+Один Linux full:1040 passed/2 failed/4 Redis skipped; общая причина двух failures
+устранена, затем affected jobs/M3/HTTP66 passed/4 Redis skipped; финальная статика
+mypy170/ruff/imports/exports passed. Весь backend повторно не запускался.
+Default deploy/host preparation, прочие UI-only формы, M5 operations/live models
+остаются отдельно; весь M4/M5 не переводится в integrated этим изменением.

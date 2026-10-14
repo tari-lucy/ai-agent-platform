@@ -130,3 +130,11 @@ backend cycle M2/M3 и остальные экраны ещё требуют и�
 Порты: apps/panel/README.md; приёмка: docs/implementation-reports/M4-01.md.
 Shared panel shell/API client остаются у M4-01; будущие screen owners
 подключают свой экран через эти порты, не создают альтернативные клиенты.
+
+### Integration-contracts / private dialogue — 2026-10-14
+
+Приватный mock путь M2/M3 через настоящий HTTP/WS и SQLite соединён с панелью:
+[Integration-dialogue](implementation-reports/Integration-dialogue.md).
+Public схемы/target/CAS/rules/catalogue — [Integration-contracts](implementation-reports/Integration-contracts.md).
+Это явный entrypoint для подготовленной среды; default deploy остаётся закрытым.
+Остальные UI-only формы и M5 host/operations/live-model gates не приняты этим этапом.
