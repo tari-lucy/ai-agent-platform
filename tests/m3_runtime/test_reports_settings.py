@@ -213,7 +213,7 @@ def test_gm_configuration_cas_and_durable_active_time(tmp_path):
             target="gm-runtime",
             type="gm.configure",
             expected_version=1,
-            arguments=extension(rt.registry, "m3.gm-configure", {"intensity": 0.3}),
+            arguments=extension(rt.registry, "gm.configure-args", {"intensity": 0.3}),
         )
         first = await rt.state.configure(edit, ConfigureGM(intensity=0.3))
         assert await rt.state.configure(edit, ConfigureGM(intensity=0.3)) == first

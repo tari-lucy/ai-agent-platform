@@ -13,7 +13,9 @@ from ai_agent_application.storage import Owner, RecordAccess
 from ai_agent_contracts.states import OperationState, RunState
 from ai_agent_contracts.workspace import LaboratoryReport
 from composition_support import run, setup
+from fastapi import FastAPI
 
+from ai_agent_core.access import install_access
 from ai_agent_core.m3_composition.app import create_m3_app
 from ai_agent_core.m3_composition.artifacts import Reports
 from ai_agent_core.m3_composition.schemas import TaskInput
@@ -57,7 +59,7 @@ def test_app_factory_lifespan_auth_gm_cas_and_direct_stop(tmp_path):
                     target="gm-runtime",
                     expected_version=1,
                     arguments={
-                        "schema_id": "m3.gm-configure",
+                        "schema_id": "gm.configure-args",
                         "schema_version": "1.0",
                         "data": {"intensity": 0.4},
                     },
@@ -151,16 +153,45 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
         authority = ControlAuthority(
             "operator", frozenset({env.world.scope.partition, scope.partition}), 3600
         )
-        job = await rt.submit(
-            authority,
-            "lab-job",
-            TaskInput(
-                kind="laboratory",
-                trigger_id="lab-request",
-                scenario_id="same-nickname",
-                lab_scope=scope,
-            ),
+        app = FastAPI()
+        install_access(
+            app,
+            rt.supervisor,
+            BootstrapSettings(operator_origin=ORIGIN, operator_password_hash=configured_hash()),
+            rt.access_ports(),
         )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=ORIGIN
+        ) as client:
+            login = await client.post(
+                "/api/v1/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
+            )
+            assert login.status_code == 200
+            response = await client.post(
+                "/api/v1/commands",
+                headers={"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]},
+                json=dict(
+                    type="laboratory.start",
+                    request_id="lab-job",
+                    target="laboratory",
+                    scope=rt.supervisor.snapshot.scope.model_dump(mode="json"),
+                    expected_version=rt.supervisor.snapshot.version,
+                    arguments={
+                        "schema_id": "laboratory.start-args",
+                        "data": {
+                            "scenario_id": "same-nickname",
+                            "scenario_version": 1,
+                            "lab_scope": scope.model_dump(mode="json"),
+                            "seed": "lab-seed",
+                            "mode": "mock",
+                        },
+                    },
+                ),
+            )
+            assert response.status_code == 200, response.text
+        job = (
+            await rt.jobs.store.load(response.json()["operation_id"], rt.supervisor.snapshot.scope)
+        )[0]
         completed = await rt.execute(job)
         if injected_provider:
             assert completed.status == OperationState.FAILED

@@ -3,7 +3,7 @@
 from collections import deque
 from dataclasses import dataclass, field
 
-from ai_agent_contracts.api import EventSubscription, PanelEvent
+from ai_agent_contracts.api import EventSubscription, PanelEvent, StreamChunk, StreamTerminal
 from ai_agent_contracts.codec import ContractError, to_wire
 from ai_agent_contracts.states import ErrorCode
 
@@ -38,7 +38,15 @@ class Events:
         client.buffer.clear()
 
     def publish(self, event: PanelEvent) -> None:
-        # This port accepts event metadata only, not prompts, credentials or stream chunks.
+        self._publish(event)
+
+    def private_stream(self, event: StreamChunk | StreamTerminal) -> None:
+        # Trusted private owner only. It cannot be confused with a public delivery.
+        if event.scope.agent_id is None or event.scope.run_id is None:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        self._publish(event)
+
+    def _publish(self, event: PanelEvent | StreamChunk | StreamTerminal) -> None:
         raw = to_wire(event)
         for client in tuple(self._clients):
             selected = client.subscription
@@ -50,7 +58,11 @@ class Events:
                 for name in ("agent_id", "run_id", "session_id")
             ):
                 continue
-            if selected.resource_ids and event.resource_id not in selected.resource_ids:
+            if (
+                selected.resource_ids
+                and getattr(event, "resource_id", getattr(event, "utterance_id", None))
+                not in selected.resource_ids
+            ):
                 continue
             if len(client.buffer) >= self.limits.websocket_events:
                 self.remove(client)

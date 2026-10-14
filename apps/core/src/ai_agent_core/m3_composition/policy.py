@@ -7,7 +7,7 @@ from datetime import datetime
 
 from ai_agent_adapters.storage import schema as db
 from ai_agent_adapters.storage.database import SQLiteStore
-from ai_agent_adapters.storage.policy import scope_key
+from ai_agent_adapters.storage.policy import base_visible, scope_key, stamp
 from ai_agent_application.control import Supervisor
 from ai_agent_application.control.ports import ContextApproval
 from ai_agent_application.jobs.ports import ExecutionPolicy
@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .schemas import JobArguments, PermitLimits
 from .settings import TransferJournal
-from .state import PRINCIPALS, ROLES, State
+from .state import OPERATOR, PRINCIPALS, ROLES, State
 
 WORKER_ID = "m3-core"
 
@@ -250,6 +250,22 @@ class Policy:
                 or (args.request.kind == "gm" and data["intensity"] != args.gm_intensity)
             ):
                 raise ContractError(ErrorCode.STALE_CONTEXT)
+        for ref in command.sources:
+            now = stamp(self.supervisor.clock.utc())
+            checks = [base_visible(db.records, PRINCIPALS[Owner.MEMORY], "api_transfer", now)]
+            if args.request.kind == "dialogue":
+                checks.append(base_visible(db.records, OPERATOR, "api_transfer", now))
+            allowed = await connection.scalar(
+                select(db.records.c.id).where(
+                    db.records.c.scope_id == scope_key(command.scope),
+                    db.records.c.kind == "Source",
+                    db.records.c.id == ref.source_id,
+                    db.records.c.version == ref.version,
+                    *checks,
+                )
+            )
+            if allowed is None:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
         # Profile id can differ from persona_id; exactly one accepted profile is required.
         versions: Sequence[int] = (
             (

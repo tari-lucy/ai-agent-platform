@@ -182,7 +182,7 @@ class Supervisor:
             )
             self._deadline = None
         elif self._run.activity == ActivityState.PAUSING and not self._pending(
-            frozenset({"activity", "voice", "gm", "reflection"})
+            frozenset({"activity", "voice", "gm", "reflection", "dialogue"})
         ):
             self._change(activity=ActivityState.PAUSED, unconfirmed_resource_ids=pending)
             self._pause_deadline = None
@@ -424,7 +424,7 @@ class Supervisor:
         elif (
             self._run.state != RunState.ACTIVE
             or self._run.activity != ActivityState.PAUSED
-            or self._pending(frozenset({"activity", "voice", "gm", "reflection"}))
+            or self._pending(frozenset({"activity", "voice", "gm", "reflection", "dialogue"}))
         ):
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         token = (self._run.run_id, self._run.control_epoch, self._run.version)
@@ -480,7 +480,9 @@ class Supervisor:
     def _pause(self, authority: ControlAuthority, command: ControlCommand) -> Receipt:
         if self._run.state != RunState.ACTIVE or self._run.activity != ActivityState.OPEN:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        kinds: frozenset[WorkKind] = frozenset({"activity", "voice", "gm", "reflection"})
+        kinds: frozenset[WorkKind] = frozenset(
+            {"activity", "voice", "gm", "reflection", "dialogue"}
+        )
         self._cancel(kinds)
         # Observation/technical work stays independent. Old autonomous tokens never resume.
         self._change(activity=ActivityState.PAUSING, unconfirmed_resource_ids=self._pending())
@@ -521,6 +523,8 @@ class Supervisor:
             return False
         if kind == "observation":
             return True
+        if kind == "dialogue":
+            return self._run.activity == ActivityState.OPEN
         return (
             self._run.autonomy == "autonomous"
             and self._run.activity == ActivityState.OPEN
@@ -530,7 +534,7 @@ class Supervisor:
 
     def admit(self, kind: WorkKind, *, seconds: float | None = None) -> Admission:
         self.poll()
-        if kind not in {"activity", "voice", "gm", "reflection", "observation"}:
+        if kind not in {"activity", "voice", "gm", "reflection", "observation", "dialogue"}:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if not self._eligible(kind):
             raise ContractError(ErrorCode.STALE_CONTEXT)

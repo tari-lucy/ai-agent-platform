@@ -11,7 +11,7 @@ from typing import Literal, Protocol
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import Freshness, RunSession
 
-type WorkKind = Literal["activity", "voice", "gm", "reflection", "observation"]
+type WorkKind = Literal["activity", "voice", "gm", "reflection", "observation", "dialogue"]
 
 
 @dataclass(frozen=True)

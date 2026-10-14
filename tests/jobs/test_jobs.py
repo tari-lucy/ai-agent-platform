@@ -32,7 +32,7 @@ from ai_agent_contracts.api import (
 )
 from ai_agent_contracts.codec import ContractError, from_wire
 from ai_agent_contracts.common import Contract, ExtensionPayload, Scope
-from ai_agent_contracts.control import ExecutionCommand, ExecutionResult
+from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, OperationProjection
 from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.states import ErrorCode, OperationState, RunState
 from pydantic import TypeAdapter
@@ -945,7 +945,14 @@ def test_cancel_ack_does_not_rewrite_successful_attempt_history(tmp_path):
                 operation_id=claim.lease.operation_id,
                 lease=claim.lease,
             )
+            before = await f.db.repository(OperationProjection, JOBS, f.scope).get(
+                claim.lease.operation_id
+            )
             acknowledged = await f.owner.cancel_receipt(f.worker, request)
+            after = await f.db.repository(OperationProjection, JOBS, f.scope).get(
+                claim.lease.operation_id
+            )
+            assert before.result_id is not None and after.result_id == before.result_id
             assert acknowledged.status == OperationState.SUCCEEDED
             assert (
                 await f.store.attempt(

@@ -2,7 +2,7 @@
 
 import asyncio
 import hashlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import ExitStack, suppress
 from dataclasses import replace
 from datetime import timedelta
@@ -34,6 +34,7 @@ from ai_agent_application.llm import (
     ProviderFactory,
 )
 from ai_agent_application.memory import MemoryService
+from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.memory.service import derived_id
 from ai_agent_application.scheduling import Demand, Lane, ResourceScheduler
 from ai_agent_application.scheduling.model import BudgetLease
@@ -63,7 +64,16 @@ from .schemas import JobArguments, StoryVerdict, TaskInput, TaskResult
 from .state import CAPABILITIES, PRINCIPALS, ROLES, State, command, extension, put, record, rules_of
 
 DOMAIN_OWNERS = frozenset(
-    {Owner.MEMORY, Owner.PERSONA, Owner.GM, Owner.LABORATORY, Owner.CATALOGUE}
+    {
+        Owner.MEMORY,
+        Owner.PERSONA,
+        Owner.GM,
+        Owner.LABORATORY,
+        Owner.CATALOGUE,
+        Owner.SOCIAL,
+        Owner.GATEWAY,
+        Owner.CHANNEL,
+    }
 )
 
 
@@ -82,6 +92,7 @@ class Runtime:
         lab: LabRunner | None = None,
         reports: Reports | None = None,
         reader_access: tuple[RecordAccess, ...] = (),
+        dialogue_index: RecallIndex | None = None,
     ) -> None:
         if scheduler.supervisor is not supervisor or store.extensions is not registry:
             raise ValueError("M3_COMPOSITION")
@@ -99,6 +110,11 @@ class Runtime:
         )
         self.providers, self.scopes, self.families, self.lab = providers, scopes, families, lab
         self.readers = reader_access
+        self.dialogue_index = dialogue_index
+        from ai_agent_core.access.events import Events
+        from ai_agent_core.access.sessions import AccessLimits
+
+        self.events = Events(AccessLimits())
         self.reports = reports
         if lab is not None and reports is not None:
             if lab.storage is not store or reports.storage is not store:
@@ -107,7 +123,10 @@ class Runtime:
         self.state = State(store, registry)
         self.policy = Policy(store, self.state, supervisor, allowed_adapters=allowed_adapters)
         self.jobs = JobOwner(
-            SQLiteJobs(store, PRINCIPALS[Owner.JOBS]), supervisor, self.policy, extensions=registry
+            SQLiteJobs(store, PRINCIPALS[Owner.JOBS], reader_access=reader_access),
+            supervisor,
+            self.policy,
+            extensions=registry,
         )
         supervisor.journal = SQLiteRunJournal(store, PRINCIPALS[Owner.SUPERVISOR], scopes)
         supervisor.readiness = Readiness(self.policy)
@@ -125,16 +144,50 @@ class Runtime:
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
         self._opened = False
 
+    def notify(self, kind: str, scope: Scope, identifier: str, version: int | None = None) -> None:
+        from ai_agent_contracts.api import PanelEvent
+
+        now = self.supervisor.clock.utc()
+        event_id = uuid4().hex
+        self.events.publish(
+            PanelEvent.model_validate(
+                dict(
+                    id=event_id,
+                    event_id=event_id,
+                    type=kind,
+                    scope=scope,
+                    created_at=now,
+                    occurred_at=now,
+                    resource_id=identifier,
+                    resource_version=version,
+                    causal_id=None,
+                    operation_id=None,
+                )
+            )
+        )
+
+    def authorize_configuration(self, authority: ControlAuthority, scope: Scope) -> None:
+        # Owner configuration may use a partition-only scope. Control/messages still require
+        # their explicit current run. An explicit foreign agent is never rewritten.
+        current = self.supervisor.snapshot
+        if scope.agent_id not in (None, current.agent_id):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        checked = scope.model_copy(update={"agent_id": current.agent_id})
+        self.supervisor.authorize_operator(authority, checked)
+
     def access_ports(self) -> AccessPorts:
         from ai_agent_core.access import AccessPorts
         from ai_agent_core.access.reads import SQLiteReader
 
         from .access import Mutations
+        from .views import Views
 
         return AccessPorts(
             reader=SQLiteReader(self.store),
+            views=Views(self),
             mutations=Mutations(self),
             jobs=self.jobs,
+            events=self.events,
             extensions=self.registry,
             scopes=self.scopes,
         )
@@ -265,6 +318,8 @@ class Runtime:
                 ExecutionCommand, PRINCIPALS[Owner.BEHAVIOR], scope
             ).get(identifier)
             if existing is not None:
+                if existing.scope != scope:
+                    raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
                 args = self.registry.validate(
                     existing.arguments.schema_id,
                     existing.arguments.schema_version,
@@ -275,6 +330,8 @@ class Runtime:
                 return await self.jobs.submit(
                     existing.id, existing.scope, goal="M3 " + request.kind
                 )
+            if request.kind == "dialogue" and self.dialogue_index is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             if request.kind == "laboratory":
                 if (
                     request.lab_scope is None
@@ -331,7 +388,13 @@ class Runtime:
                     scope=scope,
                     availability="available",
                 )
-            admission = self.supervisor.admit("gm" if request.kind == "gm" else "reflection")
+            admission = self.supervisor.admit(
+                "dialogue"
+                if request.kind == "dialogue"
+                else "gm"
+                if request.kind == "gm"
+                else "reflection"
+            )
             now = self.supervisor.clock.utc()
             try:
                 gm = await self.state.gm(scope)
@@ -410,7 +473,9 @@ class Runtime:
         try:
             capability, _, _ = await self.policy.permit(job.scope, context.args.request.kind)
             self.scheduler.register(
-                capability, tuple(Demand(i, 1) for i in capability.resource_ids), Lane.BACKGROUND
+                capability,
+                tuple(Demand(i, 1) for i in capability.resource_ids),
+                Lane.FOREGROUND if context.args.request.kind == "dialogue" else Lane.BACKGROUND,
             )
             request = self.scheduler.request(claim.command, attempt_id=claim.lease.attempt_id)
             acquired = self.scheduler.acquire(request)
@@ -427,7 +492,7 @@ class Runtime:
                 stack.enter_context(
                     self.store.authorize_writes(
                         lambda connection: self.policy.transaction_check(
-                            context.command, connection
+                            context.with_sources(), connection
                         ),
                         owners=DOMAIN_OWNERS,
                     )
@@ -519,6 +584,7 @@ class Runtime:
                     result=factual,
                 ),
             )
+        self.notify("job.changed", accepted.scope, accepted.operation_id, accepted.version)
         if accepted.status not in TERMINAL:
             return accepted
         with suppress(ContractError):
@@ -538,6 +604,10 @@ class Runtime:
             reader_access=self.readers,
         )
         ids: list[str] = []
+        if request.kind == "dialogue":
+            from .dialogue import perform
+
+            return await perform(execution)
         if request.kind in ("extract", "post_session"):
             report = await Extractor(memory, execution, admitted=execution.allowed).extract(
                 scope, request.source_ids, cancel=execution.cancel
@@ -684,6 +754,8 @@ class Execution:
         self.args = parsed
         self.budget: BudgetLease | None = None
         self.cancel = asyncio.Event()
+        self.current_attempt: str | None = None
+        self.extra_sources: tuple[SourceRef, ...] = ()
 
     def guard(self) -> None:
         if self.cancel.is_set() or self.runtime.supervisor.clock.utc() >= self.lease.expires_at:
@@ -701,8 +773,20 @@ class Execution:
         except ContractError:
             return False
 
+    def with_sources(self) -> ExecutionCommand:
+        refs = {ref.source_id: ref for ref in (*self.command.sources, *self.extra_sources)}
+        return self.command.model_copy(update={"sources": list(refs.values())})
+
     async def verify(self) -> None:
         await self.runtime.jobs.verify(self.runtime.worker, self.lease)
+        from .state import OPERATOR
+
+        for ref in self.extra_sources:
+            source = await self.runtime.store.repository(Source, OPERATOR, self.command.scope).get(
+                ref.source_id, purpose="api_transfer"
+            )
+            if source is None or source.version != ref.version:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
         self.guard()
 
     async def renew(self) -> None:
@@ -730,6 +814,7 @@ class Execution:
             self.cancel.set()
 
     async def begin(self, report: AttemptReport) -> None:
+        self.current_attempt = report.attempt_id
         await self.verify()
         _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
         ledger = UsageLedger(
@@ -737,6 +822,7 @@ class Execution:
             PRINCIPALS[Owner.LLM],
             self.runtime.registry,
             clock=self.runtime.supervisor.clock.utc,
+            reader_access=self.runtime.readers,
         )
         consumed = sum(
             row.operation_id.startswith(self.command.operation_id + ".")
@@ -773,6 +859,7 @@ class Execution:
             PRINCIPALS[Owner.LLM],
             self.runtime.registry,
             clock=self.runtime.supervisor.clock.utc,
+            reader_access=self.runtime.readers,
         )
         await ledger.record_attempt(
             command(
@@ -782,7 +869,10 @@ class Execution:
         )
 
     async def generate(
-        self, request: GenerationRequest, cancel: asyncio.Event | None = None
+        self,
+        request: GenerationRequest,
+        cancel: asyncio.Event | None = None,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> Generation:
         await self.verify()
         rows = await self.runtime.state.roles(self.command.scope)
@@ -792,8 +882,12 @@ class Execution:
         _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
         if binding.parameters.max_output_tokens > limits.max_output_tokens:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        unique = derived_id(
-            "m3llm", self.command.scope, self.lease.attempt_id, request.operation_id
+        unique = (
+            self.command.operation_id
+            + "."
+            + hashlib.sha256(
+                (self.lease.attempt_id + ":" + request.operation_id).encode()
+            ).hexdigest()[:32]
         )
         gateway = LLMGateway(
             self.runtime.providers,
@@ -803,7 +897,9 @@ class Execution:
             clock=self.runtime.supervisor.clock.utc,
             max_attempts=2,
         )
-        result = await gateway.generate(replace(request, operation_id=unique), self.cancel)
+        result = await gateway.generate(
+            replace(request, operation_id=unique), self.cancel, on_delta=on_delta
+        )
         await self.verify()
         return result
 

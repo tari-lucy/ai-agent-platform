@@ -59,6 +59,16 @@ class Reader(Protocol):
     ) -> Contract | None: ...
 
 
+class Views(Protocol):
+    async def read(
+        self, resource: str, principal_id: str, scope: Scope, identifier: str | None
+    ) -> Contract: ...
+
+    async def validate_profile(
+        self, authority: ControlAuthority, request: CommandBase
+    ) -> Contract: ...
+
+
 class Mutations(Protocol):
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
 
@@ -67,6 +77,7 @@ class Mutations(Protocol):
 class AccessPorts:
     """Explicit trusted composition. Defaults grant no worker capabilities/data access."""
 
+    views: Views | None = None
     mutations: Mutations | None = None
     reader: Reader | None = None
     jobs: JobOwner | None = None
@@ -302,6 +313,21 @@ class Surface:
                 COOKIE, path="/", httponly=True, secure=self.secure_cookie, samesite="strict"
             )
             return response
+        preview = re.fullmatch(r"/api/v1/personas/([^/]+)/validate", path)
+        if method == "POST" and preview:
+            request = from_wire(
+                ADAPTERS["EditCommand"],
+                await _body(headers, receive, MAX_BODY_BYTES),
+                extensions=self.ports.extensions,
+            )
+            self.sessions.check_scope(authority, request.scope)
+            if request.type != "persona.validate" or request.target != preview.group(1):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            if self.ports.views is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            result = await self.ports.views.validate_profile(authority.control, request)
+            self.sessions.current(authority)
+            return _json(result, self.ports.extensions)
         stop_path = re.fullmatch(r"/api/v1/agents/([^/]+)/stop", path)
         if method == "POST" and (stop_path or path == "/api/v1/commands"):
             raw = await _body(headers, receive, 4096 if stop_path else MAX_BODY_BYTES)
@@ -346,8 +372,9 @@ class Surface:
         raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
 
     async def read(self, path: str, asgi: ASGIScope, authority: SessionAuthority) -> Response:
+        custom = re.fullmatch(r"/api/v1/(laboratory-catalogue|persona-markdown)(?:/([^/]+))?", path)
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
-        if match is None or match.group(1) not in READ_MODELS:
+        if match is None or (match.group(1) not in READ_MODELS and custom is None):
             raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
         query = self.query(asgi, reading=True)
         try:
@@ -369,6 +396,24 @@ class Surface:
             raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
         self.sessions.check_scope(authority, scope)
         resource, identifier = match.groups()
+        if custom is not None:
+            if self.ports.views is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            custom_model = await self.ports.views.read(
+                resource, authority.control.principal_id, scope, identifier
+            )
+            self.sessions.check_scope(authority, scope)
+            expected = (
+                "LaboratoryCatalogue" if resource == "laboratory-catalogue" else "ProfileMarkdown"
+            )
+            checked = from_wire(
+                ADAPTERS[expected],
+                to_wire(custom_model, extensions=self.ports.extensions),
+                extensions=self.ports.extensions,
+            )
+            if checked.scope.partition != scope.partition:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            return _json(checked, self.ports.extensions)
         if resource == "sessions":
             run = self.supervisor.snapshot
             items = [run] if run.scope.partition == scope.partition else []

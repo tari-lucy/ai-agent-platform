@@ -9,12 +9,18 @@ from typing import Any, cast
 
 from ai_agent_application.jobs.owner import TERMINAL
 from ai_agent_application.jobs.ports import Attempt, AttemptStatus, DispatchRef, JobPage, Schedule
-from ai_agent_application.storage import Owner, Principal
+from ai_agent_application.storage import Owner, Principal, RecordAccess
 from ai_agent_contracts.api import CommandBase, Receipt
 from ai_agent_contracts.codec import ContractError, command_fingerprint, from_wire, to_wire
 from ai_agent_contracts.common import Scope
-from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, Job, Lease
-from ai_agent_contracts.states import ErrorCode
+from ai_agent_contracts.control import (
+    ExecutionCommand,
+    ExecutionResult,
+    Job,
+    Lease,
+    OperationProjection,
+)
+from ai_agent_contracts.states import ErrorCode, OperationState
 from pydantic import TypeAdapter
 from sqlalchemy import and_, func, insert, select, tuple_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -34,10 +40,17 @@ from . import schema as jobs
 
 
 class SQLiteJobs:
-    def __init__(self, store: SQLiteStore, principal: Principal) -> None:
+    def __init__(
+        self,
+        store: SQLiteStore,
+        principal: Principal,
+        *,
+        reader_access: tuple[RecordAccess, ...] = (),
+    ) -> None:
         if principal.role != "core_owner" or principal.owner != Owner.JOBS:
             raise ContractError(ErrorCode.ACCESS_DENIED)
         self.store, self.principal = store, principal
+        self.readers = reader_access
 
     async def command(self, command_id: str, scope: Scope) -> ExecutionCommand:
         command = await self.store.repository(
@@ -390,7 +403,50 @@ class SQLiteJobTransaction:
             )
             if (count or 0) >= self.pending_limit:
                 raise ContractError(ErrorCode.RESOURCE_BUSY)
-        await self.unit.put(job, expected_version=expected_version)
+        await self.unit.put(
+            job, expected_version=expected_version, access=self.owner.readers or None
+        )
+        # Same owner transaction: a panel status never lags its durable job.
+        old_projection = await connection.scalar(
+            select(db.records.c.version).where(
+                db.records.c.scope_id == scope_key(job.scope),
+                db.records.c.kind == "OperationProjection",
+                db.records.c.id == job.operation_id,
+            )
+        )
+        observed = result or reconciliation
+        result_id = observed.id if observed else None
+        if (
+            result_id is None
+            and job.status == OperationState.SUCCEEDED
+            and old_projection is not None
+        ):
+            # A factual late ACK must preserve the already accepted result.
+            previous = await connection.scalar(
+                select(db.revisions.c.payload).where(
+                    db.revisions.c.scope_id == scope_key(job.scope),
+                    db.revisions.c.kind == "OperationProjection",
+                    db.revisions.c.id == job.operation_id,
+                    db.revisions.c.version == old_projection,
+                )
+            )
+            result_id = json.loads(previous)["result_id"] if previous else None
+        projection = OperationProjection(
+            id=job.operation_id,
+            scope=job.scope,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            version=(old_projection or 0) + 1,
+            operation_id=job.operation_id,
+            status=job.status,
+            deadline=job.deadline,
+            waiting_reason=job.waiting_reason,
+            wake_event=job.wake_event,
+            result_id=result_id,
+        )
+        await self.unit.put(
+            projection, expected_version=old_projection, access=self.owner.readers or None
+        )
         values = dict(
             scope_id=scope_key(job.scope),
             operation_id=job.operation_id,

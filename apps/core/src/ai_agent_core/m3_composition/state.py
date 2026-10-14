@@ -27,6 +27,7 @@ PRINCIPALS = {owner: Principal("core-" + owner.value, "core_owner", owner) for o
 OPERATOR = Principal("operator", "operator")
 GM_STATE_ID = "gm-runtime"
 ROLES = {
+    "dialogue": ("character",),
     "extract": ("extractor",),
     "consolidate": ("consolidator",),
     "reflect": ("reflection", "story-screen"),

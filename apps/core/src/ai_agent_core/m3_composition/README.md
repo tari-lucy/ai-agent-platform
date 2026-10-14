@@ -55,7 +55,7 @@ post_session означает закрытый логический разгов
 разговор можно обработать только по новому явному допуску.
 
 HTTP использует прежние login/session/Origin/CSRF и /api/v1/commands:
-gm.configure + m3.gm-configure; laboratory.start + m3.task с kind laboratory;
+gm.configure + gm.configure-args; laboratory.start + laboratory.start-args;
 laboratory.transfer_settings + m3.transfer с reviewed digest.
 Preview переноса доступен через существующий SettingsTransfer.preview;
 панель M4 подключит его представление. Перенос разрешён при STOPPED, из явно
@@ -101,3 +101,43 @@ settle_unknown без повторного применения payload. Lease e
 Проверки — tests/m3_runtime; combined runner включает их вместе с исходными
 наборами. Реальные модели, качество ответов, публичные каналы и платные вызовы
 не входят в mock-приёмку.
+
+## Private mock dialogue (Integration-dialogue)
+
+Опциональный create_m3_app(..., dialogue_index=...) подключает существующий
+DialogueController/ContextBuilder/MemoryService/RecallService/SocialService.
+Индекс предоставляет host; без него dialogue закрыт. Factory не создаёт grants,
+профили, bindings или миграции; deploy/core.py остаётся закрытым scaffold.
+
+Дополнительно нужны role character и capability/Permission m3.dialogue
+по тем же правилам, что выше. Demand background+llm, lane foreground.
+Отдельный trusted WorkKind dialogue допускает ответ оператору при observation,
+но требует ACTIVE/OPEN и отзывается pause/STOP. Инструменты здесь не исполняются.
+Character binding дополнительно ограничен adapter mock до provider IO.
+
+Operator ACL/grants для private context и JSON-чтений задаются явно в своей
+области: Profile/CharacterState, Source/Episode, Utterance/Delivery, jobs/usage.
+Gateway также требует собственного чтения Source, чтобы сохранить ссылки
+на основания. Core owner grants и RecordAccess не заменяют друг друга.
+api_transfer здесь проверяется и для loopback JSON; это не разрешение
+вызвать внешний provider. Никакого автоматического расширения прав нет.
+
+dialogue.message адресуется текущему session_id. Сначала Memory owner
+сохраняет Source с conversation TTL; ExecutionCommand содержит только SourceRef
+и ID, без копии текста. Затем создаётся durable job, HTTP не ожидает модель.
+Если между двумя owners случился отказ, повтор с тем же ID находит Source
+и продолжает постановку; существующее содержимое не перезаписывается.
+
+WS chunks предварительные; generation.terminal с saved_result_id означает
+сохранённый приватный final, а не публичную модерацию или доставку.
+Utterance остаётся draft/audience operator-panel; Delivery — QUEUED.
+dialogue.acknowledge с ID/version/revision подтверждает получение панелью.
+Только тогда создаётся Source сказанного, Episode и подтверждённая Delivery.
+Это не доказательство, что человек прочитал текст. Повтор ACK не удваивает опыт.
+ACK после смены run или закрытия допуска запрещён.
+
+session.reflect перед session.end создаёт конечный job по явным episode_ids.
+Рефлексия не запускается после STOP и может сохранить состояние без изменений.
+Чтения/DTO/CAS и public TS builders: docs/implementation-reports/Integration-contracts.md.
+Это минимальный private operator путь; публичные каналы, реальные модели,
+все M4 формы и M5 эксплуатационный bootstrap требуют отдельных gates.

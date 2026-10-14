@@ -6,6 +6,7 @@ from ai_agent_application.control import Supervisor
 from ai_agent_application.gamemaster import Family
 from ai_agent_application.laboratory import LabRunner
 from ai_agent_application.llm import ProviderFactory
+from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.scheduling import ResourceScheduler
 from ai_agent_application.storage import RecordAccess
 from ai_agent_contracts.common import Scope
@@ -30,6 +31,7 @@ def create_m3_app(
     lab: LabRunner | None = None,
     reports: Reports | None = None,
     reader_access: tuple[RecordAccess, ...] = (),
+    dialogue_index: RecallIndex | None = None,
 ) -> FastAPI:
     if not scopes:
         raise ValueError("M3_SCOPES")
@@ -47,6 +49,7 @@ def create_m3_app(
             lab=lab,
             reports=reports,
             reader_access=reader_access,
+            dialogue_index=dialogue_index,
         )
 
     return create_app(settings, runtime_factory=compose, base_scope=scopes[0])
