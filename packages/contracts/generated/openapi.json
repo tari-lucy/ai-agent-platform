@@ -2168,6 +2168,75 @@
         "title": "Freshness",
         "type": "object"
       },
+      "GmRuntimeState": {
+        "additionalProperties": false,
+        "description": "GM-owned configuration and conservative active-time checkpoint.",
+        "properties": {
+          "active_seconds": {
+            "minimum": 0,
+            "title": "Active Seconds",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "intensity": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Intensity",
+            "type": "number"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/ExtensionPayload"
+          },
+          "rules_version": {
+            "minimum": 1,
+            "title": "Rules Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "intensity",
+          "active_seconds",
+          "rules_version",
+          "rules"
+        ],
+        "title": "GmRuntimeState",
+        "type": "object"
+      },
       "Job": {
         "additionalProperties": false,
         "properties": {
@@ -3374,6 +3443,19 @@
             "title": "Id",
             "type": "string"
           },
+          "offered_active_at": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Offered Active At"
+          },
           "reason_code": {
             "anyOf": [
               {
@@ -3432,6 +3514,19 @@
             ],
             "default": null,
             "title": "Topic Key"
+          },
+          "updated_active_at": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Updated Active At"
           },
           "updated_at": {
             "format": "date-time",
@@ -6288,6 +6383,91 @@
         "title": "Record",
         "type": "object"
       },
+      "ReflectionCheckpoint": {
+        "additionalProperties": false,
+        "description": "Persona-owned validated model result; restart never invents a second proposal.",
+        "properties": {
+          "completed": {
+            "default": false,
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "profile_version": {
+            "minimum": 1,
+            "title": "Profile Version",
+            "type": "integer"
+          },
+          "response": {
+            "$ref": "#/components/schemas/ExtensionPayload"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "state_version": {
+            "minimum": 1,
+            "title": "State Version",
+            "type": "integer"
+          },
+          "trigger_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Trigger Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "trigger_id",
+          "profile_version",
+          "state_version",
+          "sources",
+          "response"
+        ],
+        "title": "ReflectionCheckpoint",
+        "type": "object"
+      },
       "Relationship": {
         "additionalProperties": false,
         "properties": {
@@ -6908,6 +7088,109 @@
         "title": "ServiceResultCommand",
         "type": "object"
       },
+      "SettingsTransferOperation": {
+        "additionalProperties": false,
+        "description": "Workspace-owned progress across distinct settings owners; never implies atomicity.",
+        "properties": {
+          "applied_keys": {
+            "items": {
+              "enum": [
+                "profile",
+                "gm_intensity",
+                "story_rules_version"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Applied Keys",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "preview_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Preview Digest",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "selected_keys": {
+            "items": {
+              "enum": [
+                "profile",
+                "gm_intensity",
+                "story_rules_version"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Selected Keys",
+            "type": "array"
+          },
+          "source_scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "completed",
+              "reconciliation_required",
+              "acknowledged"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "source_scope",
+          "preview_digest",
+          "selected_keys",
+          "status",
+          "operator_id"
+        ],
+        "title": "SettingsTransferOperation",
+        "type": "object"
+      },
       "Source": {
         "additionalProperties": false,
         "properties": {
@@ -7452,6 +7735,19 @@
             "maxLength": 16000,
             "title": "Boundaries",
             "type": "string"
+          },
+          "cooldown_active_until": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cooldown Active Until"
           },
           "cooldown_until": {
             "anyOf": [

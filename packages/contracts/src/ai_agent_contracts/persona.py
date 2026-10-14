@@ -9,8 +9,10 @@ from ai_agent_contracts.common import (
     UTC,
     Confidence,
     Contract,
+    Digest,
     ExtensionPayload,
     Id,
+    Scope,
     ShortText,
     SourceRef,
     Text,
@@ -67,6 +69,7 @@ class StoryArc(VersionedRecord):
     boundaries: Text
     status: Literal["open", "paused", "closed"]
     cooldown_until: UTC | None = None
+    cooldown_active_until: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
     rules_version: Version | None = None
 
 
@@ -104,6 +107,8 @@ class Opportunity(VersionedRecord):
     reason_code: ShortText | None = None
     rules_version: Version | None = None
     rolls: list[StoryRoll] = Field(default_factory=list, max_length=3)
+    offered_active_at: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
+    updated_active_at: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
 
 
 class StateChange(VersionedRecord):
@@ -129,4 +134,53 @@ class StateChange(VersionedRecord):
             raise ValueError("NEW_VERSION_REQUIRED")
         if self.status != ChangeState.APPLIED and self.new_version is not None:
             raise ValueError("NOT_APPLIED")
+        return self
+
+
+class GmRuntimeState(VersionedRecord):
+    """GM-owned configuration and conservative active-time checkpoint."""
+
+    intensity: Confidence
+    active_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    rules_version: Version
+    rules: ExtensionPayload
+
+
+class ReflectionCheckpoint(VersionedRecord):
+    """Persona-owned validated model result; restart never invents a second proposal."""
+
+    trigger_id: Id
+    profile_version: Version
+    state_version: Version
+    sources: list[SourceRef] = Field(min_length=1, max_length=200)
+    response: ExtensionPayload
+    completed: bool = Field(default=False, strict=True)
+
+
+class SettingsTransferOperation(VersionedRecord):
+    """Workspace-owned progress across distinct settings owners; never implies atomicity."""
+
+    source_scope: Scope
+    preview_digest: Digest
+    selected_keys: list[Literal["profile", "gm_intensity", "story_rules_version"]] = Field(
+        min_length=1, max_length=3
+    )
+    applied_keys: list[Literal["profile", "gm_intensity", "story_rules_version"]] = Field(
+        default_factory=list, max_length=3
+    )
+    status: Literal["planned", "completed", "reconciliation_required", "acknowledged"]
+    operator_id: Id
+
+    @model_validator(mode="after")
+    def valid_transfer(self) -> Self:
+        if (
+            self.source_scope.workspace_id != self.scope.workspace_id
+            or self.source_scope.memory_mode != "test"
+            or self.scope.memory_mode != "work"
+            or len(set(self.selected_keys)) != len(self.selected_keys)
+            or len(set(self.applied_keys)) != len(self.applied_keys)
+            or not set(self.applied_keys) <= set(self.selected_keys)
+            or (self.status == "completed" and set(self.applied_keys) != set(self.selected_keys))
+        ):
+            raise ValueError("TRANSFER_SCOPE_OR_PROGRESS")
         return self
