@@ -47,6 +47,7 @@ from ai_agent_application.llm import (
     LLMGateway,
     ProviderCall,
     ProviderError,
+    ProviderFactory,
     ResolvedAssignment,
     Started,
 )
@@ -211,6 +212,8 @@ class Lab:
         profile_markdown: str,
         rules: StoryRules,
         clock: VirtualClock | None = None,
+        providers: ProviderFactory | None = None,
+        resolve: Callable[[str], ResolvedAssignment] | None = None,
     ) -> Lab:
         if scope.memory_mode != "test":
             raise ContractError(ErrorCode.ACCESS_DENIED)  # the laboratory never touches work data
@@ -247,8 +250,8 @@ class Lab:
         )
         persona = PersonaService(storage, PERSONA, registry, clock=clock)
         generator = LLMGateway(
-            lambda _a: brain,
-            lambda role: assignment(role),
+            providers or (lambda _a: brain),
+            resolve or (lambda role: assignment(role)),
             admission=lambda: control.snapshot().admitted,
             clock=clock,
             sleep=clock.sleep,
