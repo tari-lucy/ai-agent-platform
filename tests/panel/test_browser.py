@@ -250,8 +250,11 @@ def test_foreign_projection_hidden_and_markup_is_plain_text(page, live_panel):
 def test_plain_profile_does_not_execute_html(page, live_panel):
     open_mock(page, live_panel, profile_mode="text")
     page.get_by_role("link", name="Персонаж", exact=True).click()
+    # The canon is shown twice now (accepted profile and editor field); the first is the plain text.
     expect(
-        page.get_by_text("<script>window.fakeExecuted = true</script>", exact=True)
+        page.get_by_label("Принятый профиль").get_by_text(
+            "<script>window.fakeExecuted = true</script>", exact=True
+        )
     ).to_be_visible()
     assert page.evaluate("window.fakeExecuted") is None
 
