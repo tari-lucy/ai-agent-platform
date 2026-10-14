@@ -10,6 +10,7 @@ controller validates every idea.
 import asyncio
 import json
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
@@ -17,6 +18,7 @@ from typing import Literal, Protocol
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.persona import StateChange
 
+from ai_agent_application.fencing import fenced
 from ai_agent_application.llm import ChatMessage, Generation, GenerationRequest
 
 from .schemas import ReflectionResult
@@ -55,6 +57,10 @@ class Reflector:
     _done: set[str] = field(default_factory=set)
     _last: datetime | None = None
 
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.controller._write_fence()
+
+    @fenced
     async def reflect(
         self,
         scope: Scope,
@@ -71,10 +77,14 @@ class Reflector:
         now = self.clock()
         if self._last is not None and now - self._last < self.interval:
             return ReflectionReport("too_soon")
-        profile, state, definitions, bounds = await self.controller._context(scope)
+        profile, state, definitions, bounds = await self.controller._context(
+            scope, purpose="api_transfer"
+        )
         episodes = []
         for episode_id in dict.fromkeys(episode_ids):
-            episode = await self.controller.evidence.episode(scope, episode_id)
+            episode = await self.controller.evidence.episode(
+                scope, episode_id, purpose="api_transfer"
+            )
             if episode is not None:
                 episodes.append(episode)
         if not episodes:
@@ -94,6 +104,9 @@ class Reflector:
             for e in episodes
         )
         schema = json.dumps(ReflectionResult.model_json_schema(), ensure_ascii=False)
+        if not self.controller._autonomous_open():
+            return ReflectionReport("deferred", reason="CONTROL_CLOSED")
+        self.controller.storage.check_fence()
         self._last = now
         generation = await self.generator.generate(
             GenerationRequest(
@@ -124,8 +137,13 @@ class Reflector:
             return ReflectionReport(
                 "failed", reason=generation.failure.value if generation.failure else ""
             )
-        self._done.add(trigger_id)
+        if cancel is not None and cancel.is_set():
+            return ReflectionReport("cancelled")
+        if not self.controller._autonomous_open():
+            return ReflectionReport("deferred", reason="CONTROL_CLOSED")
+        self.controller.storage.check_fence()
         if not result.changes:
+            self._done.add(trigger_id)
             return ReflectionReport("kept", reason=result.keep_state_reason)
         shown = {e.id for e in episodes}
         outcomes: list[Outcome] = []
@@ -148,6 +166,7 @@ class Reflector:
                     ),
                 )
             )
+        self._done.add(trigger_id)
         return ReflectionReport("completed", tuple(outcomes))
 
 

@@ -13,7 +13,8 @@ owns ``CharacterState``.
 import hashlib
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from contextlib import AbstractContextManager
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -27,7 +28,8 @@ from ai_agent_contracts.states import ChangeState, ErrorCode, RunState
 from pydantic import TypeAdapter
 
 from ai_agent_application.dialogue.model import ControlSnapshot
-from ai_agent_application.extraction.evidence import classify
+from ai_agent_application.extraction.evidence import classify, experience_groups
+from ai_agent_application.fencing import admission_guard
 from ai_agent_application.gamemaster.rules import StoryClassifier, StoryRules, screen
 from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.service import derived_id
@@ -38,7 +40,14 @@ from ai_agent_application.persona.schemas import (
     PropertyDefinitions,
     ValueMap,
 )
-from ai_agent_application.storage import Owner, Principal, RecordAccess, RecordRepository, Storage
+from ai_agent_application.storage import (
+    Owner,
+    Principal,
+    ReadPurpose,
+    RecordAccess,
+    RecordRepository,
+    Storage,
+)
 
 from .rules import assess, value_error
 from .schemas import Patch
@@ -52,7 +61,9 @@ MAX_LAST_CHANGES = 50
 
 
 class EvidenceReader(Protocol):
-    async def episode(self, scope: Scope, episode_id: str) -> Episode | None: ...
+    async def episode(
+        self, scope: Scope, episode_id: str, *, purpose: ReadPurpose = "private"
+    ) -> Episode | None: ...
 
     async def source(self, scope: Scope, source_id: str) -> Source | None: ...
 
@@ -63,9 +74,11 @@ class MemoryEvidence:
     def __init__(self, memory: MemoryService) -> None:
         self.memory = memory
 
-    async def episode(self, scope: Scope, episode_id: str) -> Episode | None:
+    async def episode(
+        self, scope: Scope, episode_id: str, *, purpose: ReadPurpose = "private"
+    ) -> Episode | None:
         repository = self.memory.storage.repository(Episode, self.memory.principal, scope)
-        return await repository.get(episode_id)
+        return await repository.get(episode_id, purpose=purpose)
 
     async def source(self, scope: Scope, source_id: str) -> Source | None:
         return await self.memory.get_source(scope, source_id)
@@ -126,6 +139,9 @@ class DevelopmentController:
         if self.principal.role != "core_owner" or self.principal.owner is not Owner.PERSONA:
             raise ContractError(ErrorCode.ACCESS_DENIED)
 
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.storage.fence(admission_guard(self._autonomous_open))
+
     # ---- plumbing ---------------------------------------------------------------------
 
     def _command(self, scope: Scope, name: str) -> CommandBase:
@@ -152,7 +168,19 @@ class DevelopmentController:
     async def _write(
         self, scope: Scope, name: str, puts: Sequence[tuple[Record, int | None]]
     ) -> None:
-        command = self._command(scope, name)
+        material = [
+            json.loads(to_wire(record, extensions=self.extensions)) | {"expected": expected}
+            for record, expected in puts
+        ]
+        command = self._command(scope, name).model_copy(
+            update={
+                "arguments": MessageArguments(
+                    text=hashlib.sha256(
+                        json.dumps(material, sort_keys=True, ensure_ascii=False).encode()
+                    ).hexdigest()
+                )
+            }
+        )
         async with self.storage.transaction(self.principal, scope, command) as unit:
             if unit.replay is not None:
                 return
@@ -164,7 +192,11 @@ class DevelopmentController:
                     scope=scope,
                     status="completed",
                     resource_id=puts[0][0].id,
-                    version=getattr(puts[0][0], "version", 1),
+                    version=next(
+                        getattr(record, "version", 1)
+                        for record, _ in reversed(puts)
+                        if record.id == puts[0][0].id
+                    ),
                 )
             )
 
@@ -189,10 +221,12 @@ class DevelopmentController:
         )
 
     async def _context(
-        self, scope: Scope
+        self, scope: Scope, *, purpose: ReadPurpose = "private"
     ) -> tuple[Profile, CharacterState, dict[str, PropertyDefinition], dict[str, DevelopmentBound]]:
-        profile = await self._repo(Profile, scope).get(scope.persona_id)
-        state = await self._repo(CharacterState, scope).get("state:" + scope.persona_id)
+        profile = await self._repo(Profile, scope).get(scope.persona_id, purpose=purpose)
+        state = await self._repo(CharacterState, scope).get(
+            "state:" + scope.persona_id, purpose=purpose
+        )
         if profile is None or state is None:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         definitions = self.extensions.validate(
@@ -243,7 +277,9 @@ class DevelopmentController:
             for ref in change.evidence
         }
         evidence: dict[str, SourceRef] = {}
-        counted = 0
+        groups = experience_groups(await self._all(Episode, scope))
+        spent_groups = {groups.get(source_id, source_id) for source_id in spent_sources}
+        counted: set[str] = set()
         for episode_id in dict.fromkeys(candidate.episode_ids):
             episode = await self.evidence.episode(scope, episode_id)
             if episode is None or episode.scope.partition != scope.partition:
@@ -254,15 +290,23 @@ class DevelopmentController:
             independent = False
             for ref in episode.sources:
                 source = await self.evidence.source(scope, ref.source_id)
-                verdict = classify(source, scope) if source is not None else None
+                if (
+                    source is None
+                    or source.version != ref.version
+                    or source.availability != "available"
+                ):
+                    return 0, [], "SOURCE_UNAVAILABLE"
+                verdict = classify(source, scope)
                 independent = independent or bool(
                     verdict and verdict.independent and verdict.reject is None
                 )
                 evidence[ref.source_id] = ref
             fresh = all(r.source_id not in spent_sources for r in episode.sources)
             if independent and fresh:
-                counted += 1
-        return counted, list(evidence.values()), None
+                group = groups.get(episode.sources[0].source_id, episode.id)
+                if group not in spent_groups:
+                    counted.add(group)
+        return len(counted), list(evidence.values()), None
 
     def _window_spent(
         self, history: Sequence[StateChange], name: str, window_days: int, now: datetime
@@ -291,12 +335,13 @@ class DevelopmentController:
         change_id = derived_id("chg", scope, candidate.proposal_id)
         existing = await self._repo(StateChange, scope).get(change_id)
         if existing is not None:
-            patch = self._patch(existing)
-            if (patch.property, patch.after, existing.base_version) != (
-                candidate.property,
-                candidate.new_value,
-                candidate.base_version,
-            ):
+            digest = (
+                "input-"
+                + hashlib.sha256(
+                    json.dumps(asdict(candidate), sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest()
+            )
+            if digest not in existing.checks:
                 raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
             return Outcome(existing, (), duplicate=True)
         profile, state, definitions, bounds = await self._context(scope)
@@ -354,7 +399,6 @@ class DevelopmentController:
             scope, change_id, candidate, before_value, evidence, now, checks + reasons + errors
         )
         proposed = self._record(StateChange, {**base, "status": C.PROPOSED.value, "version": 1})
-        await self._write(scope, f"chg-{change_id}", [(proposed, None)])
         final = self._revised(
             proposed,
             scope,
@@ -362,7 +406,7 @@ class DevelopmentController:
             version=2,
             updated_at=max(self.clock(), proposed.updated_at).isoformat(),
         )
-        await self._write(scope, f"chgv-{change_id}-2", [(final, 1)])
+        await self._write(scope, f"chg-{change_id}", [(proposed, None), (final, 1)])
         return Outcome(final, tuple(errors or reasons))
 
     def _change_payload(
@@ -395,7 +439,13 @@ class DevelopmentController:
             "interpretation": candidate.interpretation,
             "uncertainty": candidate.uncertainty,
             "expected_manifestation": candidate.expected_manifestation,
-            "checks": [f"c-{_slug(c)}" for c in dict.fromkeys(checks)][:50],
+            "checks": [
+                "input-"
+                + hashlib.sha256(
+                    json.dumps(asdict(candidate), sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest(),
+                *[f"c-{_slug(c)}" for c in dict.fromkeys(checks)][:49],
+            ],
             "operator_decision_id": None,
             "new_version": None,
             "revision_of": candidate.revision_of,
@@ -414,6 +464,14 @@ class DevelopmentController:
     # ---- apply / decide ---------------------------------------------------------------
 
     async def apply(
+        self, scope: Scope, change_id: str, operator_decision_id: str | None = None
+    ) -> StateChange:
+        if operator_decision_id is not None:
+            return await self._apply(scope, change_id, operator_decision_id)
+        with self._write_fence():
+            return await self._apply(scope, change_id)
+
+    async def _apply(
         self, scope: Scope, change_id: str, operator_decision_id: str | None = None
     ) -> StateChange:
         """Apply a READY change autonomously (control open) or an approved one (operator)."""
@@ -502,21 +560,29 @@ class DevelopmentController:
             and self._patch(h).kind == "change"
             for ref in h.evidence
         }
+        mapping = experience_groups(await self._all(Episode, scope))
+        spent_groups = {mapping.get(source_id, source_id) for source_id in spent}
         groups: set[str] = set()
         for ref in change.evidence:
             source = await self.evidence.source(scope, ref.source_id)
-            if source is None or ref.source_id in spent:
+            if (
+                source is None
+                or source.version != ref.version
+                or source.scope.partition != scope.partition
+                or source.availability != "available"
+                or ref.source_id in spent
+            ):
                 continue
             verdict = classify(source, scope)
             if verdict.independent and verdict.reject is None:
-                groups.add(await self._group(scope, ref.source_id))
+                group = mapping.get(ref.source_id, ref.source_id)
+                if group not in spent_groups:
+                    groups.add(group)
         return len(groups)
 
     async def _group(self, scope: Scope, source_id: str) -> str:
-        for episode in sorted(await self._all(Episode, scope), key=lambda e: e.id):
-            if any(r.source_id == source_id for r in episode.sources):
-                return episode.id
-        return source_id
+        groups = experience_groups(await self._all(Episode, scope))
+        return groups.get(source_id, source_id)
 
     async def _set_status(
         self, scope: Scope, change: StateChange, status: ChangeState
@@ -637,6 +703,8 @@ class DevelopmentController:
         if preview.digest != preview_digest:
             raise ContractError(ErrorCode.STALE_CONTEXT)
         _, state, definitions, _ = await self._context(scope)
+        if state.version != preview.state_version:
+            raise ContractError(ErrorCode.VERSION_CONFLICT, None, state.version)
         definition = definitions.get(preview.property)
         if definition is None or value_error(definition, preview.restore_value) is not None:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)

@@ -42,7 +42,7 @@ NOW = datetime(2026, 10, 13, 12, tzinfo=UTC)
 PERSONA = Principal("owner-persona", "core_owner", Owner.PERSONA)
 MEMORY = Principal("owner-memory", "core_owner", Owner.MEMORY)
 GRANTS = (
-    Grant(PERSONA, Owner.PERSONA, read=True, write=True),
+    Grant(PERSONA, Owner.PERSONA, read=True, write=True, api_transfer=True),
     Grant(PERSONA, Owner.MEMORY, read=True),
     Grant(MEMORY, Owner.MEMORY, read=True, write=True, api_transfer=True),
 )
@@ -298,7 +298,11 @@ async def new_world(tmp_path, scripts=(), *, mode="work", **options) -> World:
     scope = make_scope(mode)
     await store.provision(scope, GRANTS)
     memory = MemoryService(
-        store, MEMORY, registry, clock=clock, reader_access=(RecordAccess(PERSONA.id),)
+        store,
+        MEMORY,
+        registry,
+        clock=clock,
+        reader_access=(RecordAccess(PERSONA.id, api_transfer=True),),
     )
     persona = PersonaService(store, PERSONA, registry, clock=clock)
     payload = {

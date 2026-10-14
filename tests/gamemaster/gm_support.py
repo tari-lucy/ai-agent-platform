@@ -39,8 +39,8 @@ MEMORY = Principal("owner-memory", "core_owner", Owner.MEMORY)
 GM = Principal("owner-gm", "core_owner", Owner.GM)
 GRANTS = (
     Grant(MEMORY, Owner.MEMORY, read=True, write=True, api_transfer=True),
-    Grant(GM, Owner.GM, read=True, write=True),
-    Grant(GM, Owner.MEMORY, read=True),
+    Grant(GM, Owner.GM, read=True, write=True, api_transfer=True),
+    Grant(GM, Owner.MEMORY, read=True, api_transfer=True),
 )
 _ids = count(1)
 RULES = StoryRules.layered(
@@ -203,7 +203,11 @@ async def new_world(tmp_path, scripts=(), *, scope=None, seed="seed-1", **gm_opt
     scope = scope or make_scope()
     await store.provision(scope, GRANTS)
     memory = MemoryService(
-        store, MEMORY, store.extensions, clock=clock, reader_access=(RecordAccess(GM.id),)
+        store,
+        MEMORY,
+        store.extensions,
+        clock=clock,
+        reader_access=(RecordAccess(GM.id, api_transfer=True),),
     )
     state = {"admitted": True}
     gm = GameMaster(

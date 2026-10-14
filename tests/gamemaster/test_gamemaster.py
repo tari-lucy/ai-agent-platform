@@ -309,7 +309,8 @@ def test_illegal_transitions_and_expiry(tmp_path):
     assert late.value.error.code is ErrorCode.EXPIRED and expired == []
     assert after_late == {S.CANCELLED, S.EXPIRED}  # the late accept already closed it
     assert view == [] and gone == []  # past their expiry both records are hidden
-    assert hidden.value.error.code is ErrorCode.INVALID_ARGUMENTS
+    # Lifecycle port retains owner metadata; terminal offer cannot be accepted again.
+    assert hidden.value.error.code is ErrorCode.STALE_CONTEXT
 
 
 def test_pause_cancels_waiting_offers_keeps_chosen_work_and_blocks_new_ones(tmp_path):

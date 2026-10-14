@@ -8,10 +8,11 @@ it can be cited, but it never counts as independent evidence and never lifts a c
 ``interpretation``.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ai_agent_contracts.common import Scope
-from ai_agent_contracts.memory import Source
+from ai_agent_contracts.memory import Episode, Source
 from ai_agent_contracts.states import Provenance
 
 SELF_SOURCE_TYPES = frozenset(
@@ -55,3 +56,26 @@ def classify(source: Source, scope: Scope) -> SourceEvidence:
 def ceiling(knowledge_type: str, groups: int) -> float:
     table = CEILING_CORROBORATED if groups >= 2 else CEILING_ONE_GROUP
     return table[knowledge_type]
+
+
+def experience_groups(episodes: Sequence[Episode]) -> dict[str, str]:
+    """Shared sources join episodes into one experience, including transitive retellings."""
+    parent: dict[str, str] = {}
+
+    def find(key: str) -> str:
+        parent.setdefault(key, key)
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    for episode in episodes:
+        anchor = "episode:" + episode.id
+        for ref in episode.sources:
+            left, right = find(anchor), find("source:" + ref.source_id)
+            parent[max(left, right)] = min(left, right)
+    return {
+        key.removeprefix("source:"): find(key).removeprefix("episode:")
+        for key in tuple(parent)
+        if key.startswith("source:")
+    }

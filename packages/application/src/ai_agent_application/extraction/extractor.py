@@ -13,6 +13,7 @@ import asyncio
 import json
 import unicodedata
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -22,11 +23,13 @@ from ai_agent_contracts.common import Scope, SourceRef
 from ai_agent_contracts.memory import Claim, Episode, Source
 from ai_agent_contracts.states import ErrorCode
 
+from ai_agent_application.fencing import admission_guard, fenced
 from ai_agent_application.llm import ChatMessage, Generation, GenerationRequest
 from ai_agent_application.memory import ClaimDraft, MemoryService
 from ai_agent_application.memory.service import derived_id
+from ai_agent_application.storage import ReadPurpose
 
-from .evidence import STRENGTH, SourceEvidence, ceiling, classify
+from .evidence import STRENGTH, SourceEvidence, ceiling, classify, experience_groups
 from .model import (
     Accepted,
     ExtractionReport,
@@ -71,7 +74,7 @@ class Extractor:
         memory: MemoryService,
         generator: Generator,
         *,
-        admitted: Callable[[], bool] = lambda: True,
+        admitted: Callable[[], bool] = lambda: False,
         role_id: str = ROLE_ID,
     ) -> None:
         self.memory, self.generator, self.admitted, self.role_id = (
@@ -80,6 +83,9 @@ class Extractor:
             admitted,
             role_id,
         )
+
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.memory.storage.fence(admission_guard(self.admitted))
 
     # ---- plumbing ---------------------------------------------------------------------
 
@@ -92,12 +98,14 @@ class Extractor:
             arguments=MessageArguments(text="extraction"),
         )
 
-    async def _all[R: Episode | Claim](self, model: type[R], scope: Scope) -> list[R]:
+    async def _all[R: Episode | Claim](
+        self, model: type[R], scope: Scope, *, purpose: ReadPurpose = "private"
+    ) -> list[R]:
         repository = self.memory.storage.repository(model, self.memory.principal, scope)
         found: list[R] = []
         after: str | None = None
         while True:
-            page = await repository.list(limit=LIST_PAGE, after_id=after)
+            page = await repository.list(limit=LIST_PAGE, after_id=after, purpose=purpose)
             found.extend(page)
             if len(page) < LIST_PAGE:
                 return found
@@ -105,11 +113,7 @@ class Extractor:
 
     async def groups(self, scope: Scope) -> dict[str, str]:
         """source id -> experience group (the first episode that contains it)."""
-        mapping: dict[str, str] = {}
-        for episode in sorted(await self._all(Episode, scope), key=lambda e: e.id):
-            for ref in episode.sources:
-                mapping.setdefault(ref.source_id, episode.id)
-        return mapping
+        return experience_groups(await self._all(Episode, scope))
 
     async def _load(
         self, scope: Scope, source_ids: Sequence[str], skipped: list[Skipped]
@@ -123,6 +127,8 @@ class Extractor:
             elif source.availability != "available" or source.content is None:
                 skipped.append(Skipped(source_id, "SOURCE_UNAVAILABLE"))
             elif not source.read_allowed or not source.api_transfer_allowed:
+                skipped.append(Skipped(source_id, "API_TRANSFER_NOT_ALLOWED"))
+            elif await self.memory.get_source(scope, source_id, purpose="api_transfer") is None:
                 skipped.append(Skipped(source_id, "API_TRANSFER_NOT_ALLOWED"))
             else:
                 ref = SourceRef(
@@ -138,6 +144,7 @@ class Extractor:
 
     # ---- extraction -------------------------------------------------------------------
 
+    @fenced
     async def extract(
         self,
         scope: Scope,
@@ -162,9 +169,12 @@ class Extractor:
         if not kept:
             return ExtractionReport("nothing", skipped=tuple(skipped))
         existing = [
-            c for c in await self._all(Claim, scope) if not subjects or c.subject_id in subjects
+            c
+            for c in await self._all(Claim, scope, purpose="api_transfer")
+            if not subjects or c.subject_id in subjects
         ][:MAX_EXISTING_CLAIMS]
         op = operation_id or derived_id("ext", scope, *sorted(i.source.id for i in kept))
+        self.memory.storage.check_fence()
         generation = await self.generator.generate(
             GenerationRequest(
                 operation_id=op,

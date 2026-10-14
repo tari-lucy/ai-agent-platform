@@ -10,12 +10,14 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.common import Scope, SourceRef
 from ai_agent_contracts.memory import Summary
 
+from ai_agent_application.fencing import admission_guard, fenced
 from ai_agent_application.llm import ChatMessage, GenerationRequest
 from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.service import derived_id
@@ -33,13 +35,17 @@ class Consolidator:
         memory: MemoryService,
         generator: Generator,
         *,
-        admitted: Callable[[], bool] = lambda: True,
+        admitted: Callable[[], bool] = lambda: False,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         role_id: str = "consolidator",
     ) -> None:
         self.memory, self.generator, self.admitted = memory, generator, admitted
         self.clock, self.role_id = clock, role_id
 
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.memory.storage.fence(admission_guard(self.admitted))
+
+    @fenced
     async def summarise(
         self,
         scope: Scope,
@@ -53,7 +59,7 @@ class Consolidator:
             return None
         sources = []
         for source_id in list(dict.fromkeys(source_ids))[:MAX_SOURCES]:
-            source = await self.memory.get_source(scope, source_id)
+            source = await self.memory.get_source(scope, source_id, purpose="api_transfer")
             if (
                 source is not None
                 and source.availability == "available"
@@ -79,6 +85,7 @@ class Consolidator:
             f"{data(s.content or '')}</source>"
             for s in sources
         )
+        self.memory.storage.check_fence()
         generation = await self.generator.generate(
             GenerationRequest(
                 operation_id=f"cons-{key[:40]}",

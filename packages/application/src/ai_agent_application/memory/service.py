@@ -22,7 +22,7 @@ from ai_agent_contracts.memory import Claim, Episode, Source
 from ai_agent_contracts.states import ErrorCode, Provenance
 from pydantic import TypeAdapter
 
-from ai_agent_application.storage import Owner, Principal, RecordAccess, Storage
+from ai_agent_application.storage import Owner, Principal, ReadPurpose, RecordAccess, Storage
 
 from .chunking import MAX_CHUNK_CHARS, chunk_text
 from .health import IndexHealth
@@ -125,8 +125,12 @@ class MemoryService:
 
     # ---- helpers --------------------------------------------------------------------------
 
-    async def get_source(self, scope: Scope, source_id: str) -> Source | None:
-        return await self.storage.repository(Source, self.principal, scope).get(source_id)
+    async def get_source(
+        self, scope: Scope, source_id: str, *, purpose: ReadPurpose = "private"
+    ) -> Source | None:
+        return await self.storage.repository(Source, self.principal, scope).get(
+            source_id, purpose=purpose
+        )
 
     def _record[R: Any](self, model: type[R], payload: dict[str, Any]) -> R:
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -394,7 +398,7 @@ class MemoryService:
             async with self.storage.transaction(self.principal, scope, command) as unit:
                 if unit.replay is not None:
                     return episode_id, False
-                await unit.put(record)
+                await unit.put(record, access=self.reader_access or None)
                 await unit.complete(
                     Receipt(
                         request_id=command.request_id,

@@ -12,7 +12,8 @@ refusal never blocks the character's ordinary behaviour.
 import hashlib
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from contextlib import AbstractContextManager
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Protocol
 
@@ -25,6 +26,7 @@ from ai_agent_contracts.states import ErrorCode, OpportunityState
 from pydantic import Field, TypeAdapter
 
 from ai_agent_application.extraction.evidence import classify
+from ai_agent_application.fencing import admission_guard, fenced
 from ai_agent_application.llm import ChatMessage, Generation, GenerationRequest
 from ai_agent_application.memory import EpisodeDraft, MemoryService
 from ai_agent_application.memory.service import derived_id
@@ -115,7 +117,7 @@ class GameMaster:
     dice: Dice
     policy: GmPolicy = field(default_factory=GmPolicy)
     classifier: StoryClassifier | None = None
-    admitted: Callable[[], bool] = lambda: True
+    admitted: Callable[[], bool] = lambda: False
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     reader_access: tuple[RecordAccess, ...] = ()
     paused: bool = False
@@ -128,6 +130,9 @@ class GameMaster:
             raise ContractError(ErrorCode.ACCESS_DENIED)
         if len({f.family_id for f in self.families}) != len(self.families):
             raise ValueError("FAMILIES_INVALID")
+
+    def _write_fence(self) -> AbstractContextManager[None]:
+        return self.storage.fence(admission_guard(self._open))
 
     # ---- plumbing ---------------------------------------------------------------------
 
@@ -152,7 +157,19 @@ class GameMaster:
     async def _write(
         self, scope: Scope, name: str, puts: Sequence[tuple[Record, int | None]]
     ) -> None:
-        command = self._command(scope, name)
+        material = [
+            json.loads(to_wire(record, extensions=self.extensions)) | {"expected": expected}
+            for record, expected in puts
+        ]
+        command = self._command(scope, name).model_copy(
+            update={
+                "arguments": MessageArguments(
+                    text=hashlib.sha256(
+                        json.dumps(material, sort_keys=True, ensure_ascii=False).encode()
+                    ).hexdigest()
+                )
+            }
+        )
         async with self.storage.transaction(self.principal, scope, command) as unit:
             if unit.replay is not None:
                 return
@@ -173,7 +190,11 @@ class GameMaster:
         found: list[R] = []
         after: str | None = None
         while True:
-            page = await repository.list(limit=LIST_PAGE, after_id=after)
+            page = (
+                await repository.list_for_lifecycle(limit=LIST_PAGE, after_id=after)
+                if model is Opportunity
+                else await repository.list(limit=LIST_PAGE, after_id=after)
+            )
             found.extend(page)
             if len(page) < LIST_PAGE:
                 return found
@@ -187,7 +208,12 @@ class GameMaster:
         independent = False
         for ref in grounds:
             source = await self.memory.get_source(scope, ref.source_id)
-            if source is None or source.availability != "available":
+            if (
+                source is None
+                or source.version != ref.version
+                or source.scope.partition != scope.partition
+                or source.availability != "available"
+            ):
                 return False
             verdict = classify(source, scope)
             if verdict.reject is not None:
@@ -197,6 +223,7 @@ class GameMaster:
 
     # ---- arcs -------------------------------------------------------------------------
 
+    @fenced
     async def open_arc(
         self,
         scope: Scope,
@@ -235,6 +262,7 @@ class GameMaster:
                 "boundaries": boundaries,
                 "status": status,
                 "cooldown_until": None,
+                "rules_version": self.rules.version,
             },
         )
         await self._write(scope, f"arc-{arc_id}", [(arc, None)])
@@ -246,6 +274,12 @@ class GameMaster:
             arc = await self.storage.repository(StoryArc, self.principal, scope).get(arc_id)
             if arc is None or arc.status == "closed":
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            if status == "open":
+                verdict = await screen(
+                    self.rules, f"{arc.direction}\n{arc.boundaries}", self.classifier
+                )
+                if not verdict.allowed:
+                    raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             revised = self._revised(
                 arc,
                 status=status,
@@ -261,11 +295,16 @@ class GameMaster:
                 if error.error.code is ErrorCode.VERSION_CONFLICT:
                     continue
                 raise
+            if status != "open":
+                for offer in await self._all(Opportunity, scope):
+                    if offer.arc_id == arc_id and offer.status in UNRESOLVED:
+                        await self._move(scope, offer.id, S.CANCELLED)
             return revised
         raise ContractError(ErrorCode.VERSION_CONFLICT)
 
     # ---- proposals --------------------------------------------------------------------
 
+    @fenced
     async def propose(
         self,
         scope: Scope,
@@ -349,6 +388,14 @@ class GameMaster:
                 "status": status.value,
                 "choice": None,
                 "actual_outcome": None,
+                "family_id": family_id,
+                "topic_key": fold(topic_key),
+                "reason_code": verdict.reason,
+                "rules_version": self.rules.version,
+                "rolls": [
+                    {**asdict(roll), "options": list(roll.options), "weights": list(roll.weights)}
+                    for roll in rolls
+                ],
             },
         )
         puts: list[tuple[Record, int | None]] = [(record, None)]
@@ -391,6 +438,7 @@ class GameMaster:
                 counts[family] = counts.get(family, 0) + 1
         return {f for f, n in counts.items() if n >= self.policy.decline_rest}
 
+    @fenced
     async def suggest(
         self,
         scope: Scope,
@@ -404,7 +452,9 @@ class GameMaster:
         """Choose a family and strength with dice first, then let the model word the situation."""
         if not self._open():
             return ProposalResult(None, False, "GM_CLOSED")
-        arc = await self.storage.repository(StoryArc, self.principal, scope).get(arc_id)
+        arc = await self.storage.repository(StoryArc, self.principal, scope).get(
+            arc_id, purpose="api_transfer"
+        )
         if arc is None or arc.status != "open":
             return ProposalResult(None, False, "ARC_NOT_OPEN")
         eligible = self._eligible(available_capabilities, await self._resting(scope))
@@ -423,10 +473,11 @@ class GameMaster:
         rolls = (pick, variant, strength)
         texts = []
         for ref in grounds:
-            source = await self.memory.get_source(scope, ref.source_id)
+            source = await self.memory.get_source(scope, ref.source_id, purpose="api_transfer")
             if source and source.content and source.api_transfer_allowed and source.read_allowed:
                 texts.append(f'<ground id="{_tag(source.id)}">{_tag(source.content)}</ground>')
         schema = json.dumps(Draft.model_json_schema(), ensure_ascii=False)
+        self.storage.check_fence()
         generation = await generator.generate(
             GenerationRequest(
                 operation_id=derived_id("gm", scope, arc_id, ctx),
@@ -472,9 +523,22 @@ class GameMaster:
         self, scope: Scope, opp_id: str, to: OpportunityState, **fields: Any
     ) -> Opportunity:
         for _ in range(MAX_RETRIES):
-            opp = await self.storage.repository(Opportunity, self.principal, scope).get(opp_id)
+            opp = await self.storage.repository(
+                Opportunity, self.principal, scope
+            ).get_for_lifecycle(opp_id)
             if opp is None:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            if to in (S.ACCEPTED, S.REALIZING):
+                arc = await self.storage.repository(StoryArc, self.principal, scope).get(opp.arc_id)
+                if not self._open() or arc is None or arc.status != "open":
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+                screened = await screen(
+                    self.rules,
+                    f"{opp.applicability}\n{opp.boundaries}\n{arc.direction}",
+                    self.classifier,
+                )
+                if not screened.allowed:
+                    raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             if to not in EDGES.get(opp.status, ()):
                 raise ContractError(ErrorCode.STALE_CONTEXT)
             revised = self._revised(
@@ -496,19 +560,26 @@ class GameMaster:
             return revised
         raise ContractError(ErrorCode.VERSION_CONFLICT)
 
+    @fenced
     async def accept(self, scope: Scope, opp_id: str) -> Opportunity:
         """The character's own choice; refused after expiry or when control is closed."""
-        opp = await self.storage.repository(Opportunity, self.principal, scope).get(opp_id)
+        opp = await self.storage.repository(Opportunity, self.principal, scope).get_for_lifecycle(
+            opp_id
+        )
         if opp is not None and opp.status is S.OFFERED and self.clock() >= opp.expires_at:
             await self._move(scope, opp_id, S.EXPIRED)
             raise ContractError(ErrorCode.EXPIRED)
-        if not self.admitted() or self.paused:
+        if opp is None:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        arc = await self.storage.repository(StoryArc, self.principal, scope).get(opp.arc_id)
+        if not self._open() or arc is None or arc.status != "open":
             raise ContractError(ErrorCode.STALE_CONTEXT)
         return await self._move(scope, opp_id, S.ACCEPTED)
 
     async def decline(self, scope: Scope, opp_id: str) -> Opportunity:
         return await self._move(scope, opp_id, S.DECLINED)
 
+    @fenced
     async def start(self, scope: Scope, opp_id: str) -> Opportunity:
         """The behaviour controller began the real action (it checked rights and resources)."""
         if not self.admitted():
@@ -528,11 +599,18 @@ class GameMaster:
         participant_ids: Sequence[str] = (),
     ) -> Opportunity:
         """Only an actual result, backed by an independent first-hand source, becomes experience."""
-        opp = await self.storage.repository(Opportunity, self.principal, scope).get(opp_id)
+        opp = await self.storage.repository(Opportunity, self.principal, scope).get_for_lifecycle(
+            opp_id
+        )
         if opp is None or opp.status not in (S.ACCEPTED, S.REALIZING):
             raise ContractError(ErrorCode.STALE_CONTEXT)
         source = await self.memory.get_source(scope, evidence.source_id)
-        if source is None or source.availability != "available":
+        if (
+            source is None
+            or source.availability != "available"
+            or source.version != evidence.version
+            or evidence.scope.partition != scope.partition
+        ):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         verdict = classify(source, scope)
         if not verdict.independent or verdict.reject is not None:
