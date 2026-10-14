@@ -172,6 +172,7 @@ class SettingsTransferOperation(VersionedRecord):
     )
     status: Literal["planned", "completed", "reconciliation_required", "acknowledged"]
     operator_id: Id
+    operation_id: Id | None = None
 
     @model_validator(mode="after")
     def valid_transfer(self) -> Self:

@@ -2,10 +2,11 @@
 
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, JsonValue, model_validator
 
-from .common import Contract, Digest, Id, Scope, ShortText, Version
+from .common import UTC, Contract, Digest, Id, Scope, ShortText, Version, VersionedRecord
 from .extensions import ExtensionRegistry
+from .persona import SettingsTransferOperation
 
 MarkdownText = Annotated[str, Field(strict=True, min_length=1, max_length=30000)]
 
@@ -121,3 +122,69 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("gm.configure-args", ConfigureGM)
     registry.register("laboratory.start-args", LaboratoryStartArguments)
     registry.register("laboratory.create-args", LaboratoryCreateArguments)
+    registry.register("laboratory.transfer-settings-args", SettingsTransferArguments)
+
+
+SettingsTransferKey = Literal["profile", "gm_intensity", "story_rules_version"]
+
+
+class SettingsTransferArguments(Contract):
+    source_scope: Scope
+    action: Literal["preview", "apply", "acknowledge"]
+    operation_id: Id
+    keys: list[SettingsTransferKey] = Field(min_length=1, max_length=3)
+    preview_digest: Digest | None = None
+    plan_id: Id | None = None
+    plan_version: Version | None = None
+
+    @model_validator(mode="after")
+    def binding(self) -> Self:
+        if len(set(self.keys)) != len(self.keys) or self.source_scope.memory_mode != "test":
+            raise ValueError("TRANSFER_SELECTION")
+        if self.action != "preview" and self.preview_digest is None:
+            raise ValueError("TRANSFER_DIGEST_REQUIRED")
+        if self.action == "apply" and (self.plan_id is None or self.plan_version is None):
+            raise ValueError("TRANSFER_PLAN_REQUIRED")
+        return self
+
+
+class SettingsTransferItem(Contract):
+    key: SettingsTransferKey
+    before: JsonValue
+    after: JsonValue
+    changes: list[ShortText] = Field(max_length=200)
+    blockers: list[ShortText] = Field(max_length=200)
+
+
+class SettingsTransferPreview(VersionedRecord):
+    request_id: Id
+    operation_id: Id
+    operator_id: Id
+    source_scope: Scope
+    keys: list[SettingsTransferKey] = Field(min_length=1, max_length=3)
+    preview_digest: Digest
+    target_version: Version
+    expires_at: UTC
+    items: list[SettingsTransferItem] = Field(min_length=1, max_length=3)
+    never_transferred: list[ShortText] = Field(max_length=30)
+    blocked: bool
+
+    @model_validator(mode="after")
+    def selection(self) -> Self:
+        if (
+            self.scope.memory_mode != "work"
+            or self.source_scope.memory_mode != "test"
+            or self.scope.workspace_id != self.source_scope.workspace_id
+            or len(set(self.keys)) != len(self.keys)
+            or [i.key for i in self.items] != self.keys
+            or self.blocked != any(i.blockers for i in self.items)
+            or self.expires_at <= self.created_at
+        ):
+            raise ValueError("TRANSFER_PREVIEW")
+        return self
+
+
+class SettingsTransferStatus(Contract):
+    scope: Scope
+    operation_id: Id
+    record: SettingsTransferOperation | None

@@ -5279,6 +5279,62 @@
         "title": "Page[RunSession]",
         "type": "object"
       },
+      "Page_SettingsTransferOperation_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsTransferOperation"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[SettingsTransferOperation]",
+        "type": "object"
+      },
       "Page_Source_": {
         "additionalProperties": false,
         "properties": {
@@ -7949,6 +8005,140 @@
         "title": "ServiceResultCommand",
         "type": "object"
       },
+      "SettingsTransferArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "preview",
+              "apply",
+              "acknowledge"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "keys": {
+            "items": {
+              "enum": [
+                "profile",
+                "gm_intensity",
+                "story_rules_version"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Keys",
+            "type": "array"
+          },
+          "operation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan Id"
+          },
+          "plan_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan Version"
+          },
+          "preview_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Preview Digest"
+          },
+          "source_scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "source_scope",
+          "action",
+          "operation_id",
+          "keys"
+        ],
+        "title": "SettingsTransferArguments",
+        "type": "object"
+      },
+      "SettingsTransferItem": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "before": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "blockers": {
+            "items": {
+              "maxLength": 512,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Blockers",
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "maxLength": 512,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Changes",
+            "type": "array"
+          },
+          "key": {
+            "enum": [
+              "profile",
+              "gm_intensity",
+              "story_rules_version"
+            ],
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "before",
+          "after",
+          "changes",
+          "blockers"
+        ],
+        "title": "SettingsTransferItem",
+        "type": "object"
+      },
       "SettingsTransferOperation": {
         "additionalProperties": false,
         "description": "Workspace-owned progress across distinct settings owners; never implies atomicity.",
@@ -7977,6 +8167,21 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
             "title": "Id",
             "type": "string"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Operation Id"
           },
           "operator_id": {
             "maxLength": 128,
@@ -8050,6 +8255,169 @@
           "operator_id"
         ],
         "title": "SettingsTransferOperation",
+        "type": "object"
+      },
+      "SettingsTransferPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsTransferItem"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "keys": {
+            "items": {
+              "enum": [
+                "profile",
+                "gm_intensity",
+                "story_rules_version"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Keys",
+            "type": "array"
+          },
+          "never_transferred": {
+            "items": {
+              "maxLength": 512,
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Never Transferred",
+            "type": "array"
+          },
+          "operation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "preview_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Preview Digest",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "source_scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "target_version": {
+            "minimum": 1,
+            "title": "Target Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "request_id",
+          "operation_id",
+          "operator_id",
+          "source_scope",
+          "keys",
+          "preview_digest",
+          "target_version",
+          "expires_at",
+          "items",
+          "never_transferred",
+          "blocked"
+        ],
+        "title": "SettingsTransferPreview",
+        "type": "object"
+      },
+      "SettingsTransferStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SettingsTransferOperation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "scope",
+          "operation_id",
+          "record"
+        ],
+        "title": "SettingsTransferStatus",
         "type": "object"
       },
       "Source": {
@@ -12407,6 +12775,63 @@
         "x-no-store": true
       }
     },
+    "/api/v1/laboratory/transfer-preview": {
+      "post": {
+        "operationId": "preview_settings_transfer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsTransferPreview"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "CSRF": [],
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
     "/api/v1/llm-assignments": {
       "get": {
         "operationId": "list_llm_assignments",
@@ -14341,6 +14766,234 @@
         ]
       }
     },
+    "/api/v1/settings-transfer-status/{operation_id}": {
+      "get": {
+        "operationId": "read_SettingsTransferStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsTransferStatus"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settings-transfers": {
+      "get": {
+        "operationId": "list_settings_transfers",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SettingsTransferOperation_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settings-transfers/{resource_id}": {
+      "get": {
+        "operationId": "read_settings_transfers",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsTransferOperation"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
     "/api/v1/sources": {
       "get": {
         "operationId": "list_sources",
@@ -15558,6 +16211,9 @@
     },
     "laboratory.start-args@1.0": {
       "$ref": "#/components/schemas/LaboratoryStartArguments"
+    },
+    "laboratory.transfer-settings-args@1.0": {
+      "$ref": "#/components/schemas/SettingsTransferArguments"
     },
     "persona.apply-args@1.0": {
       "$ref": "#/components/schemas/PersonaApplyArguments"

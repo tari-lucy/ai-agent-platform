@@ -19,6 +19,10 @@ MODELS = (
     panel.LaboratoryStartArguments,
     panel.LaboratoryScenario,
     panel.LaboratoryCatalogue,
+    panel.SettingsTransferArguments,
+    panel.SettingsTransferItem,
+    panel.SettingsTransferPreview,
+    panel.SettingsTransferStatus,
     panel.ProfileMarkdown,
     panel.ProfileIssue,
     panel.ProfileDiffProjection,
@@ -122,6 +126,7 @@ ADAPTERS["StreamEvent"] = TypeAdapter(cast(Any, StreamEvent))
 
 READ_MODELS = {
     "gm-settings": persona.GmRuntimeState,
+    "settings-transfers": persona.SettingsTransferOperation,
     "workspaces": workspace.Workspace,
     "capabilities": workspace.Capability,
     "artifacts": workspace.Artifact,

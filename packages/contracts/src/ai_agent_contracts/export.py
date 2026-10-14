@@ -253,6 +253,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
     }
     for route, projection_name in (
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
+        ("/api/v1/settings-transfer-status/{operation_id}", "SettingsTransferStatus"),
         ("/api/v1/persona-markdown/{persona_id}", "ProfileMarkdown"),
     ):
         params = list(scope_parameters)
@@ -260,6 +261,15 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             params.append(
                 {
                     "name": "persona_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            )
+        if "{operation_id}" in route:
+            params.append(
+                {
+                    "name": "operation_id",
                     "in": "path",
                     "required": True,
                     "schema": {"type": "string", "minLength": 1, "maxLength": 128},
@@ -292,6 +302,17 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             "responses": {"200": response("ProfileValidation"), **errors},
         }
     }
+    paths["/api/v1/laboratory/transfer-preview"] = {
+        "post": {
+            "operationId": "preview_settings_transfer",
+            "security": writing,
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": ref("EditCommand")}},
+            },
+            "responses": {"200": response("SettingsTransferPreview"), **errors},
+        }
+    }
     from ai_agent_contracts.panel import (
         ConfigureGM,
         LaboratoryCreateArguments,
@@ -300,6 +321,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         PersonaCopyArguments,
         PersonaCreateArguments,
         PersonaValidateArguments,
+        SettingsTransferArguments,
     )
 
     payloads = {
@@ -310,6 +332,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             ("persona.apply-args", PersonaApplyArguments),
             ("persona.copy-args", PersonaCopyArguments),
             ("gm.configure-args", ConfigureGM),
+            ("laboratory.transfer-settings-args", SettingsTransferArguments),
             ("laboratory.start-args", LaboratoryStartArguments),
             ("laboratory.create-args", LaboratoryCreateArguments),
         )
