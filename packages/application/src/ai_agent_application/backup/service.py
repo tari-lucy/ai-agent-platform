@@ -80,7 +80,9 @@ class BackupService:
 
     # ---- creating copies ------------------------------------------------------------------
 
-    async def create(self, kind: Kind = "daily") -> BackupResult:
+    async def create(
+        self, kind: Kind = "daily", *, keep: frozenset[str] = frozenset()
+    ) -> BackupResult:
         now = self.clock()
         quota = self.policy.quota_bytes
         if quota is not None and self.store.used_bytes() >= quota:
@@ -123,7 +125,7 @@ class BackupService:
                 await self.ledger.snapshot_to(self.ledger_dir / f"{backup_id}.ledger.sqlite")
         finally:
             shutil.rmtree(stage, ignore_errors=True)
-        pruned = await self._prune()
+        pruned = await self._prune(keep)
         return BackupResult(manifest, tuple(pruned), tuple(self._quota_warnings()))
 
     def _quota_warnings(self) -> list[str]:
@@ -133,7 +135,7 @@ class BackupService:
         used = self.store.used_bytes() / quota
         return [f"QUOTA_{level}" for level in (90, 80) if used >= level / 100][:1]
 
-    async def _prune(self) -> list[str]:
+    async def _prune(self, keep_ids: frozenset[str] = frozenset()) -> list[str]:
         now = self.clock()
         manifests = sorted(await self.store.manifests(), key=lambda m: m.created_at, reverse=True)
         keep = {
@@ -145,6 +147,8 @@ class BackupService:
         removed: list[str] = []
         for manifest in manifests:
             seen[manifest.kind] = seen.get(manifest.kind, 0) + 1
+            if manifest.backup_id in keep_ids:
+                continue  # the copy being restored must survive its own restore
             too_many = manifest.kind in keep and seen[manifest.kind] > keep[manifest.kind]
             if too_many or now - manifest.created_at > self.policy.max_age:
                 await self.store.remove(manifest.backup_id)
@@ -278,7 +282,9 @@ class BackupService:
             raise ContractError(ErrorCode.VERSION_CONFLICT)
         if current.blocked:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-        safety = await self.create("pre_restore")  # a way back, taken before anything changes
+        safety = await self.create(
+            "pre_restore", keep=frozenset({preview.backup_id})
+        )  # a way back, taken before anything changes
         stage = self.work_dir / f"restore-{preview.backup_id}"
         shutil.rmtree(stage, ignore_errors=True)
         stage.mkdir(parents=True, mode=0o700)
