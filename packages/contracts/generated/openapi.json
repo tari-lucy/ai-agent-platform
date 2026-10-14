@@ -7503,6 +7503,19 @@
             "title": "Id",
             "type": "string"
           },
+          "rules_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rules Version"
+          },
           "schema_version": {
             "const": "1.0",
             "default": "1.0",

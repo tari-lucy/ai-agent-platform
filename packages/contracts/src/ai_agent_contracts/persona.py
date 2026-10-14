@@ -67,6 +67,7 @@ class StoryArc(VersionedRecord):
     boundaries: Text
     status: Literal["open", "paused", "closed"]
     cooldown_until: UTC | None = None
+    rules_version: Version | None = None
 
 
 class StoryRoll(Contract):
