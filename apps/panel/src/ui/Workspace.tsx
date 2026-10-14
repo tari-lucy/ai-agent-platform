@@ -21,7 +21,6 @@ const screens = [
   { path: 'llm', label: 'LLM и расходы', mark: '07', title: 'Понятный учёт', detail: 'Модели, токены и расходы появятся после подключения учёта. Отсутствие данных не означает нулевой расход.', task: 'M4-08' },
 ] as const;
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
-const activityLabels = { OPEN: 'Деятельность разрешена', PAUSING: 'Переходит на паузу', PAUSED: 'Деятельность на паузе' };
 const connectionLabels: Record<ConnectionState, string> = {
   connecting: 'Подключение событий', connected: 'События подключены', reconnecting: 'Связь прервана · переподключение',
   offline: 'События недоступны', denied: 'Подписка отклонена',
@@ -63,8 +62,6 @@ function ScopeContent({ api, scope, path }: { api: PanelApi; scope: Scope; path:
     queryFn: ({ signal }) => api.profiles(scope, signal),
     enabled: path === 'persona',
   });
-  const cache = useQueryClient();
-  const run = cache.getQueryData<RunSessionPage>(projectionKey('sessions', scope))?.items[0];
   return <Stack gap="lg">
     <div><Text className="eyebrow">{screen.mark} / {screen.label}</Text><Title order={1}>{screen.title}</Title></div>
     {scope.memory_mode === 'test' &&
