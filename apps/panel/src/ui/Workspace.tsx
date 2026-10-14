@@ -1,8 +1,8 @@
-import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Title } from '@mantine/core';
+import { Alert, Button, Group, Select, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { OperatorSession, ProfilePage, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
+import type { OperatorSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
 import { failureMessage, type PanelApi } from '../shared/api.ts';
 import { affectedResources, connectEvents, eventsUrl, type ConnectionState } from '../shared/events.ts';
 import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.ts';
@@ -13,6 +13,7 @@ import { WorkspaceScreen } from './workspace/WorkspaceScreen.tsx';
 import { LlmScreen } from './llm/LlmScreen.tsx';
 import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
 import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
+import { PersonaScreen } from './persona/PersonaScreen.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -58,46 +59,12 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Button variant="subtle" size="compact-xs" onClick={() => setRevision((n) => n + 1)}>Повторить подключение</Button>}
   </Group>;
 }
-function ScopeContent({ api, scope, path }: { api: PanelApi; scope: Scope; path: typeof screens[number]['path'] }) {
-  const screen = screens.find((item) => item.path === path)!;
-  const profile = useQuery({
-    queryKey: projectionKey('personas', scope),
-    queryFn: ({ signal }) => api.profiles(scope, signal),
-    enabled: path === 'persona',
-  });
-  return <Stack gap="lg">
-    <div><Text className="eyebrow">{screen.mark} / {screen.label}</Text><Title order={1}>{screen.title}</Title></div>
-    {scope.memory_mode === 'test' &&
-      <Alert color="violet" title="Тестовая память">Эти данные изолированы от рабочей биографии. Просмотр не запускает агента.</Alert>}
-    <Paper withBorder p="xl" radius="lg">
-      <Group justify="space-between" mb="md"><Title order={2} size="h3">Просматриваемая область</Title>
-        <Badge color={scope.memory_mode === 'test' ? 'violet' : 'gray'} variant="light">{scope.memory_mode === 'test' ? 'ТЕСТ' : 'РАБОЧАЯ'}</Badge></Group>
-      <Text fw={600}>{scope.persona_id}</Text>
-      <Text size="sm" c="dimmed">{scope.memory_space_id}</Text>
-      <Text mt="md" size="sm">Просмотр профиля не переключает активного агента.</Text>
-    </Paper>
-    {path === 'persona' && <Paper withBorder p="xl" radius="lg">
-      <Title order={2} size="h3" mb="md">Принятый профиль</Title>
-      {profile.isPending ? <Text>Получаем профиль…</Text> : profile.isError ?
-        <Alert color="orange">{failureMessage(profile.error)}</Alert> :
-        <ProfilePreview page={profile.data} />}
-    </Paper>}
-    <Paper className="future-card" p="xl" radius="lg">
-      <Badge color="gray" variant="outline" mb="md">Раздел готовится</Badge>
-      <Text>{screen.detail}</Text>
-      <Text size="sm" c="dimmed" mt="sm">Основа панели доступна. Функции этого раздела будут подключены следующим этапом.</Text>
-    </Paper>
-  </Stack>;
-}
-function ProfilePreview({ page }: { page: ProfilePage | undefined }) {
-  if (!page?.items.length) return <Text c="dimmed">Принятых профилей в этой области пока нет.</Text>;
-  return <Stack>{!page.complete && <Text size="sm" c="orange.8">Показана первая страница профилей.</Text>}
-    {page.items.map((profile) => <div key={profile.id}>
-      <Text fw={600}>{profile.persona_id} · версия {profile.version}</Text>
-      <Text mt="sm" className="plain-text">{profile.canon}</Text>
-      <Text size="sm" c="dimmed" mt="sm" className="plain-text">{profile.style}</Text>
-    </div>)}</Stack>;
-}
+type ScreenProps = { api: PanelApi; scope: Scope };
+// Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
+const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
+  dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
+  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen,
+};
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
@@ -183,14 +150,10 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         {!!confirmed.unconfirmed_resource_ids?.length && <Text size="sm">{confirmed.unconfirmed_resource_ids.join(', ')}</Text>}
       </Alert>}
       {logoutError && <Alert color="red" mb="lg">{logoutError}</Alert>}
-      <Routes>{screens.map((screen) => <Route key={screen.path} path={'/' + screen.path}
-        element={screen.path === 'dialogue' ? <Dialogue key={selected + screen.path} api={api} scope={scope} /> :
-          screen.path === 'memory' ? <Memory key={selected + screen.path} api={api} scope={scope} /> :
-          screen.path === 'laboratory' ? <LaboratoryScreen key={selected + screen.path} api={api} scope={scope} /> :
-          screen.path === 'development' ? <DevelopmentScreen key={selected + screen.path} api={api} scope={scope} /> :
-          screen.path === 'llm' ? <LlmScreen key={selected + screen.path} api={api} scope={scope} /> :
-          screen.path === 'workspace' ? <WorkspaceScreen key={selected + screen.path} api={api} scope={scope} /> :
-          <ScopeContent key={selected + screen.path} api={api} scope={scope} path={screen.path} />} />)}
+      <Routes>{screens.map((screen) => {
+        const Screen = screenComponents[screen.path];
+        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} />} />;
+      })}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>
   </div>;

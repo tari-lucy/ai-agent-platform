@@ -68,3 +68,7 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 .memory-item:focus-visible { outline: 2px solid var(--mantine-color-blue-6); outline-offset: 2px; }
 
 .plain-list { list-style: none; margin: 0; padding: 0; }
+
+.diff { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--mantine-color-gray-0); font: inherit; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff .add { background: var(--mantine-color-teal-0); }
+.diff .del { background: var(--mantine-color-red-0); }

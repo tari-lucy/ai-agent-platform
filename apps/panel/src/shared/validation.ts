@@ -1,5 +1,5 @@
 import type {
-  Artifact, BriefingPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
@@ -296,4 +296,40 @@ export function laboratoryReports(value: unknown, selected: Scope): LaboratoryRe
     (row.scope as Scope).memory_mode === 'test' &&
     (row.report_artifact == null || (object(row.report_artifact) && id(row.report_artifact.artifact_id)))));
   return value as LaboratoryReportPage;
+}
+
+// M4-03: people, encounters, relationships, topics, promises. A nickname never identifies a person.
+const confirmation = new Set(['confirmed', 'hypothesis', 'rejected']);
+export function people(value: unknown, selected: Scope): PersonPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.person_id) && Array.isArray(row.accounts) && row.accounts.length <= 200 &&
+    row.accounts.every((account: unknown) => object(account) && id(account.platform_id) && text(account.account_id, 512) && text(account.display_name, 512) &&
+      confirmation.has(String(account.confirmation)) && refs(account.evidence))));
+  return value as PersonPage;
+}
+export function encounters(value: unknown, selected: Scope): EncounterPage {
+  page(value, selected);
+  demand(value.items.every((row) => Array.isArray(row.person_ids) && row.person_ids.length >= 1 && row.person_ids.every(id) && refs(row.sources)));
+  return value as EncounterPage;
+}
+export function relationships(value: unknown, selected: Scope): RelationshipPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.person_id) && object(row.aspects) && refs(row.grounds)));
+  return value as RelationshipPage;
+}
+export function topics(value: unknown, selected: Scope): TopicPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.topic_id) && ['open', 'reserved', 'awaiting_answer', 'answered', 'closed'].includes(String(row.status)) &&
+    Array.isArray(row.participant_ids) && row.participant_ids.every(id) && refs(row.sources) && (row.answer == null || text(row.answer)) &&
+    (row.cooldown_until == null || date(row.cooldown_until))));
+  return value as TopicPage;
+}
+export function promises(value: unknown, selected: Scope): PromisePage {
+  page(value, selected);
+  demand(value.items.every((row) => ['open', 'fulfilled', 'withdrawn', 'unknown'].includes(String(row.status)) && text(row.content) && text(row.completion_criterion) &&
+    Array.isArray(row.participant_ids) && row.participant_ids.length >= 1 && row.participant_ids.every(id) && refs(row.sources) &&
+    (row.deadline == null || date(row.deadline)) && (row.closure_result == null || text(row.closure_result)) &&
+    // a closed promise carries its closure
+    (!['fulfilled', 'withdrawn'].includes(String(row.status)) || row.closure_result != null)));
+  return value as PromisePage;
 }
