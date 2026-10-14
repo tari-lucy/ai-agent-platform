@@ -56,10 +56,13 @@ class LabRunner:
     async def run(
         self, scenario: Scenario, *, seed: str = "lab-seed", persist: bool = True
     ) -> ScenarioReport:
+        if len(seed) > 128 or secret_like(seed):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         scope = await self.scope_factory(f"{scenario.scenario_id}-{seed}")
         if scope.memory_mode != "test":
             raise ContractError(ErrorCode.ACCESS_DENIED)
         self.scopes.append(scope)
+        del self.scopes[:-64]
         self.clock.now = self.clock.start
         self.clock._scheduled.clear()
         lab = await Lab.create(
@@ -94,14 +97,28 @@ class LabRunner:
             started_at=started,
             finished_at=finished,
             status=status,  # type: ignore[arg-type]
-            findings=tuple(lab.findings),
-            log=tuple(lab.log),
+            findings=tuple(
+                Finding(
+                    "REDACTED" if secret_like(f.name) else f.name,
+                    f.ok,
+                    "[REDACTED]" if secret_like(f.detail) else f.detail,
+                    f.hard,
+                )
+                for f in lab.findings
+            ),
+            log=tuple(
+                {"kind": "redacted", "reason": "SECRET_LIKE_DATA"}
+                if secret_like(str(entry))
+                else entry
+                for entry in lab.log
+            ),
             model_calls=len(lab.brain.calls),
             error=error,
         )
         if persist:
             await self._persist(lab, report)
         self.reports.append(report)
+        del self.reports[:-64]
         return report
 
     async def _invariants(self, lab: Lab, before: dict[str, dict[str, int]]) -> list[Finding]:
@@ -122,7 +139,7 @@ class LabRunner:
             after = await lab.fingerprint(scope)
             same = before[scope.memory_space_id] == after
             found.append(Finding(f"ISOLATION:{scope.memory_mode}", same, "records changed"))
-        leaked = secret_like("\n".join(str(entry) for entry in lab.log))
+        leaked = secret_like("\n".join(str(entry) for entry in lab.log) + "\n" + str(lab.findings))
         found.append(Finding("NO_SECRETS_IN_REPORT", not leaked, "secret-like text in the log"))
         return found
 

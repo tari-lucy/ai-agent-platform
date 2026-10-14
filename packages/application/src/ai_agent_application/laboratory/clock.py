@@ -20,6 +20,8 @@ class VirtualClock:
         return self.now
 
     def at(self, moment: datetime, action: Callable[[], Awaitable[None]]) -> None:
+        if len(self._scheduled) >= 1024:
+            raise ValueError("CLOCK_QUEUE_FULL")
         self._order += 1
         self._scheduled.append((moment, self._order, action))
 
@@ -28,12 +30,16 @@ class VirtualClock:
         target = self.now + timedelta(**delta)
         if target < self.now:
             raise ValueError("TIME_BACKWARDS")
+        executed = 0
         while True:
             due = sorted(
                 (item for item in self._scheduled if item[0] <= target), key=lambda i: (i[0], i[1])
             )
             if not due:
                 break
+            executed += 1
+            if executed > 1024:
+                raise ValueError("CLOCK_CALLBACK_BUDGET")
             moment, order, action = due[0]
             self._scheduled.remove((moment, order, action))
             self.now = max(self.now, moment)

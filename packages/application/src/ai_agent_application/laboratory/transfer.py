@@ -9,6 +9,7 @@ so a rejected or incompatible revision changes nothing.
 
 import hashlib
 import json
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -52,6 +53,7 @@ class TransferItem:
     after: Any
     changes: tuple[str, ...]
     blockers: tuple[str, ...]
+    target_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +77,17 @@ def _digest(items: Sequence[TransferItem], source: Scope, target: Scope) -> str:
     material = [
         list(source.partition),
         list(target.partition),
-        [[i.key, repr(i.before), repr(i.after), list(i.changes), list(i.blockers)] for i in items],
+        [
+            [
+                i.key,
+                repr(i.before),
+                repr(i.after),
+                list(i.changes),
+                list(i.blockers),
+                i.target_version,
+            ]
+            for i in items
+        ],
     ]
     return hashlib.sha256(json.dumps(material, ensure_ascii=False).encode()).hexdigest()
 
@@ -105,6 +117,13 @@ class SettingsTransfer:
             else:
                 before = self.settings.get(target, key)
                 after = self.settings.get(source, key)
+                valid = (
+                    type(after) in (int, float) and math.isfinite(after) and 0 <= after <= 1
+                    if key == "gm_intensity"
+                    else type(after) is int and after >= 1
+                )
+                if not valid:
+                    raise ContractError(ErrorCode.INVALID_ARGUMENTS)
                 changes = () if before == after else (f"{key}: {before!r} -> {after!r}",)
                 items.append(TransferItem(key, before, after, changes, ()))
         return TransferPreview(tuple(items), NEVER_TRANSFERRED, _digest(items, source, target))
@@ -145,7 +164,12 @@ class SettingsTransfer:
             values = dict(parsed_values.values)
         blockers = tuple(i.code + ":" + (i.section or "") for i in state_blockers(parsed, values))
         return TransferItem(
-            "profile", current.accepted_revision_id, parsed.revision_id, changes, blockers
+            "profile",
+            current.accepted_revision_id,
+            parsed.revision_id,
+            changes,
+            blockers,
+            current.version,
         )
 
     async def transfer(
@@ -160,20 +184,28 @@ class SettingsTransfer:
         if not operator_decision_id or preview.digest != preview_digest or preview.blocked:
             raise ContractError(ErrorCode.STALE_CONTEXT)
         applied: list[str] = []
-        for item in preview.items:
+        for item in sorted(preview.items, key=lambda item: item.key != "profile"):
             if item.key == "profile":
-                await self._apply_profile(source, target, operator_decision_id)
+                await self._apply_profile(source, target, operator_decision_id, item)
             else:
                 self.settings.set(target, item.key, item.after)
             applied.append(item.key)
         return TransferResult(tuple(applied), preview)
 
-    async def _apply_profile(self, source: Scope, target: Scope, decision: str) -> None:
+    async def _apply_profile(
+        self, source: Scope, target: Scope, decision: str, reviewed: TransferItem
+    ) -> None:
         markdown = await self.persona.export_markdown(source)
-        assert markdown is not None
+        if markdown is None:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         parsed, _ = import_markdown(markdown)
-        assert parsed is not None
+        if parsed is None or parsed.revision_id != reviewed.after:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         current = await self.persona.get_profile(target)
+        if (None if current is None else current.accepted_revision_id) != reviewed.before or (
+            None if current is None else current.version
+        ) != reviewed.target_version:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         ext = self.persona.extensions
         if current is None:
             payload = {
