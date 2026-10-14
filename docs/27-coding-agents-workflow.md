@@ -161,3 +161,14 @@ blocked отмечает конкретную внешнюю зависимос�
 scripts/check_combined.py. Наличие модуля в исходниках не заменяет установку
 transport backend. Worker bindings не копировать через Git; grants задаёт core
 owner composition. Полный provider/streaming runtime по-прежнему принадлежит M2.
+
+
+### Основа панели M4-01 — 2026-10-14
+
+Оболочка, operator login/session, shared API/WS/cache и independent STOP
+подготовлены в task/m4-01-panel-shell; приёмка **UI-only / review**.
+Windows/Linux client23/build и Edge11 browser cases прошли; полный
+backend cycle M2/M3 и остальные экраны ещё требуют интеграционной проверки.
+Порты: apps/panel/README.md; приёмка: docs/implementation-reports/M4-01.md.
+Shared panel shell/API client остаются у M4-01; будущие screen owners
+подключают свой экран через эти порты, не создают альтернативные клиенты.

@@ -29,7 +29,7 @@
 | M1-04 | integrated | Codex / task/m1-04-jobs | 8e16ff8 + 864f84a + 8ec1058; head 0003, Windows 247 / Linux 253, real Redis/restart/lease/crash/STOP tests, types/lint/export/hash passed |
 | M1-05 | integrated | Codex / task/m1-05-access | 6081bdf/957a9c6 + a69f404/585b73d/62a8fb7; Windows510/Linux511, 78 auth cases, real HTTP/WS/SQLite/STOP, strict types/lint/export/lock; core768 MiB no OOM |
 | M1-06 | integrated | Codex / task/m1-06-telemetry-scheduler | ebc32bf; 47 operations cases, combined Windows429 / Linux430, bounded buffers/reserved budgets/UNKNOWN/actual SQLite retry, types/lint/export passed; M1-05 также интегрирована |
-| M4-01 | in_progress | Codex / task/m4-01-panel-shell | база 841b52c; shell/auth/API/WS/query cache; до backend приёмка UI-only |
+| M4-01 | review | Codex / task/m4-01-panel-shell | b0c5c71 + 0838d43; UI-only: Windows/Linux23 client tests/build, Edge11; full backend cycle не принят |
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
@@ -399,3 +399,12 @@ contracts.ts требует прежнего repo layout в build stage, ина�
 Для той же packaging-правки M4-01 назначена .dockerignore: добавить только
 allowlist packages/contracts/generated/contracts.ts. Остальные исключения
 секретов/данных и runtime context остаются прежними.
+
+
+Итог M4-01 2026-10-14: foundation готова к публикации, приёмка UI-only/review.
+Настоящие M1 login/session/STOP/WS и отдельные synthetic UI projections
+проверены. Linux panel Docker stage/npm lock/lint/types/23 tests/build passed;
+Edge11 cases, responsive/keyboard passed. Новые M2/M3 модули из3a5d690
+сохранены, независимый review следует отдельно; их runtime не объявляется
+проверенным этим task. До полной backend приёмки не переводить M4-01
+в integrated и не считать M4-02–08 реализованными.
