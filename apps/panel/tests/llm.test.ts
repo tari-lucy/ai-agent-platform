@@ -213,3 +213,45 @@ test('usage reads use the allowlisted resources, the exact partition and a valid
   await assert.rejects(api.llmAttempts(scope, undefined, 'a&b'), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
   assert.equal(paths.length, 4);
 });
+test('usage that names no source is unknown whatever its completeness says', () => {
+  const nameless = usage({ source: 'unknown', completeness: 'partial', input_tokens: null, output_tokens: null });
+  const { totals } = summarise([attempt('a', { usage: nameless })], [], connectionOf);
+  assert.deepEqual([totals.unknownUsage, totals.partialUsage], [1, 0]);
+  assert.deepEqual(perDay([attempt('a', { usage: nameless })]), [{ day: '2026-10-14', tokens: 0, unknown: 1 }]);
+});
+test('an unknown cost is never summed even if an amount arrives with it; the total then stays incomplete', () => {
+  const out = summarise([attempt('a')], [cost('a', '5', 'USD', 'unknown')], connectionOf);
+  assert.deepEqual([out.cost.length, out.unknownCost, out.complete], [0, 1, false]);
+  const unknownUsage = usage({ source: 'unknown', completeness: 'unknown', input_tokens: null, output_tokens: null });
+  const priced = summarise([attempt('a', { usage: unknownUsage })], [cost('a', '1')], connectionOf);
+  assert.deepEqual([priced.unknownCost, priced.cost.length, priced.complete], [0, 1, false]); // priced, but tokens unknown
+  assert.deepEqual(costPerDay([attempt('a')], [cost('a', '5', 'USD', 'unknown')]), {});
+});
+test('history says "unknown" for a calculation without an amount or without a currency', () => {
+  const rows = historyRows([attempt('a'), attempt('b', { started_at: T(5) })], [cost('a', null, null, 'unknown'), cost('b', '1', null, 'partial')], connectionOf);
+  assert.deepEqual(rows.map((row) => row.cost), ['неизвестно', 'неизвестно']);
+});
+test('days and shares come out ordered whatever order the server sent', () => {
+  const rows = [attempt('c', { started_at: T(2, 15) }), attempt('a', { started_at: T(2, 13) }), attempt('b', { started_at: T(2, 14) })];
+  assert.deepEqual(perDay(rows).map((day) => day.day), ['2026-10-13', '2026-10-14', '2026-10-15']);
+  const costs = [cost('c', '1'), cost('a', '1'), cost('b', '1')];
+  assert.deepEqual(costPerDay(rows, costs).USD.map((day) => day.day), ['2026-10-13', '2026-10-14', '2026-10-15']);
+  const table = { small: { ...summarise([], [], connectionOf).totals, input: 10, output: 0 }, big: { ...summarise([], [], connectionOf).totals, input: 90, output: 0 },
+    tieB: { ...summarise([], [], connectionOf).totals, input: 5, output: 0 }, tieA: { ...summarise([], [], connectionOf).totals, input: 5, output: 0 } };
+  assert.deepEqual(shares(table).map((row) => row.key), ['big', 'small', 'tieA', 'tieB']);
+});
+test('the same model on two connections has two price lists', () => {
+  const groups = groupTariffs([tariff(), tariff({ id: 'other', connection_id: 'conn-2' })], NOW);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((group) => group.connection).sort(), ['conn-1', 'conn-2']);
+  assert.equal(groups.every((group) => group.current !== null), true);
+});
+test('a tariff command carries each rate that was set and none that was not', () => {
+  const full = { ...emptyDraft, connection: 'conn-1', model: 'model-x', currency: 'USD', input: '2', output: '6', cached: '0.5', reasoning: '8', effective: '2026-10-14T10:00' };
+  const data = tariffCommand(runScope, 'session-1', full, 'r').arguments.data as Record<string, unknown>;
+  assert.deepEqual([data.input_rate, data.output_rate, data.cached_input_rate, data.reasoning_output_rate], ['2', '6', '0.5', '8']);
+  const sparse = tariffCommand(runScope, 'session-1', { ...full, input: '', cached: '', reasoning: '' }, 'r').arguments.data as Record<string, unknown>;
+  assert.deepEqual(Object.keys(sparse).sort(), ['connection_id', 'currency', 'effective_at', 'model_id', 'output_rate', 'unit_tokens']);
+  const onlyReasoning = tariffCommand(runScope, 'session-1', { ...full, input: '2', output: '', cached: '', reasoning: '8' }, 'r').arguments.data as Record<string, unknown>;
+  assert.deepEqual([onlyReasoning.reasoning_output_rate, 'cached_input_rate' in onlyReasoning, 'output_rate' in onlyReasoning], ['8', false, false]);
+});
