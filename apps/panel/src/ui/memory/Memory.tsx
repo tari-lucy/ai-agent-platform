@@ -1,14 +1,15 @@
-import { Alert, Badge, Button, Checkbox, Group, Paper, Select, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { ConsequencePlan, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import type { RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
-  afterExecute, availabilityLabels, basisSummary, buildCards, categoryLabels, conflictsOf, correctCommand, dependencyCount,
-  executeCommand, filterCards, kindLabels, noFilters, planProblem, previewCommand, progress, rightsText, retentionText,
+  availabilityLabels, basisSummary, buildCards, categoryLabels, conflictsOf, correctCommand, dependencyCount,
+  executeCommand, filterCards, kindLabels, noFilters, planProblem, previewCommand, rightsText, retentionText,
   validCorrection, visibleText, type Availability, type Card, type Category, type Correction, type Filters, type Kind,
-  type Operation, type PlanPhase,
+  type Operation,
 } from './model.ts';
 
 const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
@@ -59,70 +60,18 @@ function Correct({ api, run, card, onDone }: { api: PanelApi; run: RunSession; c
 }
 
 function PlanPanel({ api, scope, run, card, operation }: { api: PanelApi; scope: Scope; run: RunSession; card: Card; operation: Operation }) {
-  const cache = useQueryClient();
-  const [state, setState] = useState<PlanPhase>({ phase: 'idle' });
-  const [understood, setUnderstood] = useState(false);
   const label = operation === 'delete' ? 'Удаление' : 'Экспорт';
-  const operationId = state.phase === 'running' ? (state.receipt.operation_id ?? state.receipt.resource_id ?? null) : null;
-  const status = useQuery({
-    queryKey: [...projectionKey('operations', scope), 'one', operationId], enabled: operationId !== null,
-    queryFn: ({ signal }) => api.operation(scope, operationId!, signal),
-  });
-  const [opened] = useState(() => Date.now());
-  const planProblemText = state.phase === 'ready' ? planProblem(state.plan, card, opened) : null;
-  async function preview() {
-    setState({ phase: 'previewing' }); setUnderstood(false);
-    try {
-      const receipt = await api.command(previewCommand(run.scope, run.session_id, card, operation, crypto.randomUUID())) as Receipt;
-      if (!receipt.resource_id) throw new ApiFailure('INVALID_ARGUMENTS');
-      setState({ phase: 'ready', plan: await api.plan(scope, receipt.resource_id) });
-    } catch (error) { setState({ phase: 'refused', code: error instanceof ApiFailure ? error.code : 'NETWORK' }); }
-  }
-  async function execute(plan: ConsequencePlan, again?: ReturnType<typeof executeCommand>) {
-    // The term is checked again at the moment of the click, not only when the plan was drawn.
-    if (!again && planProblem(plan, card, Date.now())) { setState({ phase: 'refused', code: 'EXPIRED' }); return; }
-    const command = again ?? executeCommand(run.scope, run.session_id, plan, operation, crypto.randomUUID());
-    setState({ phase: 'executing', plan, command });
-    try {
-      setState(afterExecute(plan, command, { receipt: await api.command(command) as Receipt }));
-    } catch (error) {
-      setState(afterExecute(plan, command, { code: error instanceof ApiFailure ? error.code : 'NETWORK' }));
-    } finally {
-      for (const resource of ['sources', 'episodes', 'claims', 'summaries', 'operations']) {
-        void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
-      }
-    }
-  }
-  const view = progress(status.data ?? null, label);
-  return <Stack gap="xs" mt="sm">
-    {state.phase === 'idle' || state.phase === 'refused' || state.phase === 'previewing' ?
-      <Button variant="light" disabled={state.phase === 'previewing'} onClick={() => void preview()}>
-        {state.phase === 'previewing' ? 'Готовим план…' : operation === 'delete' ? 'Подготовить удаление' : 'Подготовить экспорт'}</Button> : null}
-    {state.phase === 'refused' && <Alert color="orange" role="alert">{failureMessage(new ApiFailure(state.code))} Ничего не изменено.</Alert>}
-    {(state.phase === 'ready' || state.phase === 'executing' || state.phase === 'unknown') && <Paper withBorder p="sm" aria-label="План последствий">
-      <Text fw={600}>План: {label}</Text>
-      <Text className="plain-text" size="sm" mt={4}>{state.plan.consequences}</Text>
-      <Text size="sm" mt={4}>Связанных записей: {dependencyCount(state.plan, card)} · действует до {clock.format(new Date(state.plan.expires_at))}</Text>
-      <Text size="xs" c="dimmed">Внешняя публикация, если была, удаляется на площадке отдельно; копии обрабатываются по политике резервных копий.</Text>
-      {planProblemText && <Alert color="orange" mt="xs" role="alert">{planProblemText}</Alert>}
-      {state.phase === 'ready' && <>
-        {operation === 'delete' && <Checkbox mt="xs" label="Я понимаю, что удалённое восстановить нельзя" checked={understood}
-          onChange={(event) => setUnderstood(event.currentTarget.checked)} />}
-        <Group mt="xs"><Button color={operation === 'delete' ? 'red' : 'blue'} disabled={!!planProblemText || (operation === 'delete' && !understood)}
-          onClick={() => void execute(state.plan)}>{operation === 'delete' ? 'Удалить' : 'Экспортировать'}</Button>
-          <Button variant="subtle" color="gray" onClick={() => setState({ phase: 'idle' })}>Отмена</Button></Group></>}
-      {state.phase === 'executing' && <Text size="sm" role="status" mt="xs">Отправляем команду…</Text>}
-      {state.phase === 'unknown' && <Alert color="orange" mt="xs" role="alert" title="Результат неизвестен">
-        Команда могла быть выполнена. Проверка повторяет ту же команду: ядро вернёт сохранённую квитанцию, второго выполнения не будет.
-        <Button mt="xs" size="compact-sm" variant="light" onClick={() => void execute(state.plan, state.command)}>Проверить исход</Button></Alert>}
-    </Paper>}
-    {state.phase === 'running' && <Paper withBorder p="sm" role="status" aria-label="Ход выполнения">
-      <Text fw={600}>{label}: {view.text}</Text>
-      {!!view.done.length && <Text size="sm">Выполнено: {view.done.join(', ')}</Text>}
-      {!!view.pending.length && <Text size="sm">Ожидает: {view.pending.join(', ')}</Text>}
-      <Button mt="xs" size="compact-sm" variant="subtle" onClick={() => void status.refetch()}>Обновить статус</Button>
-    </Paper>}
-  </Stack>;
+  const spec: PlanSpec = {
+    label, previewLabel: operation === 'delete' ? 'Подготовить удаление' : 'Подготовить экспорт',
+    executeLabel: operation === 'delete' ? 'Удалить' : 'Экспортировать', danger: operation === 'delete',
+    confirmText: operation === 'delete' ? 'Я понимаю, что удалённое восстановить нельзя' : undefined,
+    note: 'Внешняя публикация, если была, удаляется на площадке отдельно; копии обрабатываются по политике резервных копий.',
+    preview: (requestId) => previewCommand(run.scope, run.session_id, card, operation, requestId),
+    execute: (plan, requestId) => executeCommand(run.scope, run.session_id, plan, operation, requestId),
+    problem: (plan, now) => planProblem(plan, card, now), related: (plan) => dependencyCount(plan, card),
+    refresh: ['sources', 'episodes', 'claims', 'summaries'],
+  };
+  return <PlanFlow api={api} scope={scope} spec={spec} />;
 }
 
 function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
