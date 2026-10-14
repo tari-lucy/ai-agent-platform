@@ -43,7 +43,11 @@ class SQLiteUnitOfWork:
         command: CommandBase,
     ) -> None:
         self.store, self.connection, self.principal = store, connection, principal
-        self.guards = store._fences.get()
+        self.guards = tuple(
+            guard
+            for owner, guard in store._fences.get()
+            if owner is None or owner == principal.owner
+        )
         self.scope, self.command = scope, command
         self.fingerprint = command_fingerprint(command)
         self.key = scope_key(scope)

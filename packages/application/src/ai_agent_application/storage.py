@@ -90,7 +90,9 @@ class RecordRepository[T: Record](Protocol):
 
 
 class Storage(Protocol):
-    def fence(self, guard: Callable[[], None]) -> AbstractContextManager[None]: ...
+    def fence(
+        self, guard: Callable[[], None], *, owner: Owner | None = None
+    ) -> AbstractContextManager[None]: ...
 
     def check_fence(self) -> None: ...
 

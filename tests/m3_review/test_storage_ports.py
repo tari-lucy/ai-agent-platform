@@ -80,3 +80,25 @@ def test_nested_fences_cannot_restore_revoked_admission(tmp_path):
         await world.store.close()
 
     run(scenario())
+
+def test_owner_fence_keeps_late_llm_usage_but_blocks_character_mutation(tmp_path):
+    from ai_agent_application.storage import Owner
+    from usage_support import command, make_scope, new_world as usage_world, report
+
+    async def scenario():
+        scope = make_scope("persona-a")
+        world = await usage_world(tmp_path, [scope])
+
+        def stopped():
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+
+        with world.store.fence(stopped, owner=Owner.GM):
+            written = await world.record(scope, report())
+            assert written.created
+            with pytest.raises(ContractError) as denied:
+                async with world.store.transaction(GM, scope, command(scope)):
+                    raise AssertionError("revoked owner entered a transaction")
+            assert denied.value.error.code is ErrorCode.STALE_CONTEXT
+        return await world.ledger.attempts(scope)
+
+    assert len(run(scenario())) == 1

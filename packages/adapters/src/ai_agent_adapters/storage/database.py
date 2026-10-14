@@ -43,7 +43,7 @@ class SQLiteStore(Storage):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if not timedelta(0) < receipt_retention <= timedelta(days=365):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-        self._fences: ContextVar[tuple[Callable[[], None], ...]] = ContextVar(
+        self._fences: ContextVar[tuple[tuple[Owner | None, Callable[[], None]], ...]] = ContextVar(
             "owner_write_fences", default=()
         )
         self.receipt_retention = receipt_retention
@@ -73,16 +73,20 @@ class SQLiteStore(Storage):
             connection.exec_driver_sql("BEGIN IMMEDIATE" if write else "BEGIN")
 
     @contextmanager
-    def fence(self, guard: Callable[[], None]) -> Iterator[None]:
-        """Trusted task-local write admission; nested fences never replace an older one."""
-        token = self._fences.set((*self._fences.get(), guard))
+    def fence(self, guard: Callable[[], None], *, owner: Owner | None = None) -> Iterator[None]:
+        """Task-local owner write guard; other owners can retain late technical receipts.
+
+        Omitting owner fences every write (trusted administrative checks/tests).
+        Nested guards never replace an older guard for the same owner.
+        """
+        token = self._fences.set((*self._fences.get(), (owner, guard)))
         try:
             yield
         finally:
             self._fences.reset(token)
 
     def check_fence(self) -> None:
-        for guard in self._fences.get():
+        for _, guard in self._fences.get():
             guard()
 
     async def close(self) -> None:
