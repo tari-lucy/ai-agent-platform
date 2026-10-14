@@ -496,10 +496,11 @@ def test_test_memory_is_labelled_and_commands_are_closed_without_a_run(page, liv
     expect(page.get_by_text("Память пока пуста.")).to_be_visible()
 
 
-def test_people_tab_is_an_honest_placeholder(page, live_panel):
+def test_people_tab_is_the_people_screen_not_a_placeholder(page, live_panel):
     open_memory(page, live_panel)
     page.get_by_role("tab", name="Люди").click()
-    expect(page.get_by_text("готовится отдельным этапом")).to_be_visible()
+    expect(page.get_by_text("Людей в памяти пока нет.")).to_be_visible()
+    assert "готовится отдельным этапом" not in page.content()
 
 
 def test_narrow_window_keeps_stop_and_has_no_horizontal_scroll(page, live_panel):

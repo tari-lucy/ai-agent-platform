@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useState } from 'react';
 import type { RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
+import { PeopleTab } from '../people/PeopleTab.tsx';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
@@ -140,7 +141,7 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
     {scope.memory_mode === 'test' && <Alert color="violet" title="Тестовая память">Записи изолированы от рабочей биографии.</Alert>}
     <Tabs defaultValue="memory">
       <Tabs.List><Tabs.Tab value="memory">Записи</Tabs.Tab><Tabs.Tab value="people">Люди</Tabs.Tab></Tabs.List>
-      <Tabs.Panel value="people" pt="md"><Alert color="gray">Раздел людей, встреч и тем готовится отдельным этапом (M4-03).</Alert></Tabs.Panel>
+      <Tabs.Panel value="people" pt="md"><PeopleTab api={api} scope={scope} /></Tabs.Panel>
       <Tabs.Panel value="memory" pt="md"><Stack gap="md">
         <Paper withBorder p="md" radius="lg"><Group align="flex-end" gap="sm">
           <Select label="Тип" clearable data={options<Kind>(kindLabels)} value={filters.kind || null} onChange={(v) => set({ kind: (v ?? '') as Kind | '' })} />
