@@ -12,6 +12,7 @@ from ai_agent_contracts.common import (
     ExtensionPayload,
     Id,
     Record,
+    Scope,
     ShortText,
     SourceRef,
     Version,
@@ -99,4 +100,20 @@ class LaboratoryReport(VersionedRecord):
     def test_only(self) -> Self:
         if self.scope.memory_mode != "test":
             raise ValueError("TEST_SCOPE_REQUIRED")
+        return self
+
+
+class LaboratoryScopeReservation(VersionedRecord):
+    request_id: Id
+    lab_scope: Scope
+
+    @model_validator(mode="after")
+    def isolated_area(self) -> Self:
+        if (
+            self.lab_scope.memory_mode != "test"
+            or self.lab_scope.agent_id is not None
+            or self.lab_scope.workspace_id != self.scope.workspace_id
+            or self.lab_scope.persona_id != self.scope.persona_id
+        ):
+            raise ValueError("ISOLATED_LAB_SCOPE_REQUIRED")
         return self

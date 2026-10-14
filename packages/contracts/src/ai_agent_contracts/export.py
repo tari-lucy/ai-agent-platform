@@ -294,6 +294,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
     }
     from ai_agent_contracts.panel import (
         ConfigureGM,
+        LaboratoryCreateArguments,
         LaboratoryStartArguments,
         PersonaApplyArguments,
         PersonaCopyArguments,
@@ -310,6 +311,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             ("persona.copy-args", PersonaCopyArguments),
             ("gm.configure-args", ConfigureGM),
             ("laboratory.start-args", LaboratoryStartArguments),
+            ("laboratory.create-args", LaboratoryCreateArguments),
         )
     }
     return {

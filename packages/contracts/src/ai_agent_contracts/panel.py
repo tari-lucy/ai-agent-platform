@@ -49,6 +49,10 @@ class ConfigureGM(Contract):
     paused: bool | None = None
 
 
+class LaboratoryCreateArguments(Contract):
+    persona_id: Id
+
+
 class LaboratoryStartArguments(Contract):
     scenario_id: Id
     scenario_version: Version
@@ -116,3 +120,4 @@ class ProfileValidation(Contract):
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("gm.configure-args", ConfigureGM)
     registry.register("laboratory.start-args", LaboratoryStartArguments)
+    registry.register("laboratory.create-args", LaboratoryCreateArguments)

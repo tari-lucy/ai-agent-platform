@@ -2807,6 +2807,23 @@
         "title": "LaboratoryCatalogue",
         "type": "object"
       },
+      "LaboratoryCreateArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "persona_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Persona Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "persona_id"
+        ],
+        "title": "LaboratoryCreateArguments",
+        "type": "object"
+      },
       "LaboratoryReport": {
         "additionalProperties": false,
         "properties": {
@@ -2941,6 +2958,63 @@
           "tags"
         ],
         "title": "LaboratoryScenario",
+        "type": "object"
+      },
+      "LaboratoryScopeReservation": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "lab_scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "request_id",
+          "lab_scope"
+        ],
+        "title": "LaboratoryScopeReservation",
         "type": "object"
       },
       "LaboratoryStartArguments": {
@@ -15478,6 +15552,9 @@
   "x-extension-schemas": {
     "gm.configure-args@1.0": {
       "$ref": "#/components/schemas/ConfigureGM"
+    },
+    "laboratory.create-args@1.0": {
+      "$ref": "#/components/schemas/LaboratoryCreateArguments"
     },
     "laboratory.start-args@1.0": {
       "$ref": "#/components/schemas/LaboratoryStartArguments"
