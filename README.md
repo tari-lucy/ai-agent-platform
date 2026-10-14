@@ -43,7 +43,8 @@ HTTP управления/auth/service identity и WebSocket events провер
 [M4-05](docs/implementation-reports/M4-05.md) (review, UI-only),
 [M4-06](docs/implementation-reports/M4-06.md) (review, UI-only),
 [M4-03](docs/implementation-reports/M4-03.md) (review, UI-only),
-[M5-03](docs/implementation-reports/M5-03.md) (review).
+[M5-03](docs/implementation-reports/M5-03.md) (review),
+[M5-04 подготовка](docs/implementation-reports/M5-04-prep.md) (in progress, без реального прогона).
 
 Начинать чтение с [итога планирования](docs/25-preimplementation-readiness.md)
 и [списка задач](docs/24-mvp-implementation-plan.md). Для разработчиков:

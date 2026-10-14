@@ -11,6 +11,7 @@ from ai_agent_contracts.states import ErrorCode
 from ai_agent_contracts.workspace import LaboratoryReport
 
 from ai_agent_application.gamemaster import StoryRule, StoryRules
+from ai_agent_application.llm import ProviderFactory, ResolvedAssignment
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.moderation.local import secret_like
 from ai_agent_application.storage import Principal, Storage
@@ -50,6 +51,10 @@ class LabRunner:
     principal: Principal = LABORATORY
     # share this clock with the store: every run starts at its fixed start, so reports replay
     clock: VirtualClock = field(default_factory=VirtualClock)
+    # M5-04 injects a stand-in or real provider; the default is the scripted mock
+    providers: ProviderFactory | None = None
+    resolve: Callable[[str], ResolvedAssignment] | None = None
+    mock: bool = True
     reports: list[ScenarioReport] = field(default_factory=list)
     scopes: list[Scope] = field(default_factory=list)
 
@@ -73,6 +78,8 @@ class LabRunner:
             profile_markdown=self.profile_markdown,
             rules=self.rules,
             clock=self.clock,
+            providers=self.providers,
+            resolve=self.resolve,
         )
         before = {s.memory_space_id: await lab.fingerprint(s) for s in self.watch}
         started = lab.clock()
@@ -114,6 +121,7 @@ class LabRunner:
             ),
             model_calls=len(lab.brain.calls),
             error=error,
+            mock=self.mock,
         )
         if persist:
             await self._persist(lab, report)
