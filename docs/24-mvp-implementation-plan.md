@@ -33,6 +33,14 @@
 | M2-01 | integrated | Claude Code / codex/m2-01-persona-profile | 88ed27e..5b8ff96, fast-forward в main от 542da6e; 79 persona tests, combined 244 passed + 2 известных env-failure (нет метаданных пакета в venv без `uv sync`, те же на чистом дереве), lint/types/imports passed; **runtime-интеграция не проверена** |
 | M2-02 | integrated | Claude Code / codex/m2-02-memory-recall | 4a84304, fast-forward в main от 7abe59c; 36 memory tests, combined 280 passed + 2 известных env-failure, lint/types/imports passed; FTS Recall@8 0.8125 на 1k/10k = baseline M0-05; **embedder FastEmbed и runtime-интеграция не проверены** |
 | M2-03 | integrated | Claude Code / codex/m2-03-social-memory | 9563493..fdeec25, fast-forward в main от 094149e; 21 social tests, combined 301 passed + 2 известных env-failure, lint/types/imports passed; **runtime-интеграция не проверена**, слияние людей не реализовано |
+| M2-04 | integrated | Claude Code / codex/m2-04-llm-adapter | 2bd70cc..aae3938, fast-forward в main от a614c36; 94 llm tests (mock, MockTransport, loopback SSE), combined 474 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный агрегатор и runtime-интеграция не проверены** |
+| M2-05 | integrated | Claude Code / codex/m2-05-usage-ledger | e21ff97..18a627b, fast-forward в main от 8256a8a; 39 usage tests (реальная SQLite), combined 513 passed + 4 известных env-failure (метаданные пакета в venv), lint/types/imports passed; **сверка с биллингом агрегатора и runtime-интеграция не проверены** |
+| M2-06 | integrated | Claude Code / codex/m2-06-dialogue-controller | fast-forward в main после M1-05 (841b52c); 57 dialogue tests (реальная SQLite memory/recall/social, шлюз M2-04 mock), combined 573 passed + известные env-failure (метаданные пакета в venv), lint/types/imports passed; **реальный провайдер и runtime-интеграция не проверены** |
+| M2-07 | integrated | Claude Code / codex/m2-07-moderation-gate | fast-forward в main; 41 moderation tests (реальная SQLite, mock-модератор), combined 614 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-модератор, качество классификации и runtime не проверены** |
+| M3-01 | integrated | Claude Code / codex/m3-01-extraction | fast-forward в main от a50b2e3; 21 extraction tests (реальная SQLite, mock-экстрактор), combined 635 passed + 4 известных env-failure, lint/types/imports passed; **качество реальной модели-экстрактора и runtime не проверены** |
+| M3-02 | integrated | Claude Code / codex/m3-02-gamemaster | fast-forward в main от a32cdd4; 22 gamemaster tests (реальная SQLite, mock-модель), combined 657 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-гейммастер, качество и runtime не проверены** |
+| M3-03 | integrated | Claude Code / codex/m3-03-development | fast-forward в main от 16581c0; 34 development tests (реальная SQLite persona+memory, mock-рефлексия), combined 691 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-рефлексия и проявление изменений не проверены** |
+| M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; пробел: нет лимита скорости изменения отношений** |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -179,7 +187,33 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-M2-04 и остальные задачи M2 выполняет второй агент; M2-05/06/07 зависят от M2-04.
+Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы.
+
+M2-04 владеет packages/application/src/ai_agent_application/llm,
+packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
+координатором. Решения: шлюз не знает про Job/Redis/scheduler — доверенный исполнитель держит claim
+и BudgetLease и передаёт Admission; журнал попыток и тарифы остаются за M2-05 (шлюз отдаёт
+AttemptReport в AttemptSink); результат — только целый строгий JSON после завершающего события.
+Открытые запросы из отчёта: (1) регистрация `register_llm_extensions` и настроек `AI_PLATFORM_*`
+в core bootstrap; (2) проверка реального агрегатора оператором (usage при обрыве, параметр длины).
+
+M2-05 владеет packages/application/src/ai_agent_application/usage, tests/usage и своим report; зона
+подтверждена координатором. Решения: одна попытка — одна запись (id из attempt_id), поздний usage
+заменяет, не складывается; тариф версионируется, попытка запоминает версию, пересчёт только явный;
+неизвестный usage/ставка/тариф — unknown/partial, не 0. Открытые запросы из отчёта: (1) storage-запрос
+по полям (период/роль/модель) и политика хранения агрегатов; (2) хук «перед вызовом» шлюза для записи
+running и composition AttemptSink→ledger, grants Owner.LLM.
+
+M2-06 владеет packages/application/src/ai_agent_application/dialogue и tests/dialogue; M2-07 —
+packages/application/src/ai_agent_application/moderation и tests/moderation; зоны подтверждены
+координатором. Решения M2-06: контроллер выдаёт черновик и предложение действия, не публикует и не
+исполняет; обещание, вопрос и память — по факту доставки (`settle`); инициатива из точного скана
+обязательств и лимитов doc22. Решения M2-07: проверка другой моделью по точной редакции,
+недоступность/невалидность = отказ, выпуск только через `release` с привязкой к hash, аудитории, каналам,
+контексту, версии политики и поколению управления. Открытые запросы: composition (grants, ControlView,
+ProposalSink, PrivateStream, роль moderator с другой моделью, Publisher), читаемый ключ темы в social/storage,
+запись Utterance.moderation_status владельцем gateway, реальные политики и испытания классификатора,
+уникальные basename тестов (tests/access/test_service.py ↔ tests/persona/test_service.py).
 
 ## M0. Воспроизводимая основа и технические пробы
 
