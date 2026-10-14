@@ -12,6 +12,7 @@ import { Memory } from './memory/Memory.tsx';
 import { WorkspaceScreen } from './workspace/WorkspaceScreen.tsx';
 import { LlmScreen } from './llm/LlmScreen.tsx';
 import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
+import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -185,6 +186,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <Routes>{screens.map((screen) => <Route key={screen.path} path={'/' + screen.path}
         element={screen.path === 'dialogue' ? <Dialogue key={selected + screen.path} api={api} scope={scope} /> :
           screen.path === 'memory' ? <Memory key={selected + screen.path} api={api} scope={scope} /> :
+          screen.path === 'laboratory' ? <LaboratoryScreen key={selected + screen.path} api={api} scope={scope} /> :
           screen.path === 'development' ? <DevelopmentScreen key={selected + screen.path} api={api} scope={scope} /> :
           screen.path === 'llm' ? <LlmScreen key={selected + screen.path} api={api} scope={scope} /> :
           screen.path === 'workspace' ? <WorkspaceScreen key={selected + screen.path} api={api} scope={scope} /> :

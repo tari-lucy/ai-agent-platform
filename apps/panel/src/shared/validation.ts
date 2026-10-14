@@ -1,5 +1,5 @@
 import type {
-  Artifact, BriefingPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  Artifact, BriefingPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
@@ -285,4 +285,15 @@ export function characterStates(value: unknown, selected: Scope): CharacterState
   page(value, selected);
   demand(value.items.every((row) => id(row.persona_id) && version(row.profile_version) && version(row.state_version) && object(row.values)));
   return value as CharacterStatePage;
+}
+
+// M4-06: laboratory reports. The summary is short anonymised text; no dialogue or secret is in it.
+export function laboratoryReports(value: unknown, selected: Scope): LaboratoryReportPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.scenario_id) && version(row.scenario_version) && id(row.operation_id) &&
+    ['pending', 'running', 'passed', 'failed', 'cancelled', 'unknown'].includes(String(row.status)) && text(row.summary, 500) &&
+    // a laboratory report lives only in test memory
+    (row.scope as Scope).memory_mode === 'test' &&
+    (row.report_artifact == null || (object(row.report_artifact) && id(row.report_artifact.artifact_id)))));
+  return value as LaboratoryReportPage;
 }
