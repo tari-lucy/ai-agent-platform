@@ -167,3 +167,18 @@ test('workspace reads use the allowlisted resources and the exact partition', as
   assert.deepEqual(paths.map((path) => new URL(path, 'http://x').pathname), ['/api/v1/connections', '/api/v1/capabilities', '/api/v1/permissions', '/api/v1/workspaces']);
   for (const path of paths) assert.equal(new URL(path, 'http://x').searchParams.get('workspace_id'), 'synthetic');
 });
+test('a closed control says why: a fault asks for reconciliation, a transition asks to wait', () => {
+  for (const kind of ['agent.start', 'agent.pause', 'agent.resume', 'session.end'] as const) {
+    assert.match(controlAvailability(run({ state: 'FAULTED' }), kind).reason, /сверк/);
+    assert.match(controlAvailability(run({ state: 'STOPPING' }), kind).reason, /переход/);
+    assert.match(controlAvailability(run({ state: 'STARTING' }), kind).reason, /переход/);
+    assert.match(controlAvailability(undefined, kind).reason, /Нет подтверждённого запуска/);
+  }
+  assert.equal(controlAvailability(run(), 'agent.pause').reason, '');
+});
+test('every step of the rights ladder widens and no step back does', () => {
+  const ladder = ['denied', 'prepare_only', 'operator_decision', 'automatic'] as const;
+  for (let from = 0; from < ladder.length; from++) {
+    for (let to = 0; to < ladder.length; to++) assert.equal(isExpansion(ladder[from], ladder[to]), to > from, `${ladder[from]} -> ${ladder[to]}`);
+  }
+});
