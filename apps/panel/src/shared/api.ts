@@ -1,12 +1,12 @@
 import type {
-  Artifact, BriefingPage, CapabilityPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
+  Artifact, BriefingPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
-  costCalculations, llmAssignments, llmAttempts, tariffs, runs, session, stopReceipt, summaries, utterances,
+  characterStates, costCalculations, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
 
@@ -36,7 +36,7 @@ export const failureMessage = (error: unknown) =>
 type Fetcher = typeof fetch;
 type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
-  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments';
+  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -197,6 +197,19 @@ export class PanelApi {
   }
   async llmAssignments(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<LLMAssignmentPage> {
     return llmAssignments(await this.#read('llm-assignments', scope, signal, cursor), scope);
+  }
+  // M4-05 story and development reads: server order, first page plus cursor.
+  async arcs(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<StoryArcPage> {
+    return storyArcs(await this.#read('arcs', scope, signal, cursor), scope);
+  }
+  async opportunities(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<OpportunityPage> {
+    return opportunities(await this.#read('opportunities', scope, signal, cursor), scope);
+  }
+  async changes(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<StateChangePage> {
+    return stateChanges(await this.#read('changes', scope, signal, cursor), scope);
+  }
+  async characterStates(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<CharacterStatePage> {
+    return characterStates(await this.#read('character-states', scope, signal, cursor), scope);
   }
   async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
     const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };

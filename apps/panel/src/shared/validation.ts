@@ -1,5 +1,5 @@
 import type {
-  Artifact, BriefingPage, CapabilityPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  Artifact, BriefingPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
@@ -255,4 +255,34 @@ export function llmAssignments(value: unknown, selected: Scope): LLMAssignmentPa
     ['unverified', 'verified', 'failed'].includes(String(row.capability_verification)) &&
     (row.fallback_assignment_id == null || id(row.fallback_assignment_id))));
   return value as LLMAssignmentPage;
+}
+
+// M4-05: story and development projections. Free text is shown as plain text; nothing here executes.
+const arcStatus = new Set(['open', 'paused', 'closed']);
+const opportunityStatus = new Set(['DRAFT', 'SCREENED', 'OFFERED', 'ACCEPTED', 'REALIZING', 'RESOLVED', 'BLOCKED', 'DECLINED', 'EXPIRED', 'CANCELLED']);
+const changeStatus = new Set(['PROPOSED', 'VALIDATING', 'READY', 'AWAITING_APPROVAL', 'APPLIED', 'REJECTED', 'CONFLICT', 'CANCELLED']);
+export function storyArcs(value: unknown, selected: Scope): StoryArcPage {
+  page(value, selected);
+  demand(value.items.every((row) => arcStatus.has(String(row.status)) && text(row.direction, 4000) && text(row.boundaries, 4000) && refs(row.grounds) &&
+    (row.cooldown_until == null || date(row.cooldown_until)) && (row.episode_ids === undefined || (Array.isArray(row.episode_ids) && row.episode_ids.every(id)))));
+  return value as StoryArcPage;
+}
+export function opportunities(value: unknown, selected: Scope): OpportunityPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.arc_id) && opportunityStatus.has(String(row.status)) && text(row.applicability, 4000) && text(row.boundaries, 4000) &&
+    date(row.expires_at) && refs(row.grounds) && (row.choice == null || text(row.choice)) && (row.actual_outcome == null || text(row.actual_outcome)) &&
+    (row.reason_code == null || text(row.reason_code, 500)) && (row.rolls === undefined || (Array.isArray(row.rolls) && row.rolls.length <= 3))));
+  return value as OpportunityPage;
+}
+export function stateChanges(value: unknown, selected: Scope): StateChangePage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.proposal_id) && changeStatus.has(String(row.status)) && version(row.base_version) &&
+    (row.new_version == null || version(row.new_version)) && object(row.patch) && text(row.interpretation, 4000) && text(row.expected_manifestation, 4000) &&
+    typeof row.uncertainty === 'number' && row.uncertainty >= 0 && row.uncertainty <= 1 && refs(row.evidence)));
+  return value as StateChangePage;
+}
+export function characterStates(value: unknown, selected: Scope): CharacterStatePage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.persona_id) && version(row.profile_version) && version(row.state_version) && object(row.values)));
+  return value as CharacterStatePage;
 }
