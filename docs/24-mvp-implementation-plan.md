@@ -476,3 +476,24 @@ imports и canonical exports passed. Windows M3/affected suites passed;
 M5-02 native ACL test остаётся failure (36 passed/1 failed backup suite).
 Runtime composition и реальные модели M3 отдельно не приняты; подробности
 и ответы на все запросы — в [отчёте](implementation-reports/M3-review-integration.md).
+
+## M3 runtime integration — назначение 2026-10-14
+
+По прямому согласованию оператора M3-runtime-integration назначена Codex:
+base 8c9796d, отдельный checkout/ветка codex/m3-runtime-integration.
+Цель — технически соединить M3-01..04 с принятыми owners, Supervisor,
+JobOwner и ResourceScheduler, сохраняя STOP и scope/права/версии.
+Зона: apps/core/.../runtime, core bootstrap/access mutation port, tests/runtime;
+application/gamemaster active-time port, development reflection checkpoint,
+laboratory settings/artifact ports; узкие LLM attempt journal/UsageLedger
+begin-attempt, storage catalogue/contracts/exports для owner records.
+Shared contracts сначала отдельным проверенным commit, затем consumers.
+Без второй БД владельцев/scheduler, без новых deps/locks/Compose/UI экранов.
+Сохраняются настройки/активные часы GM, результаты/триггеры рефлексии,
+полные mock-отчёты с ArtifactRef/TTL/удалением; recovery не возобновляет работу.
+M5 остаётся второму агенту; Windows backup ACL не входит в это назначение.
+Тесты: доверенный mock, реальные SQLite/jobs/HTTP, STOP/pause/поздний результат,
+lease/budget/retry/idempotency, restart, scope/ACL, settings CAS/partial result.
+Живые модели, платные API, игра/каналы/эфир исключены; качество реальных
+моделей остаётся отдельной последующей приёмкой.
+Отчёт исполнителя: implementation-reports/M3-runtime-integration.md.
