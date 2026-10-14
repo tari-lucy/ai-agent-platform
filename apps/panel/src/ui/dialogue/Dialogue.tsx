@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -9,8 +10,7 @@ import {
   generating, goal, messageCommand, openOperations, statusLabels, validBriefing, type Composer, type Entry,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
-const when = (value: string) => clock.format(new Date(value));
+const when = (value: string) => formatTime(value, 'medium');
 
 function useProjection<T>(api: PanelApi, scope: Scope, resource: string, read: (scope: Scope, signal: AbortSignal) => Promise<T>) {
   return useQuery({ queryKey: projectionKey(resource, scope), queryFn: ({ signal }) => read(scope, signal) });

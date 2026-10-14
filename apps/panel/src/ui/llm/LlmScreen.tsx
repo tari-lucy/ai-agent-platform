@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -10,8 +11,7 @@ import {
   recalcPreview, recalcProblem, retries, roleRows, select, shares, summarise, tariffCommand, validTariff, type Filters, type TariffDraft,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
-const when = (value: string) => clock.format(new Date(value));
+const when = (value: string) => formatTime(value, 'medium');
 const number = new Intl.NumberFormat('ru-RU');
 
 // First page, then the server cursor on demand. Keys extend the shared projection key so events refresh them.

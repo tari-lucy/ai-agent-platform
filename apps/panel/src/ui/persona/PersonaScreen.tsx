@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Table, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -9,7 +10,6 @@ import {
   validateCommand, type Checked, type Draft, type NewPersona,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
 function Diff({ title, before, after }: { title: string; before: string; after: string }) {
   const lines = lineDiff(before, after);
@@ -117,7 +117,7 @@ export function PersonaScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Text size="sm">Создайте первую личность ниже: без профиля у агента нет канона, а фиктивные воспоминания не создаются.</Text></Paper> : <>
       <Paper withBorder p="md" radius="lg" aria-label="Принятый профиль"><Group justify="space-between"><Title order={2} size="h4">Принятый профиль {profile.persona_id}</Title>
         <Badge variant="light">версия {profile.version}</Badge></Group>
-        <Text size="xs" c="dimmed">Редакция {profile.accepted_revision_id} · обновлён {clock.format(new Date(profile.updated_at))}</Text>
+        <Text size="xs" c="dimmed">Редакция {profile.accepted_revision_id} · обновлён {formatTime(profile.updated_at, 'short')}</Text>
         <Text fw={600} mt="sm">Канон</Text><Text className="plain-text">{profile.canon}</Text>
         <Text fw={600} mt="sm">Стиль</Text><Text className="plain-text">{profile.style}</Text></Paper>
       <Paper withBorder p="md" radius="lg" aria-label="Свойства"><Title order={2} size="h4" mb="xs">Свойства: канон и живое значение</Title>

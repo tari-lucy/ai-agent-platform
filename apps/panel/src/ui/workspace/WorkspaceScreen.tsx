@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Checkbox, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -12,8 +13,7 @@ import {
   type Control, type ControlKind,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-const when = (value: string) => clock.format(new Date(value));
+const when = (value: string) => formatTime(value, 'short');
 const tone = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const;
 
 function useRead<T>(scope: Scope, resource: string, read: (signal: AbortSignal) => Promise<T>) {

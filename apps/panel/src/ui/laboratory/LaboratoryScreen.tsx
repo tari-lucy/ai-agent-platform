@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -9,8 +10,7 @@ import {
   sortReports, startCommand, startProblem, statusLabels, stopCommand, titleOf, type Start,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
-const when = (value: string) => clock.format(new Date(value));
+const when = (value: string) => formatTime(value, 'medium');
 const emptyStart: Start = { scenario: '', seed: 'lab-seed', real: false, typed: '', acknowledged: false };
 
 // One command at a time; a lost reply is checked by re-sending the identical command.

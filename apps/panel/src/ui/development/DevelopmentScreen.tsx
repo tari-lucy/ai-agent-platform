@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -11,8 +12,7 @@ import {
   opportunityLabels, patchOf, pathItems, pauseArcCommand, rollbackExecute, rollbackPreview, rollbackProblem, validInterpretation, versions, type Decision, type Intensity,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-const when = (value: string) => clock.format(new Date(value));
+const when = (value: string) => formatTime(value, 'short');
 
 function usePaged<T extends { items: unknown[]; complete: boolean; next_cursor: string | null }>(
   scope: Scope, resource: string, read: (cursor: string | undefined, signal: AbortSignal) => Promise<T>,

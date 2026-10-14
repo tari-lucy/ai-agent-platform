@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -6,7 +7,6 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { afterExecute, progress, type PlanPhase } from './plan.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
 // One flow for every operation with consequences: plan first, explicit confirmation, one command,
 // an unknown outcome is checked with the identical command, progress comes from the owner.
@@ -67,7 +67,7 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
     {(state.phase === 'ready' || state.phase === 'executing' || state.phase === 'unknown') && <Paper withBorder p="sm" aria-label="План последствий">
       <Text fw={600}>План: {spec.label}</Text>
       <Text className="plain-text" size="sm" mt={4}>{state.plan.consequences}</Text>
-      <Text size="sm" mt={4}>Связанных записей: {spec.related(state.plan)} · действует до {clock.format(new Date(state.plan.expires_at))}</Text>
+      <Text size="sm" mt={4}>Связанных записей: {spec.related(state.plan)} · действует до {formatTime(state.plan.expires_at, 'short')}</Text>
       {spec.note && <Text size="xs" c="dimmed">{spec.note}</Text>}
       {problem && <Alert color="orange" mt="xs" role="alert">{problem}</Alert>}
       {state.phase === 'ready' && <>

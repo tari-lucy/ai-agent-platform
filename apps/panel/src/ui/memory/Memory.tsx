@@ -1,3 +1,4 @@
+import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -13,7 +14,6 @@ import {
   type Operation,
 } from './model.ts';
 
-const clock = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 const options = <T extends string>(labels: Record<T, string>) =>
   Object.entries(labels).map(([value, label]) => ({ value, label: label as string }));
 
@@ -98,7 +98,7 @@ function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
       {card.source && <><Text size="sm">Срок хранения: {retentionText(card.source, now)}</Text>
         <Text size="sm">{rightsText(card.source).join(' · ')}</Text>
         <Text size="xs" c="dimmed">Адаптер: {card.source.adapter_id} · внешний ID: {card.source.external_id ?? '—'}</Text></>}
-      {card.version !== null && <Text size="xs" c="dimmed">Версия {card.version} · {clock.format(new Date(card.at))}</Text>}
+      {card.version !== null && <Text size="xs" c="dimmed">Версия {card.version} · {formatTime(card.at, 'short')}</Text>}
     </Stack>
     {!!card.conflicts.length && <Alert color="orange" mt="sm" title="Есть противоречие">
       Обе позиции сохранены. {conflicts.length < card.conflicts.length ? 'Не все связанные утверждения загружены.' : ''}
@@ -168,7 +168,7 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
                     {card.availability !== 'available' && <Badge size="xs" color="gray">{availabilityLabels[card.availability]}</Badge>}
                     {!!card.conflicts.length && <Badge size="xs" color="orange">противоречие</Badge>}</Group>
                   <Text size="sm" className="plain-text" lineClamp={2}>{visibleText(card) ?? card.title}</Text>
-                  <Text size="xs" c="dimmed">{clock.format(new Date(card.at))}</Text>
+                  <Text size="xs" c="dimmed">{formatTime(card.at, 'short')}</Text>
                 </button></li>)}</ul>}
           </Paper>
           <div style={{ flex: '1 1 24rem' }}>{selected ?
