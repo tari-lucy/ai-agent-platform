@@ -81,9 +81,11 @@ def test_nested_fences_cannot_restore_revoked_admission(tmp_path):
 
     run(scenario())
 
+
 def test_owner_fence_keeps_late_llm_usage_but_blocks_character_mutation(tmp_path):
     from ai_agent_application.storage import Owner
-    from usage_support import command, make_scope, new_world as usage_world, report
+    from usage_support import command, make_scope, report
+    from usage_support import new_world as usage_world
 
     async def scenario():
         scope = make_scope("persona-a")

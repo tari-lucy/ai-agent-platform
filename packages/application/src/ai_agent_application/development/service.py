@@ -140,7 +140,9 @@ class DevelopmentController:
             raise ContractError(ErrorCode.ACCESS_DENIED)
 
     def _write_fence(self) -> AbstractContextManager[None]:
-        return self.storage.fence(admission_guard(self._autonomous_open))
+        return self.storage.fence(
+            admission_guard(self._autonomous_open), owner=self.principal.owner
+        )
 
     # ---- plumbing ---------------------------------------------------------------------
 

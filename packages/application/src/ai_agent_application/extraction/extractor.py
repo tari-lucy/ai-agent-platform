@@ -85,7 +85,9 @@ class Extractor:
         )
 
     def _write_fence(self) -> AbstractContextManager[None]:
-        return self.memory.storage.fence(admission_guard(self.admitted))
+        return self.memory.storage.fence(
+            admission_guard(self.admitted), owner=self.memory.principal.owner
+        )
 
     # ---- plumbing ---------------------------------------------------------------------
 

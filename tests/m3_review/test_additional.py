@@ -155,3 +155,50 @@ def test_virtual_clock_bounds_self_rescheduling_callbacks():
             await clock.advance(seconds=1)
 
     run(scenario())
+
+
+def test_resolving_after_partial_failure_cannot_change_already_recorded_facts(tmp_path):
+    async def scenario():
+        world = await gm_world(tmp_path)
+        arc, ref = await world.arc()
+        made = await world.gm.propose(
+            world.scope, arc.arc.id, "find", "tracks", "Tracks", "Safe", [ref]
+        )
+        await world.gm.accept(world.scope, made.opportunity.id)
+        original = world.gm._move
+
+        async def crash(*args, **kwargs):
+            raise RuntimeError("synthetic crash after memory commit")
+
+        world.gm._move = crash
+        with pytest.raises(RuntimeError):
+            await world.gm.resolve(world.scope, made.opportunity.id, "Looked", "Found stone", ref)
+        world.gm._move = original
+        with pytest.raises(ContractError) as mismatch:
+            await world.gm.resolve(world.scope, made.opportunity.id, "Left", "Found nothing", ref)
+        assert mismatch.value.error.code is ErrorCode.IDEMPOTENCY_CONFLICT
+        resolved = await world.gm.resolve(
+            world.scope, made.opportunity.id, "Looked", "Found stone", ref
+        )
+        assert resolved.actual_outcome == "Found stone"
+
+    run(scenario())
+
+
+def test_development_replay_cannot_replace_the_evidence_or_interpretation(tmp_path):
+    from dataclasses import replace
+
+    from dev_support import new_world as development_world
+
+    async def scenario():
+        world = await development_world(tmp_path)
+        episode = await world.episode()
+        candidate = await world.candidate(episodes=[episode])
+        await world.controller.submit(world.scope, candidate)
+        with pytest.raises(ContractError) as mismatch:
+            await world.controller.submit(
+                world.scope, replace(candidate, interpretation="A different explanation")
+            )
+        assert mismatch.value.error.code is ErrorCode.IDEMPOTENCY_CONFLICT
+
+    run(scenario())

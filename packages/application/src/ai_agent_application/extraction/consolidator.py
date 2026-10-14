@@ -43,7 +43,9 @@ class Consolidator:
         self.clock, self.role_id = clock, role_id
 
     def _write_fence(self) -> AbstractContextManager[None]:
-        return self.memory.storage.fence(admission_guard(self.admitted))
+        return self.memory.storage.fence(
+            admission_guard(self.admitted), owner=self.memory.principal.owner
+        )
 
     @fenced
     async def summarise(

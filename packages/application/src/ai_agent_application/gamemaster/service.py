@@ -21,6 +21,7 @@ from ai_agent_contracts.api import CommandBase, MessageArguments, MessageCommand
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import Contract, Record, Scope, SourceRef
 from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.memory import Episode
 from ai_agent_contracts.persona import Opportunity, StoryArc
 from ai_agent_contracts.states import ErrorCode, OpportunityState
 from pydantic import Field, TypeAdapter
@@ -132,7 +133,7 @@ class GameMaster:
             raise ValueError("FAMILIES_INVALID")
 
     def _write_fence(self) -> AbstractContextManager[None]:
-        return self.storage.fence(admission_guard(self._open))
+        return self.storage.fence(admission_guard(self._open), owner=self.principal.owner)
 
     # ---- plumbing ---------------------------------------------------------------------
 
@@ -617,7 +618,7 @@ class GameMaster:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if not choice.strip() or not actual_outcome.strip():
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-        await self.memory.record_episode(
+        episode_id, _ = await self.memory.record_episode(
             self._command(scope, f"epi-{opp_id}"),
             EpisodeDraft(
                 sources=(evidence,),
@@ -628,6 +629,20 @@ class GameMaster:
                 provenance="simulation" if scope.memory_mode == "test" else "observation",
             ),
         )
+        existing = await self.memory.storage.repository(
+            Episode, self.memory.principal, scope
+        ).get(episode_id)
+        if existing is None:
+            raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
+        if (
+            existing.choice != choice
+            or existing.actual_outcome != actual_outcome
+            or set(existing.participant_ids) != set(participant_ids)
+            or len(existing.sources) != 1
+            or existing.sources[0].source_id != evidence.source_id
+            or existing.sources[0].version != evidence.version
+        ):
+            raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
         return await self._move(
             scope, opp_id, S.RESOLVED, choice=choice, actual_outcome=actual_outcome
         )

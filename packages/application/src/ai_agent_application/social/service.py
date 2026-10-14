@@ -130,7 +130,7 @@ class SocialService:
         self._encounters: dict[tuple[str, ...], dict[str, list[Encounter]]] = {}
 
     def _write_fence(self) -> AbstractContextManager[None]:
-        return self.storage.fence(admission_guard(self.admitted))
+        return self.storage.fence(admission_guard(self.admitted), owner=self.principal.owner)
 
     # ---- plumbing -------------------------------------------------------------------------
 
