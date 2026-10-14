@@ -39,10 +39,18 @@ class Views:
         return result
 
     async def read(
-        self, resource: str, principal_id: str, scope: Scope, identifier: str | None
+        self,
+        resource: str,
+        principal_id: str,
+        scope: Scope,
+        identifier: str | None,
+        limit: int = 50,
+        cursor: str | None = None,
     ) -> Contract:
         if scope.partition not in {s.partition for s in self.runtime.scopes}:
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if resource == "laboratory-runs" and identifier is None:
+            return await self.runtime.lab_control.read(principal_id, scope, limit, cursor)
         if resource == "settings-transfer-status" and identifier is not None:
             from ai_agent_application.memory.service import derived_id
 

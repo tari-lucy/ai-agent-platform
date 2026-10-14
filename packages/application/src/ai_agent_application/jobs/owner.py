@@ -9,7 +9,12 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from uuid import uuid4
 
-from ai_agent_contracts.api import ServiceClaimCommand, ServiceLeaseCommand, ServiceResultCommand
+from ai_agent_contracts.api import (
+    EditCommand,
+    ServiceClaimCommand,
+    ServiceLeaseCommand,
+    ServiceResultCommand,
+)
 from ai_agent_contracts.codec import ContractError, to_wire
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, Job, Lease
@@ -17,7 +22,7 @@ from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.states import ErrorCode, OperationState
 
 from ai_agent_application.control import Supervisor
-from ai_agent_application.control.ports import Admission, Clock, ResourceTicket
+from ai_agent_application.control.ports import Admission, Clock, ControlAuthority, ResourceTicket
 
 from .ports import (
     Attempt,
@@ -149,7 +154,7 @@ class JobOwner:
         self,
         job: Job,
         schedule: Schedule,
-        request: ServiceClaimCommand | ServiceLeaseCommand | ServiceResultCommand,
+        request: ServiceClaimCommand | ServiceLeaseCommand | ServiceResultCommand | EditCommand,
         *,
         previous: Job | None,
         attempt: Attempt | None = None,
@@ -471,6 +476,34 @@ class JobOwner:
                 self._deadlines.pop(job.operation_id, None)
                 self._leases.pop(lease.attempt_id, None)
             self._leases.pop(lease.attempt_id, None)
+            return updated
+
+    async def cancel(
+        self, authority: ControlAuthority, request: EditCommand, operation_id: str
+    ) -> Job:
+        """Revoke one admission before IO; running execution needs a factual receipt."""
+        async with self._lock:
+            self.supervisor.authorize_operator(authority, request.scope)
+            job, schedule = await self._load(operation_id, request.scope)
+            known = await self.store.receipt(request)
+            if known is not None:
+                return job
+            if request.expected_version != job.version:
+                raise ContractError(ErrorCode.VERSION_CONFLICT)
+            if job.scope != request.scope or job.status in TERMINAL:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            command = await self.store.command(job.command_id, job.scope)
+            # Begin checks current SQL ACL before revocation, under the write reservation.
+            async with self.store.transaction(request, pending_limit=self.limits.pending) as tx:
+                token = self._admission(command)
+                self.supervisor.retire(token)
+                status = (
+                    OperationState.OUTCOME_UNKNOWN
+                    if job.status == OperationState.RUNNING
+                    else OperationState.CANCELLED
+                )
+                updated = self._edit(job, status=status)
+                await tx.save(updated, schedule, expected_version=job.version)
             return updated
 
     async def cancel_receipt(

@@ -62,7 +62,13 @@ class Reader(Protocol):
 
 class Views(Protocol):
     async def read(
-        self, resource: str, principal_id: str, scope: Scope, identifier: str | None
+        self,
+        resource: str,
+        principal_id: str,
+        scope: Scope,
+        identifier: str | None,
+        limit: int = 50,
+        cursor: str | None = None,
     ) -> Contract: ...
 
     async def validate_profile(
@@ -443,7 +449,7 @@ class Surface:
                 },
             )
         custom = re.fullmatch(
-            r"/api/v1/(laboratory-catalogue|persona-markdown|settings-transfer-status)(?:/([^/]+))?",
+            r"/api/v1/(laboratory-catalogue|laboratory-runs|persona-markdown|settings-transfer-status)(?:/([^/]+))?",
             path,
         )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
@@ -472,12 +478,18 @@ class Surface:
         if custom is not None:
             if self.ports.views is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-            custom_model = await self.ports.views.read(
-                resource, authority.control.principal_id, scope, identifier
-            )
+            if resource == "laboratory-runs":
+                custom_model = await self.ports.views.read(
+                    resource, authority.control.principal_id, scope, identifier, limit, cursor
+                )
+            else:
+                custom_model = await self.ports.views.read(
+                    resource, authority.control.principal_id, scope, identifier
+                )
             self.sessions.check_scope(authority, scope)
             expected = {
                 "laboratory-catalogue": "LaboratoryCatalogue",
+                "laboratory-runs": "LaboratoryRuns",
                 "persona-markdown": "ProfileMarkdown",
                 "settings-transfer-status": "SettingsTransferStatus",
             }[resource]
@@ -488,6 +500,9 @@ class Surface:
             )
             if checked.scope.partition != scope.partition:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
+            if resource == "laboratory-runs":
+                for item in checked.items:
+                    self.sessions.check_scope(authority, item.lab_scope)
             if resource == "settings-transfer-status" and checked.record is not None:
                 self.sessions.check_scope(authority, checked.record.source_scope)
             return _json(checked, self.ports.extensions)

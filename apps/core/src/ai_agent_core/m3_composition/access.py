@@ -94,6 +94,11 @@ class Mutations:
                     if runtime.supervisor.snapshot.state.value in ("ACTIVE", "STARTING"):
                         runtime.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                     return result
+        if isinstance(request, EditCommand) and request.type in (
+            "laboratory.stop",
+            "laboratory.event",
+        ):
+            return await runtime.lab_control.mutate(authority, request)
         if not isinstance(request, EditCommand):
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
 

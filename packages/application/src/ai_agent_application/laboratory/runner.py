@@ -61,6 +61,7 @@ class LabRunner:
 
     # Explicit trusted host ACL; the runner never grants access by itself.
     report_access: tuple[RecordAccess, ...] = ()
+    lifecycle: Callable[[Lab | None], Awaitable[None]] | None = None
     artifact_writer: Callable[[Scope, ScenarioReport], Awaitable[ArtifactRef]] | None = None
 
     async def run(
@@ -88,6 +89,8 @@ class LabRunner:
             providers=self.providers,
             resolve=self.resolve,
         )
+        if self.lifecycle is not None:
+            await self.lifecycle(lab)
         before = {s.memory_space_id: await lab.fingerprint(s) for s in self.watch}
         started = lab.clock()
         status: str = "passed"
@@ -96,6 +99,9 @@ class LabRunner:
             await scenario.run(lab)
         except Exception as exc:  # the report keeps the type only: messages may echo input
             status, error = "error", type(exc).__name__
+        finally:
+            if self.lifecycle is not None:
+                await self.lifecycle(None)
         finished = lab.clock()
         self.clock.now = (
             self.clock.start
@@ -167,6 +173,7 @@ class LabRunner:
         digest = report.digest
         record_id = f"labrep-{digest[:40]}"
         failed = len(report.failed)
+        operator_events = sum(e.get("kind") == "operator_observation" for e in report.log)
         mapping = {"passed": "passed", "failed": "failed", "error": "unknown"}
         now = lab.clock()
         artifact = (
@@ -187,6 +194,11 @@ class LabRunner:
                 "summary": (
                     f"MOCK {report.status}: {len(report.findings)} checks, {failed} failed;"
                     f" seed {report.seed}; digest {digest[:12]}"
+                    + (
+                        f"; operator_events {operator_events}"
+                        if operator_events
+                        else ""
+                    )
                 ),
             }
         )

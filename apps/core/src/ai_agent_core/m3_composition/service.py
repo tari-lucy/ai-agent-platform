@@ -143,6 +143,9 @@ class Runtime:
         self._lock = asyncio.Lock()
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
         self._opened = False
+        from .lab_control import LabControl
+
+        self.lab_control = LabControl(self)
 
     def notify(self, kind: str, scope: Scope, identifier: str, version: int | None = None) -> None:
         from ai_agent_contracts.api import PanelEvent
@@ -349,6 +352,23 @@ class Runtime:
                 )
                 if used:
                     raise ContractError(ErrorCode.VERSION_CONFLICT)
+                pending = await self.jobs.store.active(limit=200)
+                if pending.next_cursor is not None:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                for other, _ in pending.items:
+                    if other.capability_id != "m3.laboratory":
+                        continue
+                    other_command = await self.jobs.store.command(other.command_id, other.scope)
+                    other_args = self.registry.validate(
+                        other_command.arguments.schema_id,
+                        other_command.arguments.schema_version,
+                        other_command.arguments.data,
+                    )
+                    if (
+                        isinstance(other_args, JobArguments)
+                        and other_args.request.lab_scope == request.lab_scope
+                    ):
+                        raise ContractError(ErrorCode.RESOURCE_BUSY)
             capability, permission, _ = await self.policy.permit(scope, request.kind)
             context = await self.policy.context(scope)
             if permission.policy_version != context.workspace.policy_version:
@@ -452,6 +472,19 @@ class Runtime:
                 raise
 
     async def execute(self, job: Job) -> Job:
+        if job.operation_id in self.lab_control.tasks:
+            stored = await self.jobs.store.load(job.operation_id, job.scope)
+            return stored[0] if stored is not None else job
+        task = asyncio.current_task()
+        assert task is not None
+        self.lab_control.tasks[job.operation_id] = task
+        try:
+            return await self._execute(job)
+        finally:
+            self.lab_control.tasks.pop(job.operation_id, None)
+            await self.lab_control.lifecycle_for_job(job.operation_id)
+
+    async def _execute(self, job: Job) -> Job:
         claim = await self.jobs.claim(
             self.worker,
             ServiceClaimCommand(
@@ -753,6 +786,7 @@ class Runtime:
                 self.lab,
                 scope_factory=allocated,
                 clock=VirtualClock(execution.args.simulation_start),
+                lifecycle=lambda lab: self.lab_control.lifecycle(execution, lab),
             )
             lab_report = await runner.run(scenario, seed=request.seed)
             ids.append("labrep-" + lab_report.digest[:40])
