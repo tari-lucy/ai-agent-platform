@@ -3283,6 +3283,21 @@
           "title": "Expires At",
           "type": "string"
         },
+        "family_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family Id"
+        },
         "grounds": {
           "items": {
             "$ref": "#/$defs/SourceRef"
@@ -3299,6 +3314,40 @@
           "title": "Id",
           "type": "string"
         },
+        "reason_code": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "rolls": {
+          "items": {
+            "$ref": "#/$defs/StoryRoll"
+          },
+          "maxItems": 3,
+          "title": "Rolls",
+          "type": "array"
+        },
+        "rules_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rules Version"
+        },
         "schema_version": {
           "const": "1.0",
           "default": "1.0",
@@ -3310,6 +3359,19 @@
         },
         "status": {
           "$ref": "#/$defs/OpportunityState"
+        },
+        "topic_key": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Topic Key"
         },
         "updated_at": {
           "format": "date-time",
@@ -7424,6 +7486,58 @@
       "title": "StoryArc",
       "type": "object"
     },
+    "StoryRoll": {
+      "additionalProperties": false,
+      "properties": {
+        "chosen": {
+          "maxLength": 512,
+          "title": "Chosen",
+          "type": "string"
+        },
+        "context": {
+          "maxLength": 512,
+          "title": "Context",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Options",
+          "type": "array"
+        },
+        "seed": {
+          "maxLength": 512,
+          "title": "Seed",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "weights": {
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 256,
+          "title": "Weights",
+          "type": "array"
+        }
+      },
+      "required": [
+        "seed",
+        "context",
+        "options",
+        "weights",
+        "chosen",
+        "value"
+      ],
+      "title": "StoryRoll",
+      "type": "object"
+    },
     "StreamChunk": {
       "additionalProperties": false,
       "properties": {
@@ -8650,6 +8764,9 @@
     },
     "StoryArcPage": {
       "$ref": "#/$defs/Page_StoryArc_"
+    },
+    "StoryRoll": {
+      "$ref": "#/$defs/StoryRoll"
     },
     "StreamChunk": {
       "$ref": "#/$defs/StreamChunk"

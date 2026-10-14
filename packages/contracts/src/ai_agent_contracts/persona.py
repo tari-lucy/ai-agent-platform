@@ -1,14 +1,17 @@
 """Profile, experience and development DTOs; owners implement persistence later."""
 
-from typing import Literal, Self
+import math
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
 from ai_agent_contracts.common import (
     UTC,
     Confidence,
+    Contract,
     ExtensionPayload,
     Id,
+    ShortText,
     SourceRef,
     Text,
     Version,
@@ -66,6 +69,25 @@ class StoryArc(VersionedRecord):
     cooldown_until: UTC | None = None
 
 
+class StoryRoll(Contract):
+    seed: ShortText
+    context: ShortText
+    options: list[ShortText] = Field(max_length=256)
+    weights: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(max_length=256)
+    chosen: ShortText
+    value: Annotated[float, Field(allow_inf_nan=False)]
+
+    @model_validator(mode="after")
+    def consistent_choice(self) -> Self:
+        if len(self.options) != len(self.weights):
+            raise ValueError("ROLL_WEIGHTS")
+        if self.options and (
+            self.chosen not in self.options or not 0 < sum(self.weights) < math.inf
+        ):
+            raise ValueError("ROLL_CHOICE")
+        return self
+
+
 class Opportunity(VersionedRecord):
     arc_id: Id
     grounds: list[SourceRef] = Field(min_length=1, max_length=200)
@@ -76,6 +98,11 @@ class Opportunity(VersionedRecord):
     status: OpportunityState
     choice: Text | None = None
     actual_outcome: Text | None = None
+    family_id: Id | None = None
+    topic_key: ShortText | None = None
+    reason_code: ShortText | None = None
+    rules_version: Version | None = None
+    rolls: list[StoryRoll] = Field(default_factory=list, max_length=3)
 
 
 class StateChange(VersionedRecord):

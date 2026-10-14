@@ -30,6 +30,7 @@ MODELS = (
     persona.Briefing,
     persona.StoryArc,
     persona.Opportunity,
+    persona.StoryRoll,
     persona.StateChange,
     memory.Retention,
     memory.Source,
