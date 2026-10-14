@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 from access_support import ORIGIN, PASSWORD, configured_hash
 from ai_agent_adapters.configuration import BootstrapSettings
 from ai_agent_adapters.recall import SQLiteRecallIndex
@@ -102,7 +103,10 @@ def test_app_factory_lifespan_auth_gm_cas_and_direct_stop(tmp_path):
     run(scenario())
 
 
-def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(tmp_path):
+@pytest.mark.parametrize("injected_provider", [False, True])
+def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
+    tmp_path, injected_provider
+):
     async def scenario():
         env = await setup(tmp_path)
         rt = env.runtime
@@ -136,6 +140,14 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(tmp_pat
             artifact_writer=reports.save,
         )
         rt.reports = reports
+        called = []
+        if injected_provider:
+
+            def forbidden_provider(_):
+                called.append(True)
+                raise AssertionError("M3 mock job reached an injected provider")
+
+            rt.lab.providers = forbidden_provider
         authority = ControlAuthority(
             "operator", frozenset({env.world.scope.partition, scope.partition}), 3600
         )
@@ -150,6 +162,12 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(tmp_pat
             ),
         )
         completed = await rt.execute(job)
+        if injected_provider:
+            assert completed.status == OperationState.FAILED
+            assert called == [] and rt.lab.scopes == []
+            index.close()
+            await rt.close()
+            return
         assert completed.status == OperationState.SUCCEEDED
         record = (await rt.store.repository(LaboratoryReport, LABORATORY, scope).list())[0]
         assert record.report_artifact is not None and record.status == "passed"

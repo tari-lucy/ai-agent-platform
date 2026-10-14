@@ -114,8 +114,19 @@ def test_dry_run_never_touches_the_network(tmp_path, monkeypatch):
     def refuse(*_a, **_k):
         raise AssertionError("network access")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    _, report = evaluate(tmp_path, ids=("Q-01", "Q-10"))
+    async def checked():
+        # Windows creates an internal socketpair when its event loop starts.
+        # Block connects after loop creation, before any evaluation preparation/IO.
+        monkeypatch.setattr(socket.socket, "connect", refuse)
+        env = await new_env(tmp_path)
+        try:
+            return await Evaluation.dry(env.runner, price=PRICE).evaluate(
+                pick("Q-01", "Q-10"), repeats=1
+            )
+        finally:
+            await env.store.close()
+
+    report = run(checked())
     assert all(r.status == "passed" for r in report.runs)
 
 

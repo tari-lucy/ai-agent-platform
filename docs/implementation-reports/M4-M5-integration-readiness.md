@@ -1,7 +1,7 @@
 # M4 / M5-03 — сверка запросов и порядок интеграции
 
 Дата: 2026-10-14. Координатор: Codex. Сверка кода combined branch
-M3-runtime-integration + origin/main cebbc92.
+M3-runtime-integration + origin/main d407263 (включая M5-04 prep).
 Это аудит стыков и назначение следующей работы; экраны и M5 повторно целиком
 не принимались. Сообщения второго агента проверены по коду и его task reports.
 
@@ -50,6 +50,17 @@ M3-runtime-integration + origin/main cebbc92.
 - Не ослаблять общий storage visibility после удаления одного из оснований.
   Возможность сохранить содержание решает owner по оставшимся доказательствам;
   источник с удалённым текстом не должен ожить из производной записи.
+
+## Дополнение M5-04 prep
+
+Новый evaluation harness/20 сценариев/budget guard присутствует в d407263.
+Это подготовка/dry-run, без принятого качества реальной модели и без разрешения
+на платные вызовы. Новый LabRunner.providers/resolve не должен автоматически
+попасть в M3 mock entry: добавлен явный отказ до IO и regression.
+После merge: 102 affected tests passed (lab/evaluation/e2e/M3 HTTP),
+mypy167/ruff/imports/exports passed. Дополнительно исправлены Windows resource
+import и no-network fixture (event-loop socketpair); Windows mypy167 и один
+evaluation no-network smoke passed. Калибровка/живой provider остаются отдельными.
 
 ## Предлагаемые следующие небольшие задачи
 

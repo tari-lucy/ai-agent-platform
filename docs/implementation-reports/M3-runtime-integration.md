@@ -2,7 +2,9 @@
 
 Дата: 2026-10-14. Исполнитель/координатор: Codex.
 Ветка codex/m3-runtime-integration; отдельный checkout, исходная база 8c9796d.
-Свежий origin/main cebbc92 с UI-only M4 и M5-03 включён merge 7fd091a.
+origin/main cebbc92 с UI-only M4 и M5-03 включён merge 7fd091a.
+Позже поступивший M5-04-prep d407263 включён merge ed45058 и проверен
+отдельным affected-набором; граница M3 mock сохранена явно.
 **Технические критерии назначенной M3 mock-интеграции проверены.**
 Рабочий приватный диалог, подключение всех экранов M4, эксплуатационная сборка
 M5 и качество реальных моделей этим статусом не закрываются.
@@ -58,7 +60,7 @@ Direct STOP остаётся синхронным, без обращения к 
 | --- | --- |
 | Сквозной M3 job | SQLite + JobOwner + scheduler + gateway + owner apply; reflection меняет state один раз |
 | Recovery/reflection | Новый Runtime над тем же хранилищем STOPPED; повторного model call нет; READY после сбоя применяется один раз |
-| STOP / revoke / поздний ответ | Нет StateChange после закрытия допуска; terminal usage сохраняется; owner transaction с отозванной Permission не открывается |
+| STOP / revoke / поздний ответ | Нет StateChange после закрытия допуска; terminal usage сохраняется; owner transaction с отозванной Permission не открывается; фактическое окончание после unknown lease подтверждается через metadata-only settle_unknown |
 | Ограниченный фон / retry | Второй job WAITING, пока background занят; второй provider не вызывается; безопасный retry не дублирует reflection |
 | Post-session | Существующие extractor/consolidator/reflector в одном job; nothing-to-extract/keep-state являются допустимыми результатами |
 | GM | Persisted rules/intensity, только зарегистрированная capability, active clock/пауза и сохранённый checkpoint |
@@ -82,7 +84,25 @@ tests/m3_runtime и новый tests/e2e M5-03 из origin/main.
 read-only исходники, временная synthetic data, 2 CPU/1536 MiB. Модели/пакеты
 не скачивались; чужие контейнеры, рабочая память и volumes не затрагивались.
 Полную suite на каждой правке не повторяли: affected tests по изменённым путям,
-один Linux combined перед объединением. После gate менялись только документы.
+один Linux combined перед объединением. После него второй агент прислал
+M5-04-prep (d407263): новые providers/resolve/mock порты LabRunner.
+M3 entry теперь явно отклоняет injected provider до IO. Экономная повторная
+проверка только laboratory/evaluation/e2e/M3 HTTP: **102 passed**, 118.65 с;
+Ruff/mypy167/imports/exports passed. Полный backend suite повторно не запускался.
+
+Дополнительный Windows regression после этого: **3 passed**, 7.29 с —
+STOP, permission revoke и фактическая completion после OUTCOME_UNKNOWN lease.
+Runtime передаёт metadata-only квитанцию принятому JobOwner.settle_unknown;
+старый payload не применяется, job/resource ticket закрываются фактически.
+Финальная Windows strict mypy: **167 source files passed**.
+Обнаружен и исправлен Windows blocker нового M5-04: import resource перенесён
+в Linux-ветку; Windows peak_rss_mb=null. Один Windows evaluation no-network
+smoke: **1 passed**, 3.17 с. Тест включает запрет connect после создания
+служебного socketpair event loop, до evaluation preparation/IO.
+Полный evaluation/Linux suite после этой portability правки не повторялся:
+Linux выражение измерения сохранено, Windows import/runtime проверены точечно.
+Новых M3 сценариев теперь 29: Windows27 на первоначальной ревизии,
+один added provider-guard в Linux affected и один added late-lease на Windows.
 
 ## Не проверено / оставшиеся ограничения
 
@@ -101,7 +121,8 @@ read-only исходники, временная synthetic data, 2 CPU/1536 MiB.
   готовой. Расписание backup/retention, native Windows backup ACL, kill -9/restore
   и незавершённые операции после restore — отдельный gate владельцев M5.
 - Если прошлые ресурсы не подтверждены, restart сохраняет unknown и закрывает
-  start до сверки владельцем. Lease expiry не является квитанцией прекращения.
+  start до сверки владельцем. Живой executor при фактическом завершении
+  делает metadata-only сверку; само lease expiry квитанцией не является.
   Auth/STOP остаются доступными; автоматического повторного эффекта нет.
 - Browser suite M4 заново не запускалась: её код не менялся этой задачей,
   бизнес-путь пока mock. Нагрузку и реальные ограничения модели этот gate
@@ -119,4 +140,5 @@ dispatcher и owner payloads. Актуальные несовместимост�
 закрытыми по одному наличию кода.
 
 Ключевые commits до gate: 2fbbea0 (ownership), 45c3ba9/f943683 (contracts),
-ce00126 (durable primitives), 251322d (core composition), 7fd091a (fresh main).
+ce00126 (durable primitives), 251322d (core composition), 7fd091a (fresh main),
+ed45058 (M5-04 prep merge). Узкие compatibility/recovery commits следуют после gate.

@@ -5,7 +5,7 @@ needs a complete ``Authorisation`` and a provider the caller built; the harness 
 ``.env`` or opens a network connection. Every run is a fresh isolated TEST world.
 """
 
-import resource
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -123,7 +123,11 @@ class Evaluation:
                 runs.append(await self._run(scenario, repeat, seed))
                 if self.guard.exhausted:
                     stopped = f"бюджет: {self.guard.reason}"
-        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mb: float | None = None
+        if sys.platform == "linux":
+            import resource
+
+            peak_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
         return EvaluationReport(
             mode="dry-run (mock)" if self.mock else "real",
             mock=self.mock,
@@ -134,7 +138,7 @@ class Evaluation:
             runs=runs,
             budget=self.guard.as_dict(),
             resources={
-                "peak_rss_mb": round(peak_kb / 1024, 1),
+                "peak_rss_mb": peak_mb,
                 "cpu_seconds": round(sum(r.cpu_seconds for r in runs), 3),
             },
             stopped_reason=stopped,

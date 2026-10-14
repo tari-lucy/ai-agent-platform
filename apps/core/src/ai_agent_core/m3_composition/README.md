@@ -76,7 +76,9 @@ STOP, сон и downtime его не расходуют. Checkpoint раз в 5 
 Для laboratory заранее выдать свежий TEST lab_scope и доверенный scope_factory,
 возвращающий именно его. Runtime не создаёт ему grants и отклоняет повторное
 использование. Scope закреплён в durable JobArguments; seed и время симуляции
-позволяют воспроизводить mock. Лабораторный LLM остаётся scripted mock.
+позволяют воспроизводить mock. Лабораторный LLM остаётся scripted mock. Добавленные M5-04 providers/resolve
+отклоняются этим M3 entry до IO; их отдельный evaluation путь требует своего
+допуска/бюджета.
 
 Передать Reports с отдельным локальным каталогом и LabRunner. Полный JSON
 сохраняется с checksum/size/TTL в Artifact; Source содержит только digest.
@@ -92,7 +94,8 @@ TTL sweep удаляет также файлы после частично за�
 Перезапуск оставляет STOPPED. Старые queued jobs закрываются, running jobs и
 незавершённые LLM attempts становятся unknown; повторного provider IO нет.
 Не подтверждённые ресурсы сохраняются до сверки исходным владельцем; lifespan
-оставляет auth/STOP доступными, но start закрыт. Lease expiry не считается
+оставляет auth/STOP доступными, но start закрыт. Фактически закончившийся executor может передать metadata-only
+settle_unknown без повторного применения payload. Lease expiry не считается
 доказанным прекращением удалённого вычисления.
 
 Проверки — tests/m3_runtime; combined runner включает их вместе с исходными

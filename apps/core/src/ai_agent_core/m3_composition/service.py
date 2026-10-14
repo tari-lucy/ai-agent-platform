@@ -485,18 +485,40 @@ class Runtime:
                 ).model_dump(mode="json"),
             ),
         )
-        accepted = await self.jobs.accept(
-            self.worker,
-            ServiceResultCommand(
-                request_id=uuid4().hex,
-                type="job.result",
-                scope=job.scope,
-                target=job.id,
-                result=result,
-            ),
-            transient=error_code == ErrorCode.RESOURCE_BUSY,
-            error=error_code,
-        )
+        try:
+            accepted = await self.jobs.accept(
+                self.worker,
+                ServiceResultCommand(
+                    request_id=uuid4().hex,
+                    type="job.result",
+                    scope=job.scope,
+                    target=job.id,
+                    result=result,
+                ),
+                transient=error_code == ErrorCode.RESOURCE_BUSY,
+                error=error_code,
+            )
+        except ContractError:
+            stored = await self.jobs.store.load(job.operation_id, job.scope)
+            if stored is None or stored[0].status != OperationState.OUTCOME_UNKNOWN:
+                raise
+            # This executor really ended. Reconcile metadata only; never reapply the payload.
+            factual = result.model_copy(
+                update={
+                    "id": derived_id("m3settled", job.scope, claim.lease.attempt_id),
+                    "result": None,
+                }
+            )
+            accepted = await self.jobs.settle_unknown(
+                self.worker,
+                ServiceResultCommand(
+                    request_id=uuid4().hex,
+                    type="job.result",
+                    scope=job.scope,
+                    target=job.id,
+                    result=factual,
+                ),
+            )
         if accepted.status not in TERMINAL:
             return accepted
         with suppress(ContractError):
@@ -621,6 +643,13 @@ class Runtime:
                 ids.append(offer.opportunity.id)
         if request.kind == "laboratory":
             if self.lab is None or self.lab.artifact_writer is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            # M5-04 can inject an evaluated provider. This M3 entry is mock-only.
+            if (
+                self.lab.providers is not None
+                or self.lab.resolve is not None
+                or self.lab.mock is not True
+            ):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             scenario = next((s for s in catalogue() if s.scenario_id == request.scenario_id), None)
             if scenario is None:

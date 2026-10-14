@@ -212,3 +212,45 @@ def test_recovery_applies_checkpointed_ready_change_once_without_new_model(tmp_p
         await rebuilt.close()
 
     run(scenario())
+
+
+def test_real_executor_completion_reconciles_unknown_lease_without_reapplying(tmp_path):
+    async def scenario():
+        env = await setup(tmp_path)
+        episode = await env.world.episode()
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class Provider:
+            async def stream(self, call):
+                entered.set()
+                await release.wait()
+                for event in answer(keep_state_reason="Keep", changes=[]):
+                    yield event
+
+        rt = env.runtime
+        rt.providers = lambda _: Provider()
+        job = await rt.submit(
+            env.authority,
+            "late-lease",
+            TaskInput(kind="reflect", trigger_id="lived", episode_ids=[episode]),
+        )
+        task = asyncio.create_task(rt.execute(job))
+        await asyncio.wait_for(entered.wait(), 3)
+        env.elapsed.value += 21
+        env.world.clock.advance(seconds=21)
+        rt.supervisor.poll()
+        await rt.jobs.reconcile()
+        assert (await rt.jobs.store.load(job.operation_id, job.scope))[
+            0
+        ].status == OperationState.OUTCOME_UNKNOWN
+        release.set()
+        finished = await asyncio.wait_for(task, 5)
+        assert finished.status == OperationState.CANCELLED
+        assert rt.supervisor.snapshot.unconfirmed_resource_ids == []
+        state = (
+            await rt.store.repository(CharacterState, PRINCIPALS[Owner.PERSONA], job.scope).list()
+        )[0]
+        assert state.version == 1
+        await rt.close()
+
+    run(scenario())

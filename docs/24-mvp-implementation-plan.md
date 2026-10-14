@@ -515,10 +515,18 @@ fence, не выдача grants. Technical usage/job receipts исключены
 
 M3-runtime-integration: техническая mock-приёмка на combined 7fd091a —
 Windows27 passed; Linux979 passed/4 Redis skipped; ruff/mypy155/imports/exports
-passed. Один финальный combined, затем только документация.
+passed. Один финальный combined. Позднее получен M5-04 prep d407263:
+отдельный affected gate lab/evaluation/e2e/M3 HTTP —102 passed, mypy167;
+3 Windows STOP/revoke/unknown-lease regressions passed. Полный suite не повторялся.
 Фабрика подключена явно; deploy default/полный HTTP dialogue/UI/M5 bootstrap
 остаются отдельной интеграцией, а real-model quality — M5-04.
 Отчёт: [M3-runtime-integration](implementation-reports/M3-runtime-integration.md).
 По новому запросу оператора сверены M4/M5-03 coordinator requests:
 [сводка стыков и ближайший порядок](implementation-reports/M4-M5-integration-readiness.md).
 Следующие coding tasks здесь не начаты; UI-only до доказанного owner wiring.
+
+Узкая coordinator compatibility M5-04: evaluation/harness.py — resource
+доступен только Unix; Linux RSS сохраняется, Windows RSS=null (не измерено).
+Без новых зависимостей. Windows mypy167 и evaluation no-network smoke passed.
+Узкая fixture зона tests/evaluation/test_harness.py: запрет socket.connect
+включается после создания event-loop socketpair, до evaluation IO.
