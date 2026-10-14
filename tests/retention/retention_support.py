@@ -15,7 +15,7 @@ from ai_agent_adapters.retention import SQLiteDeletionLedger, SQLitePhysicalStor
 from ai_agent_adapters.storage.database import SQLiteStore  # noqa: E402
 from ai_agent_application.memory import IndexHealth, MemoryService, RecallService  # noqa: E402
 from ai_agent_application.retention import RetentionPolicy, RetentionService  # noqa: E402
-from ai_agent_application.storage import Grant, Owner, Principal  # noqa: E402
+from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess  # noqa: E402
 from ai_agent_contracts.api import Receipt  # noqa: E402
 from ai_agent_contracts.common import Contract  # noqa: E402
 from ai_agent_contracts.control import OperationProjection  # noqa: E402
@@ -39,10 +39,13 @@ from memory_support import (  # noqa: E402
 MIGRATIONS = ROOT / "migrations"
 LLM = Principal("owner-llm", "core_owner", Owner.LLM)
 JOBS = Principal("owner-jobs", "core_owner", Owner.JOBS)
+SOCIAL = Principal("owner-social", "core_owner", Owner.SOCIAL)
 GRANTS = (
     *MEMORY_GRANTS,
     Grant(LLM, Owner.LLM, read=True, write=True),
     Grant(JOBS, Owner.JOBS, read=True, write=True),
+    Grant(SOCIAL, Owner.SOCIAL, read=True, write=True),
+    Grant(SOCIAL, Owner.MEMORY, read=True),
 )
 
 __all__ = [
@@ -144,6 +147,7 @@ async def new_world(tmp_path, scopes, *, policy=None) -> RetWorld:
         embedder=embedder,
         health=health,
         clock=clock,
+        reader_access=(RecordAccess(SOCIAL.id, read=True),),
     )
     recall = RecallService(store, MEMORY, index, embedder=embedder, health=health, clock=clock)
     physical = SQLitePhysicalStore(store)

@@ -17,6 +17,7 @@ from retention_support import (
     LLM,
     MEMORY,
     NOW,
+    SOCIAL,
     command,
     make_scope,
     new_world,
@@ -523,3 +524,133 @@ def test_sweep_is_scoped_to_one_memory_space(tmp_path):
     one, two = run(scenario())
     assert not one.has_content and two.has_content
     assert rid()
+
+
+# ---- guards found by mutation -------------------------------------------------------------
+
+
+def test_a_failed_physical_step_still_leaves_the_authority_blocked(tmp_path):
+    async def scenario():
+        world, doomed, *_ = await deletion_world(tmp_path)
+
+        async def broken(scope, source_id, availability):
+            raise RuntimeError("disk error")
+
+        world.physical.erase_source = broken
+        report = await world.retention.delete(
+            A, await world.retention.preview_delete(A, [doomed.source_id])
+        )
+        # the authority itself no longer serves it, whatever the index says
+        return report, await world.memory.get_source(A, doomed.source_id)
+
+    report, served = run(scenario())
+    assert report.outcomes[0].failed_step == "physical" and served is None
+
+
+def test_protected_sources_survive_the_test_inactivity_limit(tmp_path):
+    async def scenario():
+        policy = RetentionPolicy(test_source=timedelta(days=7))
+        world = await new_world(tmp_path, [A_TEST], policy=policy)
+        kept = await world.add(A_TEST, "Защищённая тестовая запись.", protected=True)
+        world.clock.advance(days=8)
+        report = await world.retention.sweep(A_TEST)
+        return (
+            report,
+            await stored(world, A_TEST, kept.source_id),
+            await world.ledger.entries(A_TEST),
+        )
+
+    report, kept, ledger = run(scenario())
+    assert report.expired == () and kept.has_content and ledger == []
+
+
+def test_a_deletion_needs_known_sources(tmp_path):
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        outcomes = []
+        for ids in ([], ["src-unknown"]):
+            with pytest.raises(ContractError) as info:
+                await world.retention.preview_delete(A, ids)
+            outcomes.append(info.value.error.code)
+        return outcomes
+
+    assert run(scenario()) == [ErrorCode.INVALID_ARGUMENTS] * 2
+
+
+def test_only_the_memory_owner_may_run_retention(tmp_path):
+    async def scenario():
+        from ai_agent_application.retention import RetentionService
+
+        world = await new_world(tmp_path, [A])
+        for who in (JOBS, SOCIAL):
+            with pytest.raises(ContractError) as info:
+                RetentionService(world.store, who, world.memory, world.physical, world.ledger)
+            assert info.value.error.code is ErrorCode.ACCESS_DENIED
+
+    run(scenario())
+
+
+def test_older_revisions_of_an_expired_source_lose_their_text_too(tmp_path):
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        made = await world.add(A, f"Версионная запись {SECRET}.", external_id="v-1")
+        await world.memory.set_rights(
+            command(A),
+            made.source_id,
+            1,
+            read_allowed=True,
+            api_transfer_allowed=False,
+            public_disclosure_allowed=False,
+        )
+        assert (await world.memory.get_source(A, made.source_id)).version == 2
+        world.clock.advance(days=40)
+        await world.retention.sweep(A)
+        return world
+
+    world = run(scenario())
+    assert residue(world.paths, SECRET) == []
+
+
+def test_records_of_other_owners_are_reported_not_erased_with_the_source(tmp_path):
+    async def scenario():
+        from ai_agent_contracts.api import Receipt
+        from ai_agent_contracts.memory import AccountLink, Person
+
+        world = await new_world(tmp_path, [A])
+        made = await world.add(A, f"Он представился так: {SECRET}.", external_id="p-1")
+        source = await world.memory.get_source(A, made.source_id)
+        person = Person.model_validate(
+            {
+                "id": "person-9",
+                "scope": A.model_dump(),
+                "created_at": NOW,
+                "updated_at": NOW,
+                "version": 1,
+                "person_id": "person-9",
+                "accounts": [
+                    AccountLink(
+                        platform_id="chat",
+                        account_id="acc-1",
+                        display_name="Гость",
+                        confirmation="confirmed",
+                        evidence=[ref(source)],
+                    )
+                ],
+            }
+        )
+        cmd = command(A)
+        async with world.store.transaction(SOCIAL, A, cmd) as unit:
+            await unit.put(person)
+            await unit.complete(
+                Receipt(
+                    request_id=cmd.request_id,
+                    scope=A,
+                    status="completed",
+                    resource_id="person-9",
+                    version=1,
+                )
+            )
+        return await world.retention.preview_delete(A, [made.source_id])
+
+    preview = run(scenario())
+    assert preview.erased_with == () and preview.detached == (("Person", "person-9"),)

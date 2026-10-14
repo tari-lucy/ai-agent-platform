@@ -35,10 +35,6 @@ CREATE TABLE IF NOT EXISTS retention_usage_aggregates (
   unknown_usage INTEGER NOT NULL, amount TEXT NOT NULL, unknown_amount INTEGER NOT NULL,
   PRIMARY KEY (scope_id, month, role_id, status, currency, completeness))
 """
-ROLLED = """
-CREATE TABLE IF NOT EXISTS retention_rolled_attempts (
-  scope_id TEXT NOT NULL, record_id TEXT NOT NULL, PRIMARY KEY (scope_id, record_id))
-"""
 
 
 def _month(value: str) -> str:
@@ -54,7 +50,6 @@ class SQLitePhysicalStore:
         """Explicit administration step (like ``upgrade``); never run implicitly."""
         async with self.store.connection(write=True) as connection:
             await connection.execute(text(AGGREGATES))
-            await connection.execute(text(ROLLED))
 
     async def _write(self) -> Any:
         return self.store.connection(write=True)
@@ -403,19 +398,8 @@ class SQLitePhysicalStore:
         calculations: dict[str, list[tuple[str, dict[str, Any], str]]] = defaultdict(list)
         for record_id, body, created in await self._old(connection, key, "CostCalculation", "9"):
             calculations[body["attempt_id"]].append((record_id, body, created))
-        done = {
-            r[0]
-            for r in (
-                await connection.execute(
-                    text("SELECT record_id FROM retention_rolled_attempts WHERE scope_id=:k"),
-                    {"k": key},
-                )
-            ).all()
-        }
         sums: dict[tuple[str, ...], dict[str, Any]] = {}
-        for record_id, body, created in attempts:
-            if record_id in done:
-                continue
+        for _, body, created in attempts:
             usage = body["usage"]
             calcs = calculations.get(body["attempt_id"], [])
             money = next((c for _, c, _ in calcs if c["amount"] is not None), None)
@@ -449,10 +433,6 @@ class SQLitePhysicalStore:
                 bucket["unk_amt"] += 1
             else:
                 bucket["amt"] += Decimal(money["amount"])
-            await connection.execute(
-                text("INSERT INTO retention_rolled_attempts VALUES (:k, :r)"),
-                {"k": key, "r": record_id},
-            )
         for (month, role, status, currency, completeness), v in sums.items():
             await connection.execute(
                 text(
