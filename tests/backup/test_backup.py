@@ -713,8 +713,4 @@ def test_a_rehearsal_that_corrupts_the_copy_is_reported(tmp_path):
         return await bw.service.rehearse_migration(damaging)
 
     report = run(scenario())
-    assert (
-        not report.migrated
-        and report.error in {"INTEGRITY_FAILED", "UNREADABLE"}
-        or (not report.migrated)
-    )
+    assert not report.migrated and report.error == "INTEGRITY_FAILED"
