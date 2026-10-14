@@ -1,7 +1,15 @@
+Актуализация координатора 2026-10-15: selected settings TEST→WORK подключены
+через canonical preview/apply/status/history, явное подтверждение и partial
+reconciliation: [Integration-settings-transfer](Integration-settings-transfer.md).
+Профиль применяется владельцем PERSONA, состояние/биография не копируются;
+GM intensity/rules — владельцем GM. План ограничен пятью минутами и текущими
+правами/версиями. Host provisioning, laboratory events/per-job stop и остальные
+M4/M5 формы этой приёмкой не закрыты. Старые записи ниже — история запросов.
+
 Актуализация координатора 2026-10-15: download button, canonical catalogue/start,
 report ACL и durable reservation подготовленного TEST pool подключены:
 [Integration-laboratory-panel](Integration-laboratory-panel.md).
-Ниже — предыдущая приёмка; новый host provisioning/events/stop/transfer остаются отдельно.
+Ниже — предыдущая приёмка; новый host provisioning/events/per-job stop остаются отдельно.
 
 Обновление координатора 2026-10-15: полный mock lab JSON доступен через
 authenticated content route и shared PanelApi; [приёмка](Integration-lab-report.md).

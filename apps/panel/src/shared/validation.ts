@@ -391,3 +391,51 @@ export function laboratoryDownload(value: unknown, selected: Scope): LaboratoryR
     ref.media_type === 'application/json');
   return value as LaboratoryReportPage['items'][number];
 }
+
+const transferKeys = new Set(['profile', 'gm_intensity', 'story_rules_version']);
+function selection(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= 3 &&
+    value.every((key) => typeof key === 'string' && transferKeys.has(key)) && new Set(value).size === value.length;
+}
+function transferRow(value: unknown, selected: Scope): asserts value is Record<string, unknown> {
+  demand(object(value) && id(value.id) && version(value.version) && isScope(value.scope) && samePartition(value.scope, selected) &&
+    selected.memory_mode === 'work' && isScope(value.source_scope) && value.source_scope.memory_mode === 'test' &&
+    value.source_scope.workspace_id === selected.workspace_id && id(value.operator_id) &&
+    typeof value.preview_digest === 'string' && /^[a-f0-9]{64}$/.test(value.preview_digest) &&
+    selection(value.selected_keys) && Array.isArray(value.applied_keys) && value.applied_keys.length <= 3 &&
+    value.applied_keys.every((key: unknown) => (value.selected_keys as unknown[]).includes(key)) &&
+    new Set(value.applied_keys).size === value.applied_keys.length &&
+    ['planned', 'completed', 'reconciliation_required', 'acknowledged'].includes(String(value.status)) &&
+    (value.status !== 'completed' || value.applied_keys.length === value.selected_keys.length) &&
+    (value.operation_id == null || id(value.operation_id)));
+}
+export function settingsTransfers(value: unknown, selected: Scope): import('./contracts.ts').SettingsTransferOperationPage {
+  page(value, selected); value.items.forEach((row) => transferRow(row, selected));
+  return value as unknown as import('./contracts.ts').SettingsTransferOperationPage;
+}
+export function settingsTransferStatus(value: unknown, selected: Scope, operationId: string): import('./contracts.ts').SettingsTransferStatus {
+  demand(object(value) && isScope(value.scope) && samePartition(value.scope, selected) && value.operation_id === operationId &&
+    (value.record === null || object(value.record)));
+  if (value.record !== null) { transferRow(value.record, selected); demand(value.record.operation_id === operationId); }
+  return value as unknown as import('./contracts.ts').SettingsTransferStatus;
+}
+export function settingsTransferPreview(value: unknown, command: import('./contracts.ts').EditCommand): import('./contracts.ts').SettingsTransferPreview {
+  const args = command.arguments.data as Record<string, unknown>;
+  demand(object(value) && id(value.id) && version(value.version) && isScope(value.scope) &&
+    samePartition(command.scope, value.scope) && value.scope.memory_mode === 'work' &&
+    isScope(value.source_scope) && isScope(args.source_scope) && samePartition(value.source_scope, args.source_scope) &&
+    value.source_scope.memory_mode === 'test' && value.source_scope.workspace_id === value.scope.workspace_id &&
+    value.request_id === command.request_id && value.operation_id === args.operation_id &&
+    id(value.operator_id) && version(value.target_version) && value.target_version === command.expected_version &&
+    typeof value.preview_digest === 'string' && /^[a-f0-9]{64}$/.test(value.preview_digest) &&
+    date(value.expires_at) && selection(value.keys) && JSON.stringify(value.keys) === JSON.stringify(args.keys) &&
+    Array.isArray(value.items) && value.items.length === value.keys.length &&
+    value.items.every((item: unknown, index: number) => object(item) && item.key === (value.keys as unknown[])[index] &&
+      'before' in item && 'after' in item && Array.isArray(item.changes) && item.changes.length <= 200 &&
+      item.changes.every((text: unknown) => typeof text === 'string' && text.length <= 512) &&
+      Array.isArray(item.blockers) && item.blockers.length <= 200 && item.blockers.every((text: unknown) => typeof text === 'string' && text.length <= 512)) &&
+    typeof value.blocked === 'boolean' && value.blocked === value.items.some((item) => (item as { blockers: unknown[] }).blockers.length > 0) &&
+    Array.isArray(value.never_transferred) && value.never_transferred.length <= 30 &&
+    value.never_transferred.every((item: unknown) => typeof item === 'string' && item.length <= 512));
+  return value as unknown as import('./contracts.ts').SettingsTransferPreview;
+}

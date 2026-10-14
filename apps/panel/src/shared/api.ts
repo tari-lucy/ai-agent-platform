@@ -1,10 +1,12 @@
 import type {
+  SettingsTransferPreview, SettingsTransferStatus, SettingsTransferOperationPage,
   ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeStatePage, EditCommand,
   ArtifactRef, LaboratoryReport, Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
+  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
@@ -36,7 +38,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+type ReadResource = 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
   'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises';
 
@@ -143,6 +145,15 @@ export class PanelApi {
     if (identifier !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identifier)) throw new ApiFailure('INVALID_ARGUMENTS');
     const path = identifier === undefined ? resource : `${resource}/${identifier}`;
     return this.#request(`/api/v1/${path}?${query}`, undefined, signal);
+  }
+  async previewSettingsTransfer(command: EditCommand): Promise<SettingsTransferPreview> {
+    return settingsTransferPreview(await this.#request('/api/v1/laboratory/transfer-preview', command), command);
+  }
+  async transferStatus(scope: Scope, operationId: string, signal?: AbortSignal): Promise<SettingsTransferStatus> {
+    return settingsTransferStatus(await this.#read('settings-transfer-status', scope, signal, undefined, operationId), scope, operationId);
+  }
+  async settingsTransfers(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SettingsTransferOperationPage> {
+    return settingsTransfers(await this.#read('settings-transfers', scope, signal, cursor), scope);
   }
   async profileMarkdown(scope: Scope, signal?: AbortSignal): Promise<ProfileMarkdown> {
     return profileMarkdown(await this.#read('persona-markdown', scope, signal, undefined, scope.persona_id), scope);

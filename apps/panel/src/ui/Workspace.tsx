@@ -67,7 +67,7 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Button variant="subtle" size="compact-xs" onClick={() => setRevision((n) => n + 1)}>Повторить подключение</Button>}
   </Group>;
 }
-type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession };
+type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Scope[] };
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
@@ -160,7 +160,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {logoutError && <Alert color="red" mb="lg">{logoutError}</Alert>}
       <Routes>{screens.map((screen) => {
         const Screen = screenComponents[screen.path];
-        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} />} />;
+        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} />} />;
       })}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>

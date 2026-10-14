@@ -56,9 +56,12 @@ post_session означает закрытый логический разгов
 
 HTTP использует прежние login/session/Origin/CSRF и /api/v1/commands:
 gm.configure + gm.configure-args; laboratory.start + laboratory.start-args;
-laboratory.transfer_settings + m3.transfer с reviewed digest.
-Preview переноса доступен через существующий SettingsTransfer.preview;
-панель M4 подключит его представление. Перенос разрешён при STOPPED, из явно
+laboratory.transfer_settings + laboratory.transfer-settings-args с reviewed digest.
+POST /api/v1/laboratory/transfer-preview возвращает canonical plan на пять минут;
+панель показывает diff/blockers и требует отдельное подтверждение.
+Apply несёт plan ID/version, точные source/keys/digest; target CAS = GM version.
+GET settings-transfer-status/{operation_id} и settings-transfers восстанавливают
+progress после ошибки/reload. Acknowledge использует CAS progress и не делает откат. Перенос разрешён при STOPPED, из явно
 разрешённого TEST scope в WORK; биография и CharacterState не копируются.
 Partial transfer оставляет durable reconciliation_required/planned, блокирует
 start и не повторяется автоматически. Оператор подтверждает сверку отдельно.
@@ -208,4 +211,5 @@ builder из текущего RunSession и собственной версии 
 не используется как управляющая версия. Форма только mock. Кнопка скачивания
 использует проверенный PanelApi Blob, фиксированный filename; pending read
 отменяется при unmount/scope/revision change, object URLs освобождаются.
-Подача отдельных событий, per-job stop/settings transfer остаются отдельно.
+Settings transfer preview/apply/status/reconciliation подключены отдельной приёмкой
+Integration-settings-transfer. Подача отдельных событий и per-job stop остаются отдельно.

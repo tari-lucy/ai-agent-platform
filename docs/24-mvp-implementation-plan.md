@@ -629,3 +629,29 @@ mock start. Linux affected218, TS152, настоящий Edge prepare/download/r
 gates: [Integration-laboratory-panel](implementation-reports/Integration-laboratory-panel.md).
 Host provisioning новых scopes/grants, events/per-job cancel/transfer и
 остальные M4/M5 owner/operations actions не закрыты этой приёмкой.
+
+## Integration-settings-transfer — назначение 2026-10-15
+
+Поручение оператора: предпросмотр и подтверждение переноса настроек TEST→WORK.
+Base fb163f8, codex/integration-settings-transfer, отдельный checkout.
+Зона координатора: canonical transfer contracts/exports, core preview/mutation/
+status ports, существующие SettingsTransfer/DurableSettings/TransferJournal,
+physical record registry, laboratory transfer UI/shared client и целевые tests.
+Preview фиксирует diff/blockers/версии/TTL; apply по точному плану, только STOPPED.
+Права source/target/API-transfer проверяются, shared owners не дублируются;
+partial progress/reconciliation и known replay показываются честно.
+Без новых grants, миграций/deps/Compose, live API/данных оператора.
+Affected Python/client и один настоящий browser journey; full suites не повторять
+без нового непокрытого риска. Остальные feature zones не затрагивать.
+
+
+### Приёмка Integration-settings-transfer
+
+Принят scoped preview/confirmation/apply выбранных TEST→WORK настроек:
+canonical contracts/routes, current rights/version/TTL, STOPPED, owner CAS,
+сохранение рабочего CharacterState, persisted history/status/replay и честная
+partial reconciliation без автоматического отката/повтора. Linux affected345,
+Windows final transfer11, client155, реальный Edge journey1 и static/build passed.
+Матрица и ограничения: [Integration-settings-transfer](implementation-reports/Integration-settings-transfer.md).
+Host provisioning, laboratory events/per-job cancel и остальные M4/M5 actions
+остаются отдельными gates; полный backend/browser suite не повторялся.

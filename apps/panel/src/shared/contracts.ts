@@ -1,5 +1,6 @@
 // One source of wire types; never duplicate or edit server exports here.
 export type {
+  SettingsTransferArguments, SettingsTransferItem, SettingsTransferPreview, SettingsTransferStatus, SettingsTransferOperation, SettingsTransferOperationPage,
   ApiError, Artifact, Briefing, BriefingPage, Capability, CapabilityPage, Claim, ClaimPage, ConnectionPage, ConsequencePlan, ControlCommand, CreateCommand, Delivery, DeliveryPage, EditCommand, Episode, EpisodePage,
   EventSubscription, ExecutePlanCommand, PlanCommand, Summary, SummaryPage, MessageCommand, OperationProjection, OperationProjectionPage,
   OperatorLogin, OperatorSession, PanelCommand, Permission, PermissionPage, PanelEvent, Profile, ProfilePage, Receipt,

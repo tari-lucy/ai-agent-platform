@@ -268,3 +268,39 @@ existing owner journal; отсутствие свободного пула -> RE
 RunSession.scope/version + catalogue scenario ID/version + выбранный lab_scope.
 Режим mock; реальные модели здесь не подключены. Download кнопка подключена.
 Это не приёмка остальных laboratory events/stop/transfer и M4 целиком.
+
+
+### Перенос выбранных настроек TEST→WORK — 2026-10-15
+
+POST /api/v1/laboratory/transfer-preview принимает EditCommand:
+type=laboratory.transfer_settings, target=laboratory,
+schema=laboratory.transfer-settings-args. action=preview, source_scope=TEST,
+keys=непустой уникальный набор profile/gm_intensity/story_rules_version,
+operation_id, expected_version=версия рабочего GmRuntimeState.
+Ответ SettingsTransferPreview: точные before/after, diff/blockers, source/target,
+keys/digest/operator, target_version и план на пять минут. В SQLite хранится
+только metadata proof с before/after=null, без копии Markdown профиля.
+
+POST /api/v1/commands с тем же canonical schema, action=apply,
+plan_id/plan_version/preview_digest и точным operation_id/keys/source_scope
+применяет только проверенный план, только при STOPPED. Source/target grants,
+record ACL, api_transfer, TTL и source versions проверяются заново, в том числе
+в транзакциях PERSONA/GM. Target Profile/CharacterState pinned при входе в
+транзакцию PERSONA; owner CAS и совместимость состояния сохраняются.
+Профиль идёт через PersonaService.apply; тестовая биография не переносится.
+Несовместимые правила и незавершённая сверка блокируют весь новый план.
+
+GET /api/v1/settings-transfer-status/{operation_id} возвращает typed status
+с record или null (неизвестен/недоступен, не доказательство отсутствия записи).
+GET /api/v1/settings-transfers даёт bounded paginated history owner WORKSPACE.
+Оба используют обычные scope query, operator session и API-transfer ACL.
+История содержит также прежние records с operation_id=null: они доступны для
+чтения, но панель не выдумывает logical ID для их изменения.
+
+При частичной ошибке progress planned/reconciliation_required блокирует start;
+apply не переигрывается. action=acknowledge требует точную версию progress
+в expected_version и явную ручную сверку. Подтверждение не откатывает изменения.
+Повтор известного completed operation возвращает результат без новых записей.
+UI требует новый preview после выбора других ключей/истечения плана; ошибка
+не повторяет mutation автоматически. Host готовит scopes и минимальные права;
+эти endpoints не создают grants. [Приёмка](implementation-reports/Integration-settings-transfer.md).

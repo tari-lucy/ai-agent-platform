@@ -1,3 +1,4 @@
+import { TransferSettings } from './TransferSettings.tsx';
 import { DownloadReport } from './DownloadReport.tsx';
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
@@ -8,7 +9,7 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { startLaboratory } from '../../shared/owner-commands.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
-  NEVER_TRANSFERRED, compare, createCommand, eventCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary,
+  compare, createCommand, eventCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary,
   sortReports, startProblem, statusLabels, stopCommand, titleOf, type Start,
 } from './model.ts';
 
@@ -37,7 +38,7 @@ function useAction(api: PanelApi, scope: Scope, refresh: string[], prepare = fal
   return { run, busy: state.phase === 'sending' || state.phase === 'unknown', view };
 }
 
-export function LaboratoryScreen({ api, scope, run }: { api: PanelApi; scope: Scope; run?: RunSession }) {
+export function LaboratoryScreen({ api, scope, run, scopes = [] }: { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Scope[] }) {
   const catalogue = useQuery({
     queryKey: projectionKey('laboratory-catalogue', scope),
     queryFn: ({ signal }) => api.laboratoryCatalogue(scope, signal), enabled: labOpen(scope),
@@ -127,11 +128,7 @@ export function LaboratoryScreen({ api, scope, run }: { api: PanelApi; scope: Sc
         <Group mt="xs" justify="flex-end"><Button variant="light" disabled={event.busy} onClick={submitEvent}>Подать</Button></Group>
         {eventIssue && <Alert color="orange" mt="xs" role="alert">{eventIssue}</Alert>}{event.view}
         <Text size="xs" c="dimmed">Шаги сценария и виртуальные часы ядро панели не отдаёт: ход виден только в итоговом отчёте.</Text></Paper>
-      <Paper withBorder p="md" radius="lg" aria-label="Перенос настроек"><Title order={2} size="h4" mb="xs">Перенос настроек в рабочую область</Title>
-        <Text size="sm">Переносятся только выбранные настройки (профиль, интенсивность гейммастера, версия правил) — явной операцией с предпросмотром различий и решением оператора.</Text>
-        <Text size="sm" mt="xs">Никогда не переносятся: {NEVER_TRANSFERRED.join(', ')}.</Text>
-        <Button mt="sm" disabled variant="light">Перенести настройки</Button>
-        <Text size="xs" c="orange.8" role="status">Недоступно: ядро ещё не отдаёт предпросмотр различий и блокировки совместимости, а без них перенос не выполняется.</Text></Paper>
+      <TransferSettings api={api} source={scope} scopes={scopes} run={run} />
     </>}
   </Stack>;
 }
