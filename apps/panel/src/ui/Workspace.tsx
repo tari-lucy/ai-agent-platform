@@ -8,6 +8,7 @@ import { affectedResources, connectEvents, eventsUrl, type ConnectionState } fro
 import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.ts';
 import { mergeRuns, stopTarget, stopObservation } from '../shared/projections.ts';
 import { Dialogue } from './dialogue/Dialogue.tsx';
+import { Memory } from './memory/Memory.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -197,6 +198,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {logoutError && <Alert color="red" mb="lg">{logoutError}</Alert>}
       <Routes>{screens.map((screen) => <Route key={screen.path} path={'/' + screen.path}
         element={screen.path === 'dialogue' ? <Dialogue key={selected + screen.path} api={api} scope={scope} /> :
+          screen.path === 'memory' ? <Memory key={selected + screen.path} api={api} scope={scope} /> :
           <ScopeContent key={selected + screen.path} api={api} scope={scope} path={screen.path} />} />)}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>

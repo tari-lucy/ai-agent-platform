@@ -1,11 +1,11 @@
 import type {
-  BriefingPage, DeliveryPage, OperationProjectionPage,
+  Artifact, BriefingPage, ClaimPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  briefings, deliveries, inbound, object, operations, profiles, receipt, runs, session, stopReceipt,
-  utterances,
+  artifact, briefings, claims, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
+  profiles, receipt, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
 
@@ -33,7 +33,8 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations';
+type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+  'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -115,9 +116,15 @@ export class PanelApi {
     return session(await this.#request('/api/v1/auth/login', body));
   }
   async logout(): Promise<void> { await this.#request('/api/v1/auth/logout', {}); }
-  async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal): Promise<unknown> {
+  async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal, cursor?: string, identifier?: string): Promise<unknown> {
     const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, limit: '50' });
-    return this.#request(`/api/v1/${resource}?${query}`, undefined, signal);
+    if (cursor !== undefined) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(cursor)) throw new ApiFailure('INVALID_ARGUMENTS');
+      query.set('cursor', cursor);
+    }
+    if (identifier !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identifier)) throw new ApiFailure('INVALID_ARGUMENTS');
+    const path = identifier === undefined ? resource : `${resource}/${identifier}`;
+    return this.#request(`/api/v1/${path}?${query}`, undefined, signal);
   }
   async runs(scope: Scope, signal?: AbortSignal): Promise<RunSessionPage> {
     return runs(await this.#read('sessions', scope, signal), scope);
@@ -140,6 +147,28 @@ export class PanelApi {
   }
   async operations(scope: Scope, signal?: AbortSignal): Promise<OperationProjectionPage> {
     return operations(await this.#read('operations', scope, signal), scope);
+  }
+  // M4-04 memory reads. A cursor continues the server order; it never widens rights.
+  async sources(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {
+    return memorySources(await this.#read('sources', scope, signal, cursor), scope);
+  }
+  async episodes(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<EpisodePage> {
+    return episodes(await this.#read('episodes', scope, signal, cursor), scope);
+  }
+  async claims(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<ClaimPage> {
+    return claims(await this.#read('claims', scope, signal, cursor), scope);
+  }
+  async summaries(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SummaryPage> {
+    return summaries(await this.#read('summaries', scope, signal, cursor), scope);
+  }
+  async plan(scope: Scope, planId: string, signal?: AbortSignal): Promise<ConsequencePlan> {
+    return plan(await this.#read('plans', scope, signal, undefined, planId), scope, planId);
+  }
+  async operation(scope: Scope, operationId: string, signal?: AbortSignal): Promise<OperationProjectionPage['items'][number]> {
+    return operation(await this.#read('operations', scope, signal, undefined, operationId), scope, operationId);
+  }
+  async artifact(scope: Scope, artifactId: string, signal?: AbortSignal): Promise<Artifact> {
+    return artifact(await this.#read('artifacts', scope, signal, undefined, artifactId), scope, artifactId);
   }
   async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
     const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };

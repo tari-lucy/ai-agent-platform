@@ -1,5 +1,5 @@
 import type {
-  BriefingPage, DeliveryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  Artifact, BriefingPage, ClaimPage, ConsequencePlan, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   ProfilePage, Receipt, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
@@ -131,4 +131,58 @@ export function operations(value: unknown, selected: Scope): OperationProjection
   demand(value.items.every((row) => id(row.operation_id) && operationStates.has(String(row.status)) &&
     date(row.deadline) && (row.waiting_reason == null || text(row.waiting_reason, 500))));
   return value as OperationProjectionPage;
+}
+
+// M4-04: memory projections. Content may be absent for expired/deleted sources; never invented.
+const availability = new Set(['available', 'expired', 'deleted', 'unavailable']);
+const refs = (value: unknown) => Array.isArray(value) && value.length <= 200 && value.every((ref) =>
+  object(ref) && id(ref.source_id) && version(ref.version) && isScope(ref.scope) && availability.has(String(ref.availability)));
+const knowledge = new Set(['observed', 'reported', 'canon', 'hypothesis', 'interpretation']);
+export function memorySources(value: unknown, selected: Scope): SourcePage {
+  page(value, selected);
+  demand(value.items.every((row) => typeof row.provenance === 'string' && id(row.source_type) && date(row.occurred_at) &&
+    (row.content == null || text(row.content)) && (row.author_id == null || id(row.author_id)) &&
+    availability.has(String(row.availability)) && object(row.retention) && id(row.retention.policy_id) &&
+    (row.retention.expires_at === null || date(row.retention.expires_at)) &&
+    ['read_allowed', 'api_transfer_allowed', 'public_disclosure_allowed'].every((key) => typeof row[key] === 'boolean') &&
+    (row.availability === 'available' || (row.content == null && row.artifact == null))));
+  return value as SourcePage;
+}
+export function episodes(value: unknown, selected: Scope): EpisodePage {
+  page(value, selected);
+  demand(value.items.every((row) => text(row.choice) && text(row.actual_outcome) && refs(row.sources) &&
+    Array.isArray(row.participant_ids) && row.participant_ids.every(id) && ['observation', 'simulation'].includes(String(row.provenance))));
+  return value as EpisodePage;
+}
+export function claims(value: unknown, selected: Scope): ClaimPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.subject_id) && text(row.content) && knowledge.has(String(row.knowledge_type)) &&
+    refs(row.sources) && typeof row.confidence === 'number' && row.confidence >= 0 && row.confidence <= 1 &&
+    (row.conflict_ids === undefined || (Array.isArray(row.conflict_ids) && row.conflict_ids.every(id)))));
+  return value as ClaimPage;
+}
+export function summaries(value: unknown, selected: Scope): SummaryPage {
+  page(value, selected);
+  demand(value.items.every((row) => text(row.content) && refs(row.sources) && date(row.period_start) && date(row.period_end) &&
+    Array.isArray(row.episode_ids) && row.episode_ids.every(id)));
+  return value as SummaryPage;
+}
+// A plan names exactly what will be removed; the screen refuses one that omits the chosen target.
+export function plan(value: unknown, selected: Scope, planId: string): ConsequencePlan {
+  demand(object(value) && value.id === planId && isScope(value.scope) && samePartition(selected, value.scope) &&
+    version(value.version) && id(value.operation_type) && text(value.consequences, 4000) && date(value.expires_at) &&
+    Array.isArray(value.dependencies) && value.dependencies.length <= 200 &&
+    value.dependencies.every((dep) => object(dep) && id(dep.resource_id) && version(dep.version)));
+  return value as ConsequencePlan;
+}
+export function operation(value: unknown, selected: Scope, operationId: string): OperationProjectionPage['items'][number] {
+  demand(object(value) && value.operation_id === operationId && isScope(value.scope) && samePartition(selected, value.scope) &&
+    operationStates.has(String(value.status)) && date(value.deadline) && version(value.version));
+  return value as OperationProjectionPage['items'][number];
+}
+export function artifact(value: unknown, selected: Scope, artifactId: string): Artifact {
+  demand(object(value) && value.id === artifactId && isScope(value.scope) && samePartition(selected, value.scope) &&
+    object(value.reference) && value.reference.artifact_id === artifactId && typeof value.protected === 'boolean' &&
+    (value.expires_at === null || date(value.expires_at)));
+  return value as Artifact;
 }
