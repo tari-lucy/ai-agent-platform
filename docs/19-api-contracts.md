@@ -240,3 +240,15 @@ session.reflect. Полный перечень API по-прежнему шир�
 получение точной редакции и позволяет записать доставленный эпизод.
 Рефлексия запрашивается явно перед session.end, пока допуск ещё открыт.
 STOP не запускает фоновую модель и отменяет начатую рефлексию.
+
+### Полный laboratory report — 2026-10-15
+
+GET /api/v1/laboratory-reports/{resource_id}/content — точный JSON artifact
+в разрешённой TEST partition, максимум 2 000 000 bytes. Обычные четыре scope
+query fields, operator cookie/Host/Origin, без cursor/limit/pathname.
+Content-Disposition: attachment с фиксированным именем; ETag содержит quoted
+SHA-256, Cache-Control: no-store. Ссылка не выдаёт права на bytes: отдельно
+проверяются report/source/artifact grants, ACL, api_transfer, версии и TTL,
+после IO — повторная проверка и актуальность сессии. Публичный выпуск закрыт.
+Shared client возвращает проверенный Blob; feature-кнопку подключает владелец.
+Приёмка и ограничения: [Integration-lab-report](implementation-reports/Integration-lab-report.md).

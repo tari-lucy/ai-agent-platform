@@ -131,6 +131,44 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             }
         }
 
+    paths["/api/v1/laboratory-reports/{resource_id}/content"] = {
+        "get": {
+            "operationId": "download_laboratory_report",
+            "security": operator,
+            "parameters": scope_parameters
+            + [
+                {
+                    "name": "resource_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            ],
+            "responses": {
+                "200": {
+                    "description": (
+                        "Exact bounded JSON artifact; TEST scope, report/source ACL "
+                        "and API rights, TTL, checksum"
+                    ),
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                    "headers": {
+                        "ETag": {
+                            "schema": {"type": "string"},
+                            "description": "Quoted SHA-256 of stored bytes",
+                        },
+                        "Content-Disposition": {
+                            "schema": {"type": "string"},
+                            "description": "Fixed attachment filename",
+                        },
+                    },
+                },
+                **errors,
+            },
+            "x-max-response-bytes": 2_000_000,
+            "x-no-store": True,
+        }
+    }
+
     def command(path: str, name: str, identity: str, security: list[Schema]) -> None:
         receipt_type = {
             "StopCommand": "StopReceipt",
