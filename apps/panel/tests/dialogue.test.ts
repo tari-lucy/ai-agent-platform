@@ -149,3 +149,27 @@ test('briefing commands carry type, expiry and version; validation bounds the fo
   assert.match(validBriefing('x', '2030-01-01T00:00:00Z', now)!, /года/);
   assert.match(validBriefing('я'.repeat(4001), T(30), now)!, /4000/);
 });
+test('delivery rows of other utterances, older attempts and stale text never leak into a status', () => {
+  const u = utterance({ channel_ids: ['panel'] });
+  // a failure that belongs to a different utterance does not touch this one
+  assert.equal(deliveryStatus(u, [delivery({ utterance_id: 'u-other', status: 'FAILED' })]).status, 'saved');
+  // the newest attempt wins whatever the order of rows in the page
+  const newer = delivery({ id: 'd9', attempt_id: 'a9', status: 'DELIVERED', created_at: T(9) });
+  const older = delivery({ id: 'd8', attempt_id: 'a8', status: 'FAILED', created_at: T(4) });
+  assert.equal(deliveryStatus(u, [newer, older]).status, 'done');
+  assert.equal(deliveryStatus(u, [older, newer]).status, 'done');
+  // text that the owner marks expired is not shown even if a stale copy of it arrived
+  const stale = buildTimeline([source({ availability: 'expired', content: 'остаток текста' } as never)], [], []);
+  assert.equal(stale[0].text, null);
+  assert.equal(stale[0].status, 'removed');
+});
+test('finished operations are not pending work', () => {
+  const done = operation({ id: 'o2', operation_id: 'o2', status: 'SUCCEEDED' });
+  assert.deepEqual(goal(run, [done]).pending, []);
+  assert.equal(goal(run, [done, operation({ status: 'QUEUED' })]).pending.length, 1);
+});
+test('an utterance must name at least one and at most 200 channels', () => {
+  assert.throws(() => utterances(page([utterance({ channel_ids: [] })]), scope));
+  assert.throws(() => utterances(page([utterance({ channel_ids: Array.from({ length: 201 }, (_, n) => 'c' + n) })]), scope));
+  assert.throws(() => utterances(page([utterance({ channel_ids: ['ok', 'bad id'] })]), scope));
+});
