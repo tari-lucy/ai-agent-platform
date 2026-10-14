@@ -714,3 +714,250 @@ def test_a_rehearsal_that_corrupts_the_copy_is_reported(tmp_path):
 
     report = run(scenario())
     assert not report.migrated and report.error == "INTEGRITY_FAILED"
+
+
+def wrap_target(bw, **overrides):
+    """Make the staging target misbehave in one named way (the live store must stay as it was)."""
+
+    class Wrapped:
+        def __init__(self, inner):
+            self.inner = inner
+            self.calls = {}
+
+        def __getattr__(self, name):
+            inner = getattr(self.inner, name)
+            if name not in overrides:
+                return inner
+
+            async def replaced(*args, **kwargs):
+                self.calls[name] = self.calls.get(name, 0) + 1
+                return await overrides[name](inner, self.calls[name], *args, **kwargs)
+
+            return replaced
+
+    original = bw.service.staging.build
+
+    async def build(database):
+        return Wrapped(await original(database))
+
+    bw.service.staging.build = build
+
+
+async def restore_expecting_refusal(bw, backup_id):
+    view = await bw.service.preview_restore(backup_id)
+    with pytest.raises(ContractError) as info:
+        await bw.service.restore(view, "decision-1")
+    live = sqlite3.connect(bw.world.paths[0])
+    count = live.execute("SELECT COUNT(*) FROM records WHERE kind='Source'").fetchone()[0]
+    live.close()
+    return code(info), count, bw.switcher.replaced()
+
+
+def test_staging_checks_refuse_a_restore_and_leave_the_live_store_alone(tmp_path):
+    async def leftovers_only():
+        bw = await new_bworld(tmp_path / "a", [A])
+        await bw.world.add(A, "Живая запись.", external_id="s-1", protected=True)
+        made = await bw.service.create("daily")
+
+        async def still_there(inner, n, scope):
+            return ["src-leftover"]
+
+        wrap_target(bw, blocked_text_remaining=still_there)
+        return await restore_expecting_refusal(bw, made.manifest.backup_id)
+
+    async def second_pass_finds_work():
+        bw = await new_bworld(tmp_path / "b", [A])
+        await bw.world.add(A, "Живая запись.", external_id="s-1", protected=True)
+        made = await bw.service.create("daily")
+
+        async def not_stable(inner, n, scope):
+            result = await inner(scope)
+            if n == 2:
+                from ai_agent_application.retention import LedgerApplication
+
+                return LedgerApplication(("src-again",), (), ())
+            return result
+
+        wrap_target(bw, apply_ledger=not_stable)
+        return await restore_expecting_refusal(bw, made.manifest.backup_id)
+
+    async def sweep_leaves_pending():
+        bw = await new_bworld(tmp_path / "c", [A])
+        await bw.world.add(A, "Живая запись.", external_id="s-1", protected=True)
+        made = await bw.service.create("daily")
+
+        async def pending(inner, n, scope):
+            from ai_agent_application.retention import SweepReport
+
+            return SweepReport(pending=("src-stuck",))
+
+        wrap_target(bw, sweep=pending)
+        return await restore_expecting_refusal(bw, made.manifest.backup_id)
+
+    async def broken_result_file():
+        bw = await new_bworld(tmp_path / "d", [A])
+        await bw.world.add(A, "Живая запись.", external_id="s-1", protected=True)
+        made = await bw.service.create("daily")
+        real = bw.snapshotter.integrity
+
+        async def only_staged_is_bad(database):
+            return ["BAD"] if "restore-" in str(database) else await real(database)
+
+        bw.service.snapshotter = type("S", (), {})()
+        bw.service.snapshotter.snapshot = bw.snapshotter.snapshot
+        bw.service.snapshotter.head = bw.snapshotter.head
+        bw.service.snapshotter.integrity = only_staged_is_bad
+        return await restore_expecting_refusal(bw, made.manifest.backup_id)
+
+    for name in "abcd":
+        (tmp_path / name).mkdir()
+    results = [
+        run(leftovers_only()),
+        run(second_pass_finds_work()),
+        run(sweep_leaves_pending()),
+        run(broken_result_file()),
+    ]
+    for refused, count, replaced in results:
+        assert refused is ErrorCode.SERVICE_UNAVAILABLE
+        assert count == 1 and replaced == []  # nothing was switched
+
+
+def test_the_target_reports_ledger_blocked_sources_that_still_hold_text(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        made_source = await bw.world.add(A, "Запись, которую нужно стереть.", external_id="s-1")
+        await bw.world.ledger.block(A, made_source.source_id, 1, "operator_delete", NOW)
+        made = await bw.service.create("daily")
+        target = await bw.service.staging.open(
+            await _copy(bw, made.manifest.backup_id, tmp_path / "scratch")
+        )
+        before = await target.blocked_text_remaining(A)
+        await target.apply_ledger(A)
+        after = await target.blocked_text_remaining(A)
+        await target.close()
+        return made_source, before, after
+
+    made_source, before, after = run(scenario())
+    assert before == [made_source.source_id] and after == []
+
+
+async def _copy(bw, backup_id, directory):
+    directory.mkdir()
+    target = directory / "database.sqlite"
+    shutil.copyfile(await bw.store.path(backup_id, "database.sqlite"), target)
+    return target
+
+
+def test_a_source_past_its_term_in_an_old_copy_is_expired_by_the_restore(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        w = bw.world
+        old = await w.add(A, f"Запись срока {SECRET}.", external_id="o-1")
+        made = await bw.service.create("daily")
+        w.clock.advance(days=40)  # the term passes; nobody swept live
+        view = await bw.service.preview_restore(made.manifest.backup_id)
+        report = await bw.service.restore(view, "decision-1")
+        store, _, _, physical, index = await reopen(bw)
+        stub = await physical.source(A, old.source_id)
+        await store.close()
+        index.close()
+        return report, stub, w.paths
+
+    report, stub, paths = run(scenario())
+    assert report.expired == 1 and not stub.has_content and stub.availability == "expired"
+    assert residue(paths, SECRET) == []
+
+
+def test_a_broken_snapshot_is_never_kept(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+
+        async def broken(database):
+            return ["BAD PAGE"]
+
+        bw.service.snapshotter = type("S", (), {})()
+        bw.service.snapshotter.snapshot = bw.snapshotter.snapshot
+        bw.service.snapshotter.integrity = broken
+        with pytest.raises(ContractError) as info:
+            await bw.service.create("daily")
+        return code(info), await bw.service.copies(), list((bw.base / "work").iterdir())
+
+    refused, copies, leftovers = run(scenario())
+    assert refused is ErrorCode.SERVICE_UNAVAILABLE and copies == [] and leftovers == []
+
+
+def test_a_copy_that_changes_between_the_check_and_the_staging_is_refused(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        made = await bw.service.create("daily")
+        view = await bw.service.preview_restore(made.manifest.backup_id)
+        path = await bw.store.path(made.manifest.backup_id, "database.sqlite")
+        data = bytearray(path.read_bytes())
+        data[len(data) // 2] ^= 0xFF
+
+        async def quiet(backup_id):
+            path.write_bytes(bytes(data))  # swapped right after verification
+            return []
+
+        bw.service.verify = quiet
+        view = await bw.service.preview_restore(made.manifest.backup_id)
+        with pytest.raises(ContractError) as info:
+            await bw.service.restore(view, "decision-1")
+        return code(info), bw.switcher.replaced()
+
+    refused, replaced = run(scenario())
+    assert refused is ErrorCode.SERVICE_UNAVAILABLE and replaced == []
+
+
+def test_the_live_store_is_closed_before_the_files_are_switched(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        made = await bw.service.create("daily")
+        order = []
+        real_close = bw.service.close_live
+        real_switch = bw.switcher.switch
+
+        async def closing():
+            order.append("close")
+            await real_close()
+
+        async def switching(staged):
+            order.append("switch")
+            await real_switch(staged)
+
+        bw.service.close_live = closing
+        bw.service.switcher = type("W", (), {"switch": staticmethod(switching)})()
+        view = await bw.service.preview_restore(made.manifest.backup_id)
+        await bw.service.restore(view, "decision-1")
+        return order
+
+    assert run(scenario()) == ["close", "switch"]
+
+
+def test_the_backup_directory_is_private_even_if_it_existed_with_open_rights(tmp_path):
+    import os
+    import stat
+
+    from ai_agent_adapters.backup import DirectoryBackupStore
+
+    root = tmp_path / "open-dir"
+    root.mkdir()
+    os.chmod(root, 0o755)
+    DirectoryBackupStore(root)
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+
+
+def test_extra_file_names_are_validated(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        (tmp_path / "x").write_text("x")
+        outcomes = []
+        for name in ("../escape", "a/b", "database.sqlite", "manifest.json", ""):
+            bw.extra.items = [(name, tmp_path / "x")]
+            with pytest.raises(ContractError) as info:
+                await bw.service.create("manual")
+            outcomes.append(code(info))
+        return outcomes, await bw.service.copies()
+
+    outcomes, left = run(scenario())
+    assert outcomes == [ErrorCode.INVALID_ARGUMENTS] * 5 and left == []
