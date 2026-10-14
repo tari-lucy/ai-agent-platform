@@ -1,5 +1,5 @@
 import type {
-  Artifact, BriefingPage, CapabilityPage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  Artifact, BriefingPage, CapabilityPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
@@ -216,4 +216,43 @@ export function workspaces(value: unknown, selected: Scope): WorkspacePage {
   demand(value.items.every((row) => (row.active_agent_id === null || id(row.active_agent_id)) && version(row.policy_version) &&
     Array.isArray(row.profile_ids) && row.profile_ids.every(id) && Array.isArray(row.connection_ids) && row.connection_ids.every(id)));
   return value as WorkspacePage;
+}
+
+// M4-08: usage and price projections. Unknown stays null/unknown; nothing here can hold a prompt or a secret.
+const moneyText = (value: unknown) => typeof value === 'string' && /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value) && value.length <= 64;
+const tokenCount = (value: unknown) => value == null || (Number.isSafeInteger(value) && Number(value) >= 0);
+export function llmAttempts(value: unknown, selected: Scope): LLMAttemptPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.operation_id) && id(row.attempt_id) && id(row.role_id) && id(row.assignment_id) &&
+    version(row.assignment_version) && id(row.requested_model_id) && (row.reported_model_id == null || id(row.reported_model_id)) &&
+    ['running', 'completed', 'failed', 'cancelled', 'incomplete', 'unknown'].includes(String(row.status)) && date(row.started_at) &&
+    (row.completed_at == null || date(row.completed_at)) && object(row.usage) &&
+    ['complete', 'partial', 'unknown'].includes(String(row.usage.completeness)) &&
+    ['provider', 'local_estimate', 'unknown'].includes(String(row.usage.source)) &&
+    ['input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens'].every((key) => tokenCount((row.usage as Record<string, unknown>)[key])) &&
+    (row.tariff_id == null) === (row.tariff_version == null)));
+  return value as LLMAttemptPage;
+}
+export function costCalculations(value: unknown, selected: Scope): CostCalculationPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.attempt_id) && ['complete', 'partial', 'unknown'].includes(String(row.completeness)) &&
+    ['provider_usage', 'local_estimate', 'unknown'].includes(String(row.provenance)) &&
+    (row.amount == null || moneyText(row.amount)) && (row.currency == null || /^[A-Z]{3}$/.test(String(row.currency))) &&
+    // an unknown cost carries no amount; a known one names its currency
+    (row.completeness !== 'unknown' || row.amount == null) && (row.amount == null || row.currency != null)));
+  return value as CostCalculationPage;
+}
+export function tariffs(value: unknown, selected: Scope): TariffPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.connection_id) && id(row.model_id) && Number.isSafeInteger(row.unit_tokens) && Number(row.unit_tokens) >= 1 &&
+    /^[A-Z]{3}$/.test(String(row.currency)) && date(row.effective_at) &&
+    ['input_rate', 'output_rate', 'cached_input_rate', 'reasoning_output_rate'].every((key) => row[key] == null || moneyText(row[key]))));
+  return value as TariffPage;
+}
+export function llmAssignments(value: unknown, selected: Scope): LLMAssignmentPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.role_id) && id(row.connection_id) && id(row.model_id) &&
+    ['unverified', 'verified', 'failed'].includes(String(row.capability_verification)) &&
+    (row.fallback_assignment_id == null || id(row.fallback_assignment_id))));
+  return value as LLMAssignmentPage;
 }

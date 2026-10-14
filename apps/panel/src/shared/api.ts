@@ -1,11 +1,12 @@
 import type {
-  Artifact, BriefingPage, CapabilityPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
+  Artifact, BriefingPage, CapabilityPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
-  permissions, profiles, receipt, workspaces, runs, session, stopReceipt, summaries, utterances,
+  permissions, profiles, receipt, workspaces,
+  costCalculations, llmAssignments, llmAttempts, tariffs, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
 
@@ -34,7 +35,8 @@ export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
 type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
-  'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces';
+  'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
+  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -182,6 +184,19 @@ export class PanelApi {
   }
   async workspaces(scope: Scope, signal?: AbortSignal): Promise<WorkspacePage> {
     return workspaces(await this.#read('workspaces', scope, signal), scope);
+  }
+  // M4-08 usage reads: ids, statuses, counts and money only; the server holds no prompt or reply here.
+  async llmAttempts(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<LLMAttemptPage> {
+    return llmAttempts(await this.#read('llm-attempts', scope, signal, cursor), scope);
+  }
+  async costCalculations(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<CostCalculationPage> {
+    return costCalculations(await this.#read('cost-calculations', scope, signal, cursor), scope);
+  }
+  async tariffs(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<TariffPage> {
+    return tariffs(await this.#read('tariffs', scope, signal, cursor), scope);
+  }
+  async llmAssignments(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<LLMAssignmentPage> {
+    return llmAssignments(await this.#read('llm-assignments', scope, signal, cursor), scope);
   }
   async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
     const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };
