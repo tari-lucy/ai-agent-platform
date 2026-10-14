@@ -3,6 +3,7 @@
 import asyncio
 import sqlite3
 import threading
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,6 +33,37 @@ class SQLiteDeletionLedger:
             " CHECK (reason IN ('expired','rights_revoked','operator_delete')),"
             " blocked_at TEXT NOT NULL, purged_at TEXT, PRIMARY KEY (scope_key, source_id))"
         )
+        # Identity + change counter: a lost, replaced or rolled-back ledger is detectable.
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS ledger_meta ("
+            " only_row INTEGER PRIMARY KEY CHECK (only_row = 1), ledger_id TEXT NOT NULL,"
+            " seq INTEGER NOT NULL)"
+        )
+        self._db.execute("INSERT OR IGNORE INTO ledger_meta VALUES (1, ?, 0)", (uuid.uuid4().hex,))
+
+    def _bump(self) -> None:
+        self._db.execute("UPDATE ledger_meta SET seq = seq + 1")
+
+    async def identity(self) -> tuple[str, int]:
+        def work() -> tuple[str, int]:
+            with self._lock:
+                row = self._db.execute("SELECT ledger_id, seq FROM ledger_meta").fetchone()
+            return str(row[0]), int(row[1])
+
+        return await asyncio.to_thread(work)
+
+    async def snapshot_to(self, target: Path) -> None:
+        """Consistent copy for a separate, restricted location (never inside a data backup)."""
+
+        def work() -> None:
+            with self._lock:
+                copy = sqlite3.connect(target)
+                try:
+                    self._db.backup(copy)
+                finally:
+                    copy.close()
+
+        await asyncio.to_thread(work)
 
     def close(self) -> None:
         self._db.close()
@@ -51,6 +83,7 @@ class SQLiteDeletionLedger:
                         "INSERT INTO deletion_ledger VALUES (?,?,?,?,?,NULL)",
                         (_key(scope), source_id, version, reason, at.isoformat()),
                     )
+                    self._bump()
                     return LedgerEntry(source_id, version, reason, at, None)
                 kept: Reason = reason if STRENGTH[reason] > STRENGTH[row[1]] else row[1]
                 high = max(version, row[0])
@@ -59,6 +92,7 @@ class SQLiteDeletionLedger:
                     " WHERE scope_key=? AND source_id=?",
                     (kept, high, _key(scope), source_id),
                 )
+                self._bump()
                 purged = datetime.fromisoformat(row[3]) if row[3] else None
                 return LedgerEntry(source_id, high, kept, datetime.fromisoformat(row[2]), purged)
 
@@ -72,6 +106,7 @@ class SQLiteDeletionLedger:
                     " AND purged_at IS NULL",
                     (at.astimezone(UTC).isoformat(), _key(scope), source_id),
                 )
+                self._bump()
 
         await asyncio.to_thread(work)
 

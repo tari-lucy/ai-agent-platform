@@ -42,6 +42,7 @@
 | M3-03 | integrated | Claude Code / codex/m3-03-development | fast-forward в main от 16581c0; 34 development tests (реальная SQLite persona+memory, mock-рефлексия), combined 691 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-рефлексия и проявление изменений не проверены** |
 | M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; исходный relationship gap закрыт coordinator review M3-review-integration, runtime gates остаются открыты** |
 | M5-01 | integrated | Claude Code / codex/m5-01-retention | fast-forward в main от 6755f43; 26 retention tests (реальная SQLite/FTS5/sqlite-vec, виртуальное время, проверка байтов БД/WAL/индекса), мутации 44 защит без незакрытых; lint/types/imports passed; **runtime-интеграция, Windows, контейнер, backup (M5-02) не проверены**; [отчёт](implementation-reports/M5-01.md) |
+| M5-02 | integrated | Claude Code / codex/m5-02-backup | fast-forward в main от 263430e; 37 backup tests (реальные файлы SQLite/индекса/ledger, консистентный снимок при активной записи, restore старой копии + независимый ledger с проверкой байт БД/WAL/индекса), мутации 40 защит без выживших; lint/types/imports passed; **runtime-интеграция, Windows, контейнер, kill -9 между закрытием и переключением не проверены**; [отчёт](implementation-reports/M5-02.md) |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -188,9 +189,11 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы; M5-01 интегрирована (M5-02 может начинаться).
+Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы; M5-01 и M5-02 интегрированы (M5-03 ждёт M4).
 
 M5-01 владеет packages/application/.../retention, packages/adapters/.../retention, tests/retention и своим report. Решения: порядок ledger → блокировка → tombstone → индекс/кэши → физическое стирание → purged; независимый ledger в отдельном файле (restore gate `apply_ledger`, применять до запуска агента); физический слой работает рядом с owner API, потому что storage скрывает просроченное даже от владельца; зависимые записи других владельцев не стираются. Открытые запросы (миграция агрегатов расхода, retention-API storage, версионный tombstone, composition, DerivedPurger для кэшей/экспорта) — в отчёте.
+
+M5-02 владеет packages/application/.../backup, packages/adapters/.../backup, tests/backup и своим report (малая правка в своём ledger M5-01). Решения: снимок через backup API SQLite; копия не допускается без того же ledger с не меньшим счётчиком; restore только при STOPPED, через staging (ledger → sweep → индекс → заморозка outbox → проверки), живая БД меняется последней, замещённые файлы остаются в replaced/; агент не запускается. Открытые запросы (composition, jobs-владелец: OUTCOME_UNKNOWN для операций после копии, M4-07 preview) — в отчёте.
 
 M2-04 владеет packages/application/src/ai_agent_application/llm,
 packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
