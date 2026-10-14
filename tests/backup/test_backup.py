@@ -618,3 +618,103 @@ def test_removed_copies_are_wiped_before_unlinking(tmp_path):
 
     with_text, exists, bw = run(scenario())
     assert with_text and not exists
+
+
+# ---- gaps closed after the first mutation pass ----------------------------------------------
+
+
+def test_ledger_identity_counts_every_change_and_survives_a_reopen_and_a_copy(tmp_path):
+    async def scenario():
+        from ai_agent_adapters.retention import SQLiteDeletionLedger
+
+        path = tmp_path / "ledger.sqlite"
+        ledger = SQLiteDeletionLedger(path)
+        first = await ledger.identity()
+        await ledger.block(A, "s1", 1, "operator_delete", NOW)
+        second = await ledger.identity()
+        await ledger.mark_purged(A, "s1", NOW)
+        third = await ledger.identity()
+        await ledger.block(A, "s1", 2, "expired", NOW)  # a no-op upgrade still counts
+        fourth = await ledger.identity()
+        ledger.close()
+        reopened = SQLiteDeletionLedger(path)
+        again = await reopened.identity()
+        copy = tmp_path / "ledger-copy.sqlite"
+        await reopened.snapshot_to(copy)
+        copied = SQLiteDeletionLedger(copy)
+        return first, second, third, fourth, again, await copied.identity(), await copied.entries(A)
+
+    first, second, third, fourth, again, copied, entries = run(scenario())
+    assert second[1] == first[1] + 1 and third[1] == second[1] + 1 and fourth[1] == third[1] + 1
+    assert again == fourth == copied and first[0] == again[0]  # same identity across reopen
+    assert [e.source_id for e in entries] == ["s1"]
+
+
+def test_wiping_overwrites_the_bytes_before_unlinking(tmp_path):
+    from ai_agent_adapters.backup import wipe
+
+    target = tmp_path / "secret.bin"
+    target.write_bytes(SECRET.encode() * 50)
+    alias = tmp_path / "alias.bin"
+    alias.hardlink_to(target)  # another name for the same bytes
+    wipe(target)
+    assert not target.exists()
+    assert alias.read_bytes() == b"\0" * (len(SECRET.encode()) * 50)  # not merely unlinked
+
+
+def test_delivered_events_and_open_jobs_are_both_neutralised_and_reported(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        w = bw.world
+        await w.put_projection(A, "op-open", "QUEUED", age_days=0)
+        connection = sqlite3.connect(w.paths[0])
+        connection.execute("UPDATE outbox SET status='delivered'")
+        scope_id = connection.execute("SELECT scope_id FROM scopes").fetchone()[0]
+        connection.execute(
+            "INSERT INTO records (scope_id, kind, id, owner, version, created_at, updated_at,"
+            " deleted, available, read_allowed, api_transfer_allowed, public_disclosure_allowed)"
+            " VALUES (?, 'Job', 'job-1', 'jobs', 1, '2026-10-13T12:00:00', '2026-10-13T12:00:00',"
+            " 0, 1, 1, 1, 1)",
+            (scope_id,),
+        )
+        connection.execute(
+            "INSERT INTO record_revisions VALUES (?, 'Job', 'job-1', 1, '1.0',"
+            ' \'{"id":"job-1","schema_version":"1.0","status":"RUNNING"}\', NULL)',
+            (scope_id,),
+        )
+        connection.commit()
+        connection.close()
+        made = await bw.service.create("daily")
+        view = await bw.service.preview_restore(made.manifest.backup_id)
+        report = await bw.service.restore(view, "decision-1")
+        connection = sqlite3.connect(w.paths[0])
+        left = connection.execute(
+            "SELECT COUNT(*) FROM outbox WHERE status IN ('pending','delivered')"
+        ).fetchone()[0]
+        connection.close()
+        return view, report, left
+
+    view, report, left = run(scenario())
+    assert view.non_terminal_operations == 1 and "OPERATIONS_AT_RISK" in codes(view.issues)
+    assert view.pending_outbox >= 1 and report.quarantined_outbox >= 1 and left == 0
+    assert not view.blocked  # the operator is told, and decides
+
+
+def test_a_rehearsal_that_corrupts_the_copy_is_reported(tmp_path):
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+
+        async def damaging(path):
+            data = bytearray(path.read_bytes())
+            for index in range(2048, 4096):
+                data[index] ^= 0xFF
+            path.write_bytes(bytes(data))
+
+        return await bw.service.rehearse_migration(damaging)
+
+    report = run(scenario())
+    assert (
+        not report.migrated
+        and report.error in {"INTEGRITY_FAILED", "UNREADABLE"}
+        or (not report.migrated)
+    )
