@@ -34,6 +34,7 @@ HELPERS = (
     "tests/m3_review",
     "tests/retention",
     "tests/backup",
+    "tests/e2e",
 )
 TESTS = (
     "tests/operations",
@@ -58,6 +59,7 @@ TESTS = (
     "tests/m3_review",
     "tests/retention",
     "tests/backup",
+    "tests/e2e",
     "tests/probes/m0_06/test_configuration.py",
 )
 
