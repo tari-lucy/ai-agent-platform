@@ -1,6 +1,6 @@
 import type {
-  Artifact, BriefingPage, ClaimPage, ConsequencePlan, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
-  ProfilePage, Receipt, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
+  Artifact, BriefingPage, CapabilityPage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
+  PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
 
@@ -185,4 +185,35 @@ export function artifact(value: unknown, selected: Scope, artifactId: string): A
     object(value.reference) && value.reference.artifact_id === artifactId && typeof value.protected === 'boolean' &&
     (value.expires_at === null || date(value.expires_at)));
   return value as Artifact;
+}
+
+// M4-07: workspace projections. Secrets never appear here: only setting NAMES and verification states.
+export function connections(value: unknown, selected: Scope): ConnectionPage {
+  page(value, selected);
+  demand(value.items.every((row) => text(row.name, 200) && id(row.adapter_id) && typeof row.configured === 'boolean' &&
+    ['unverified', 'verified', 'failed'].includes(String(row.verification)) &&
+    Array.isArray(row.capabilities) && row.capabilities.length <= 200 && row.capabilities.every(id)));
+  return value as ConnectionPage;
+}
+export function capabilities(value: unknown, selected: Scope): CapabilityPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.adapter_id) &&
+    ['none', 'local_write', 'external_effect', 'public_output'].includes(String(row.effect)) &&
+    ['ready', 'degraded', 'unavailable'].includes(String(row.health)) &&
+    ['supported', 'unsupported', 'unknown'].includes(String(row.idempotency)) &&
+    typeof row.cancellation_supported === 'boolean' && Array.isArray(row.required_permissions)));
+  return value as CapabilityPage;
+}
+export function permissions(value: unknown, selected: Scope): PermissionPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.principal_id) && id(row.capability_id) && id(row.operation_type) &&
+    ['denied', 'prepare_only', 'operator_decision', 'automatic'].includes(String(row.level)) &&
+    date(row.expires_at) && (row.revoked_at == null || date(row.revoked_at))));
+  return value as PermissionPage;
+}
+export function workspaces(value: unknown, selected: Scope): WorkspacePage {
+  page(value, selected);
+  demand(value.items.every((row) => (row.active_agent_id === null || id(row.active_agent_id)) && version(row.policy_version) &&
+    Array.isArray(row.profile_ids) && row.profile_ids.every(id) && Array.isArray(row.connection_ids) && row.connection_ids.every(id)));
+  return value as WorkspacePage;
 }

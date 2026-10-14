@@ -9,6 +9,7 @@ import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.
 import { mergeRuns, stopTarget, stopObservation } from '../shared/projections.ts';
 import { Dialogue } from './dialogue/Dialogue.tsx';
 import { Memory } from './memory/Memory.tsx';
+import { WorkspaceScreen } from './workspace/WorkspaceScreen.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -75,20 +76,6 @@ function ScopeContent({ api, scope, path }: { api: PanelApi; scope: Scope; path:
       <Text size="sm" c="dimmed">{scope.memory_space_id}</Text>
       <Text mt="md" size="sm">Просмотр профиля не переключает активного агента.</Text>
     </Paper>
-    {path === 'workspace' && <Paper withBorder p="xl" radius="lg">
-      <Title order={2} size="h3" mb="md">Запуск в этой области</Title>
-      {run ? <Stack gap="xs">
-        <Text>{runLabels[run.state]} · {activityLabels[run.activity]}</Text>
-        <Text size="sm">Режим: {run.autonomy === 'observation' ? 'Наблюдение' : 'Автономная работа'}</Text>
-        <Text size="sm">Голос: {run.voice_enabled ? 'Включён по данным ядра' : 'Не подключён / выключен'}</Text>
-        <Text size="sm">Гейммастер: {run.gm_paused ? 'На паузе' : 'Пауза снята по данным ядра'}</Text>
-        {!!run.unconfirmed_resource_ids?.length &&
-          <Alert color="orange" title="Остановка ещё не подтверждена">{run.unconfirmed_resource_ids.join(', ')}</Alert>}
-        <details><summary>Технические сведения</summary><Text size="xs" component="pre">
-          {JSON.stringify({ agent_id: run.agent_id, run_id: run.run_id, version: run.version, control_epoch: run.control_epoch, updated_at_utc: run.updated_at }, null, 2)}
-        </Text></details>
-      </Stack> : <Text c="dimmed">Сведения о запуске в этой области недоступны.</Text>}
-    </Paper>}
     {path === 'persona' && <Paper withBorder p="xl" radius="lg">
       <Title order={2} size="h3" mb="md">Принятый профиль</Title>
       {profile.isPending ? <Text>Получаем профиль…</Text> : profile.isError ?
@@ -199,6 +186,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <Routes>{screens.map((screen) => <Route key={screen.path} path={'/' + screen.path}
         element={screen.path === 'dialogue' ? <Dialogue key={selected + screen.path} api={api} scope={scope} /> :
           screen.path === 'memory' ? <Memory key={selected + screen.path} api={api} scope={scope} /> :
+          screen.path === 'workspace' ? <WorkspaceScreen key={selected + screen.path} api={api} scope={scope} /> :
           <ScopeContent key={selected + screen.path} api={api} scope={scope} path={screen.path} />} />)}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>

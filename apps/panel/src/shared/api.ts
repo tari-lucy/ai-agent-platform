@@ -1,11 +1,11 @@
 import type {
-  Artifact, BriefingPage, ClaimPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, SummaryPage,
+  Artifact, BriefingPage, CapabilityPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
   OperatorLogin, OperatorSession, PanelCommand, ProfilePage, Receipt, RunSessionPage, Scope,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  artifact, briefings, claims, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
-  profiles, receipt, runs, session, stopReceipt, summaries, utterances,
+  artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
+  permissions, profiles, receipt, workspaces, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
 
@@ -34,7 +34,7 @@ export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
 type ReadResource = 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
-  'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts';
+  'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -169,6 +169,19 @@ export class PanelApi {
   }
   async artifact(scope: Scope, artifactId: string, signal?: AbortSignal): Promise<Artifact> {
     return artifact(await this.#read('artifacts', scope, signal, undefined, artifactId), scope, artifactId);
+  }
+  // M4-07 workspace reads: states and setting names only; the server never sends secret values.
+  async connections(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<ConnectionPage> {
+    return connections(await this.#read('connections', scope, signal, cursor), scope);
+  }
+  async capabilities(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<CapabilityPage> {
+    return capabilities(await this.#read('capabilities', scope, signal, cursor), scope);
+  }
+  async permissions(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<PermissionPage> {
+    return permissions(await this.#read('permissions', scope, signal, cursor), scope);
+  }
+  async workspaces(scope: Scope, signal?: AbortSignal): Promise<WorkspacePage> {
+    return workspaces(await this.#read('workspaces', scope, signal), scope);
   }
   async stop(scope: Scope, target: string, requestId: string = crypto.randomUUID()): Promise<StopReceipt> {
     const body: StopCommand = { type: 'agent.stop', request_id: requestId, scope: { ...scope, agent_id: target }, target };

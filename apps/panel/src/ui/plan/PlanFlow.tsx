@@ -15,6 +15,7 @@ export type PlanSpec = {
   confirmText?: string;      // checkbox that must be ticked
   typedConfirm?: string;     // text the operator must type exactly
   note?: string;
+  doneNote?: string;         // shown once the owner has accepted the command
   blocked?: string | null;   // why preparing is closed right now
   preview: (requestId: string) => PlanCommand;
   execute: (plan: ConsequencePlan, requestId: string) => ExecutePlanCommand;
@@ -84,6 +85,7 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
       <Text fw={600}>{spec.label}: {view.text}</Text>
       {!!view.done.length && <Text size="sm">Выполнено: {view.done.join(', ')}</Text>}
       {!!view.pending.length && <Text size="sm">Ожидает: {view.pending.join(', ')}</Text>}
+      {spec.doneNote && <Text size="sm" c="orange.8">{spec.doneNote}</Text>}
       <Button mt="xs" size="compact-sm" variant="subtle" onClick={() => void status.refetch()}>Обновить статус</Button>
     </Paper>}
   </Stack>;
