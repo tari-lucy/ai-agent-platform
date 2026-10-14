@@ -253,6 +253,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
     }
     for route, projection_name in (
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
+        ("/api/v1/laboratory-runs", "LaboratoryRuns"),
         ("/api/v1/settings-transfer-status/{operation_id}", "SettingsTransferStatus"),
         ("/api/v1/persona-markdown/{persona_id}", "ProfileMarkdown"),
     ):
@@ -274,6 +275,21 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
                     "required": True,
                     "schema": {"type": "string", "minLength": 1, "maxLength": 128},
                 }
+            )
+        if projection_name == "LaboratoryRuns":
+            params.extend(
+                [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 200},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "schema": {"type": "string", "maxLength": 128},
+                    },
+                ]
             )
         paths[route] = {
             "get": {
@@ -316,7 +332,9 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
     from ai_agent_contracts.panel import (
         ConfigureGM,
         LaboratoryCreateArguments,
+        LaboratoryEventArguments,
         LaboratoryStartArguments,
+        LaboratoryStopArguments,
         PersonaApplyArguments,
         PersonaCopyArguments,
         PersonaCreateArguments,
@@ -334,6 +352,8 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             ("gm.configure-args", ConfigureGM),
             ("laboratory.transfer-settings-args", SettingsTransferArguments),
             ("laboratory.start-args", LaboratoryStartArguments),
+            ("laboratory.stop-args", LaboratoryStopArguments),
+            ("laboratory.event-args", LaboratoryEventArguments),
             ("laboratory.create-args", LaboratoryCreateArguments),
         )
     }

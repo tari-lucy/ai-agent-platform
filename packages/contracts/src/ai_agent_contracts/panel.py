@@ -7,6 +7,7 @@ from pydantic import Field, JsonValue, model_validator
 from .common import UTC, Contract, Digest, Id, Scope, ShortText, Version, VersionedRecord
 from .extensions import ExtensionRegistry
 from .persona import SettingsTransferOperation
+from .states import OperationState
 
 MarkdownText = Annotated[str, Field(strict=True, min_length=1, max_length=30000)]
 
@@ -121,6 +122,8 @@ class ProfileValidation(Contract):
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("gm.configure-args", ConfigureGM)
     registry.register("laboratory.start-args", LaboratoryStartArguments)
+    registry.register("laboratory.stop-args", LaboratoryStopArguments)
+    registry.register("laboratory.event-args", LaboratoryEventArguments)
     registry.register("laboratory.create-args", LaboratoryCreateArguments)
     registry.register("laboratory.transfer-settings-args", SettingsTransferArguments)
 
@@ -188,3 +191,50 @@ class SettingsTransferStatus(Contract):
     scope: Scope
     operation_id: Id
     record: SettingsTransferOperation | None
+
+
+class LaboratoryStopArguments(Contract):
+    operation_id: Id
+    lab_scope: Scope
+
+    @model_validator(mode="after")
+    def test_only(self) -> Self:
+        if self.lab_scope.memory_mode != "test":
+            raise ValueError("TEST_SCOPE_REQUIRED")
+        return self
+
+
+class LaboratoryEventArguments(LaboratoryStopArguments):
+    text: Annotated[str, Field(strict=True, min_length=1, max_length=2000)]
+
+
+class LaboratoryRun(Contract):
+    scope: Scope
+    lab_scope: Scope
+    operation_id: Id
+    version: Version
+    scenario_id: Id
+    scenario_version: Version
+    status: OperationState
+    ready: bool
+    virtual_time: UTC | None
+    accepted_events: Annotated[int, Field(strict=True, ge=0, le=32)] | None
+
+    @model_validator(mode="after")
+    def partition(self) -> Self:
+        if (
+            self.lab_scope.memory_mode != "test"
+            or self.scope.workspace_id != self.lab_scope.workspace_id
+            or self.ready
+            and self.status != OperationState.RUNNING
+        ):
+            raise ValueError("LABORATORY_RUN")
+        return self
+
+
+class LaboratoryRuns(Contract):
+    scope: Scope
+    items: list[LaboratoryRun] = Field(max_length=200)
+    limit: Annotated[int, Field(strict=True, ge=1, le=200)]
+    next_cursor: Id | None
+    complete: bool

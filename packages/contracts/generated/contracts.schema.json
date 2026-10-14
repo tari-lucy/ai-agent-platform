@@ -2764,6 +2764,34 @@
       "title": "LaboratoryCreateArguments",
       "type": "object"
     },
+    "LaboratoryEventArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "lab_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "operation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "lab_scope",
+        "text"
+      ],
+      "title": "LaboratoryEventArguments",
+      "type": "object"
+    },
     "LaboratoryReport": {
       "additionalProperties": false,
       "properties": {
@@ -2859,6 +2887,136 @@
         "summary"
       ],
       "title": "LaboratoryReport",
+      "type": "object"
+    },
+    "LaboratoryRun": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_events": {
+          "anyOf": [
+            {
+              "maximum": 32,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted Events"
+        },
+        "lab_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "operation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "scenario_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "minimum": 1,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "status": {
+          "$ref": "#/$defs/OperationState"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "virtual_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Virtual Time"
+        }
+      },
+      "required": [
+        "scope",
+        "lab_scope",
+        "operation_id",
+        "version",
+        "scenario_id",
+        "scenario_version",
+        "status",
+        "ready",
+        "virtual_time",
+        "accepted_events"
+      ],
+      "title": "LaboratoryRun",
+      "type": "object"
+    },
+    "LaboratoryRuns": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/LaboratoryRun"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "items",
+        "limit",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "LaboratoryRuns",
       "type": "object"
     },
     "LaboratoryScenario": {
@@ -2995,6 +3153,27 @@
         "seed"
       ],
       "title": "LaboratoryStartArguments",
+      "type": "object"
+    },
+    "LaboratoryStopArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "lab_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "operation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "lab_scope"
+      ],
+      "title": "LaboratoryStopArguments",
       "type": "object"
     },
     "Lease": {
@@ -10188,11 +10367,20 @@
     "LaboratoryCreateArguments": {
       "$ref": "#/$defs/LaboratoryCreateArguments"
     },
+    "LaboratoryEventArguments": {
+      "$ref": "#/$defs/LaboratoryEventArguments"
+    },
     "LaboratoryReport": {
       "$ref": "#/$defs/LaboratoryReport"
     },
     "LaboratoryReportPage": {
       "$ref": "#/$defs/Page_LaboratoryReport_"
+    },
+    "LaboratoryRun": {
+      "$ref": "#/$defs/LaboratoryRun"
+    },
+    "LaboratoryRuns": {
+      "$ref": "#/$defs/LaboratoryRuns"
     },
     "LaboratoryScenario": {
       "$ref": "#/$defs/LaboratoryScenario"
@@ -10202,6 +10390,9 @@
     },
     "LaboratoryStartArguments": {
       "$ref": "#/$defs/LaboratoryStartArguments"
+    },
+    "LaboratoryStopArguments": {
+      "$ref": "#/$defs/LaboratoryStopArguments"
     },
     "Lease": {
       "$ref": "#/$defs/Lease"
