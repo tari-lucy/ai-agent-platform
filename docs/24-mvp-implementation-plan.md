@@ -41,6 +41,7 @@
 | M3-02 | integrated | Claude Code / codex/m3-02-gamemaster | fast-forward в main от a32cdd4; 22 gamemaster tests (реальная SQLite, mock-модель), combined 657 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-гейммастер, качество и runtime не проверены** |
 | M3-03 | integrated | Claude Code / codex/m3-03-development | fast-forward в main от 16581c0; 34 development tests (реальная SQLite persona+memory, mock-рефлексия), combined 691 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-рефлексия и проявление изменений не проверены** |
 | M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; пробел: нет лимита скорости изменения отношений** |
+| M5-01 | integrated | Claude Code / codex/m5-01-retention | fast-forward в main от 6755f43; 26 retention tests (реальная SQLite/FTS5/sqlite-vec, виртуальное время, проверка байтов БД/WAL/индекса), мутации 44 защит без незакрытых; lint/types/imports passed; **runtime-интеграция, Windows, контейнер, backup (M5-02) не проверены**; [отчёт](implementation-reports/M5-01.md) |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
 apps/worker, apps/panel (manifest/lock/build/tooling/bootstrap),
@@ -187,7 +188,9 @@ DELIVERED реплике; точные обязательства читаютс
 (SOCIAL, MEMORY read, CHANNEL read) и RecordAccess на Source/Delivery в core bootstrap.
 M1-04 теперь интегрирована вместе с M2; её dependency для M2-04 закрыта.
 M1-06 теперь интегрирована; все зависимости M2-04 (M1-03/04/06) закрыты.
-Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы.
+Блоки M2 (M2-01..M2-07) и M3 (M3-01..M3-04) интегрированы; M5-01 интегрирована (M5-02 может начинаться).
+
+M5-01 владеет packages/application/.../retention, packages/adapters/.../retention, tests/retention и своим report. Решения: порядок ledger → блокировка → tombstone → индекс/кэши → физическое стирание → purged; независимый ledger в отдельном файле (restore gate `apply_ledger`, применять до запуска агента); физический слой работает рядом с owner API, потому что storage скрывает просроченное даже от владельца; зависимые записи других владельцев не стираются. Открытые запросы (миграция агрегатов расхода, retention-API storage, версионный tombstone, composition, DerivedPurger для кэшей/экспорта) — в отчёте.
 
 M2-04 владеет packages/application/src/ai_agent_application/llm,
 packages/adapters/src/ai_agent_adapters/llm, tests/llm и своим report; зона подтверждена
