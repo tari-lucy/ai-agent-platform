@@ -530,3 +530,33 @@ passed. Один финальный combined. Позднее получен M5-0
 Без новых зависимостей. Windows mypy167 и evaluation no-network smoke passed.
 Узкая fixture зона tests/evaluation/test_harness.py: запрет socket.connect
 включается после создания event-loop socketpair, до evaluation IO.
+
+## Integration-contracts / Integration-dialogue — назначение 2026-10-14
+
+По согласованию оператора Codex выполняет связный набор в отдельном checkout
+codex/integration-contracts-dialogue, base 7797236. Зависимость: принятый
+M3 mock runtime, существующие M1/M2 owners и M4 UI-only.
+Владение: публичные contracts/exports, API read/mutation ports, shared panel
+client/узкая адаптация команд управления, core composition диалога,
+tests/integration_dialogue и связанные contract tests, scripts/check_combined.py;
+doc19 и собственный отчёт. Shared migrations/dependencies/Compose не меняются.
+Для стыков persona/GM/lab закрепляются schema/target/CAS/result и typed reads;
+их остальные экраны сохраняют UI-only до отдельной фактической приёмки.
+Dialogue: один явный private/mock путь login/start → message job → stream/final
+→ Source/Episode/usage → bounded reflection → projections → STOP.
+Права/профиль/назначения готовятся явно доверенным host setup; runtime не выдаёт
+новые grants автоматически. Никаких реальных provider API/публичных каналов.
+Приёмка: настоящие ASGI contract/owner tests, idempotency/CAS/scope, STOP и
+поздний ответ, restart/no autostart; один combined backend gate перед merge
+и targeted client/browser при изменении UI. Не объявлять все M4/M5 принятыми.
+
+Узкое уточнение Integration-dialogue: adapters/jobs/store.py — текущая
+OperationProjection сохраняется в той же Jobs UoW, reader_access — только явно
+переданный host ACL. Без миграций и автоматического предоставления grants.
+Private context/stream использует права оператора; источник и API-transfer
+повторно проверяются внутри owner commit, включая отзыв во время генерации.
+
+Уточнение ручного диалога: control/ports.py и supervisor.py получают отдельный
+доверенный WorkKind dialogue. Он допускает именно ответ оператору в режиме
+observation, сохраняет ACTIVE/OPEN и pause/STOP revocation/resource receipts.
+Автономные activity/GM/reflection и права инструментов не расширяются.

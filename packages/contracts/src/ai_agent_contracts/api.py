@@ -82,6 +82,26 @@ class MessageCommand(CommandBase):
     arguments: MessageArguments
 
 
+class AcknowledgeArguments(Contract):
+    revision: Version
+
+
+class AcknowledgeCommand(CommandBase):
+    type: Literal["dialogue.acknowledge"]
+    arguments: AcknowledgeArguments
+    expected_version: Version
+
+
+class ReflectArguments(Contract):
+    episode_ids: list[Id] = Field(min_length=1, max_length=20)
+
+
+class ReflectCommand(CommandBase):
+    type: Literal["session.reflect"]
+    arguments: ReflectArguments
+    expected_version: Version
+
+
 class CreateCommand(CommandBase):
     type: Literal[
         "persona.create",
@@ -158,6 +178,8 @@ type PanelCommand = Annotated[
     StopCommand
     | ControlCommand
     | MessageCommand
+    | AcknowledgeCommand
+    | ReflectCommand
     | CreateCommand
     | EditCommand
     | PlanCommand

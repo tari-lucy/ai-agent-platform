@@ -194,6 +194,9 @@ class Utterance(VersionedRecord):
     channel_ids: list[Id] = Field(min_length=1, max_length=200)
     moderation_status: Literal["draft", "checking", "approved", "blocked"]
     moderation_check_id: Id | None = None
+    # Private replies retain their grounds for an explicit panel receipt, including restart.
+    sources: list[SourceRef] = Field(default_factory=list, max_length=200)
+    operation_id: Id | None = None
 
     @model_validator(mode="after")
     def approval_requires_check(self) -> Self:

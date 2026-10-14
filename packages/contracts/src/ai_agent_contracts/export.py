@@ -213,6 +213,67 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             "responses": {"200": response("RecallResult"), **errors},
         }
     }
+    for route, projection_name in (
+        ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
+        ("/api/v1/persona-markdown/{persona_id}", "ProfileMarkdown"),
+    ):
+        params = list(scope_parameters)
+        if "{persona_id}" in route:
+            params.append(
+                {
+                    "name": "persona_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            )
+        paths[route] = {
+            "get": {
+                "operationId": "read_" + projection_name,
+                "security": operator,
+                "parameters": params,
+                "responses": {"200": response(projection_name), **errors},
+            }
+        }
+    paths["/api/v1/personas/{persona_id}/validate"] = {
+        "post": {
+            "operationId": "validate_profile",
+            "security": writing,
+            "parameters": [
+                {
+                    "name": "persona_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            ],
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": ref("EditCommand")}},
+            },
+            "responses": {"200": response("ProfileValidation"), **errors},
+        }
+    }
+    from ai_agent_contracts.panel import (
+        ConfigureGM,
+        LaboratoryStartArguments,
+        PersonaApplyArguments,
+        PersonaCopyArguments,
+        PersonaCreateArguments,
+        PersonaValidateArguments,
+    )
+
+    payloads = {
+        name + "@1.0": ref(model.__name__)
+        for name, model in (
+            ("persona.create-args", PersonaCreateArguments),
+            ("persona.validate-args", PersonaValidateArguments),
+            ("persona.apply-args", PersonaApplyArguments),
+            ("persona.copy-args", PersonaCopyArguments),
+            ("gm.configure-args", ConfigureGM),
+            ("laboratory.start-args", LaboratoryStartArguments),
+        )
+    }
     return {
         "openapi": "3.1.0",
         "info": {"title": "AI Agent Platform", "version": "1.0"},
@@ -247,7 +308,10 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             "messages": ref("StreamEvent"),
             "gap_requires_projection": True,
         },
-        "x-extension-schemas": extensions.schemas() if extensions is not None else {},
+        "x-extension-schemas": {
+            **payloads,
+            **(extensions.schemas() if extensions is not None else {}),
+        },
     }
 
 

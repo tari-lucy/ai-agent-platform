@@ -7,8 +7,20 @@ below are this owner's registrations; trusted composition registers them once wi
 
 from typing import Annotated, Literal, Self
 
-from ai_agent_contracts.common import Contract, Digest, Id, Scope, ShortText, Text, Version
+from ai_agent_contracts.common import Contract, Id, ShortText, Text
 from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.panel import (
+    PersonaApplyArguments as ApplyArguments,
+)
+from ai_agent_contracts.panel import (
+    PersonaCopyArguments as CopyArguments,
+)
+from ai_agent_contracts.panel import (
+    PersonaCreateArguments as CreateArguments,
+)
+from ai_agent_contracts.panel import (
+    PersonaValidateArguments as ValidateArguments,
+)
 from pydantic import Field, model_validator
 
 MAX_MARKDOWN_CHARS = 30_000
@@ -85,26 +97,6 @@ class DevelopmentBounds(Contract):
         return self
 
 
-class CreateArguments(Contract):
-    markdown: MarkdownText
-
-
-class ValidateArguments(Contract):
-    markdown: MarkdownText
-
-
-class ApplyArguments(Contract):
-    """Operator accepts exactly the revision whose digest validation reported."""
-
-    markdown: MarkdownText
-    revision_digest: Digest
-
-
-class CopyArguments(Contract):
-    source_scope: Scope
-    source_version: Version
-
-
 SCHEMAS: dict[str, type[Contract]] = {
     "persona.property-definitions": PropertyDefinitions,
     "persona.initial-values": ValueMap,
@@ -120,3 +112,15 @@ SCHEMAS: dict[str, type[Contract]] = {
 def register_persona_extensions(registry: ExtensionRegistry) -> None:
     for schema_id, model in SCHEMAS.items():
         registry.register(schema_id, model)
+
+
+__all__ = [
+    "ApplyArguments",
+    "CopyArguments",
+    "CreateArguments",
+    "ValidateArguments",
+    "DevelopmentBounds",
+    "PropertyDefinitions",
+    "ValueMap",
+    "register_persona_extensions",
+]

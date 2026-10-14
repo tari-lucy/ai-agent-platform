@@ -4,10 +4,24 @@ from typing import Annotated, Any, cast
 
 from pydantic import Field, TypeAdapter
 
-from ai_agent_contracts import access, api, common, control, llm, memory, persona, workspace
+from ai_agent_contracts import access, api, common, control, llm, memory, panel, persona, workspace
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
+    panel.PersonaCreateArguments,
+    panel.PersonaValidateArguments,
+    panel.PersonaApplyArguments,
+    panel.PersonaCopyArguments,
+    panel.RuleData,
+    panel.RulesData,
+    panel.ConfigureGM,
+    panel.LaboratoryStartArguments,
+    panel.LaboratoryScenario,
+    panel.LaboratoryCatalogue,
+    panel.ProfileMarkdown,
+    panel.ProfileIssue,
+    panel.ProfileDiffProjection,
+    panel.ProfileValidation,
     access.OperatorLogin,
     access.OperatorSession,
     access.ServiceClaimReceipt,
@@ -73,6 +87,10 @@ MODELS = (
     api.StopCommand,
     api.ControlArguments,
     api.ControlCommand,
+    api.AcknowledgeArguments,
+    api.AcknowledgeCommand,
+    api.ReflectArguments,
+    api.ReflectCommand,
     api.MessageArguments,
     api.MessageCommand,
     api.CreateCommand,
@@ -101,6 +119,7 @@ type StreamEvent = Annotated[
 ADAPTERS["StreamEvent"] = TypeAdapter(cast(Any, StreamEvent))
 
 READ_MODELS = {
+    "gm-settings": persona.GmRuntimeState,
     "workspaces": workspace.Workspace,
     "capabilities": workspace.Capability,
     "artifacts": workspace.Artifact,

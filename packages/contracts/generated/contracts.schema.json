@@ -49,6 +49,72 @@
       "title": "AccountLink",
       "type": "object"
     },
+    "AcknowledgeArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "AcknowledgeArguments",
+      "type": "object"
+    },
+    "AcknowledgeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/AcknowledgeArguments"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "target": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "dialogue.acknowledge",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "target",
+        "type",
+        "arguments",
+        "expected_version"
+      ],
+      "title": "AcknowledgeCommand",
+      "type": "object"
+    },
     "ActionProposal": {
       "additionalProperties": false,
       "properties": {
@@ -761,6 +827,63 @@
         "confidence"
       ],
       "title": "Claim",
+      "type": "object"
+    },
+    "ConfigureGM": {
+      "additionalProperties": false,
+      "properties": {
+        "intensity": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intensity"
+        },
+        "paused": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paused"
+        },
+        "rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RulesData"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rules_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rules Version"
+        }
+      },
+      "title": "ConfigureGM",
       "type": "object"
     },
     "Connection": {
@@ -2596,6 +2719,34 @@
       "title": "LLMAttempt",
       "type": "object"
     },
+    "LaboratoryCatalogue": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "mock",
+          "default": "mock",
+          "title": "Mode",
+          "type": "string"
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/LaboratoryScenario"
+          },
+          "maxItems": 100,
+          "title": "Scenarios",
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "scenarios"
+      ],
+      "title": "LaboratoryCatalogue",
+      "type": "object"
+    },
     "LaboratoryReport": {
       "additionalProperties": false,
       "properties": {
@@ -2691,6 +2842,85 @@
         "summary"
       ],
       "title": "LaboratoryReport",
+      "type": "object"
+    },
+    "LaboratoryScenario": {
+      "additionalProperties": false,
+      "properties": {
+        "scenario_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Tags",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "version",
+        "title",
+        "tags"
+      ],
+      "title": "LaboratoryScenario",
+      "type": "object"
+    },
+    "LaboratoryStartArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "lab_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "mode": {
+          "const": "mock",
+          "default": "mock",
+          "title": "Mode",
+          "type": "string"
+        },
+        "scenario_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "minimum": 1,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "seed": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Seed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "scenario_version",
+        "lab_scope",
+        "seed"
+      ],
+      "title": "LaboratoryStartArguments",
       "type": "object"
     },
     "Lease": {
@@ -4243,6 +4473,62 @@
       "title": "Page[Episode]",
       "type": "object"
     },
+    "Page_GmRuntimeState_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/GmRuntimeState"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[GmRuntimeState]",
+      "type": "object"
+    },
     "Page_LLMAssignment_": {
       "additionalProperties": false,
       "properties": {
@@ -5323,6 +5609,7 @@
           "change.interpretation": "#/$defs/EditCommand",
           "change.rollback.execute": "#/$defs/ExecutePlanCommand",
           "change.rollback.preview": "#/$defs/PlanCommand",
+          "dialogue.acknowledge": "#/$defs/AcknowledgeCommand",
           "dialogue.message": "#/$defs/MessageCommand",
           "gm.configure": "#/$defs/EditCommand",
           "laboratory.create": "#/$defs/CreateCommand",
@@ -5351,6 +5638,7 @@
           "persona.validate": "#/$defs/EditCommand",
           "session.create": "#/$defs/CreateCommand",
           "session.end": "#/$defs/ControlCommand",
+          "session.reflect": "#/$defs/ReflectCommand",
           "tariff.create": "#/$defs/CreateCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
@@ -5368,6 +5656,12 @@
         },
         {
           "$ref": "#/$defs/MessageCommand"
+        },
+        {
+          "$ref": "#/$defs/AcknowledgeCommand"
+        },
+        {
+          "$ref": "#/$defs/ReflectCommand"
         },
         {
           "$ref": "#/$defs/CreateCommand"
@@ -5690,6 +5984,79 @@
       "title": "Person",
       "type": "object"
     },
+    "PersonaApplyArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "maxLength": 30000,
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        },
+        "revision_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "markdown",
+        "revision_digest"
+      ],
+      "title": "PersonaApplyArguments",
+      "type": "object"
+    },
+    "PersonaCopyArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "source_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source_version": {
+          "minimum": 1,
+          "title": "Source Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_scope",
+        "source_version"
+      ],
+      "title": "PersonaCopyArguments",
+      "type": "object"
+    },
+    "PersonaCreateArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "maxLength": 30000,
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "markdown"
+      ],
+      "title": "PersonaCreateArguments",
+      "type": "object"
+    },
+    "PersonaValidateArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "maxLength": 30000,
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "markdown"
+      ],
+      "title": "PersonaValidateArguments",
+      "type": "object"
+    },
     "PlanCommand": {
       "additionalProperties": false,
       "properties": {
@@ -5931,6 +6298,257 @@
         "accepted_revision_id"
       ],
       "title": "Profile",
+      "type": "object"
+    },
+    "ProfileDiffProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "bounds_changed": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Bounds Changed",
+          "type": "array"
+        },
+        "canon_changed": {
+          "title": "Canon Changed",
+          "type": "boolean"
+        },
+        "initial_values_changed": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Initial Values Changed",
+          "type": "array"
+        },
+        "properties_added": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Properties Added",
+          "type": "array"
+        },
+        "properties_changed": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Properties Changed",
+          "type": "array"
+        },
+        "properties_removed": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Properties Removed",
+          "type": "array"
+        },
+        "style_changed": {
+          "title": "Style Changed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "canon_changed",
+        "style_changed",
+        "properties_added",
+        "properties_removed",
+        "properties_changed",
+        "initial_values_changed",
+        "bounds_changed"
+      ],
+      "title": "ProfileDiffProjection",
+      "type": "object"
+    },
+    "ProfileIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 512,
+          "title": "Code",
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ProfileIssue",
+      "type": "object"
+    },
+    "ProfileMarkdown": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "maxLength": 30000,
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        },
+        "profile_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scope",
+        "profile_id",
+        "version",
+        "markdown"
+      ],
+      "title": "ProfileMarkdown",
+      "type": "object"
+    },
+    "ProfileValidation": {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/ProfileIssue"
+          },
+          "maxItems": 200,
+          "title": "Blockers",
+          "type": "array"
+        },
+        "current_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Version"
+        },
+        "diff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfileDiffProjection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Digest"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ProfileIssue"
+          },
+          "maxItems": 200,
+          "title": "Issues",
+          "type": "array"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "unchanged": {
+          "title": "Unchanged",
+          "type": "boolean"
+        },
+        "version_conflict": {
+          "title": "Version Conflict",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "issues",
+        "blockers",
+        "digest",
+        "current_version",
+        "version_conflict",
+        "unchanged",
+        "ready",
+        "diff"
+      ],
+      "title": "ProfileValidation",
       "type": "object"
     },
     "Promise": {
@@ -6323,6 +6941,79 @@
       "title": "Record",
       "type": "object"
     },
+    "ReflectArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "episode_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Episode Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episode_ids"
+      ],
+      "title": "ReflectArguments",
+      "type": "object"
+    },
+    "ReflectCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/ReflectArguments"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "target": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "session.reflect",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "target",
+        "type",
+        "arguments",
+        "expected_version"
+      ],
+      "title": "ReflectCommand",
+      "type": "object"
+    },
     "ReflectionCheckpoint": {
       "additionalProperties": false,
       "description": "Persona-owned validated model result; restart never invents a second proposal.",
@@ -6542,6 +7233,78 @@
         "expires_at"
       ],
       "title": "Retention",
+      "type": "object"
+    },
+    "RuleData": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "hard",
+            "soft",
+            "desired"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "project",
+            "profile",
+            "session"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "markers": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Markers",
+          "type": "array"
+        },
+        "rule_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Rule Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "level",
+        "kind",
+        "description"
+      ],
+      "title": "RuleData",
+      "type": "object"
+    },
+    "RulesData": {
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/RuleData"
+          },
+          "maxItems": 200,
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules"
+      ],
+      "title": "RulesData",
       "type": "object"
     },
     "RunSession": {
@@ -8617,6 +9380,21 @@
           "title": "Moderation Status",
           "type": "string"
         },
+        "operation_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
         "revision": {
           "minimum": 1,
           "title": "Revision",
@@ -8630,6 +9408,14 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Sources",
+          "type": "array"
         },
         "updated_at": {
           "format": "date-time",
@@ -8813,6 +9599,12 @@
     "AccountLink": {
       "$ref": "#/$defs/AccountLink"
     },
+    "AcknowledgeArguments": {
+      "$ref": "#/$defs/AcknowledgeArguments"
+    },
+    "AcknowledgeCommand": {
+      "$ref": "#/$defs/AcknowledgeCommand"
+    },
     "ActionProposal": {
       "$ref": "#/$defs/ActionProposal"
     },
@@ -8851,6 +9643,9 @@
     },
     "ClaimPage": {
       "$ref": "#/$defs/Page_Claim_"
+    },
+    "ConfigureGM": {
+      "$ref": "#/$defs/ConfigureGM"
     },
     "Connection": {
       "$ref": "#/$defs/Connection"
@@ -8927,6 +9722,9 @@
     "GmRuntimeState": {
       "$ref": "#/$defs/GmRuntimeState"
     },
+    "GmRuntimeStatePage": {
+      "$ref": "#/$defs/Page_GmRuntimeState_"
+    },
     "Job": {
       "$ref": "#/$defs/Job"
     },
@@ -8942,11 +9740,20 @@
     "LLMAttemptPage": {
       "$ref": "#/$defs/Page_LLMAttempt_"
     },
+    "LaboratoryCatalogue": {
+      "$ref": "#/$defs/LaboratoryCatalogue"
+    },
     "LaboratoryReport": {
       "$ref": "#/$defs/LaboratoryReport"
     },
     "LaboratoryReportPage": {
       "$ref": "#/$defs/Page_LaboratoryReport_"
+    },
+    "LaboratoryScenario": {
+      "$ref": "#/$defs/LaboratoryScenario"
+    },
+    "LaboratoryStartArguments": {
+      "$ref": "#/$defs/LaboratoryStartArguments"
     },
     "Lease": {
       "$ref": "#/$defs/Lease"
@@ -9002,6 +9809,18 @@
     "PersonPage": {
       "$ref": "#/$defs/Page_Person_"
     },
+    "PersonaApplyArguments": {
+      "$ref": "#/$defs/PersonaApplyArguments"
+    },
+    "PersonaCopyArguments": {
+      "$ref": "#/$defs/PersonaCopyArguments"
+    },
+    "PersonaCreateArguments": {
+      "$ref": "#/$defs/PersonaCreateArguments"
+    },
+    "PersonaValidateArguments": {
+      "$ref": "#/$defs/PersonaValidateArguments"
+    },
     "PlanCommand": {
       "$ref": "#/$defs/PlanCommand"
     },
@@ -9014,8 +9833,20 @@
     "Profile": {
       "$ref": "#/$defs/Profile"
     },
+    "ProfileDiffProjection": {
+      "$ref": "#/$defs/ProfileDiffProjection"
+    },
+    "ProfileIssue": {
+      "$ref": "#/$defs/ProfileIssue"
+    },
+    "ProfileMarkdown": {
+      "$ref": "#/$defs/ProfileMarkdown"
+    },
     "ProfilePage": {
       "$ref": "#/$defs/Page_Profile_"
+    },
+    "ProfileValidation": {
+      "$ref": "#/$defs/ProfileValidation"
     },
     "Promise": {
       "$ref": "#/$defs/Promise"
@@ -9038,6 +9869,12 @@
     "Record": {
       "$ref": "#/$defs/Record"
     },
+    "ReflectArguments": {
+      "$ref": "#/$defs/ReflectArguments"
+    },
+    "ReflectCommand": {
+      "$ref": "#/$defs/ReflectCommand"
+    },
     "ReflectionCheckpoint": {
       "$ref": "#/$defs/ReflectionCheckpoint"
     },
@@ -9049,6 +9886,12 @@
     },
     "Retention": {
       "$ref": "#/$defs/Retention"
+    },
+    "RuleData": {
+      "$ref": "#/$defs/RuleData"
+    },
+    "RulesData": {
+      "$ref": "#/$defs/RulesData"
     },
     "RunSession": {
       "$ref": "#/$defs/RunSession"

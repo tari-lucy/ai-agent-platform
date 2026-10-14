@@ -4,6 +4,10 @@ from typing import Annotated, Literal, Self
 
 from ai_agent_contracts.common import UTC, Contract, Digest, Id, Scope, Version
 from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.panel import ConfigureGM as ConfigureGM
+from ai_agent_contracts.panel import RuleData as RuleData
+from ai_agent_contracts.panel import RulesData as RulesData
+from ai_agent_contracts.panel import register_panel_extensions
 from pydantic import Field, model_validator
 
 
@@ -11,22 +15,10 @@ class Empty(Contract):
     pass
 
 
-class RuleData(Contract):
-    rule_id: Id
-    level: Literal["project", "profile", "session"]
-    kind: Literal["hard", "soft", "desired"]
-    description: Annotated[str, Field(min_length=1, max_length=1500)]
-    markers: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
-        default_factory=list, max_length=30
-    )
-
-
-class RulesData(Contract):
-    rules: list[RuleData] = Field(max_length=200)
-
-
 class TaskInput(Contract):
-    kind: Literal["extract", "consolidate", "reflect", "post_session", "gm", "laboratory"]
+    kind: Literal[
+        "extract", "consolidate", "reflect", "post_session", "gm", "laboratory", "dialogue"
+    ]
     trigger_id: Id
     source_ids: list[Id] = Field(default_factory=list, max_length=20)
     episode_ids: list[Id] = Field(default_factory=list, max_length=20)
@@ -41,6 +33,8 @@ class TaskInput(Contract):
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
+        if self.kind == "dialogue" and len(self.source_ids) != 1:
+            raise ValueError("MESSAGE_REQUIRED")
         if self.kind in ("extract", "consolidate", "post_session", "gm") and not self.source_ids:
             raise ValueError("SOURCES_REQUIRED")
         if self.kind in ("reflect", "post_session") and not self.episode_ids:
@@ -80,13 +74,6 @@ class PermitLimits(Contract):
     max_output_tokens: Annotated[int, Field(strict=True, ge=1, le=2048)] = 1024
 
 
-class ConfigureGM(Contract):
-    intensity: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None
-    rules: RulesData | None = None
-    rules_version: Version | None = None
-    paused: bool | None = None
-
-
 class StoryVerdict(Contract):
     hard: list[Id] = Field(default_factory=list, max_length=200)
     soft: list[Id] = Field(default_factory=list, max_length=200)
@@ -104,6 +91,7 @@ class TransferInput(Contract):
 
 
 def register(registry: ExtensionRegistry) -> None:
+    register_panel_extensions(registry)
     for name, model in (
         ("transfer", TransferInput),
         ("empty", Empty),
@@ -112,7 +100,6 @@ def register(registry: ExtensionRegistry) -> None:
         ("job", JobArguments),
         ("result", TaskResult),
         ("limits", PermitLimits),
-        ("gm-configure", ConfigureGM),
         ("story-verdict", StoryVerdict),
     ):
         registry.register("m3." + name, model)

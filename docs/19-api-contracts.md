@@ -226,3 +226,17 @@ Stack/recall — [doc20](20-stack-recall-selection.md), задачи —
 [doc24](24-mvp-implementation-plan.md). Probes/фиксация версий — M0,
 code schemas/API — M1. Дополнительный уровень микросервисов или полный
 API будущих игровых/медиа-функций для этого не требуется.
+
+## Реализованные private/mock стыки — 2026-10-14
+
+Канонические schema IDs/target/CAS/read DTO:
+[Integration-contracts](implementation-reports/Integration-contracts.md).
+Генерируемые exports теперь включают persona Markdown validation, GM settings,
+backend laboratory catalogue, отдельное private delivery acknowledgment и
+session.reflect. Полный перечень API по-прежнему шире подключённого runtime.
+
+Приватная панель может получать preliminary chunks и сохранённый final;
+это не публичный выпуск. Только отдельный dialogue.acknowledge подтверждает
+получение точной редакции и позволяет записать доставленный эпизод.
+Рефлексия запрашивается явно перед session.end, пока допуск ещё открыт.
+STOP не запускает фоновую модель и отменяет начатую рефлексию.
