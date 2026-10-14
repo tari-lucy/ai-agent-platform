@@ -15,8 +15,9 @@ from ai_agent_contracts.panel import (
     LaboratoryScenario,
     ProfileMarkdown,
     ProfileValidation,
+    SettingsTransferStatus,
 )
-from ai_agent_contracts.persona import CharacterState, Profile
+from ai_agent_contracts.persona import CharacterState, Profile, SettingsTransferOperation
 from ai_agent_contracts.states import ErrorCode
 
 from .service import Runtime
@@ -42,6 +43,15 @@ class Views:
     ) -> Contract:
         if scope.partition not in {s.partition for s in self.runtime.scopes}:
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if resource == "settings-transfer-status" and identifier is not None:
+            from ai_agent_application.memory.service import derived_id
+
+            row = await self.runtime.store.repository(
+                SettingsTransferOperation, Principal(principal_id, "operator"), scope
+            ).get(derived_id("transfer", scope, identifier), purpose="api_transfer")
+            if row is not None and row.operator_id != principal_id:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            return SettingsTransferStatus(scope=scope, operation_id=identifier, record=row)
         if resource == "laboratory-catalogue" and identifier is None:
             return LaboratoryCatalogue(
                 scope=scope,
@@ -105,3 +115,11 @@ class Views:
                 else None,
             )
         )
+
+    async def preview_transfer(self, authority: ControlAuthority, request: CommandBase) -> Contract:
+        from .transfers import preview
+
+        if not isinstance(request, EditCommand):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        async with self.runtime._lock:
+            return await preview(self.runtime, authority, request)

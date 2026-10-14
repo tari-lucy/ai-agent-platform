@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 
 from ai_agent_application.storage import Owner
-from ai_agent_contracts import api, control, llm, memory, persona, workspace
+from ai_agent_contracts import api, control, llm, memory, panel, persona, workspace
 from ai_agent_contracts.common import Record
 
 
@@ -47,6 +47,7 @@ SPECS = {
     "StoryArc": Spec(persona.StoryArc, Owner.GM),
     "GmRuntimeState": Spec(persona.GmRuntimeState, Owner.GM),
     "ReflectionCheckpoint": Spec(persona.ReflectionCheckpoint, Owner.PERSONA),
+    "SettingsTransferPreview": Spec(panel.SettingsTransferPreview, Owner.WORKSPACE),
     "SettingsTransferOperation": Spec(persona.SettingsTransferOperation, Owner.WORKSPACE),
     "Opportunity": Spec(persona.Opportunity, Owner.GM),
     "LLMAssignment": Spec(llm.LLMAssignment, Owner.LLM),

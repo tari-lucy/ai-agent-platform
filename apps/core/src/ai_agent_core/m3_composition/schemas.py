@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal, Self
 
-from ai_agent_contracts.common import UTC, Contract, Digest, Id, Scope, Version
+from ai_agent_contracts.common import UTC, Contract, Id, Scope, Version
 from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.panel import ConfigureGM as ConfigureGM
 from ai_agent_contracts.panel import RuleData as RuleData
@@ -80,20 +80,9 @@ class StoryVerdict(Contract):
     uncertain: bool = Field(default=True, strict=True)
 
 
-class TransferInput(Contract):
-    source_scope: Scope
-    action: Literal["apply", "acknowledge"]
-    operation_id: Id
-    keys: list[Literal["profile", "gm_intensity", "story_rules_version"]] = Field(
-        min_length=1, max_length=3
-    )
-    preview_digest: Digest | None = None
-
-
 def register(registry: ExtensionRegistry) -> None:
     register_panel_extensions(registry)
     for name, model in (
-        ("transfer", TransferInput),
         ("empty", Empty),
         ("rules", RulesData),
         ("task", TaskInput),

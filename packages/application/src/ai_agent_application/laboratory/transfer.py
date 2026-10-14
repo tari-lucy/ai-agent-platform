@@ -139,13 +139,15 @@ class SettingsTransfer:
                 fingerprints = getattr(self.settings, "fingerprint", None)
                 source_fingerprint = None if fingerprints is None else fingerprints(source, key)
                 target_fingerprint = None if fingerprints is None else fingerprints(target, key)
+                checker = getattr(self.settings, "blockers", None)
+                blockers = () if checker is None else await resolved(checker(source, target, key))
                 items.append(
                     TransferItem(
                         key,
                         before,
                         after,
                         changes,
-                        (),
+                        tuple(blockers),
                         source_fingerprint=source_fingerprint,
                         target_fingerprint=target_fingerprint,
                     )
@@ -187,6 +189,18 @@ class SettingsTransfer:
             assert isinstance(parsed_values, ValueMap)
             values = dict(parsed_values.values)
         blockers = tuple(i.code + ":" + (i.section or "") for i in state_blockers(parsed, values))
+        from ai_agent_contracts.codec import to_wire
+
+        source_profile = await self.persona.get_profile(source)
+        source_pin = (
+            hashlib.sha256(to_wire(source_profile, extensions=self.persona.extensions)).hexdigest()
+            if source_profile
+            else None
+        )
+        target_pin = hashlib.sha256(
+            to_wire(current, extensions=self.persona.extensions)
+            + (b"" if state is None else to_wire(state, extensions=self.persona.extensions))
+        ).hexdigest()
         return TransferItem(
             "profile",
             current.accepted_revision_id,
@@ -194,6 +208,8 @@ class SettingsTransfer:
             changes,
             blockers,
             current.version,
+            source_pin,
+            target_pin,
         )
 
     async def transfer(
@@ -219,6 +235,8 @@ class SettingsTransfer:
     async def _apply_profile(
         self, source: Scope, target: Scope, decision: str, reviewed: TransferItem
     ) -> None:
+        if await self._profile_item(source, target) != reviewed:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         markdown = await self.persona.export_markdown(source)
         if markdown is None:
             raise ContractError(ErrorCode.STALE_CONTEXT)

@@ -2,7 +2,6 @@
 
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.laboratory.catalogue import catalogue
-from ai_agent_application.laboratory.transfer import SettingsTransfer
 from ai_agent_application.persona import PersonaService
 from ai_agent_application.storage import Owner
 from ai_agent_contracts.api import (
@@ -15,12 +14,15 @@ from ai_agent_contracts.api import (
     ReflectCommand,
 )
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.panel import LaboratoryCreateArguments, LaboratoryStartArguments
+from ai_agent_contracts.panel import (
+    LaboratoryCreateArguments,
+    LaboratoryStartArguments,
+    SettingsTransferArguments,
+)
 from ai_agent_contracts.states import ErrorCode
 
-from .schemas import ConfigureGM, TaskInput, TransferInput
+from .schemas import ConfigureGM, TaskInput
 from .service import Runtime
-from .settings import DurableSettings, TransferJournal
 from .state import PRINCIPALS
 
 
@@ -151,42 +153,11 @@ class Mutations:
                     operation_id=job.operation_id,
                     version=job.version,
                 )
-            if request.type == "laboratory.transfer_settings" and isinstance(args, TransferInput):
-                if args.source_scope.partition not in {s.partition for s in runtime.scopes}:
-                    raise ContractError(ErrorCode.ACCESS_DENIED)
-                old = await runtime.state.gm(request.scope)
-                if request.expected_version != old.version:
-                    raise ContractError(ErrorCode.VERSION_CONFLICT)
-                from ai_agent_contracts.states import RunState
+            if request.type == "laboratory.transfer_settings" and isinstance(
+                args, SettingsTransferArguments
+            ):
+                from .transfers import apply
 
-                if runtime.supervisor.snapshot.state != RunState.STOPPED:
-                    raise ContractError(ErrorCode.RESOURCE_BUSY)
-                journal = TransferJournal(runtime.state, clock=runtime.supervisor.clock.utc)
-                if args.action == "acknowledge":
-                    await journal.acknowledge(
-                        request.scope, args.operation_id, authority.principal_id
-                    )
-                else:
-                    persona = PersonaService(
-                        runtime.store, PRINCIPALS[Owner.PERSONA], runtime.registry
-                    )
-                    transfer = SettingsTransfer(persona, DurableSettings(runtime.state))
-                    if args.preview_digest is None:
-                        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-                    await journal.apply(
-                        transfer,
-                        args.source_scope,
-                        request.scope,
-                        args.keys,
-                        args.operation_id,
-                        args.preview_digest,
-                        authority.principal_id,
-                    )
-                current()
-                return Receipt(
-                    request_id=request.request_id,
-                    scope=request.scope,
-                    status="completed",
-                    resource_id=args.operation_id,
-                )
+                async with runtime._lock:
+                    return await apply(runtime, authority, request)
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

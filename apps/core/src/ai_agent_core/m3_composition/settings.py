@@ -13,7 +13,7 @@ from ai_agent_application.laboratory.transfer import (
     TransferResult,
 )
 from ai_agent_application.memory.service import derived_id
-from ai_agent_application.storage import Owner
+from ai_agent_application.storage import Owner, RecordAccess
 from ai_agent_contracts.codec import ContractError, to_wire
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.persona import GmRuntimeState, SettingsTransferOperation
@@ -45,6 +45,28 @@ class DurableSettings:
         return hashlib.sha256(
             to_wire(self.snapshots[(scope.partition, key)], extensions=self.state.registry)
         ).hexdigest()
+
+    async def blockers(self, source_scope: Scope, target: Scope, key: str) -> tuple[str, ...]:
+        if key != "story_rules_version":
+            return ()
+        source, old = await self.state.gm(source_scope), await self.state.gm(target)
+        issues = []
+        if source.rules_version < old.rules_version or (
+            source.rules_version == old.rules_version and source.rules != old.rules
+        ):
+            issues.append("RULES_VERSION_CONFLICT")
+        from .schemas import RulesData
+
+        before = self.state.registry.validate(
+            old.rules.schema_id, old.rules.schema_version, old.rules.data
+        )
+        after = self.state.registry.validate(
+            source.rules.schema_id, source.rules.schema_version, source.rules.data
+        )
+        assert isinstance(before, RulesData) and isinstance(after, RulesData)
+        if any(rule not in after.rules for rule in before.rules if rule.level == "project"):
+            issues.append("PROJECT_RULE_REMOVAL")
+        return tuple(issues)
 
     async def set(self, scope: Scope, key: str, value: Any) -> None:
         old = await self.state.gm(scope)
@@ -99,8 +121,14 @@ class DurableSettings:
 
 
 class TransferJournal:
-    def __init__(self, state: State, *, clock: Callable[[], datetime] = lambda: datetime.now(UTC)):
-        self.state, self.clock = state, clock
+    def __init__(
+        self,
+        state: State,
+        *,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        readers: tuple[RecordAccess, ...] = (),
+    ):
+        self.state, self.clock, self.readers = state, clock, readers
 
     async def get(self, target: Scope, operation: str) -> SettingsTransferOperation | None:
         return await self.state.storage.repository(
@@ -148,6 +176,7 @@ class TransferJournal:
             selected_keys=cast(list[Key], list(keys)),
             status="planned",
             operator_id=operator,
+            operation_id=operation,
         )
         await self._save(record, None)
         applied: list[Key] = []
@@ -214,4 +243,5 @@ class TransferJournal:
             f"transfer-{record.id}-{record.version}",
             record,
             expected,
+            self.readers,
         )

@@ -69,6 +69,10 @@ class Views(Protocol):
         self, authority: ControlAuthority, request: CommandBase
     ) -> Contract: ...
 
+    async def preview_transfer(
+        self, authority: ControlAuthority, request: CommandBase
+    ) -> Contract: ...
+
 
 class Downloads(Protocol):
     async def read(
@@ -321,6 +325,26 @@ class Surface:
                 COOKIE, path="/", httponly=True, secure=self.secure_cookie, samesite="strict"
             )
             return response
+        if path == "/api/v1/laboratory/transfer-preview" and method == "POST":
+            request = from_wire(
+                ADAPTERS["EditCommand"],
+                await _body(headers, receive, MAX_BODY_BYTES),
+                extensions=self.ports.extensions,
+            )
+            self.sessions.check_scope(authority, request.scope)
+            if self.ports.views is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            result = await self.ports.views.preview_transfer(authority.control, request)
+            self.sessions.current(authority)
+            checked = from_wire(
+                ADAPTERS["SettingsTransferPreview"],
+                to_wire(result, extensions=self.ports.extensions),
+                extensions=self.ports.extensions,
+            )
+            self.sessions.check_scope(authority, checked.source_scope)
+            if checked.scope != request.scope or checked.request_id != request.request_id:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            return _json(checked, self.ports.extensions)
         preview = re.fullmatch(r"/api/v1/personas/([^/]+)/validate", path)
         if method == "POST" and preview:
             request = from_wire(
@@ -418,7 +442,10 @@ class Surface:
                     "ETag": '"' + reference.checksum + '"',
                 },
             )
-        custom = re.fullmatch(r"/api/v1/(laboratory-catalogue|persona-markdown)(?:/([^/]+))?", path)
+        custom = re.fullmatch(
+            r"/api/v1/(laboratory-catalogue|persona-markdown|settings-transfer-status)(?:/([^/]+))?",
+            path,
+        )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
         if match is None or (match.group(1) not in READ_MODELS and custom is None):
             raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
@@ -449,9 +476,11 @@ class Surface:
                 resource, authority.control.principal_id, scope, identifier
             )
             self.sessions.check_scope(authority, scope)
-            expected = (
-                "LaboratoryCatalogue" if resource == "laboratory-catalogue" else "ProfileMarkdown"
-            )
+            expected = {
+                "laboratory-catalogue": "LaboratoryCatalogue",
+                "persona-markdown": "ProfileMarkdown",
+                "settings-transfer-status": "SettingsTransferStatus",
+            }[resource]
             checked = from_wire(
                 ADAPTERS[expected],
                 to_wire(custom_model, extensions=self.ports.extensions),
@@ -459,6 +488,8 @@ class Surface:
             )
             if checked.scope.partition != scope.partition:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
+            if resource == "settings-transfer-status" and checked.record is not None:
+                self.sessions.check_scope(authority, checked.record.source_scope)
             return _json(checked, self.ports.extensions)
         if resource == "sessions":
             run = self.supervisor.snapshot
