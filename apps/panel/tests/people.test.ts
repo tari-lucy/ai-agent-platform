@@ -122,3 +122,18 @@ test('people reads use the allowlisted resources, the partition and a validated 
   await assert.rejects(api.people(scope, undefined, 'a&b'), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
   assert.equal(paths.length, 5);
 });
+test('collisions list each other person once and in order, however many names they share', () => {
+  const p1 = person('p1', [account('chat', 'a-1', 'Ника'), account('web', 'w-1', 'Nika')]);
+  const p2 = person('p2', [account('chat', 'a-2', 'ника'), account('web', 'w-2', 'nika')]);
+  const p9 = person('p9', [account('chat', 'a-9', 'Ника')]);
+  const p3 = person('p3', [account('web', 'w-3', 'NIKA')]);
+  const shared = sharedNames([p1, p2, p9, p3]);
+  assert.deepEqual(collisionsOf(p1, shared), ['p2', 'p3', 'p9']);
+  assert.deepEqual(collisionsOf(p9, shared), ['p1', 'p2']);
+  assert.deepEqual(collisionsOf(p3, shared), ['p1', 'p2']);
+});
+test('a person id that is not an id is rejected even when the row id is fine', () => {
+  const bad = { ...person('p1', []), person_id: 'bad id' };
+  assert.throws(() => people(page([bad]), scope));
+  assert.equal(people(page([person('p1', [])]), scope).items.length, 1);
+});

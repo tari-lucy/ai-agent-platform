@@ -103,3 +103,18 @@ test('copy names the source and never carries text or experience; create carries
   assert.deepEqual(create.arguments.data, { persona_id: 'gamma', memory_space_id: 'gamma-work', canon: 'Канон', style: 'Стиль' });
   assert.deepEqual(newCommand(scope, undefined, { ...emptyNew, persona: 'beta', space: 'b' }, 'r').arguments.data, { persona_id: 'beta', memory_space_id: 'b' });
 });
+test('the text limit is exactly sixteen thousand characters', () => {
+  assert.equal(TEXT_LIMIT, 16000);
+  assert.deepEqual(draftProblems(profile(), { canon: 'я'.repeat(16000), style: 'ок' }), {});
+  assert.match(draftProblems(profile(), { canon: 'я'.repeat(16001), style: 'ок' }).canon!, /16000/);
+  assert.match(draftProblems(profile(), { canon: 'ок', style: 'я'.repeat(16001) }).style!, /16000/);
+});
+test('a draft that changes only the style, or only the canon, is a change', () => {
+  assert.deepEqual(draftProblems(profile(), { canon: profile().canon, style: 'Новый стиль' }), {});
+  assert.deepEqual(draftProblems(profile(), { canon: 'Новый канон', style: profile().style }), {});
+  assert.deepEqual(draftProblems(profile(), { canon: profile().canon, style: profile().style }), { general: 'Изменений нет.' });
+});
+test('a list in place of a values map is read as no values, not as numbered properties', () => {
+  const rows = propertyRows(profile({ initial_values: { schema_id: 'i', data: ['x', 'y'] }, property_definitions: { schema_id: 'd', data: ['p'] } }), state({ values: { schema_id: 'v', data: ['z'] } }));
+  assert.deepEqual(rows, []);
+});
