@@ -511,3 +511,13 @@ UnitOfWork.authorize проверяют закреплённые версии Pe
 profile/rules/LLM bindings внутри той же owner-транзакции; это дополнительный
 fence, не выдача grants. Technical usage/job receipts исключены. Нужна защита
 от отзыва прав между async-генерацией и commit; схемы/миграции не меняются.
+
+M3-runtime-integration: техническая mock-приёмка на combined 7fd091a —
+Windows27 passed; Linux979 passed/4 Redis skipped; ruff/mypy155/imports/exports
+passed. Один финальный combined, затем только документация.
+Фабрика подключена явно; deploy default/полный HTTP dialogue/UI/M5 bootstrap
+остаются отдельной интеграцией, а real-model quality — M5-04.
+Отчёт: [M3-runtime-integration](implementation-reports/M3-runtime-integration.md).
+По новому запросу оператора сверены M4/M5-03 coordinator requests:
+[сводка стыков и ближайший порядок](implementation-reports/M4-M5-integration-readiness.md).
+Следующие coding tasks здесь не начаты; UI-only до доказанного owner wiring.

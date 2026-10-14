@@ -10,7 +10,10 @@ Live2D, эфиры и медиапроизводство — применени�
 с direct STOP/pause/resume и durable jobs/Redis. Модули профилей персонажей и памяти/recall
 и социальная память проверены на изолированной SQLite; их подключение к runtime остаётся отдельной работой.
 HTTP управления/auth/service identity и WebSocket events проверены в M1-05.
-Диалог и LLM provider runtime ещё не подключены.
+Фоновая M3 composition (SQLite/jobs/GM/reflection/usage/mock-lab) проверена:
+[отчёт](docs/implementation-reports/M3-runtime-integration.md).
+Настоящий HTTP-диалог и общая M2/M4/M5 сборка ещё не подключены; следующий
+порядок согласования — [сверка стыков](docs/implementation-reports/M4-M5-integration-readiness.md).
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
 [M0-03](docs/implementation-reports/M0-03.md),
