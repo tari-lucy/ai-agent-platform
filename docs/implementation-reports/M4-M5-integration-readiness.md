@@ -1,3 +1,8 @@
+Актуализация координатора 2026-10-15: download button, canonical catalogue/start,
+report ACL и durable reservation подготовленного TEST pool подключены:
+[Integration-laboratory-panel](Integration-laboratory-panel.md).
+Ниже — предыдущая приёмка; новый host provisioning/events/stop/transfer остаются отдельно.
+
 Обновление координатора 2026-10-15: полный mock lab JSON доступен через
 authenticated content route и shared PanelApi; [приёмка](Integration-lab-report.md).
 Автовыделение TEST scopes, feature button и прочие owner requests остаются отдельно.

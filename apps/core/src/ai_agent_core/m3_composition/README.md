@@ -171,3 +171,41 @@ Shared PanelApi.laboratoryReportContent(scope, report, signal) возвраща�
 mock/scenario ID/version. Session clear/abort удаляет ожидающий результат;
 redirects/автоповторов нет. Feature owner подключает кнопку скачивания,
 освобождая созданный object URL; остальные M4-06 действия пока UI-only.
+
+## Подготовленный TEST pool и кнопка скачивания
+
+laboratory.create / laboratory.create-args {persona_id} адресуется laboratory
+из текущей partition персонажа. Нужны существующие m3.laboratory
+Capability/Permission, owner LABORATORY write grant в родительской partition,
+явные LabRunner/Reports и заранее включённые в runtime.scopes/session TEST
+области той же workspace/persona (максимум 8 scopes вместе с рабочей).
+
+Endpoint выбирает незарезервированную, зарегистрированную и полностью пустую
+область. SQL metadata check учитывает также скрытые/удалённые записи. Он
+не читает их содержимое. LaboratoryScopeReservation и receipt сохраняются
+одной LABORATORY UoW; record ID/resource_id — memory_space_id ребёнка,
+receipt.version=1, scope receipt — родительский scope команды. Повтор request_id
+при сохранённых допусках возвращает прежнюю receipt. Конкурентные команды
+не делят slot; пустой пул -> RESOURCE_BUSY. История reservation сохраняется
+после закрытия SQLite connections; автоматического освобождения/повторного
+использования, в том числе после неизвестного исхода, нет.
+
+Это резервирование подготовленного пула. provision/миграции/копирование
+профиля/фабрики/LLM в нём отсутствуют; новые host scopes/grants через API
+не добавляются. Host заранее задаёт lab_grants и отдельный fresh index factory.
+Создание профиля в зарезервированной области выполняет обычный LabRunner
+только после допуска laboratory.start. Reserved execution использует точный
+pinned scope без второго scope_factory; прежний явный prepared-scope путь
+с проверкой factory остаётся совместим.
+
+Для JSON/download host отдельно задаёт LabRunner.report_access,
+Reports.readers/api_transfer_allowed и operator grants к laboratory/catalogue/
+memory. report_access default пуст; это передача заданного ACL записи отчёта,
+не автоматическое расширение прав. Без неё metadata может быть недоступна.
+
+Панель получает catalogue у backend, laboratory.start-args формируется общим
+builder из текущего RunSession и собственной версии сценария; report.version
+не используется как управляющая версия. Форма только mock. Кнопка скачивания
+использует проверенный PanelApi Blob, фиксированный filename; pending read
+отменяется при unmount/scope/revision change, object URLs освобождаются.
+Подача отдельных событий, per-job stop/settings transfer остаются отдельно.

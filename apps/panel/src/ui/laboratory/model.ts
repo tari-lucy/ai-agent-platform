@@ -4,7 +4,7 @@ import type { CreateCommand, EditCommand, LaboratoryReport, Scope } from '../../
 // The laboratory works only in test memory; a green mock run proves interfaces and failures, not LLM quality.
 
 export type Entry = { id: string; title: string; tags: string[] };
-// Display names of the reference scenarios (M3-04). The core exposes no catalogue read yet, so ids are mirrored here.
+// Historical display labels only. The live screen lists and starts scenarios from the backend catalogue.
 export const CATALOGUE: Entry[] = [
   { id: 'first-meeting-new-session', title: 'Знакомство → новая сессия', tags: ['doc22'] },
   { id: 'promise-vs-attractive-find', title: 'Обещание → привлекательная находка', tags: ['doc22'] },
@@ -61,9 +61,9 @@ export const labOpen = (scope: Scope) => scope.memory_mode === 'test';
 export const seedPattern = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 export const REAL_PHRASE = 'РЕАЛЬНЫЙ API';
 export type Start = { scenario: string; seed: string; real: boolean; typed: string; acknowledged: boolean };
-export function startProblem(scope: Scope, start: Start, busy: boolean): string | null {
+export function startProblem(scope: Scope, start: Start, busy: boolean, catalogue: Entry[] = CATALOGUE): string | null {
   if (!labOpen(scope)) return 'Лаборатория работает только в тестовой памяти. Выберите тестовую область.';
-  if (!CATALOGUE.some((entry) => entry.id === start.scenario)) return 'Выберите сценарий из каталога.';
+  if (!catalogue.some((entry) => entry.id === start.scenario)) return 'Выберите сценарий из каталога.';
   if (!seedPattern.test(start.seed)) return 'Seed — латиница, цифры и . _ : - (до 64 символов): он фиксируется в отчёте.';
   if (busy) return 'Предыдущий запуск ещё идёт.';
   // A real call is paid and logged in the common ledger: never implied, never one click.
@@ -71,11 +71,8 @@ export function startProblem(scope: Scope, start: Start, busy: boolean): string 
   return null;
 }
 // ASSUMPTION (owner decision pending): payload schema ids, targets and the meaning of expected_version are not defined yet.
-export const LAB_SCHEMA = { create: 'laboratory.create', start: 'laboratory.start', stop: 'laboratory.stop', event: 'laboratory.event' } as const;
+export const LAB_SCHEMA = { create: 'laboratory.create-args', start: 'laboratory.start', stop: 'laboratory.stop', event: 'laboratory.event' } as const;
 const TARGET = 'laboratory';
-export const startCommand = (scope: Scope, start: Start, latest: LaboratoryReport | undefined, requestId: string): EditCommand =>
-  ({ type: 'laboratory.start', request_id: requestId, scope, target: TARGET, expected_version: latest?.version ?? 1,
-    arguments: { schema_id: LAB_SCHEMA.start, data: { scenario_id: start.scenario, scenario_version: latest?.scenario_version ?? 1, seed: start.seed, real_api: start.real } } });
 export const stopCommand = (scope: Scope, report: LaboratoryReport, requestId: string): EditCommand =>
   ({ type: 'laboratory.stop', request_id: requestId, scope, target: TARGET, expected_version: report.version,
     arguments: { schema_id: LAB_SCHEMA.stop, data: { operation_id: report.operation_id } } });

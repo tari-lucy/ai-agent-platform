@@ -1,3 +1,8 @@
+Актуализация координатора 2026-10-15: download button, canonical catalogue/start,
+report ACL и durable reservation подготовленного TEST pool подключены:
+[Integration-laboratory-panel](Integration-laboratory-panel.md).
+Ниже — предыдущая приёмка; новый host provisioning/events/stop/transfer остаются отдельно.
+
 # Integration-lab-report
 
 Дата: 2026-10-15. Исполнитель: Codex, отдельная codex/integration-lab-report,

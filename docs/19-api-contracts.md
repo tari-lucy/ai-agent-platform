@@ -252,3 +252,19 @@ SHA-256, Cache-Control: no-store. Ссылка не выдаёт права на
 после IO — повторная проверка и актуальность сессии. Публичный выпуск закрыт.
 Shared client возвращает проверенный Blob; feature-кнопку подключает владелец.
 Приёмка и ограничения: [Integration-lab-report](implementation-reports/Integration-lab-report.md).
+
+### Laboratory подготовка и UI — 2026-10-15
+
+CreateCommand laboratory.create: target=laboratory, schema=laboratory.create-args,
+data={persona_id}, scope=current partition, без expected_version.
+Выделяет одну пустую TEST область из уже разрешённого пула той же личности.
+Receipt completed/resource_id=memory_space_id выбранной области, version=1;
+resource ID совпадает с сохранённой LABORATORY reservation. Повтор использует
+existing owner journal; отсутствие свободного пула -> RESOURCE_BUSY.
+Новые scopes/grants не выдаются. Подробности/доказательства:
+[Integration-laboratory-panel](implementation-reports/Integration-laboratory-panel.md).
+
+Форма laboratory.start теперь использует canonical laboratory.start-args:
+RunSession.scope/version + catalogue scenario ID/version + выбранный lab_scope.
+Режим mock; реальные модели здесь не подключены. Download кнопка подключена.
+Это не приёмка остальных laboratory events/stop/transfer и M4 целиком.

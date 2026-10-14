@@ -2,6 +2,7 @@
 
 from urllib.parse import parse_qs, urlsplit
 
+from ai_agent_application.laboratory.catalogue import catalogue
 from playwright.sync_api import expect
 
 WORK = {
@@ -66,7 +67,47 @@ def mock_lab(page, *, reports=(), command=None):
                 }
             )
         elif path == "/api/v1/sessions":
-            request.fulfill(json=page_of([]))
+            selected_scope = query.get("memory_mode", ["work"])[0]
+            run_scope = {
+                **WORK,
+                "agent_id": "primary",
+                "run_id": "run-1",
+                "session_id": "session-1",
+            }
+            row = {
+                "id": "run-1",
+                "scope": run_scope,
+                "version": 17,
+                "created_at": stamp(0),
+                "updated_at": stamp(0),
+                "agent_id": "primary",
+                "run_id": "run-1",
+                "session_id": "session-1",
+                "control_epoch": 1,
+                "state": "ACTIVE",
+                "activity": "OPEN",
+                "autonomy": "observation",
+                "voice_enabled": False,
+                "gm_paused": True,
+                "unconfirmed_resource_ids": [],
+            }
+            request.fulfill(json=page_of([row] if selected_scope == "work" else []))
+        elif path == "/api/v1/laboratory-catalogue":
+            request.fulfill(
+                json={
+                    "scope": TEST if selected == "beta" else WORK,
+                    "mode": "mock",
+                    "scenarios": [
+                        {
+                            "scenario_id": s.scenario_id,
+                            "version": s.version,
+                            "title": s.title,
+                            "tags": list(s.tags),
+                        }
+                        for s in catalogue()
+                    ],
+                }
+            )
         elif path == "/api/v1/laboratory-reports":
             request.fulfill(json=page_of(list(reports) if selected == "beta" else []))
         elif path == "/api/v1/commands":
@@ -118,7 +159,7 @@ def test_work_memory_closes_the_laboratory_and_offers_an_isolated_area(page, liv
     expect(page.get_by_label("Каталог сценариев")).to_have_count(0)
     expect(page.get_by_label("Запуск сценария")).to_have_count(0)
     page.get_by_role("button", name="Создать изолированную тестовую область").click()
-    expect(page.get_by_text("Команда принята ядром.")).to_be_visible()
+    expect(page.get_by_text("Тестовая область подготовлена", exact=False)).to_be_visible()
     assert posted[0]["type"] == "laboratory.create" and posted[0]["scope"]["memory_mode"] == "work"
     assert posted[0]["arguments"]["data"] == {"persona_id": "alpha"}
 
@@ -155,47 +196,40 @@ def test_mock_start_is_the_default_and_sends_seed_and_no_real_call(page, live_pa
     body = posted[0]
     assert (
         body["type"] == "laboratory.start"
-        and body["scope"] == TEST
-        and body["expected_version"] == 4
+        and body["scope"]["run_id"] == "run-1"
+        and body["expected_version"] == 17
     )
     assert body["arguments"]["data"] == {
         "scenario_id": "api-cutoff",
         "scenario_version": 1,
         "seed": "seed-77",
-        "real_api": False,
+        "mode": "mock",
+        "lab_scope": TEST,
     }
 
 
-def test_real_api_needs_the_warning_the_tick_and_the_phrase(page, live_panel):
+def test_live_panel_does_not_offer_an_unconnected_paid_api(page, live_panel):
     posted = open_lab(page, live_panel)
-    pick(page, "Обрыв API")
     launch = page.get_by_label("Запуск сценария")
-    launch.get_by_label("Использовать реальный API (платно)").check()
-    expect(launch).to_contain_text("Это не mock")
-    launch.get_by_role("button", name="Запустить").click()
-    expect(launch.get_by_role("alert").last).to_contain_text("платный")
-    launch.get_by_label("Я понимаю, что вызов платный").check()
-    launch.get_by_label(f"Введите «{REAL}»").fill("реальный api")
-    launch.get_by_role("button", name="Запустить").click()
-    expect(launch.get_by_role("alert").last).to_contain_text("платный")
+    expect(launch).to_contain_text("Реальные API здесь не подключены")
+    expect(launch.get_by_label("Использовать реальный API (платно)")).to_have_count(0)
     assert posted == []
-    launch.get_by_label(f"Введите «{REAL}»").fill(REAL)
-    launch.get_by_role("button", name="Запустить").click()
-    expect(launch.get_by_text("Команда принята ядром.")).to_be_visible()
-    assert posted[0]["arguments"]["data"]["real_api"] is True
 
 
-def test_unticking_real_api_forgets_the_confirmation(page, live_panel):
-    open_lab(page, live_panel)
+def test_catalogue_failure_closes_start_without_a_local_fallback(page, live_panel):
+    posted = open_lab(page, live_panel)
+    page.route(
+        "**/api/v1/laboratory-catalogue?**",
+        lambda route: route.fulfill(status=503, json={"code": "CAPABILITY_UNAVAILABLE"}),
+    )
+    page.reload()
+    page.get_by_role("combobox", name="Просматриваемый персонаж и память", exact=True).click()
+    page.get_by_role("option", name="beta · ТЕСТ · beta-test", exact=True).click()
+    expect(page.get_by_text("Каталог недоступен", exact=True)).to_be_visible()
     launch = page.get_by_label("Запуск сценария")
-    real = launch.get_by_label("Использовать реальный API (платно)")
-    real.check()
-    launch.get_by_label("Я понимаю, что вызов платный").check()
-    launch.get_by_label(f"Введите «{REAL}»").fill(REAL)
-    real.uncheck()
-    real.check()
-    expect(launch.get_by_label("Я понимаю, что вызов платный")).not_to_be_checked()
-    expect(launch.get_by_label(f"Введите «{REAL}»")).to_have_value("")
+    launch.get_by_role("button", name="Запустить").click()
+    expect(launch.get_by_role("alert")).to_contain_text("каталога")
+    assert posted == []
 
 
 def test_a_lost_reply_is_checked_with_the_same_start_command(page, live_panel):

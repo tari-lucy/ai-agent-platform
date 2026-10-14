@@ -2,7 +2,7 @@ import { Alert, Button, Group, Select, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import type { OperatorSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
+import type { OperatorSession, RunSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
 import { failureMessage, type PanelApi } from '../shared/api.ts';
 import { affectedResources, connectEvents, eventsUrl, type ConnectionState } from '../shared/events.ts';
 import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.ts';
@@ -67,7 +67,7 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Button variant="subtle" size="compact-xs" onClick={() => setRevision((n) => n + 1)}>Повторить подключение</Button>}
   </Group>;
 }
-type ScreenProps = { api: PanelApi; scope: Scope };
+type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession };
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
@@ -160,7 +160,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {logoutError && <Alert color="red" mb="lg">{logoutError}</Alert>}
       <Routes>{screens.map((screen) => {
         const Screen = screenComponents[screen.path];
-        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} />} />;
+        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} />} />;
       })}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>

@@ -4,9 +4,10 @@ import { PanelApi, ApiFailure } from '../src/shared/api.ts';
 import { laboratoryReports } from '../src/shared/validation.ts';
 import {
   CATALOGUE, REAL_PHRASE, compare, createCommand, eventCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary, sortReports,
-  startCommand, startProblem, stopCommand, titleOf,
+  startProblem, stopCommand, titleOf,
 } from '../src/ui/laboratory/model.ts';
-import type { LaboratoryReport, Scope } from '../src/shared/contracts.ts';
+import { startLaboratory } from '../src/shared/owner-commands.ts';
+import type { LaboratoryReport, RunSession, Scope } from '../src/shared/contracts.ts';
 
 const work: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
 const test_: Scope = { ...work, persona_id: 'beta', memory_space_id: 'beta-test', memory_mode: 'test' };
@@ -18,6 +19,8 @@ const fetcher = (callback: (path: string, init: RequestInit) => Promise<Response
 const summary = (verdict = 'passed', checks = 9, failed = 0, seed = 'lab-seed', digest = 'abc123def456') => `MOCK ${verdict}: ${checks} checks, ${failed} failed; seed ${seed}; digest ${digest}`;
 const report = (name: string, over: object = {}): LaboratoryReport => ({ ...base, id: name, scenario_id: 'api-cutoff', scenario_version: 1, operation_id: 'lab-' + name,
   status: 'passed', report_artifact: null, summary: summary(), ...over } as unknown as LaboratoryReport);
+const control = { scope: { ...work, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' }, version: 17 } as RunSession;
+const selected = (scenario_id = 'api-cutoff', version = 2) => ({ scenario_id, version, title: 'Synthetic', tags: [] });
 const start = (over: object = {}) => ({ scenario: 'api-cutoff', seed: 'lab-seed', real: false, typed: '', acknowledged: false, ...over });
 
 test('the catalogue has the twelve reference scenarios with readable titles and unknown ids stay as they are', () => {
@@ -77,16 +80,15 @@ test('a real API run needs both an acknowledgement and the typed phrase', () => 
   assert.match(startProblem(test_, start({ real: true, acknowledged: true, typed: 'реальный api' }), false)!, /платный/);
   assert.equal(startProblem(test_, start({ real: false, typed: 'whatever' }), false), null); // mock never asks
 });
-test('start, stop and event commands are addressed to the test partition and carry the seen version', () => {
-  const latest = report('x', { version: 4, scenario_version: 2 });
-  const run = startCommand(test_, start({ real: true }), latest, 'req-1');
-  assert.deepEqual([run.type, run.target, run.expected_version, run.scope.memory_mode], ['laboratory.start', 'laboratory', 4, 'test']);
-  assert.deepEqual(run.arguments.data, { scenario_id: 'api-cutoff', scenario_version: 2, seed: 'lab-seed', real_api: true });
-  assert.deepEqual([startCommand(test_, start(), undefined, 'r').expected_version, (startCommand(test_, start(), undefined, 'r').arguments.data as { real_api: boolean }).real_api], [1, false]);
+test('canonical start pins run CAS, backend scenario version and a separate TEST scope', () => {
+  const run = startLaboratory(control, selected(), test_, 'lab-seed', 'req-1');
+  assert.deepEqual([run.type, run.target, run.expected_version, run.scope], ['laboratory.start', 'laboratory', 17, control.scope]);
+  assert.deepEqual(run.arguments.data, { scenario_id: 'api-cutoff', scenario_version: 2, lab_scope: test_, seed: 'lab-seed', mode: 'mock' });
   const halt = stopCommand(test_, report('y', { version: 7, operation_id: 'lab-y' }), 'req-2');
   assert.deepEqual([halt.type, halt.expected_version, halt.arguments.data], ['laboratory.stop', 7, { operation_id: 'lab-y' }]);
-  assert.deepEqual([eventCommand(test_, 'ударил молния', 'req-3').type, eventCommand(test_, 'ударил молния', 'req-3').arguments.data], ['laboratory.event', { text: 'ударил молния' }]);
+  assert.deepEqual(eventCommand(test_, 'вымышленное событие', 'req-3').arguments.data, { text: 'вымышленное событие' });
 });
+
 test('creating the test area names only the persona and is addressed from the work scope', () => {
   const create = createCommand(work, 'req-4');
   assert.deepEqual([create.type, create.scope.memory_mode, create.arguments.data], ['laboratory.create', 'work', { persona_id: 'alpha' }]);
@@ -127,8 +129,8 @@ test('the summary must match to its very end and the digest must be hexadecimal'
   assert.notEqual(parseSummary('MOCK passed: 1 checks, 0 failed; seed s; digest abcdef'), null);
 });
 test('a start command carries the chosen scenario and seed, whatever they are', () => {
-  const data = startCommand(test_, start({ scenario: 'same-nickname', seed: 'seed-42' }), undefined, 'r').arguments.data as Record<string, unknown>;
+  const data = startLaboratory(control, selected('same-nickname'), test_, 'seed-42', 'r').arguments.data as Record<string, unknown>;
   assert.deepEqual([data.scenario_id, data.seed], ['same-nickname', 'seed-42']);
-  const other = startCommand(test_, start({ scenario: 'deletion-is-final', seed: 'x.y:z' }), undefined, 'r').arguments.data as Record<string, unknown>;
+  const other = startLaboratory(control, selected('deletion-is-final'), test_, 'x.y:z', 'r').arguments.data as Record<string, unknown>;
   assert.deepEqual([other.scenario_id, other.seed], ['deletion-is-final', 'x.y:z']);
 });

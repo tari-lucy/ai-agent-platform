@@ -597,3 +597,35 @@ regression, Windows2 targeted passed; full backend не повторялся.
 Порты/права/ограничения: [Integration-lab-report](implementation-reports/Integration-lab-report.md).
 M4-06 feature wiring/TEST scope allocation и остальные owner/operations задачи
 сохраняют свои gates; автоматических grants и готового host setup нет.
+
+## Integration-laboratory-panel — назначение 2026-10-15
+
+Прямое поручение оператора: Codex подключает кнопку полного отчёта и продолжает
+сведение лабораторных стыков. Base 40290e3, отдельная codex/integration-laboratory-panel.
+Зона: laboratory feature UI, shared API при необходимости, LabRunner report ACL
+port, tests/panel/m3_runtime/laboratory и собственный отчёт. Узкая координаторская
+зона доступности подготовленных TEST scopes/launch wiring разрешена в рамках
+этого поручения. Второй агент сохраняет остальные feature zones.
+Приёмка кнопки: настоящий login/metadata/JSON download в Edge без intercepted
+проекций, точные bytes/filename, недоступный artifact и отзыв прав, abort/cleanup.
+Дальнейшие стыки принимаются отдельно по доказанному поведению. Права готовит
+доверенный host явно; runtime не делает provision/новые grants автоматически.
+Без live API, installs/downloads, migrations/deps/Compose/пользовательской БД.
+
+Уточнение shared зоны: canonical LaboratoryCreateArguments/ScopeReservation,
+экспорты, physical type registry и SQLite metadata empty-scope check.
+Reservation сохраняется owner LABORATORY в текущей partition через existing
+UoW/journal. Запрос не создаёт scopes/grants и не вызывает scope_factory.
+Пустота включает скрытые/удалённые records; лимит — существующие 8 auth scopes.
+
+### Приёмка Integration-laboratory-panel
+
+Приняты scoped части: полный report button, явный LabRunner report ACL,
+durable reservation уже разрешённого TEST pool, backend catalogue/canonical
+mock start. Linux affected218, TS152, настоящий Edge prepare/download/revoke1
+и остальные affected browser cases после узких fixture исправлений passed.
+Полный backend/весь browser suite не повторялись; один полный lab scenario
+переиспользован в существующей HTTP проверке. Матрица доказательств и оставшиеся
+gates: [Integration-laboratory-panel](implementation-reports/Integration-laboratory-panel.md).
+Host provisioning новых scopes/grants, events/per-job cancel/transfer и
+остальные M4/M5 owner/operations actions не закрыты этой приёмкой.
