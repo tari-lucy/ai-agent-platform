@@ -8,9 +8,10 @@ so a rejected or incompatible revision changes nothing.
 """
 
 import hashlib
+import inspect
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -38,12 +39,18 @@ NEVER_TRANSFERRED = (
 KEYS: tuple[str, ...] = ("profile", "gm_intensity", "story_rules_version")
 
 
+async def resolved[T](value: T | Awaitable[T]) -> T:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
 class SettingsHolder(Protocol):
     """Non-profile settings of a scope (composition owns where they live)."""
 
     def get(self, scope: Scope, key: str) -> Any: ...
 
-    def set(self, scope: Scope, key: str, value: Any) -> None: ...
+    def set(self, scope: Scope, key: str, value: Any) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,8 @@ class TransferItem:
     changes: tuple[str, ...]
     blockers: tuple[str, ...]
     target_version: int | None = None
+    source_fingerprint: str | None = None
+    target_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +94,8 @@ def _digest(items: Sequence[TransferItem], source: Scope, target: Scope) -> str:
                 list(i.changes),
                 list(i.blockers),
                 i.target_version,
+                i.source_fingerprint,
+                i.target_fingerprint,
             ]
             for i in items
         ],
@@ -115,8 +126,8 @@ class SettingsTransfer:
             if key == "profile":
                 items.append(await self._profile_item(source, target))
             else:
-                before = self.settings.get(target, key)
-                after = self.settings.get(source, key)
+                before = await resolved(self.settings.get(target, key))
+                after = await resolved(self.settings.get(source, key))
                 valid = (
                     type(after) in (int, float) and math.isfinite(after) and 0 <= after <= 1
                     if key == "gm_intensity"
@@ -125,7 +136,20 @@ class SettingsTransfer:
                 if not valid:
                     raise ContractError(ErrorCode.INVALID_ARGUMENTS)
                 changes = () if before == after else (f"{key}: {before!r} -> {after!r}",)
-                items.append(TransferItem(key, before, after, changes, ()))
+                fingerprints = getattr(self.settings, "fingerprint", None)
+                source_fingerprint = None if fingerprints is None else fingerprints(source, key)
+                target_fingerprint = None if fingerprints is None else fingerprints(target, key)
+                items.append(
+                    TransferItem(
+                        key,
+                        before,
+                        after,
+                        changes,
+                        (),
+                        source_fingerprint=source_fingerprint,
+                        target_fingerprint=target_fingerprint,
+                    )
+                )
         return TransferPreview(tuple(items), NEVER_TRANSFERRED, _digest(items, source, target))
 
     async def _profile_item(self, source: Scope, target: Scope) -> TransferItem:
@@ -188,7 +212,7 @@ class SettingsTransfer:
             if item.key == "profile":
                 await self._apply_profile(source, target, operator_decision_id, item)
             else:
-                self.settings.set(target, item.key, item.after)
+                await resolved(self.settings.set(target, item.key, item.after))
             applied.append(item.key)
         return TransferResult(tuple(applied), preview)
 

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from ai_agent_adapters.configuration import BootstrapSettings, operator_origin
 from ai_agent_application.control import Supervisor
+from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.jobs.owner import JobOwner
 from ai_agent_contracts.access import (
     OperatorLogin,
@@ -17,6 +18,7 @@ from ai_agent_contracts.access import (
     ServiceLeaseReceipt,
 )
 from ai_agent_contracts.api import (
+    CommandBase,
     ControlCommand,
     EventSubscription,
     Page,
@@ -57,10 +59,15 @@ class Reader(Protocol):
     ) -> Contract | None: ...
 
 
+class Mutations(Protocol):
+    async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
+
+
 @dataclass(frozen=True)
 class AccessPorts:
     """Explicit trusted composition. Defaults grant no worker capabilities/data access."""
 
+    mutations: Mutations | None = None
     reader: Reader | None = None
     jobs: JobOwner | None = None
     worker: WorkerGrant | None = None
@@ -322,6 +329,10 @@ class Surface:
                         self.run_changed()
                 self.sessions.current(authority)
                 return _json(receipt)
+            if self.ports.mutations is not None:
+                receipt = await self.ports.mutations.execute(authority.control, request)
+                self.sessions.current(authority)
+                return _json(receipt, self.ports.extensions)
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         if method == "GET":
             return await self.read(path, scope, authority)

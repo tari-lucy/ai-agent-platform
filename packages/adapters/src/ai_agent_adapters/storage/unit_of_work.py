@@ -48,6 +48,9 @@ class SQLiteUnitOfWork:
             for owner, guard in store._fences.get()
             if owner is None or owner == principal.owner
         )
+        self.write_checks = tuple(
+            check for owners, check in store._write_checks.get() if principal.owner in owners
+        )
         self.scope, self.command = scope, command
         self.fingerprint = command_fingerprint(command)
         self.key = scope_key(scope)
@@ -68,6 +71,9 @@ class SQLiteUnitOfWork:
             guard()
 
     async def authorize(self) -> None:
+        self.check_fence()
+        for check in self.write_checks:
+            await check(self.connection)
         self.check_fence()
         if self.principal.role != "core_owner" or self.owner is None:
             self.fail(ErrorCode.ACCESS_DENIED)

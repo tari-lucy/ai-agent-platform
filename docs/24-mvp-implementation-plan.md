@@ -483,7 +483,7 @@ Runtime composition и реальные модели M3 отдельно не п
 base 8c9796d, отдельный checkout/ветка codex/m3-runtime-integration.
 Цель — технически соединить M3-01..04 с принятыми owners, Supervisor,
 JobOwner и ResourceScheduler, сохраняя STOP и scope/права/версии.
-Зона: apps/core/.../runtime, core bootstrap/access mutation port, tests/runtime;
+Зона: apps/core/.../m3_composition, core bootstrap/access mutation port, tests/m3_runtime;
 application/gamemaster active-time port, development reflection checkpoint,
 laboratory settings/artifact ports; узкие LLM attempt journal/UsageLedger
 begin-attempt, storage catalogue/contracts/exports для owner records.
@@ -497,3 +497,9 @@ lease/budget/retry/idempotency, restart, scope/ACL, settings CAS/partial result.
 Живые модели, платные API, игра/каналы/эфир исключены; качество реальных
 моделей остаётся отдельной последующей приёмкой.
 Отчёт исполнителя: implementation-reports/M3-runtime-integration.md.
+
+Узкое coordinator-уточнение M3-runtime: SQLiteStore.authorize_writes и
+UnitOfWork.authorize проверяют закреплённые версии Permission/Capability,
+profile/rules/LLM bindings внутри той же owner-транзакции; это дополнительный
+fence, не выдача grants. Technical usage/job receipts исключены. Нужна защита
+от отзыва прав между async-генерацией и commit; схемы/миграции не меняются.

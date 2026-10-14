@@ -1,7 +1,7 @@
 """Core-only SQLite adapter. No startup migration, live env, model or network access."""
 
 import builtins
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -46,6 +46,9 @@ class SQLiteStore(Storage):
         self._fences: ContextVar[tuple[tuple[Owner | None, Callable[[], None]], ...]] = ContextVar(
             "owner_write_fences", default=()
         )
+        self._write_checks: ContextVar[
+            tuple[tuple[frozenset[Owner], Callable[[AsyncConnection], Awaitable[None]]], ...]
+        ] = ContextVar("transaction_authorization", default=())
         self.receipt_retention = receipt_retention
         self.clock, self.extensions = clock, extensions
         self.engine = create_async_engine(
@@ -84,6 +87,21 @@ class SQLiteStore(Storage):
             yield
         finally:
             self._fences.reset(token)
+
+    @contextmanager
+    def authorize_writes(
+        self, check: Callable[[AsyncConnection], Awaitable[None]], *, owners: frozenset[Owner]
+    ) -> Iterator[None]:
+        """Trusted task-local proof, checked inside each existing owner transaction.
+
+        No new rights; read the same SQLite snapshot under its write reservation.
+        Technical job/usage receipts can be excluded by the caller.
+        """
+        token = self._write_checks.set((*self._write_checks.get(), (owners, check)))
+        try:
+            yield
+        finally:
+            self._write_checks.reset(token)
 
     def check_fence(self) -> None:
         for _, guard in self._fences.get():

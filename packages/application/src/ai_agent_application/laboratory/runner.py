@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.common import Scope
+from ai_agent_contracts.common import ArtifactRef, Scope
+from ai_agent_contracts.persona import Profile
 from ai_agent_contracts.states import ErrorCode
 from ai_agent_contracts.workspace import LaboratoryReport
 
@@ -16,7 +17,7 @@ from ai_agent_application.moderation.local import secret_like
 from ai_agent_application.storage import Principal, Storage
 
 from .clock import VirtualClock
-from .lab import LABORATORY, Lab
+from .lab import LABORATORY, PERSONA, Lab
 from .profile import REFERENCE_PROFILE
 from .report import Finding, ScenarioReport
 
@@ -53,6 +54,8 @@ class LabRunner:
     reports: list[ScenarioReport] = field(default_factory=list)
     scopes: list[Scope] = field(default_factory=list)
 
+    artifact_writer: Callable[[Scope, ScenarioReport], Awaitable[ArtifactRef]] | None = None
+
     async def run(
         self, scenario: Scenario, *, seed: str = "lab-seed", persist: bool = True
     ) -> ScenarioReport:
@@ -61,6 +64,8 @@ class LabRunner:
         scope = await self.scope_factory(f"{scenario.scenario_id}-{seed}")
         if scope.memory_mode != "test":
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if await self.storage.repository(Profile, PERSONA, scope).list(limit=1):
+            raise ContractError(ErrorCode.VERSION_CONFLICT)
         self.scopes.append(scope)
         del self.scopes[:-64]
         self.clock.now = self.clock.start
@@ -154,6 +159,9 @@ class LabRunner:
         failed = len(report.failed)
         mapping = {"passed": "passed", "failed": "failed", "error": "unknown"}
         now = lab.clock()
+        artifact = (
+            None if self.artifact_writer is None else await self.artifact_writer(lab.scope, report)
+        )
         record = LaboratoryReport.model_validate(
             {
                 "id": record_id,
@@ -165,7 +173,7 @@ class LabRunner:
                 "scenario_version": report.scenario_version,
                 "operation_id": f"lab-{digest[:40]}",
                 "status": mapping[report.status],
-                "report_artifact": None,
+                "report_artifact": artifact,
                 "summary": (
                     f"MOCK {report.status}: {len(report.findings)} checks, {failed} failed;"
                     f" seed {report.seed}; digest {digest[:12]}"

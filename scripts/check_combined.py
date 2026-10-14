@@ -32,6 +32,7 @@ HELPERS = (
     "tests/development",
     "tests/laboratory",
     "tests/m3_review",
+    "tests/m3_runtime",
     "tests/retention",
     "tests/backup",
 )
@@ -56,6 +57,7 @@ TESTS = (
     "tests/development",
     "tests/laboratory",
     "tests/m3_review",
+    "tests/m3_runtime",
     "tests/retention",
     "tests/backup",
     "tests/probes/m0_06/test_configuration.py",

@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from importlib.metadata import version
+from typing import Protocol
 
 from ai_agent_adapters.configuration import (
     BootstrapSettings,
@@ -25,10 +26,19 @@ from fastapi import FastAPI
 from .access import AccessPorts, install_access
 
 
+class ManagedRuntime(Protocol):
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    async def tick(self) -> None: ...
+    def access_ports(self) -> AccessPorts: ...
+
+
 def create_app(
     settings: BootstrapSettings | None = None,
     *,
     previous_state: str | None = None,
+    base_scope: Scope | None = None,
+    runtime_factory: Callable[[Supervisor, ResourceScheduler], ManagedRuntime] | None = None,
     access_ports: AccessPorts | None = None,
     access_factory: Callable[[Supervisor], AccessPorts] | None = None,
 ) -> FastAPI:
@@ -36,8 +46,16 @@ def create_app(
     configuration = from_environment() if settings is None else settings
     validate_bindings(configuration)
     startup = fresh_startup(previous_state)
+    if base_scope is not None and (
+        base_scope.workspace_id != configuration.workspace_id
+        or base_scope.persona_id != configuration.persona_id
+        or base_scope.memory_mode != configuration.memory_scope
+        or base_scope.agent_id is not None
+    ):
+        raise ConfigurationError("runtime", "scope_mismatch")
     supervisor = Supervisor(
-        Scope(
+        base_scope
+        or Scope(
             workspace_id=configuration.workspace_id,
             persona_id=configuration.persona_id,
             memory_space_id=configuration.memory_scope + "-bootstrap",
@@ -62,6 +80,21 @@ def create_app(
         limits=SchedulerLimits(pending=configuration.pending_jobs),
     )
 
+    runtime = None if runtime_factory is None else runtime_factory(supervisor, scheduler)
+    if runtime is not None and (access_ports is not None or access_factory is not None):
+        raise ConfigurationError("access", "single_composition_required")
+    if runtime is not None:
+        access_ports = runtime.access_ports()
+
+    async def runtime_watchdog() -> None:
+        while True:
+            try:
+                if runtime is not None:
+                    await runtime.tick()
+            except Exception:
+                supervisor.critical_failure()
+            await asyncio.sleep(1)
+
     async def operational_watchdog() -> None:
         while True:
             scheduler.poll()
@@ -70,6 +103,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if runtime is not None:
+            await runtime.open()
+        worker = asyncio.create_task(runtime_watchdog())
         watchdog = asyncio.create_task(supervisor.watchdog())
         operations = asyncio.create_task(operational_watchdog())
         try:
@@ -78,11 +114,14 @@ def create_app(
             access.sessions.shutdown()
             supervisor.shutdown()
             scheduler.poll()
+            worker.cancel()
             watchdog.cancel()
             operations.cancel()
-            for task in (watchdog, operations):
+            for task in (worker, watchdog, operations):
                 with suppress(asyncio.CancelledError):
                     await task
+            if runtime is not None:
+                await runtime.close()
 
     app = FastAPI(
         title="AI Agent Platform",
@@ -96,6 +135,7 @@ def create_app(
     app.state.supervisor = supervisor
     app.state.telemetry = telemetry
     app.state.scheduler = scheduler
+    app.state.runtime = runtime
     # Credentials are not attached to API state or returned via a route.
     app.state.bootstrap_manifest = startup.safe_manifest(configuration)
     if access_factory is not None:
