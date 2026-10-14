@@ -40,7 +40,7 @@
 | M3-01 | integrated | Claude Code / codex/m3-01-extraction | fast-forward в main от a50b2e3; 21 extraction tests (реальная SQLite, mock-экстрактор), combined 635 passed + 4 известных env-failure, lint/types/imports passed; **качество реальной модели-экстрактора и runtime не проверены** |
 | M3-02 | integrated | Claude Code / codex/m3-02-gamemaster | fast-forward в main от a32cdd4; 22 gamemaster tests (реальная SQLite, mock-модель), combined 657 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-гейммастер, качество и runtime не проверены** |
 | M3-03 | integrated | Claude Code / codex/m3-03-development | fast-forward в main от 16581c0; 34 development tests (реальная SQLite persona+memory, mock-рефлексия), combined 691 passed + 4 известных env-failure, lint/types/imports passed; **реальная модель-рефлексия и проявление изменений не проверены** |
-| M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; пробел: нет лимита скорости изменения отношений** |
+| M3-04 | integrated | Claude Code / codex/m3-04-test-runner | fast-forward в main от a3b48cf; 32 laboratory tests (12 сценариев на реальной SQLite с mock-моделью, replay по seed, изоляция, перенос настроек), combined 731 passed + 4 известных env-failure, lint/types/imports passed; **оценка качества на реальной модели не проводилась; исходный relationship gap закрыт coordinator review M3-review-integration, runtime gates остаются открыты** |
 | M5-01 | integrated | Claude Code / codex/m5-01-retention | fast-forward в main от 6755f43; 26 retention tests (реальная SQLite/FTS5/sqlite-vec, виртуальное время, проверка байтов БД/WAL/индекса), мутации 44 защит без незакрытых; lint/types/imports passed; **runtime-интеграция, Windows, контейнер, backup (M5-02) не проверены**; [отчёт](implementation-reports/M5-01.md) |
 
 M0-02 владеет: root pyproject.toml/uv.lock/.python-version, apps/core,
@@ -445,7 +445,8 @@ StateChange.owner остаётся динамическим: UoW уже пров
 Подтверждённый composition blocker: MemoryService.reader_access не
 передавался создаваемым Episode. M3-review назначена узкая правка
 memory/service.py: применять уже доверенно переданные ACL при записи
-Episode; Claim сохраняет отдельный private ACL. Значения grants не расширяются автоматически; public/API
+Episode; Claim сохраняет отдельный private ACL. Значения grants не расширяются
+автоматически; public/API
 purposes по-прежнему закрыты без своих RecordAccess flags.
 
 
