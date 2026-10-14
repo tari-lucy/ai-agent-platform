@@ -1,7 +1,8 @@
+import { LaboratoryRuns } from './LaboratoryRuns.tsx';
 import { TransferSettings } from './TransferSettings.tsx';
 import { DownloadReport } from './DownloadReport.tsx';
 import { formatTime } from '../time.ts';
-import { Alert, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { LaboratoryReport, RunSession, Scope } from '../../shared/contracts.ts';
@@ -9,8 +10,8 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { startLaboratory } from '../../shared/owner-commands.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
-  compare, createCommand, eventCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary,
-  sortReports, startProblem, statusLabels, stopCommand, titleOf, type Start,
+  compare, createCommand, labOpen, latestPerScenario, parseSummary,
+  sortReports, startProblem, statusLabels, titleOf, type Start,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'medium');
@@ -26,7 +27,10 @@ function useAction(api: PanelApi, scope: Scope, refresh: string[], prepare = fal
     catch (error) {
       const code = error instanceof ApiFailure ? error.code : 'NETWORK';
       setState(['NETWORK', 'OUTCOME_UNKNOWN', 'STALE_CONTEXT'].includes(code) ? { phase: 'unknown', command } : { phase: 'refused', code });
-    } finally { for (const resource of refresh) void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) }); }
+    } finally {
+      for (const resource of refresh) void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+      void cache.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'projection' && q.queryKey[2] === 'laboratory-runs' });
+    }
   }
   const view = <>
     {state.phase === 'done' && <Alert color="teal" mt="xs" role="status">{prepare ? `Тестовая область подготовлена: ${state.resource ?? "обновите список"}. Выберите её в верхнем списке.` : "Команда принята ядром. Результат появится в отчётах."}</Alert>}
@@ -52,16 +56,12 @@ export function LaboratoryScreen({ api, scope, run, scopes = [] }: { api: PanelA
   const reports = sortReports(reportsQuery.data?.pages.flatMap((p) => p.items) ?? []);
   const latest = latestPerScenario(reports);
   const start = useAction(api, scope, ['laboratory-reports']);
-  const event = useAction(api, scope, ['laboratory-reports']);
-  const stop = useAction(api, scope, ['laboratory-reports']);
   const create = useAction(api, scope, ['sessions'], true);
   const [form, setForm] = useState<Start>(emptyStart);
   const [problem, setProblem] = useState<string | null>(null);
-  const [text, setText] = useState('');
-  const [eventIssue, setEventIssue] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const set = (patch: Partial<Start>) => setForm({ ...form, ...patch });
-  const live = reports.some(isLive);
+  const [live, setLive] = useState(false);
   const open = labOpen(scope);
   function launch() {
     const issue = startProblem(scope, form, start.busy || live, entries);
@@ -72,11 +72,6 @@ export function LaboratoryScreen({ api, scope, run, scopes = [] }: { api: PanelA
     }
     if (form.real) { setProblem('В этом подключении доступны только mock-сценарии.'); return; }
     setProblem(null); void start.run(startLaboratory(run, scenario, scope, form.seed, crypto.randomUUID()));
-  }
-  function submitEvent() {
-    const issue = eventProblem(scope, text);
-    if (issue) { setEventIssue(issue); return; }
-    setEventIssue(null); void event.run(eventCommand(scope, text, crypto.randomUUID()));
   }
   const toggle = (id: string) => setPicked((now) => (now.includes(id) ? now.filter((x) => x !== id) : [...now, id].slice(-2)));
   const [a, b] = picked.map((id) => reports.find((r) => r.id === id)).filter((r): r is LaboratoryReport => !!r);
@@ -119,15 +114,11 @@ export function LaboratoryScreen({ api, scope, run, scopes = [] }: { api: PanelA
                 <DownloadReport key={report.id + ':' + report.version + ':' + (report.report_artifact?.checksum ?? '')}
                   api={api} scope={scope} report={report} />
                 <Checkbox size="xs" label="Сравнить" checked={picked.includes(report.id)} onChange={() => toggle(report.id)} />
-                {isLive(report) && <Button size="compact-xs" color="red" variant="light" disabled={stop.busy} onClick={() => void stop.run(stopCommand(scope, report, crypto.randomUUID()))}>Остановить</Button>}</Stack></Group>
+</Stack></Group>
               {report.status === 'unknown' && <Text size="xs" c="orange.8">Исход неизвестен: результат не засчитан как пройденный.</Text>}</Paper></li>;
           })}</ul>}
-        {replay && <Alert mt="xs" color={replay.verdict === 'same' ? 'teal' : 'orange'} role="status" aria-label="Сравнение отчётов">{replay.text}</Alert>}{stop.view}</Paper>
-      <Paper withBorder p="md" radius="lg" aria-label="Подача события"><Title order={2} size="h4" mb="xs">Подать событие</Title>
-        <Textarea label="Текст события" autosize minRows={2} maxLength={2000} value={text} onChange={(e) => setText(e.currentTarget.value)} />
-        <Group mt="xs" justify="flex-end"><Button variant="light" disabled={event.busy} onClick={submitEvent}>Подать</Button></Group>
-        {eventIssue && <Alert color="orange" mt="xs" role="alert">{eventIssue}</Alert>}{event.view}
-        <Text size="xs" c="dimmed">Шаги сценария и виртуальные часы ядро панели не отдаёт: ход виден только в итоговом отчёте.</Text></Paper>
+        {replay && <Alert mt="xs" color={replay.verdict === 'same' ? 'teal' : 'orange'} role="status" aria-label="Сравнение отчётов">{replay.text}</Alert>}</Paper>
+      <LaboratoryRuns api={api} scope={scope} run={run} onBusy={setLive} />
       <TransferSettings api={api} source={scope} scopes={scopes} run={run} />
     </>}
   </Stack>;

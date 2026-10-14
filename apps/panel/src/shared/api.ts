@@ -1,4 +1,4 @@
-import type {
+import type { LaboratoryRuns,
   SettingsTransferPreview, SettingsTransferStatus, SettingsTransferOperationPage,
   ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeStatePage, EditCommand,
   ArtifactRef, LaboratoryReport, Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
@@ -6,7 +6,7 @@ import type {
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
+  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
@@ -38,7 +38,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+type ReadResource = 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
   'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises';
 
@@ -164,6 +164,9 @@ export class PanelApi {
   }
   async gmSettings(scope: Scope, signal?: AbortSignal): Promise<GmRuntimeStatePage> {
     return gmSettings(await this.#read('gm-settings', scope, signal), scope);
+  }
+  async laboratoryRuns(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<LaboratoryRuns> {
+    return laboratoryRuns(await this.#read('laboratory-runs', scope, signal, cursor), scope);
   }
   async laboratoryCatalogue(scope: Scope, signal?: AbortSignal): Promise<LaboratoryCatalogue> {
     return laboratoryCatalogue(await this.#read('laboratory-catalogue', scope, signal), scope);

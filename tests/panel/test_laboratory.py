@@ -48,7 +48,7 @@ def page_of(items):
     return {"items": items, "limit": 50, "next_cursor": None, "complete": True}
 
 
-def mock_lab(page, *, reports=(), command=None):
+def mock_lab(page, *, reports=(), runs=(), command=None):
     posted = []
 
     def route(request):
@@ -108,6 +108,8 @@ def mock_lab(page, *, reports=(), command=None):
                     ],
                 }
             )
+        elif path == "/api/v1/laboratory-runs":
+            request.fulfill(json={"scope": WORK, **page_of(list(runs))})
         elif path == "/api/v1/laboratory-reports":
             request.fulfill(json=page_of(list(reports) if selected == "beta" else []))
         elif path == "/api/v1/commands":
@@ -259,21 +261,35 @@ def test_a_lost_reply_is_checked_with_the_same_start_command(page, live_panel):
     assert len(attempts) == 2 and attempts[0] == attempts[1]
 
 
-def test_only_one_run_at_a_time_and_a_live_one_can_be_stopped(page, live_panel):
+def job():
+    return {
+        "scope": {**WORK, "agent_id": "primary", "run_id": "run-1", "session_id": "session-1"},
+        "lab_scope": TEST,
+        "operation_id": "job-1",
+        "version": 8,
+        "scenario_id": "api-cutoff",
+        "scenario_version": 1,
+        "status": "RUNNING",
+        "ready": True,
+        "virtual_time": stamp(0),
+        "accepted_events": 0,
+    }
+
+
+def test_only_one_job_at_a_time_and_stop_uses_job_cas(page, live_panel):
     posted = open_lab(
-        page,
-        live_panel,
-        reports=[report("r1", "api-cutoff", "running", version=3, operation_id="lab-r1")],
+        page, live_panel, runs=[job()], reports=[report("r1", "api-cutoff", "running", version=3)]
     )
     pick(page, "Обрыв API")
     launch = page.get_by_label("Запуск сценария")
     expect(launch.get_by_role("button", name="Запустить")).to_be_disabled()
     expect(launch).to_contain_text("Идёт запуск")
-    reports = page.get_by_label("Отчёты")
-    reports.get_by_role("button", name="Остановить").click()
-    expect(reports.get_by_text("Команда принята ядром.")).to_be_visible()
-    assert posted[0]["type"] == "laboratory.stop" and posted[0]["expected_version"] == 3
-    assert posted[0]["arguments"]["data"] == {"operation_id": "lab-r1"}
+    box = page.get_by_label("Лабораторное задание", exact=True)
+    box.get_by_role("button", name="Остановить задание").click()
+    expect(box.get_by_text("Отмена запрошена.", exact=False)).to_be_visible()
+    assert posted[0]["type"] == "laboratory.stop" and posted[0]["expected_version"] == 8
+    assert posted[0]["arguments"]["data"] == {"operation_id": "job-1", "lab_scope": TEST}
+    assert posted[0]["scope"]["run_id"] == "run-1"
 
 
 def test_reports_show_the_parsed_summary_and_never_a_passed_unknown(page, live_panel):
@@ -320,18 +336,21 @@ def test_replay_comparison_checks_the_digest_for_the_same_seed(page, live_panel)
     expect(page.get_by_role("status", name="Сравнение отчётов")).to_contain_text("Разные seed")
 
 
-def test_events_are_validated_and_sent_to_the_test_area_only(page, live_panel):
-    posted = open_lab(page, live_panel)
-    box = page.get_by_label("Подача события")
-    box.get_by_role("button", name="Подать").click()
-    expect(box.get_by_role("alert")).to_contain_text("Введите текст события")
+def test_events_are_bound_to_ready_job_and_test_scope(page, live_panel):
+    posted = open_lab(page, live_panel, runs=[job()])
+    box = page.get_by_label("Лабораторное задание", exact=True)
+    expect(box.get_by_role("button", name="Подать событие")).to_be_disabled()
     assert posted == []
-    box.get_by_label("Текст события").fill("Рядом упала ветка")
-    box.get_by_role("button", name="Подать").click()
-    expect(box.get_by_text("Команда принята ядром.")).to_be_visible()
-    assert posted[0]["type"] == "laboratory.event" and posted[0]["scope"] == TEST
-    assert posted[0]["arguments"]["data"] == {"text": "Рядом упала ветка"}
-    expect(box).to_contain_text("виртуальные часы ядро панели не отдаёт")
+    box.get_by_label("Текст события").fill("Вымышленное наблюдение")
+    box.get_by_role("button", name="Подать событие").click()
+    expect(box.get_by_text("Наблюдение сохранено в тестовой памяти.", exact=True)).to_be_visible()
+    assert posted[0]["type"] == "laboratory.event" and posted[0]["expected_version"] == 8
+    assert posted[0]["arguments"]["data"] == {
+        "operation_id": "job-1",
+        "lab_scope": TEST,
+        "text": "Вымышленное наблюдение",
+    }
+    assert posted[0]["scope"]["run_id"] == "run-1"
 
 
 def test_settings_transfer_is_closed_until_the_core_gives_a_preview(page, live_panel):

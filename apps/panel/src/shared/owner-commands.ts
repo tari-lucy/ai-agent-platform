@@ -1,4 +1,4 @@
-import type {
+import type { LaboratoryRun, LaboratoryEventArguments, LaboratoryStopArguments,
   SettingsTransferArguments, SettingsTransferPreview, SettingsTransferOperation,
   AcknowledgeCommand, ConfigureGM, EditCommand, GmRuntimeState, LaboratoryScenario,
   LaboratoryStartArguments, PersonaApplyArguments, PersonaValidateArguments,
@@ -52,4 +52,15 @@ export function acknowledgeSettingsTransfer(row: SettingsTransferOperation, requ
     keys: row.selected_keys, preview_digest: row.preview_digest };
   return { type: 'laboratory.transfer_settings', target: 'laboratory', scope: row.scope, expected_version: row.version,
     request_id: requestId, arguments: { schema_id: 'laboratory.transfer-settings-args', data } };
+}
+
+export function stopLaboratory(row: LaboratoryRun, requestId: string): EditCommand {
+  const data: LaboratoryStopArguments = { operation_id: row.operation_id, lab_scope: row.lab_scope };
+  return { type: 'laboratory.stop', target: 'laboratory', scope: row.scope, request_id: requestId,
+    expected_version: row.version, arguments: { schema_id: 'laboratory.stop-args', data } };
+}
+export function eventLaboratory(row: LaboratoryRun, text: string, requestId: string): EditCommand {
+  const data: LaboratoryEventArguments = { operation_id: row.operation_id, lab_scope: row.lab_scope, text };
+  return { type: 'laboratory.event', target: 'laboratory', scope: row.scope, request_id: requestId,
+    expected_version: row.version, arguments: { schema_id: 'laboratory.event-args', data } };
 }

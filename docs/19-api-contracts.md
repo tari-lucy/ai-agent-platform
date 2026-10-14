@@ -304,3 +304,44 @@ apply не переигрывается. action=acknowledge требует то�
 UI требует новый preview после выбора других ключей/истечения плана; ошибка
 не повторяет mutation автоматически. Host готовит scopes и минимальные права;
 эти endpoints не создают grants. [Приёмка](implementation-reports/Integration-settings-transfer.md).
+
+
+### Laboratory Job control и наблюдения — 2026-10-15
+
+GET /api/v1/laboratory-runs — bounded paginated LaboratoryRuns, обычные scope
+query fields родительского runtime, limit 1..200/cursor. Каждый item содержит
+actual Job operation_id/version/status/full run scope и pinned lab_scope,
+scenario ID/version. ready/virtual_time/accepted_events доступны только для
+живого разрешённого раннера; после закрытия отсутствующие значения — null,
+не ноль. Read использует operator Job read+api_transfer grant/ACL; session
+должна разрешать также каждую возвращённую TEST область. Это проекция JobOwner,
+а не второй сохранённый Job state в LaboratoryReport.
+
+EditCommand laboratory.stop: target=laboratory, schema=laboratory.stop-args,
+data={operation_id,lab_scope}, scope=точный parent Job.scope (включая run),
+expected_version=Job.version. Контроллер сверяет исходный TaskInput и TEST
+partition, JobOwner — current operator/Job CAS. SQL ACL повторно проверяется
+при входе в Jobs UoW, до синхронного retire только выбранного admission.
+QUEUED/WAITING отменяется; RUNNING становится OUTCOME_UNKNOWN, пока настоящий
+executor не сдаст factual result. Async cancellation не выдаётся за квитанцию.
+Late owner writes закрыты прежними admission/epoch fences; прямой общий STOP
+не зависит от нового HTTP/Jobs пути и не меняет своих гарантий.
+
+EditCommand laboratory.event: schema=laboratory.event-args, те же IDs/scope/CAS
+и text 1..2000. Принимается только готовым активным раннером, до 32 событий
+на job. Наблюдение регистрируется существующим MEMORY owner в точной TEST
+partition, provenance=simulation, api_transfer/public_disclosure=false.
+Пустой/secret-like ввод отклоняется. Это вход наблюдения, а не канон, обещание,
+ответ модели или утверждение об уже пережитом событии. LLM не вызывается.
+Commit проверяет текущие Job ACL/CAS, Permission/config/admission/lease.
+
+Request fingerprint/receipt принадлежат соответствующему owner (MEMORY для
+события, JOBS для отмены). Повтор не создаёт новый Source или отмену другой
+попытки. Source содержимое не копируется в report: только ссылки/sequence;
+summary operator_events отличает интерактивный запуск от seed-only replay.
+Список событий/их время нужен для воспроизводимости интерактивного прогона;
+панель не объявляет его воспроизводимым по одному seed.
+
+Панель читает Job state после reload, посылает canonical команды и не повторяет
+неизвестный исход автоматически. Host явно выдаёт минимальные Job API ACL;
+default остаётся закрытым. [Приёмка](implementation-reports/Integration-laboratory-control.md).

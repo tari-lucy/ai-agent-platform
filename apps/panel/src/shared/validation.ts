@@ -439,3 +439,18 @@ export function settingsTransferPreview(value: unknown, command: import('./contr
     value.never_transferred.every((item: unknown) => typeof item === 'string' && item.length <= 512));
   return value as unknown as import('./contracts.ts').SettingsTransferPreview;
 }
+
+export function laboratoryRuns(value: unknown, selected: Scope): import('./contracts.ts').LaboratoryRuns {
+  demand(object(value) && isScope(value.scope) && samePartition(value.scope, selected) &&
+    Array.isArray(value.items) && value.items.length <= 200 && version(value.limit) && Number(value.limit) <= 200 &&
+    (value.next_cursor === null || id(value.next_cursor)) && typeof value.complete === 'boolean');
+  demand(value.items.every((row: unknown) => object(row) && isScope(row.scope) && samePartition(row.scope, selected) &&
+    id(row.scope.run_id) && isScope(row.lab_scope) && row.lab_scope.memory_mode === 'test' &&
+    row.lab_scope.workspace_id === selected.workspace_id && id(row.operation_id) && version(row.version) &&
+    id(row.scenario_id) && version(row.scenario_version) &&
+    ['QUEUED', 'RUNNING', 'WAITING', 'PAUSED', 'SUCCEEDED', 'FAILED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'OUTCOME_UNKNOWN'].includes(String(row.status)) &&
+    typeof row.ready === 'boolean' && (!row.ready || row.status === 'RUNNING') &&
+    (row.virtual_time === null || date(row.virtual_time)) &&
+    (row.accepted_events === null || Number.isSafeInteger(row.accepted_events) && Number(row.accepted_events) >= 0 && Number(row.accepted_events) <= 32)));
+  return value as unknown as import('./contracts.ts').LaboratoryRuns;
+}

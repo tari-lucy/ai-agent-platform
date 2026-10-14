@@ -212,4 +212,23 @@ builder из текущего RunSession и собственной версии 
 использует проверенный PanelApi Blob, фиксированный filename; pending read
 отменяется при unmount/scope/revision change, object URLs освобождаются.
 Settings transfer preview/apply/status/reconciliation подключены отдельной приёмкой
-Integration-settings-transfer. Подача отдельных событий и per-job stop остаются отдельно.
+Integration-settings-transfer. Подача наблюдений и per-job cancel подключены через Integration-laboratory-control.
+
+
+## Laboratory control
+
+GET laboratory-runs — operator Job API-transfer projection, с pagination и
+точными parent run + lab_scope. Допуск записи наблюдения требует живого runner;
+limit=32/job, text<=2000. Используется существующий lab MEMORY Source owner,
+без LLM-вызова/канона; text не дублируется в artifact. Parent Job API grant/ACL,
+config и lease/admission проверяются в SQL owner commit. Host должен явно
+разрешить operator read+api_transfer для JOBS и видимость Jobs через readers;
+runtime не меняет grants. Clock/progress после окончания могут быть null.
+
+Stop canonical laboratory.stop-args адресует Job CAS и не использует report
+version/derived lab-report operation ID. JobOwner отзывает только его token,
+RUNNING требует factual executor receipt, прочие admissions остаются действующими.
+Запросы чужого lab_scope/run/Job не принимаются. Одна TEST область не резервируется
+двумя pending laboratory Job. Повтор execute одного job не закрывает чужой live
+context. Прямой STOP/технические receipts после отзыва работают по прежней модели.
+Интерактивные отчёты отмечены operator_events и не обещают seed-only replay.

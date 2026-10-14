@@ -655,3 +655,31 @@ Windows final transfer11, client155, реальный Edge journey1 и static/bu
 Матрица и ограничения: [Integration-settings-transfer](implementation-reports/Integration-settings-transfer.md).
 Host provisioning, laboratory events/per-job cancel и остальные M4/M5 actions
 остаются отдельными gates; полный backend/browser suite не повторялся.
+
+
+## Integration-laboratory-control — назначение 2026-10-15
+
+Поручение оператора: следующий стык — события лаборатории и отмена одного job.
+Base c94f1b3, codex/integration-laboratory-control, отдельный checkout.
+Зона координатора: canonical payload/read DTO/exports, JobOwner scoped cancel,
+core lab lifecycle/current-job views, lab event owner source path, laboratory UI
+и shared client, целевые проверки. Не дублировать Job state в reports.
+Событие — ограниченное наблюдение в точной TEST области активного лабораторного
+job, без вызова модели/смены канона. Отмена отзывает только его admission;
+RUNNING остаётся unknown до реальной квитанции исполнителя. Прямой STOP
+не зависит от этого пути. Без grants/deps/миграций/Compose/live API.
+Приёмка: exact Job CAS/run/scope, replay, post-cancel fence, bounded events,
+HTTP→owners и один browser journey; один affected Linux gate без full suites.
+
+
+### Приёмка Integration-laboratory-control
+
+Canonical Job projections/stop/event подключены к JobOwner и TEST MEMORY owner.
+Принимаются exact run/Job CAS/lab_scope, replay, bounded private observations,
+post-cancel fence и factual cancellation, без второго Job state в reports.
+Linux affected348 passed/4 Redis skips, client158, настоящий Edge1 и affected
+projection browser13; static/build passed. [Отчёт](implementation-reports/Integration-laboratory-control.md).
+Дальнейшее поручение оператора: последовательно завершить оставшиеся стыки
+панели, воспроизводимый локальный host setup и общий first-start/STOP/restart
+smoke с вымышленным профилем/mock, сохраняя и отправляя связные этапы отдельно.
+Платные API/секреты/реальные профили не требуются; остальные M4/M5 gates пока открыты.

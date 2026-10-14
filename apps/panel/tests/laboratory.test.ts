@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { PanelApi, ApiFailure } from '../src/shared/api.ts';
 import { laboratoryReports } from '../src/shared/validation.ts';
 import {
-  CATALOGUE, REAL_PHRASE, compare, createCommand, eventCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary, sortReports,
-  startProblem, stopCommand, titleOf,
+  CATALOGUE, REAL_PHRASE, compare, createCommand, eventProblem, isLive, labOpen, latestPerScenario, parseSummary, sortReports,
+  startProblem, titleOf,
 } from '../src/ui/laboratory/model.ts';
 import { startLaboratory } from '../src/shared/owner-commands.ts';
 import type { LaboratoryReport, RunSession, Scope } from '../src/shared/contracts.ts';
@@ -31,7 +31,7 @@ test('the catalogue has the twelve reference scenarios with readable titles and 
   assert.equal(titleOf('unknown-scenario'), 'unknown-scenario');
 });
 test('the runner summary is parsed exactly and anything else is not guessed', () => {
-  assert.deepEqual(parseSummary(summary('failed', 12, 2, 'seed-7', 'deadbeef0001')), { kind: 'mock', verdict: 'failed', checks: 12, failed: 2, seed: 'seed-7', digest: 'deadbeef0001' });
+  assert.deepEqual(parseSummary(summary('failed', 12, 2, 'seed-7', 'deadbeef0001')), { kind: 'mock', verdict: 'failed', checks: 12, failed: 2, seed: 'seed-7', digest: 'deadbeef0001', operatorEvents: 0 });
   for (const text of ['', 'passed', 'REAL passed: 1 checks, 0 failed; seed s; digest abcdef', 'MOCK passed: x checks, 0 failed; seed s; digest abcdef',
     'MOCK passed: 1 checks, 0 failed; seed s; digest XYZ', 'MOCK passed: 1 checks, 0 failed; seed ; digest abcdef0', 'prefix MOCK passed: 1 checks, 0 failed; seed s; digest abcdef0']) {
     assert.equal(parseSummary(text), null, text);
@@ -84,9 +84,7 @@ test('canonical start pins run CAS, backend scenario version and a separate TEST
   const run = startLaboratory(control, selected(), test_, 'lab-seed', 'req-1');
   assert.deepEqual([run.type, run.target, run.expected_version, run.scope], ['laboratory.start', 'laboratory', 17, control.scope]);
   assert.deepEqual(run.arguments.data, { scenario_id: 'api-cutoff', scenario_version: 2, lab_scope: test_, seed: 'lab-seed', mode: 'mock' });
-  const halt = stopCommand(test_, report('y', { version: 7, operation_id: 'lab-y' }), 'req-2');
-  assert.deepEqual([halt.type, halt.expected_version, halt.arguments.data], ['laboratory.stop', 7, { operation_id: 'lab-y' }]);
-  assert.deepEqual(eventCommand(test_, 'вымышленное событие', 'req-3').arguments.data, { text: 'вымышленное событие' });
+
 });
 
 test('creating the test area names only the persona and is addressed from the work scope', () => {
@@ -133,4 +131,10 @@ test('a start command carries the chosen scenario and seed, whatever they are', 
   assert.deepEqual([data.scenario_id, data.seed], ['same-nickname', 'seed-42']);
   const other = startLaboratory(control, selected('deletion-is-final'), test_, 'x.y:z', 'r').arguments.data as Record<string, unknown>;
   assert.deepEqual([other.scenario_id, other.seed], ['deletion-is-final', 'x.y:z']);
+});
+
+test('interactive observations are not a seed-only reproducibility claim', () => {
+  const a = report('interactive', { summary: 'MOCK passed: 1 checks, 0 failed; seed s; digest abcdef; operator_events 1' });
+  assert.equal(parseSummary(a.summary)?.operatorEvents, 1);
+  assert.equal(compare(a, a).verdict, 'not-comparable');
 });

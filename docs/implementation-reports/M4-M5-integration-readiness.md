@@ -1,3 +1,10 @@
+Актуализация координатора 2026-10-15: laboratory events/per-job cancel
+подключены к JobOwner и обычному TEST MEMORY owner:
+[Integration-laboratory-control](Integration-laboratory-control.md).
+Чтение запусков/Job CAS, bounded observations, factual cancellation и reload
+проверяются отдельно от прежних UI-only допущений ниже. Host provisioning
+и остальные M4/M5 действия ещё не закрыты этой приёмкой.
+
 Актуализация координатора 2026-10-15: selected settings TEST→WORK подключены
 через canonical preview/apply/status/history, явное подтверждение и partial
 reconciliation: [Integration-settings-transfer](Integration-settings-transfer.md).
