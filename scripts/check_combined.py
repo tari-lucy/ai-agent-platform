@@ -23,6 +23,15 @@ HELPERS = (
     "tests/storage",
     "tests/operations",
     "tests/access",
+    "tests/llm",
+    "tests/usage",
+    "tests/dialogue",
+    "tests/moderation",
+    "tests/extraction",
+    "tests/gamemaster",
+    "tests/development",
+    "tests/laboratory",
+    "tests/m3_review",
 )
 TESTS = (
     "tests/operations",
@@ -36,6 +45,15 @@ TESTS = (
     "tests/memory",
     "tests/social",
     "tests/probes/m0_05",
+    "tests/llm",
+    "tests/usage",
+    "tests/dialogue",
+    "tests/moderation",
+    "tests/extraction",
+    "tests/gamemaster",
+    "tests/development",
+    "tests/laboratory",
+    "tests/m3_review",
     "tests/probes/m0_06/test_configuration.py",
 )
 

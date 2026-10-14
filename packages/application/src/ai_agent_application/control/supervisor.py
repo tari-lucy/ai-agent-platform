@@ -541,7 +541,6 @@ class Supervisor:
         self.validate(admission)
         return admission
 
-
     async def refresh(self, admission: Admission, *, seconds: float | None = None) -> Admission:
         """Renew the SAME cancellation identity after current readiness checks.
 
@@ -557,14 +556,19 @@ class Supervisor:
         self.validate(admission)
         self._approval_valid(approval, self._run)
         if (approval.profile_version, approval.policy_version) != (
-            admission.freshness.profile_version, admission.freshness.policy_version
+            admission.freshness.profile_version,
+            admission.freshness.policy_version,
         ):
             self.critical_failure(ErrorCode.STALE_CONTEXT)
             raise ContractError(ErrorCode.STALE_CONTEXT)
         self._approval = approval
         renewed = Admission(
-            admission.id, admission.scope, admission.freshness, admission.kind,
-            min(self.clock.elapsed() + duration, approval.expires_at), admission.cancelled,
+            admission.id,
+            admission.scope,
+            admission.freshness,
+            admission.kind,
+            min(self.clock.elapsed() + duration, approval.expires_at),
+            admission.cancelled,
         )
         self._admissions[admission.id] = renewed
         return renewed

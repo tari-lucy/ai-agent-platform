@@ -385,14 +385,26 @@ def loopback_gateway(url):
 
 
 def test_connection_dropped_mid_stream_is_incomplete_not_a_result():
-    async def script(writer, reader):
-        send(writer, sse(chunk("обр"), chunk("ыв"), done=False))
-        await writer.drain()
-        writer.transport.abort()  # reset without a terminating chunk
-
     async def scenario():
+        delivered = asyncio.Event()
+        preview = ""
+
+        async def received(text):
+            nonlocal preview
+            preview += text
+            if preview == "обрыв":
+                delivered.set()
+
+        async def script(writer, reader):
+            send(writer, sse(chunk("обр"), chunk("ыв"), done=False))
+            await writer.drain()
+            # A reset can discard buffered bytes on Windows. Establish the
+            # promised partial stream at the client before inducing the failure.
+            await asyncio.wait_for(delivered.wait(), 5)
+            writer.transport.abort()
+
         async with Loopback(script) as url:
-            return await loopback_gateway(url).generate(request())
+            return await loopback_gateway(url).generate(request(), on_delta=received)
 
     result = run(scenario())
     assert result.status == "incomplete" and result.text is None and result.preview == "обрыв"

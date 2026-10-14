@@ -16,12 +16,19 @@
 ## Композиция
 
 ```python
-registry = ExtensionRegistry()                       # общий для store и сервисов
-store = SQLiteStore(db_path, extensions=registry)    # + upgrade/provision (админ)
+registry = ExtensionRegistry()  # общий для store и сервисов
+store = SQLiteStore(db_path, extensions=registry)  # + upgrade/provision (админ)
 index = SQLiteRecallIndex(index_path, dimension=embedder.dimension)  # None → только FTS
 health = IndexHealth()
-memory = MemoryService(store, memory_principal, registry, index=index, embedder=embedder,
-                       health=health, reader_access=(RecordAccess(reader_id),))
+memory = MemoryService(
+    store,
+    memory_principal,
+    registry,
+    index=index,
+    embedder=embedder,
+    health=health,
+    reader_access=(RecordAccess(reader_id),),
+)
 recall = RecallService(store, memory_principal, index, embedder=embedder, health=health)
 ```
 
