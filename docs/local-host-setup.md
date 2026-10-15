@@ -20,6 +20,28 @@ python -m ai_agent_core.local_host init --root /abs/path/to/host
 (1..7, по умолчанию 4), `--permission-days` (1..90, по умолчанию 30),
 `--migrations` (по умолчанию `migrations/` репозитория, не от cwd).
 
+Для ручных решений по развитию и проверки переноса настроек подготовьте новый
+каталог с явным opt-in:
+
+```text
+python -m ai_agent_core.local_host init --root /abs/path/to/host --operator-controls
+```
+
+Режим добавляет отдельную `persona-settings-test` с независимым начальным
+CharacterState и копией данных принятого профиля, пустыми памятью/отношениями и
+своими GM-настройками. Пул `persona-test-N` остаётся пустым для лаборатории;
+при этом режиме `--test-scopes` ограничен 1..6 (всего не больше восьми областей).
+Не используйте каталог с существующими данными: автоматической миграции прав
+и команды включения режима для старого runtime в этой задаче нет.
+
+В панели выберите TEST settings → «Персонаж» для правки канона/стиля с проверкой
+и digest, либо «Сюжет и развитие» для интенсивности. Отдельный запуск TEST не
+нужен. Пауза GM управляет единственным рабочим run, из TEST она недоступна.
+Затем «Лаборатория» → выбрать ключи → предпросмотр → подтверждение переноса.
+Рабочий агент при применении переноса должен быть остановлен. Биография,
+отношения и накопленные значения CharacterState не переносятся.
+
+
 `init` применяет существующие миграции, создаёт профиль и состояние через
 `PersonaService`, Workspace/GM/Connection/LLMAssignment/Capability/Permission,
 права каталога и пул пустых TEST-областей. Ничего не перезаписывает: непустой
@@ -67,7 +89,20 @@ unknown; тарифов нет.
 
 Оператор только читает (с api_transfer) у PERSONA, MEMORY, GATEWAY, CHANNEL, JOBS,
 LLM, GM; в TEST-области — MEMORY, CATALOGUE, LABORATORY. Запись в WORKSPACE
-(Capability/Permission/Connection) доступна только во время `init`. После
+(Capability/Permission/Connection) в обычном режиме доступна только во время
+`init`. Явный `--operator-controls` сохраняет запись trusted WORKSPACE owner для
+ConsequencePlan/proof/OwnerOperation/журнала переноса и даёт оператору чтение
+этого owner с api_transfer. PERSONA и GM получают чтение MEMORY для проверки
+оснований. Оператор не получает прямой записи в storage.
+
+Важно: текущие storage grants имеют гранулярность owner, не kind. Поэтому trusted
+WORKSPACE owner в этом режиме технически может записывать и Permission;
+отдельный HTTP `permission.edit` остаётся закрытым. Это явный выбор init, а не
+скрытая выдача прав в serve. TEST settings получает только PERSONA/GM/WORKSPACE
+owner writes для метаданных, без model/jobs/channel capabilities. Простая правка
+флага в host.json не создаёт grants и не включает отсутствующие возможности.
+
+После
 `permission_expires_at` старт закрыт (`serve` пишет уведомление); продления
 командой пока нет.
 
@@ -82,7 +117,7 @@ PowerShell; при лишних правах или недоступности �
 Serve не исправляет ACL сам. В выводе используется относительное имя файла
 пароля без локального имени пользователя. Подробно: [combined review](implementation-reports/Integration-local-host-review.md).
 
-Текущая матрица host покрывает private mock dialogue/laboratory. Ручные development
-plans/receipts и перенос настроек требуют отдельного явного provisioning под
-новые owner paths; serve права не расширяет. Полный запуск с пользовательским
-профилем и настоящим API этой проверкой не объявляется готовым.
+Обычный режим покрывает private mock dialogue/laboratory; `--operator-controls`
+добавляет проверенные ручные development plans/receipts и settings transfer.
+[Приёмка](implementation-reports/Integration-host-controls.md). Полный запуск с
+пользовательским профилем и настоящим API этой проверкой не объявляется готовым.

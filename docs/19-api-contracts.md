@@ -388,3 +388,29 @@ WORKSPACE read/api_transfer/ACL. OwnerOperation — технический finge
 
 Host init должен явно подготовить нужные owner grants/record ACL; синтетический
 fixture не заменяет проверку host wiring. [Приёмка](implementation-reports/Integration-development-controls.md).
+
+
+### Prepared TEST configuration — 2026-10-15
+
+`init --operator-controls` — явная локальная подготовка нового runtime. Отдельная
+TEST settings partition содержит профиль/свежее состояние/GM без рабочей памяти;
+пустой лабораторный pool не используется как конфигурация. Обычный init остаётся
+узким. Serve не выдаёт grants, не переносит состояние и не включает режим по
+одному изменённому флагу config.
+
+Ручные persona.apply, GM intensity/rules и development controls принимают
+partition-only scope без вымышленного RunSession. Для неактивной области runtime
+проверяет её наличие в подготовленных scopes и authority, отсутствие agent/run/
+session, тот же workspace и действующую operator authority над текущим host.
+Это только явно перечисленные операции данных. Start/STOP/dialogue/laboratory
+control по-прежнему требуют текущего владельца run; inactive mutation не
+перенаправляет запрос в WORK. GM pause из TEST запрещена. Изменение TEST profile/
+rules не переводит независимый рабочий run в FAULTED. Текущие SQL grants/ACL и
+operator session проверяются прежними owners.
+
+Редактор существующего профиля использует `persona.validate-args` с полным
+Markdown и POST personas/{id}/validate; apply повторяет тот же документ/digest и
+CAS профиля. Definitions/initial values/bounds сохраняются при правке текста.
+Сравнение начальных и текущих значений показывает только отличие, его причина
+не выдумывается. Создание новых persona scopes/профилей из старой формы — другой
+путь; их provisioning и canonical feature wiring этой приёмкой не закрываются.

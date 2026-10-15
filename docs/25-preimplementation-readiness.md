@@ -3,8 +3,11 @@
 Дата: 2026-10-13. **Планирование завершено; M0-01–M0-06, M1-01–M1-06, M2-01–M2-07, M3-01–M3-04, M5-01–M5-02 интегрированы.**
 Среда, каркас, Compose, RU recall, безопасный bootstrap, contracts, SQLite и
 supervisor/direct STOP, durable jobs/Redis, telemetry/scheduler и
-authenticated HTTP/WS/service access проверены; dialogue/LLM runtime ещё не подключены. Текущие
-назначения/интеграция — [doc24](24-mvp-implementation-plan.md).
+authenticated HTTP/WS/service access проверены. M3 composition, private mock
+HTTP dialogue, production local host и ручные owner controls подключены;
+живой API и полный M4/M5 gate ещё не приняты. Фактические интеграционные стыки —
+[актуальная сверка](implementation-reports/M4-M5-integration-readiness.md).
+Текущие назначения/интеграция — [doc24](24-mvp-implementation-plan.md).
 Пользователь поручил самостоятельно довести план до конца; дополнительные
 технические defaults выбраны в этих пределах, а не выданы за отдельно
 произнесённое согласие по каждому пункту. История — [реестр D01–D52](07-decisions.md).

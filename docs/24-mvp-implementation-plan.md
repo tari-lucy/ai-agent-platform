@@ -15,6 +15,12 @@
 Обновлено координатором 2026-10-13 по явному согласованию оператора.
 Неперечисленные задачи сохраняют статус `planned`.
 
+Для M4 описания строк сохраняют исходную сдачу feature веток, а не текущую
+доступность backend. Актуальные принятые стыки и remaining owners смотрите в
+[сверке интеграции](implementation-reports/M4-M5-integration-readiness.md) и
+поздних секциях Integration-* этого каталога. Не реализовывать повторно маршрут
+только из-за исторического текста «backend отсутствует» в старой строке.
+
 | ID | Статус | Исполнитель / ветка | База / результат |
 | --- | --- | --- | --- |
 | M0-01 | integrated | Codex / task/m0-01-environment-audit | 4872a17; отчёт принят оператором, fast-forward в main, combined diff/check пройдены |
@@ -735,3 +741,24 @@ Windows DACL verification и port/static guards, реальные HTTP/browser/r
 один общий case), POSIX skip отдельно; настоящий host browser 1 passed;
 Linux host+development 30 passed/2 Windows skips. Ruff/mypy186/export/imports
 прошли; подробности и текущие ограничения — в отчёте.
+
+
+## Integration-host-controls — назначение 2026-10-15
+
+Поручение оператора после host review: подготовить явные минимальные права для
+ручных development controls и переноса настроек. Base 8f79796,
+codex/integration-host-controls, отдельный checkout координатора. Зона:
+local_host init/config/rights, canonical manual panel forms (development и
+редактор существующего профиля), целевые tests/docs. Без новых dependencies,
+миграций, изменения решений, paid/live calls или существующих runtime данных.
+Init --operator-controls opt-in готовит отдельную TEST область конфигурации,
+свежий профиль/состояние через прежнего владельца и GM settings; lab pool остаётся
+пустым. Serve не меняет grants. Приёмка: production init/serve → реальный HTTP
+apply/rollback, TEST edit/preview/transfer → WORK, persisted restart STOPPED;
+current grants/ACL и отрицательные пробы. Один affected набор и один browser путь.
+
+Приёмка Integration-host-controls: Windows affected 38 passed, Node159;
+Linux affected98 passed/2 Windows skips и финальные targeted controls3 passed.
+Ruff/mypy186/import/export/build прошли. Явный режим init и реальный browser
+TEST editor/intensity/confirmed transfer приняты: [отчёт](implementation-reports/Integration-host-controls.md).
+Новые persona scopes/прочие owner actions/live остаются отдельно.

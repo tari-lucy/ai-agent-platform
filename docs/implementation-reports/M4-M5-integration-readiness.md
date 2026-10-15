@@ -1,3 +1,9 @@
+Актуализация координатора 2026-10-15: явный init --operator-controls закрывает
+host grants для ручных development controls и TEST→WORK settings transfer;
+редактор существующего профиля использует настоящий Markdown API, TEST данные
+не требуют второго run. [Приёмка](Integration-host-controls.md). Новые persona
+scopes/формы, другие memory/usage actions и live остаются отдельными стыками.
+
 Актуализация координатора 2026-10-15: production local host/panel-dir принят
 на общей версии, native Windows HTTP/browser/STOP/restart:
 [combined review](Integration-local-host-review.md). Полный набор host grants
