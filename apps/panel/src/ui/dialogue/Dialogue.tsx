@@ -1,16 +1,19 @@
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
-import type { Briefing, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Briefing, OperationProjection, Receipt, RunSession, RunSessionPage, Scope, Utterance } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { acknowledgeReply } from '../../shared/owner-commands.ts';
 import { previewKey, type PrivatePreview } from '../../shared/private-preview.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
   afterSend, briefingStatuses, briefingTypes, buildTimeline, canSend, cancelBriefing, createBriefing,
-  generating, goal, messageCommand, openOperations, statusLabels, validBriefing, type Composer, type Entry,
+  generating, goal, latestRevisions, mayAcknowledge, messageCommand, messageProgress, openOperations, statusLabels, validBriefing,
+  type Composer, type Entry,
 } from './model.ts';
+import { historyNote, PAGE_BUDGET, PAGE_BUDGET_MAX, walk, type Page } from './history.ts';
+import { Timeline } from './Timeline.tsx';
 
 const when = (value: string) => formatTime(value, 'medium');
 
@@ -18,38 +21,45 @@ function useProjection<T>(api: PanelApi, scope: Scope, resource: string, read: (
   return useQuery({ queryKey: projectionKey(resource, scope), queryFn: ({ signal }) => read(scope, signal) });
 }
 
-function EntryRow({ entry, onVisible }: { entry: Entry; onVisible?: () => void }) {
-  const element = useRef<HTMLLIElement>(null);
-  useEffect(() => {
-    if (!onVisible || !element.current) return;
-    let intersects = false;
-    const check = () => { if (intersects && document.visibilityState === 'visible') onVisible(); };
-    const observer = new IntersectionObserver(([entry]) => {
-      intersects = entry.isIntersecting && entry.intersectionRatio > 0;
-      check();
-    });
-    observer.observe(element.current);
-    document.addEventListener('visibilitychange', check);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', check); };
-  }, [onVisible]);
-  const color = entry.status === 'done' || entry.status === 'saved' ? 'teal' :
-    entry.status === 'failed' || entry.status === 'unknown' ? 'orange' :
-      entry.status === 'cancelled' || entry.status === 'removed' ? 'gray' : 'blue';
-  return <li ref={element} className={`entry ${entry.kind}`}>
-    <Group justify="space-between" gap="xs">
-      <Text size="sm" fw={600}>{entry.author}</Text>
-      <Text size="xs" c="dimmed" title={entry.at}>{when(entry.at)}</Text>
-    </Group>
-    {entry.text === null ? <Text size="sm" c="dimmed" fs="italic">Текст недоступен.</Text> :
-      <Text className="plain-text">{entry.text}</Text>}
-    <Group gap="xs" mt={4}>
-      <Badge variant="light" color={color}>{statusLabels[entry.status]}</Badge>
-      <Text size="xs" c="dimmed">{entry.detail}</Text>
-    </Group>
-  </li>;
+function useWalk<T extends { id: string }>(
+  scope: Scope, resource: string, budget: number, poll: boolean,
+  read: (scope: Scope, signal: AbortSignal, cursor?: string) => Promise<Page<T>>,
+) {
+  return useQuery({
+    queryKey: [...projectionKey(resource, scope), 'walk', budget],
+    queryFn: ({ signal }) => walk<T>((cursor) => read(scope, signal, cursor), budget),
+    placeholderData: keepPreviousData,
+    refetchInterval: poll ? 3000 : false,
+  });
 }
 
-function Composer({ api, run, scope, budgetBlocked }: { api: PanelApi; run: RunSession | undefined; scope: Scope; budgetBlocked: boolean }) {
+// Back online or back in the tab: only re-read. A command is never replayed from here.
+function useReconnect(scope: Scope) {
+  const cache = useQueryClient();
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  useEffect(() => {
+    const reread = () => {
+      for (const resource of ['sources', 'utterances', 'deliveries', 'operations', 'sessions', 'private-api-status']) {
+        void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+      }
+    };
+    const up = () => { setOnline(true); reread(); };
+    const down = () => setOnline(false);
+    const visible = () => { if (document.visibilityState === 'visible') reread(); };
+    window.addEventListener('online', up); window.addEventListener('offline', down);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      window.removeEventListener('online', up); window.removeEventListener('offline', down);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [cache, scope]);
+  return online;
+}
+
+function Composer({ api, run, scope, budgetBlocked, operationRows, utteranceRows, onSent }: {
+  api: PanelApi; run: RunSession | undefined; scope: Scope; budgetBlocked: boolean;
+  operationRows: OperationProjection[]; utteranceRows: Utterance[]; onSent: () => void;
+}) {
   const cache = useQueryClient();
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<Composer>({ phase: 'idle' });
@@ -60,7 +70,7 @@ function Composer({ api, run, scope, budgetBlocked }: { api: PanelApi; run: RunS
       const receipt = await api.command(command) as Receipt;
       const next = afterSend(command, { receipt });
       setPhase(next);
-      if (next.phase === 'saved') setText('');
+      if (next.phase === 'saved') { setText(''); onSent(); }
     } catch (error) {
       setPhase(afterSend(command, { code: error instanceof ApiFailure ? error.code : 'NETWORK' }));
     } finally {
@@ -81,7 +91,16 @@ function Composer({ api, run, scope, budgetBlocked }: { api: PanelApi; run: RunS
       <Text size="xs" c="dimmed" role="status">{verdict.ok ? 'Готово к отправке.' : verdict.reason}</Text>
       <Button onClick={send} disabled={!verdict.ok}>{phase.phase === 'sending' ? 'Отправляем…' : 'Отправить'}</Button>
     </Group>
-    {phase.phase === 'saved' && <Alert color="teal" mt="sm" role="status">Сообщение принято ядром. Обработка выполняется отдельно.</Alert>}
+    {phase.phase === 'saved' && (() => {
+      const progress = messageProgress(phase.receipt, operationRows, utteranceRows);
+      const color = progress.stage === 'ready' ? 'teal' : progress.stage === 'failed' || progress.stage === 'unknown' ? 'orange' :
+        progress.stage === 'cancelled' ? 'gray' : 'blue';
+      return <Alert color={color} mt="sm" role="status" title={`Сообщение: ${progress.label}`}>
+        <Group gap="xs"><Badge variant="light" color={color}>{['Принято', 'Обрабатывается', 'Ответ готов'].includes(progress.label) ? progress.label : progress.stage}</Badge>
+          <Text size="sm">{progress.detail}</Text></Group>
+        <Text size="xs" c="dimmed" mt={4}>Путь: принято → обрабатывается → ответ готов. Статус берётся у ядра, а не угадывается.</Text>
+      </Alert>;
+    })()}
     {phase.phase === 'rejected' && <Alert color="orange" mt="sm" role="alert">
       {failureMessage(new ApiFailure(phase.code))} Сообщение не отправлено; текст сохранён в поле.</Alert>}
     {phase.phase === 'unknown' && <Alert color="orange" mt="sm" role="alert" title="Результат отправки неизвестен">
@@ -162,14 +181,26 @@ function MemoryStatus({ api, scope, enabled }: { api: PanelApi; scope: Scope; en
   </Paper>;
 }
 
+
 export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
-  const sources = useProjection(api, scope, 'sources', (s, signal) => api.inbound(s, signal));
-  const utterances = useProjection(api, scope, 'utterances', (s, signal) => api.utterances(s, signal));
-  const deliveries = useProjection(api, scope, 'deliveries', (s, signal) => api.deliveries(s, signal));
-  const operations = useProjection(api, scope, 'operations', (s, signal) => api.operations(s, signal));
-  const budget = useQuery({ queryKey: projectionKey('private-api-status', scope),
+  const online = useReconnect(scope);
+  const [budget, setBudget] = useState(PAGE_BUDGET);
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setTimeout(() => setWatching(false), 60000);
+    return () => clearTimeout(timer);
+  }, [watching]);
+  const operations = useWalk(scope, 'operations', budget, false, (s, signal, cursor) => api.operations(s, signal, cursor));
+  const operationRows = operations.data?.items ?? [];
+  // Poll while the core still owns an open operation, or briefly after a send: read-only refreshes.
+  const poll = openOperations(operationRows).length > 0 || watching;
+  const sources = useWalk(scope, 'sources', budget, poll, (s, signal, cursor) => api.inbound(s, signal, cursor));
+  const utterances = useWalk(scope, 'utterances', budget, poll, (s, signal, cursor) => api.utterances(s, signal, cursor));
+  const deliveries = useWalk(scope, 'deliveries', budget, poll, (s, signal, cursor) => api.deliveries(s, signal, cursor));
+  const budgetStatus = useQuery({ queryKey: projectionKey('private-api-status', scope),
     queryFn: ({ signal }) => api.privateApiStatus(scope, signal), refetchInterval: 15000 });
   const cache = useQueryClient();
   const preview = useQuery<PrivatePreview>({ queryKey: previewKey(scope), enabled: false });
@@ -187,14 +218,39 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       }
     }
   }
-  const privateRows = (utterances.data?.items ?? []).filter((row) => row.operation_id &&
+  const utteranceRows = utterances.data?.items ?? [];
+  const deliveryRows = deliveries.data?.items ?? [];
+  const privateRows = utteranceRows.filter((row) => row.operation_id &&
     row.audience_id === 'operator-panel' && row.scope.run_id === run?.run_id &&
-    !(deliveries.data?.items ?? []).some((d) => d.utterance_id === row.id && d.revision === row.revision && d.status === 'DELIVERED'));
-  const failed = [sources, utterances, deliveries, operations].filter((query) => query.isError);
-  const timeline = buildTimeline(sources.data?.items ?? [], utterances.data?.items ?? [], deliveries.data?.items ?? []);
-  const operationRows = operations.data?.items ?? [];
+    !deliveryRows.some((d) => d.utterance_id === row.id && d.revision === row.revision && d.status === 'DELIVERED'));
+  const queries = [sources, utterances, deliveries, operations];
+  const failed = queries.filter((query) => query.isError);
+  const walks = [sources, utterances, deliveries].map((query) => query.data).filter((value) => value !== undefined);
+  const timeline = buildTimeline(sources.data?.items ?? [], utteranceRows, deliveryRows);
   const summary = goal(run, operationRows);
-  const incomplete = [sources, utterances, deliveries].some((query) => query.data && !query.data.complete);
+  const note = historyNote(walks, budget);
+  const healthy = !failed.length && walks.length === 3 && walks.every((w) => w.error === null) && (deliveries.data?.complete ?? false);
+  const latest = useRef({ run, privateRows, utteranceRows, deliveryRows, healthy, scope });
+  useEffect(() => { latest.current = { run, privateRows, utteranceRows, deliveryRows, healthy, scope }; });
+  // Only a final, exact, newest revision that is really on screen in a visible tab is acknowledged.
+  const shown = useCallback((entry: Entry, ratio: number) => {
+    const state = latest.current;
+    const row = state.privateRows.find((r) => entry.key === 'out:' + r.utterance_id && entry.text === r.content);
+    const newest = row !== undefined && latestRevisions(state.utteranceRows).some((r) => r.id === row.id && r.revision === row.revision);
+    if (!row || !mayAcknowledge({
+      visibility: document.visibilityState, ratio, mode: state.scope.memory_mode, runActive: state.run?.state === 'ACTIVE',
+      runOpen: state.run?.activity === 'OPEN', sameRun: row.scope.run_id === state.run?.run_id, entryKey: entry.key, row,
+      shownText: entry.text, newestRevision: newest, delivered: false, streaming: false, readsHealthy: state.healthy,
+    })) return;
+    const key = row.id + ':' + row.revision;
+    if (automaticReceipts.current.has(key)) return; // one automatic attempt; a failure leaves the manual button
+    automaticReceipts.current.add(key);
+    void receiveReply(row);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const stream = preview.data?.status === 'preview' && preview.data.scope.run_id === run?.run_id && run?.state === 'ACTIVE' &&
+    preview.data.text !== '' && !timeline.some((entry) => entry.kind === 'reply' && entry.text?.startsWith(preview.data!.text)) ?
+    { text: preview.data.text, incomplete: preview.data.incomplete } : null;
+  const stale = failed.some((query) => query.data !== undefined);
   return <Stack gap="lg">
     <div><Text className="eyebrow">01 / Диалог</Text><Title order={1}>Разговор</Title></div>
     {scope.memory_mode === 'test' &&
@@ -205,42 +261,41 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       {summary.reasons.map((reason) => <Text key={reason} size="sm" c="dimmed">{reason}</Text>)}
       {!!summary.pending.length && <><Text size="sm" fw={500} mt="xs">Ожидающие дела ({openOperations(operationRows).length})</Text>
         <ul>{summary.pending.map((line) => <li key={line}><Text size="sm" className="plain-text">{line}</Text></li>)}</ul></>}
-      {preview.data?.status === 'preview' && preview.data.scope.run_id === run?.run_id && run?.state === 'ACTIVE' &&
-        <Paper withBorder p="xs" mt="sm" aria-label="Предварительный ответ">
-          <Text size="xs" c="dimmed">Предварительно{preview.data.incomplete ? ' · поток неполный' : ''}</Text>
-          <Text className="plain-text">{preview.data.text}</Text>
-        </Paper>}
     </Paper>
-    {!!failed.length && <Alert color="orange" title="Часть диалога недоступна">
-      {failureMessage(failed[0].error)} Лента может быть неполной. Попытки отправки не повторяются автоматически.</Alert>}
-    {incomplete && <Alert color="orange">Показана первая страница записей; более старые не загружены.</Alert>}
+    {!online && <Alert color="orange" role="alert" title="Нет связи с сервером">
+      Показаны последние полученные данные. Новые сообщения и ответы могут быть не видны; STOP отправляется отдельным запросом.
+      Сообщения не повторяются автоматически.</Alert>}
+    {!!failed.length && <Alert color="orange" role="alert" title={stale ? 'Данные могут быть устаревшими' : 'Часть диалога недоступна'}>
+      {failureMessage(failed[0].error)} {stale ? 'Показаны ранее полученные записи; обновить их не удалось.' : 'Лента может быть неполной.'}{' '}
+      Попытки отправки не повторяются автоматически.
+      <Button ml="sm" size="compact-sm" variant="light" onClick={() => void cache.invalidateQueries({ queryKey: ['projection'] })}>Перечитать</Button>
+    </Alert>}
     <Paper withBorder p="md" radius="lg">
-      <Title order={2} size="h4" mb="sm">Лента</Title>
+      <Group justify="space-between" mb="sm"><Title order={2} size="h4">Лента</Title>
+        {walks.length === 3 && <Text size="xs" c={note.tone === 'ok' ? 'dimmed' : 'orange.8'} role="status" data-history={note.tone}>{note.text}</Text>}</Group>
       {sources.isPending || utterances.isPending ? <Text size="sm">Получаем ленту…</Text> :
-        !timeline.length ? <Text size="sm" c="dimmed">Пока нет сообщений.</Text> :
-          <ol className="timeline" aria-label="Лента диалога" aria-live="polite">{timeline.map((entry) => <EntryRow key={entry.key} entry={entry} onVisible={run?.state === 'ACTIVE' && run.activity === 'OPEN' && scope.memory_mode === 'work' && deliveries.isSuccess && !failed.length ? () => {
-            const row = privateRows.find((r) => entry.key === 'out:' + r.utterance_id && entry.text === r.content && r.channel_ids.length === 1 && r.channel_ids[0] === 'operator-panel' && ['draft','approved'].includes(r.moderation_status));
-            if (!row) return;
-            const key = row.id + ':' + row.revision;
-            if (automaticReceipts.current.has(key)) return;
-            automaticReceipts.current.add(key);
-            void receiveReply(row);
-          } : undefined} />)}</ol>}
+        !timeline.length && !stream ? <Text size="sm" c="dimmed">Пока нет сообщений.</Text> :
+          <Timeline entries={timeline} stream={stream} onShown={run?.state === 'ACTIVE' ? shown : undefined} />}
+      {walks.length === 3 && note.tone !== 'ok' && budget < PAGE_BUDGET_MAX &&
+        <Button mt="sm" size="compact-sm" variant="light" onClick={() => setBudget((value) => Math.min(PAGE_BUDGET_MAX, value + PAGE_BUDGET))}>
+          {note.tone === 'error' ? 'Повторить загрузку истории' : 'Загрузить более ранние записи'}</Button>}
     </Paper>
     {receiptError && <Alert color="orange">{receiptError}</Alert>}
     {run?.state === 'ACTIVE' && privateRows.map((row) =>
       <Button key={row.id} variant="light" disabled={receiving !== null} onClick={() => void receiveReply(row)}>
         Подтвердить получение приватного ответа
       </Button>)}
-    {budget.data?.enabled && <Alert color={budget.data.attempts_remaining === 0 ? 'orange' : 'blue'} title="Лимит API">
-      Осталось {budget.data.attempts_remaining} из {budget.data.attempt_limit} запросов{budget.data.period === 'utc_day' ? ' за сутки' : ' за весь пробный период'}.
-      {budget.data.memory_processing && <Text size="sm">Для диалога доступно {budget.data.dialogue_remaining}. На фоновую память: {budget.data.memory_calls_used} из {budget.data.memory_daily_calls} запросов.</Text>}
-      {budget.data.resets_at && <> Обновление: {when(budget.data.resets_at)}.</>}
+    {budgetStatus.data?.enabled && <Alert color={budgetStatus.data.attempts_remaining === 0 ? 'orange' : 'blue'} title="Лимит API">
+      Осталось {budgetStatus.data.attempts_remaining} из {budgetStatus.data.attempt_limit} запросов{budgetStatus.data.period === 'utc_day' ? ' за сутки' : ' за весь пробный период'}.
+      {budgetStatus.data.memory_processing && <Text size="sm">Для диалога доступно {budgetStatus.data.dialogue_remaining}. На фоновую память: {budgetStatus.data.memory_calls_used} из {budgetStatus.data.memory_daily_calls} запросов.</Text>}
+      {budgetStatus.data.resets_at && <> Обновление: {when(budgetStatus.data.resets_at)}.</>}
       <Text size="xs" mt={4}>Начатые неудачные попытки тоже учитываются. Денежный расход показывается отдельно.</Text>
     </Alert>}
-    {budget.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
-    <Composer api={api} run={run} scope={scope} budgetBlocked={budget.data?.enabled === true && (budget.data.dialogue_remaining ?? budget.data.attempts_remaining) === 0} />
-    <MemoryStatus api={api} scope={scope} enabled={budget.data?.memory_processing === true} />
+    {budgetStatus.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
+    <Composer api={api} run={run} scope={scope} operationRows={operationRows} utteranceRows={utteranceRows}
+      onSent={() => setWatching(true)}
+      budgetBlocked={budgetStatus.data?.enabled === true && (budgetStatus.data.dialogue_remaining ?? budgetStatus.data.attempts_remaining) === 0} />
+    <MemoryStatus api={api} scope={scope} enabled={budgetStatus.data?.memory_processing === true} />
     <BriefingPanel api={api} scope={scope} run={run} />
   </Stack>;
 }

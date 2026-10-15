@@ -197,3 +197,85 @@ test('memory reserve belongs to the total and malformed cycle progress is reject
   assert.equal(memoryCycles(page,scope).items[0].status,'completed');
   assert.throws(() => memoryCycles({...page,items:[{...cycle,status:'running'}]},scope));
 });
+
+// ---- daily use: pagination, scroll, message path, acknowledgement ------------------------------
+import { historyNote, PAGE_BUDGET_MAX, walk } from '../src/ui/dialogue/history.ts';
+import { atBottom, plan, unseen } from '../src/ui/dialogue/scroll.ts';
+import { mayAcknowledge, messageProgress, type AckFacts } from '../src/ui/dialogue/model.ts';
+
+test('the five dialogue reads pass an optional cursor to the existing reader and validate it', async () => {
+  const paths: string[] = [];
+  const api = new PanelApi(fetcher(async (path) => { paths.push(path); return json(page([])); }));
+  await api.utterances(scope, undefined, 'c1'); await api.deliveries(scope, undefined, 'c2'); await api.briefings(scope, undefined, 'c3');
+  await api.inbound(scope, undefined, 'c4'); await api.operations(scope, undefined, 'c5');
+  assert.deepEqual(paths.map((path) => new URL(path, 'http://x').searchParams.get('cursor')), ['c1', 'c2', 'c3', 'c4', 'c5']);
+  await assert.rejects(api.inbound(scope, undefined, '../x'));
+});
+const rec = (id: string) => ({ id });
+const pages = (...chunks: string[][]) => async (cursor?: string) => {
+  const index = cursor === undefined ? 0 : Number(cursor);
+  return { items: chunks[index].map(rec), next_cursor: index + 1 < chunks.length ? String(index + 1) : null, complete: index + 1 >= chunks.length };
+};
+test('walk joins pages without duplicates, in server order, and says when history is whole', async () => {
+  const result = await walk(pages(['z', 'a'], ['a', 'm'], ['b']), 4);
+  assert.deepEqual(result.items.map((row) => row.id), ['z', 'a', 'm', 'b']);
+  assert.equal(result.complete, true); assert.equal(result.pages, 3); assert.equal(result.error, null);
+});
+test('walk stops at its budget and reports unfinished history, never the end', async () => {
+  const result = await walk(pages(['a'], ['b'], ['c'], ['d']), 2);
+  assert.equal(result.items.length, 2); assert.equal(result.complete, false); assert.equal(result.error, null);
+  assert.equal(historyNote([result], 2).tone, 'partial');
+  const huge = await walk(pages(...Array.from({ length: 60 }, (_, i) => [`r${i}`])), 1000);
+  assert.equal(huge.pages, PAGE_BUDGET_MAX);
+});
+test('a failed later page is shown as an error, a failed first page rejects, a stuck cursor cannot loop', async () => {
+  let call = 0;
+  const flaky = async (): Promise<{ items: { id: string }[]; next_cursor: string | null; complete: boolean }> => {
+    call += 1;
+    if (call === 2) throw new ApiFailure('NETWORK');
+    return { items: [rec('a')], next_cursor: 'n', complete: false };
+  };
+  const partial = await walk(flaky, 4);
+  assert.equal(partial.error, 'NETWORK'); assert.equal(partial.complete, false); assert.equal(partial.items.length, 1);
+  assert.equal(historyNote([partial], 4).tone, 'error');
+  await assert.rejects(walk(async () => { throw new ApiFailure('NETWORK'); }, 4));
+  const stuck = await walk(async () => ({ items: [rec('a')], next_cursor: 'same', complete: false }), 10);
+  assert.equal(stuck.error, 'NETWORK'); assert.equal(stuck.pages, 2);
+});
+test('time order is rebuilt from timestamps, so shuffled ids do not reorder the conversation', () => {
+  const rows = [source({ id: 'zzz', source_id: 'zzz', occurred_at: T(1) } as never), source({ id: 'aaa', source_id: 'aaa', occurred_at: T(9) } as never),
+    source({ id: 'mmm', source_id: 'mmm', occurred_at: T(5) } as never)];
+  assert.deepEqual(buildTimeline(rows, [], []).map((row) => row.key), ['in:zzz', 'in:mmm', 'in:aaa']);
+});
+test('scroll rules: follow only at the end, otherwise hold the anchor and count what is new', () => {
+  assert.equal(atBottom({ top: 952, height: 1500, client: 500 }), true);
+  assert.equal(atBottom({ top: 400, height: 1500, client: 500 }), false);
+  assert.deepEqual(plan(true, 10, 80), { kind: 'follow' });
+  assert.deepEqual(plan(false, 10, 80), { kind: 'anchor', offset: 70 });
+  assert.deepEqual(plan(false, null, 80), { kind: 'stay' });
+  assert.equal(unseen(['a', 'b', 'c', 'd'], 'b'), 2);
+  assert.equal(unseen(['a', 'b'], 'b'), 0);
+  assert.equal(unseen(['a', 'b'], null), 0);
+});
+test('message path is derived from core data and an absent projection is not a failure', () => {
+  const receipt = { request_id: 'r', scope: runScope, status: 'accepted', operation_id: 'o1' } as Receipt;
+  assert.equal(messageProgress(receipt, [], []).stage, 'accepted');
+  assert.equal(messageProgress(receipt, [operation({ status: 'QUEUED' })], []).stage, 'accepted');
+  assert.equal(messageProgress(receipt, [operation({ status: 'RUNNING' })], []).stage, 'processing');
+  assert.equal(messageProgress(receipt, [operation({ status: 'FAILED' })], []).stage, 'failed');
+  assert.equal(messageProgress(receipt, [operation({ status: 'CANCELLED' })], []).stage, 'cancelled');
+  assert.equal(messageProgress(receipt, [operation({ status: 'OUTCOME_UNKNOWN' })], []).stage, 'unknown');
+  assert.equal(messageProgress(receipt, [operation({ status: 'RUNNING' })], [utterance({ operation_id: 'o1' } as never)]).stage, 'ready');
+  assert.equal(messageProgress({ ...receipt, operation_id: null }, [operation()], []).stage, 'accepted');
+});
+test('acknowledge only a final exact newest revision that is really shown, in a visible work tab', () => {
+  const row = utterance({ audience_id: 'operator-panel', channel_ids: ['operator-panel'], moderation_status: 'approved', scope: runScope } as never);
+  const ok: AckFacts = { visibility: 'visible', ratio: 1, mode: 'work', runActive: true, runOpen: true, sameRun: true, entryKey: 'out:u1', row,
+    shownText: 'Ответ', newestRevision: true, delivered: false, streaming: false, readsHealthy: true };
+  assert.equal(mayAcknowledge(ok), true);
+  for (const bad of [{ visibility: 'hidden' }, { ratio: 0.3 }, { mode: 'test' }, { runActive: false }, { runOpen: false }, { sameRun: false },
+    { entryKey: 'stream' }, { shownText: 'Другой' }, { newestRevision: false }, { delivered: true }, { readsHealthy: false }, { row: undefined },
+    { row: { ...row, channel_ids: ['operator-panel', 'voice'] } }, { row: { ...row, moderation_status: 'blocked' } }] as Partial<AckFacts>[]) {
+    assert.equal(mayAcknowledge({ ...ok, ...bad }), false, JSON.stringify(Object.keys(bad)));
+  }
+});
