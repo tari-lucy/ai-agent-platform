@@ -1,5 +1,5 @@
 // One source of wire types; never duplicate or edit server exports here.
-export type { PrivateApiStatus, RulesData, OwnerOperation, OwnerOperationPage, LaboratoryRun, LaboratoryRuns, LaboratoryEventArguments, LaboratoryStopArguments,
+export type { MemoryCycle, MemoryCyclePage, ProcessMemoryCommand, PrivateApiStatus, RulesData, OwnerOperation, OwnerOperationPage, LaboratoryRun, LaboratoryRuns, LaboratoryEventArguments, LaboratoryStopArguments,
   SettingsTransferArguments, SettingsTransferItem, SettingsTransferPreview, SettingsTransferStatus, SettingsTransferOperation, SettingsTransferOperationPage,
   ApiError, Artifact, Briefing, BriefingPage, Capability, CapabilityPage, Claim, ClaimPage, ConnectionPage, ConsequencePlan, ControlCommand, CreateCommand, Delivery, DeliveryPage, EditCommand, Episode, EpisodePage,
   EventSubscription, ExecutePlanCommand, PlanCommand, Summary, SummaryPage, MessageCommand, OperationProjection, OperationProjectionPage,

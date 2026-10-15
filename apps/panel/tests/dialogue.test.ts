@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PanelApi, ApiFailure } from '../src/shared/api.ts';
-import { privateApiStatus, briefings, deliveries, inbound, operations, utterances } from '../src/shared/validation.ts';
+import { memoryCycles, privateApiStatus, briefings, deliveries, inbound, operations, utterances } from '../src/shared/validation.ts';
 import {
   afterSend, buildTimeline, canSend, cancelBriefing, createBriefing, deliveryStatus, generating, goal,
   latestRevisions, messageCommand, validBriefing,
@@ -183,4 +183,17 @@ test('private API counter rejects foreign scope, inconsistent totals and missing
     { resets_at: null }, { attempt_limit: 101 }, { attempts_used: -1 }, { attempts_used: 0.5 } ]) {
     assert.throws(() => privateApiStatus({ ...status, ...changed }, scope));
   }
+});
+
+
+test('memory reserve belongs to the total and malformed cycle progress is rejected', () => {
+  const status = {scope, enabled:true, period:'utc_day',attempt_limit:300,attempts_used:7,attempts_remaining:293,
+    checked_at:T(0),resets_at:'2026-10-15T00:00:00Z',memory_processing:true,memory_daily_calls:8,memory_calls_used:0,dialogue_remaining:285};
+  assert.equal(privateApiStatus(status,scope).dialogue_remaining,285);
+  assert.throws(() => privateApiStatus({...status,dialogue_remaining:293},scope));
+  assert.throws(() => privateApiStatus({...status,memory_calls_used:8},scope));
+  const cycle = {id:'cycle-a',scope,version:1,created_at:T(0),updated_at:T(0),episode_ids:['episode-a'],source_ids:['source-a'],input_digest:'a'.repeat(64),operation_id:'job-a',stage:'done',status:'completed',record_ids:['summary-a'],error_code:null};
+  const page = {items:[cycle],limit:50,next_cursor:null,complete:true};
+  assert.equal(memoryCycles(page,scope).items[0].status,'completed');
+  assert.throws(() => memoryCycles({...page,items:[{...cycle,status:'running'}]},scope));
 });

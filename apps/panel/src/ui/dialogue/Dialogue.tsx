@@ -1,7 +1,7 @@
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Briefing, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { acknowledgeReply } from '../../shared/owner-commands.ts';
@@ -18,11 +18,24 @@ function useProjection<T>(api: PanelApi, scope: Scope, resource: string, read: (
   return useQuery({ queryKey: projectionKey(resource, scope), queryFn: ({ signal }) => read(scope, signal) });
 }
 
-function EntryRow({ entry }: { entry: Entry }) {
+function EntryRow({ entry, onVisible }: { entry: Entry; onVisible?: () => void }) {
+  const element = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (!onVisible || !element.current) return;
+    let intersects = false;
+    const check = () => { if (intersects && document.visibilityState === 'visible') onVisible(); };
+    const observer = new IntersectionObserver(([entry]) => {
+      intersects = entry.isIntersecting && entry.intersectionRatio > 0;
+      check();
+    });
+    observer.observe(element.current);
+    document.addEventListener('visibilitychange', check);
+    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', check); };
+  }, [onVisible]);
   const color = entry.status === 'done' || entry.status === 'saved' ? 'teal' :
     entry.status === 'failed' || entry.status === 'unknown' ? 'orange' :
       entry.status === 'cancelled' || entry.status === 'removed' ? 'gray' : 'blue';
-  return <li className={`entry ${entry.kind}`}>
+  return <li ref={element} className={`entry ${entry.kind}`}>
     <Group justify="space-between" gap="xs">
       <Text size="sm" fw={600}>{entry.author}</Text>
       <Text size="xs" c="dimmed" title={entry.at}>{when(entry.at)}</Text>
@@ -130,6 +143,25 @@ function BriefingPanel({ api, scope, run }: { api: PanelApi; scope: Scope; run: 
   </Paper>;
 }
 
+function MemoryStatus({ api, scope, enabled }: { api: PanelApi; scope: Scope; enabled: boolean }) {
+  const cycles = useQuery({ queryKey: projectionKey('memory-cycles', scope),
+    queryFn: ({ signal }) => api.memoryCycles(scope, signal), enabled, refetchInterval: 15000 });
+  if (!enabled) return null;
+  const stages = { queued: 'В очереди', extract: 'Извлекает утверждения', consolidate: 'Пишет сводку', reflect: 'Осмысляет опыт', done: 'Завершено' };
+  const rows = [...(cycles.data?.items ?? [])].sort((a,b) => b.updated_at.localeCompare(a.updated_at)).slice(0,5);
+  return <Paper withBorder p="md" radius="lg" aria-label="Автономная память">
+    <Title order={2} size="h4">Автономная память</Title>
+    <Text size="sm" c="dimmed">После смены суток UTC агент обрабатывает подтверждённые разговоры. STOP и пауза откладывают обработку до продолжения работы. При нехватке лимита остаток переносится на следующие сутки.</Text>
+    {cycles.isError ? <Alert color="orange">{failureMessage(cycles.error)}</Alert> :
+      !rows.length ? <Text size="sm">Циклов пока нет. Разговоры текущих суток ожидают следующего обновления.</Text> :
+        rows.map((row) => <Text key={row.id} size="sm" c={row.status === 'failed' || row.status === 'unknown' ? 'orange.8' : undefined}>
+          {when(row.updated_at)} · {stages[row.stage]} · {row.episode_ids.length} эпизодов
+          {(row.status === 'failed' || row.status === 'unknown') && <> · Требуется проверка ({row.error_code}). Автоматического повтора нет.</>}
+        </Text>)}
+    {cycles.data && !cycles.data.complete && <Text size="xs" c="orange.8">Показана часть журнала циклов.</Text>}
+  </Paper>;
+}
+
 export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
@@ -141,6 +173,7 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
     queryFn: ({ signal }) => api.privateApiStatus(scope, signal), refetchInterval: 15000 });
   const cache = useQueryClient();
   const preview = useQuery<PrivatePreview>({ queryKey: previewKey(scope), enabled: false });
+  const automaticReceipts = useRef(new Set<string>());
   const [receiving, setReceiving] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   async function receiveReply(row: import('../../shared/contracts.ts').Utterance) {
@@ -149,7 +182,7 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
     catch (error) { setReceiptError(failureMessage(error)); }
     finally {
       setReceiving(null);
-      for (const resource of ['deliveries', 'episodes', 'sources']) {
+      for (const resource of ['deliveries', 'episodes', 'sources', 'memory-cycles']) {
         void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
       }
     }
@@ -185,7 +218,14 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Title order={2} size="h4" mb="sm">Лента</Title>
       {sources.isPending || utterances.isPending ? <Text size="sm">Получаем ленту…</Text> :
         !timeline.length ? <Text size="sm" c="dimmed">Пока нет сообщений.</Text> :
-          <ol className="timeline" aria-label="Лента диалога" aria-live="polite">{timeline.map((entry) => <EntryRow key={entry.key} entry={entry} />)}</ol>}
+          <ol className="timeline" aria-label="Лента диалога" aria-live="polite">{timeline.map((entry) => <EntryRow key={entry.key} entry={entry} onVisible={run?.state === 'ACTIVE' && run.activity === 'OPEN' && scope.memory_mode === 'work' && deliveries.isSuccess && !failed.length ? () => {
+            const row = privateRows.find((r) => entry.key === 'out:' + r.utterance_id && entry.text === r.content && r.channel_ids.length === 1 && r.channel_ids[0] === 'operator-panel' && ['draft','approved'].includes(r.moderation_status));
+            if (!row) return;
+            const key = row.id + ':' + row.revision;
+            if (automaticReceipts.current.has(key)) return;
+            automaticReceipts.current.add(key);
+            void receiveReply(row);
+          } : undefined} />)}</ol>}
     </Paper>
     {receiptError && <Alert color="orange">{receiptError}</Alert>}
     {run?.state === 'ACTIVE' && privateRows.map((row) =>
@@ -194,11 +234,13 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       </Button>)}
     {budget.data?.enabled && <Alert color={budget.data.attempts_remaining === 0 ? 'orange' : 'blue'} title="Лимит API">
       Осталось {budget.data.attempts_remaining} из {budget.data.attempt_limit} запросов{budget.data.period === 'utc_day' ? ' за сутки' : ' за весь пробный период'}.
+      {budget.data.memory_processing && <Text size="sm">Для диалога доступно {budget.data.dialogue_remaining}. На фоновую память: {budget.data.memory_calls_used} из {budget.data.memory_daily_calls} запросов.</Text>}
       {budget.data.resets_at && <> Обновление: {when(budget.data.resets_at)}.</>}
       <Text size="xs" mt={4}>Начатые неудачные попытки тоже учитываются. Денежный расход показывается отдельно.</Text>
     </Alert>}
     {budget.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
-    <Composer api={api} run={run} scope={scope} budgetBlocked={budget.data?.enabled === true && budget.data.attempts_remaining === 0} />
+    <Composer api={api} run={run} scope={scope} budgetBlocked={budget.data?.enabled === true && (budget.data.dialogue_remaining ?? budget.data.attempts_remaining) === 0} />
+    <MemoryStatus api={api} scope={scope} enabled={budget.data?.memory_processing === true} />
     <BriefingPanel api={api} scope={scope} run={run} />
   </Stack>;
 }

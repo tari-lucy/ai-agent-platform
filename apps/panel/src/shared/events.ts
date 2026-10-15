@@ -97,7 +97,7 @@ export function eventsUrl(location: Pick<Location, 'protocol' | 'host'>): string
 export const affectedResources: Record<PanelEvent['type'], readonly string[]> = {
   'run.changed': ['sessions'], 'job.changed': ['operations', 'jobs'],
   'utterance.changed': ['utterances'], 'delivery.changed': ['deliveries'],
-  'memory.changed': ['sources', 'episodes', 'claims', 'summaries'],
+  'memory.changed': ['sources', 'episodes', 'claims', 'summaries', 'memory-cycles', 'private-api-status'],
   'relationship.changed': ['people', 'relationships', 'topics', 'promises'],
   'arc.changed': ['arcs', 'opportunities'], 'change.changed': ['changes', 'character-states'],
   'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities'],

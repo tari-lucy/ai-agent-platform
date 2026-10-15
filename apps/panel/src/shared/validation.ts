@@ -478,10 +478,38 @@ export function privateApiStatus(value: unknown, selected: Scope): import('./con
     Number.isSafeInteger(value.attempts_used) && Number(value.attempts_used) >= 0);
   if (value.enabled) {
     demand(['lifetime', 'utc_day'].includes(String(value.period)) &&
-      Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= 1 && Number(value.attempt_limit) <= 100 &&
+      Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= 1 &&
       value.attempts_remaining === Math.max(0, Number(value.attempt_limit) - Number(value.attempts_used)) &&
       (value.period === 'utc_day' ? date(value.resets_at) && Date.parse(String(value.resets_at)) > Date.parse(String(value.checked_at)) : value.resets_at === null));
   } else demand(value.period === null && value.attempt_limit === null && value.attempts_remaining === null &&
     value.attempts_used === 0 && value.resets_at === null);
+  if (value.memory_processing === true) {
+    demand(value.enabled === true && value.period === 'utc_day' &&
+      Number.isSafeInteger(value.memory_daily_calls) && Number(value.memory_daily_calls) >= 3 &&
+      Number(value.memory_daily_calls) <= 32 && Number(value.memory_daily_calls) < Number(value.attempt_limit) &&
+      Number.isSafeInteger(value.memory_calls_used) && Number(value.memory_calls_used) >= 0 && Number(value.memory_calls_used) <= Number(value.attempts_used) &&
+      value.dialogue_remaining === Math.max(0, Number(value.attempts_remaining) - Math.max(0, Number(value.memory_daily_calls)-Number(value.memory_calls_used))));
+  } else demand((value.memory_processing === undefined || value.memory_processing === false) &&
+    (value.memory_daily_calls === undefined || value.memory_daily_calls === 0) &&
+    (value.memory_calls_used === undefined || value.memory_calls_used === 0) &&
+    (value.dialogue_remaining == null || value.dialogue_remaining === value.attempts_remaining));
   return value as import('./contracts.ts').PrivateApiStatus;
+}
+
+
+export function memoryCycles(value: unknown, selected: Scope): import('./contracts.ts').MemoryCyclePage {
+  page(value, selected);
+  demand(value.items.every((r) =>
+    Array.isArray(r.episode_ids) && r.episode_ids.length >= 1 && r.episode_ids.length <= 10 && r.episode_ids.every(id) &&
+    Array.isArray(r.source_ids) && r.source_ids.length >= 1 && r.source_ids.length <= 20 && r.source_ids.every(id) &&
+    typeof r.input_digest === 'string' && /^[a-f0-9]{64}$/.test(r.input_digest) &&
+    (r.operation_id == null || id(r.operation_id)) &&
+    ['queued', 'extract', 'consolidate', 'reflect', 'done'].includes(String(r.stage)) &&
+    ['queued', 'running', 'completed', 'failed', 'unknown'].includes(String(r.status)) &&
+    (r.status === 'completed') === (r.stage === 'done') &&
+    (r.status !== 'queued' || r.stage === 'queued') &&
+    (['failed','unknown'].includes(String(r.status)) ? typeof r.error_code === 'string' : r.error_code == null) &&
+    Array.isArray(r.record_ids) && r.record_ids.length <= 100 && r.record_ids.every(id) &&
+    date(r.created_at) && date(r.updated_at)));
+  return value as import('./contracts.ts').MemoryCyclePage;
 }
