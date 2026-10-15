@@ -11,8 +11,8 @@ from .process import exclusive_host
 
 def configure_budget(root: Path, *, limit: int, period: Literal["lifetime", "utc_day"]) -> None:
     host = paths(root)
-    config = load_config(host)
     with exclusive_host(root):
+        config = load_config(host)
         if config.live is None:
             raise HostError("LIVE_NOT_PREPARED")
         data = config.model_dump(mode="json")

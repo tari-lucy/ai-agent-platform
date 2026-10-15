@@ -107,8 +107,9 @@ def test_occupied_port_is_refused_before_build(monkeypatch, tmp_path):
         permission_expires_at="2099-01-01T00:00:00+00:00",
     )
     monkeypatch.setattr(serve, "load_config", lambda _: config)
+    monkeypatch.setattr(serve, "_prepare", lambda *a, **k: None)
     monkeypatch.setattr(
-        serve, "build", lambda *a, **k: pytest.fail("opened runtime before owning port")
+        serve, "_build", lambda *a, **k: pytest.fail("opened runtime before owning port")
     )
     with socket.socket() as occupied:
         occupied.bind(("127.0.0.1", 0))

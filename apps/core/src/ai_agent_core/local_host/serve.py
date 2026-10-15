@@ -12,6 +12,7 @@ from ai_agent_adapters.llm import ADAPTER_ID
 from ai_agent_adapters.recall import SQLiteRecallIndex
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.laboratory import LabRunner
+from ai_agent_application.llm import ProviderFactory
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.storage import RecordAccess
 from ai_agent_contracts.codec import ContractError
@@ -51,6 +52,21 @@ def build(
     env_file: Path | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     """Compose the app. Returns it with a closer for the indexes this function opened."""
+    prepared = _prepare(
+        host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
+    )
+    return _build(host, config, prepared)
+
+
+def _prepare(
+    host: HostPaths,
+    config: HostConfig,
+    *,
+    provider: str,
+    port: int | None,
+    panel_dir: Path | None,
+    env_file: Path | None,
+) -> tuple[ProviderFactory, Path | None, str, int]:
     if port is not None and not 1024 <= port <= 65535:
         raise HostError("INVALID_OPTION")
     factory = provider_factory(provider, live=config.live, env_file=env_file)
@@ -60,6 +76,13 @@ def build(
     panel = None if panel_dir is None else validate(panel_dir, host.root)
     number = port or config.port
     secret = read_secret(host.password_hash)
+    return factory, panel, secret, number
+
+
+def _build(
+    host: HostPaths, config: HostConfig, prepared: tuple[ProviderFactory, Path | None, str, int]
+) -> tuple[FastAPI, Callable[[], None]]:
+    factory, panel, secret, number = prepared
     work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
     scopes = (work, *(test_scope(work, space) for space in config.test_space_ids))
     if config.settings_space_id is not None:
@@ -140,44 +163,49 @@ def serve(
     open_browser: bool = False,
 ) -> None:
     host = paths(root)
-    config = load_config(host)
-    number = config.port if port is None else port
-    if not 1024 <= number <= 65535:
-        raise HostError("INVALID_OPTION")
-    if open_browser and panel_dir is None:
-        raise HostError("PANEL_REQUIRED")
-    with exclusive_host(host.root), loopback_socket(number) as listener:
-        app, close = build(
+    if not host.root.is_dir():
+        raise HostError("INIT_INCOMPLETE")
+    # Read configuration while holding ownership, so an offline cap update cannot race startup.
+    with exclusive_host(host.root):
+        config = load_config(host)
+        number = config.port if port is None else port
+        if not 1024 <= number <= 65535:
+            raise HostError("INVALID_OPTION")
+        if open_browser and panel_dir is None:
+            raise HostError("PANEL_REQUIRED")
+        prepared = _prepare(
             host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
         )
-        stopped = threading.Event()
-        browser = None
-        try:
-            server = uvicorn.Server(
-                uvicorn.Config(
-                    app,
-                    host=LOOPBACK,
-                    port=number,
-                    workers=1,
-                    access_log=False,
-                    log_level="warning",
-                    ws="websockets",
-                    ws_per_message_deflate=False,
-                    ws_max_size=4096,
-                    ws_max_queue=1,
-                    backlog=128,
-                    timeout_keep_alive=5,
+        with loopback_socket(number) as listener:
+            app, close = _build(host, config, prepared)
+            stopped = threading.Event()
+            browser = None
+            try:
+                server = uvicorn.Server(
+                    uvicorn.Config(
+                        app,
+                        host=LOOPBACK,
+                        port=number,
+                        workers=1,
+                        access_log=False,
+                        log_level="warning",
+                        ws="websockets",
+                        ws_per_message_deflate=False,
+                        ws_max_size=4096,
+                        ws_max_queue=1,
+                        backlog=128,
+                        timeout_keep_alive=5,
+                    )
                 )
-            )
-            if open_browser:
-                browser = threading.Thread(
-                    target=open_when_ready, args=(server, number, stopped), daemon=True
-                )
-                browser.start()
-            print(f"panel/API: http://{LOOPBACK}:{number}/ ; agent starts STOPPED", flush=True)
-            server.run(sockets=[listener])
-        finally:
-            stopped.set()
-            if browser is not None:
-                browser.join(timeout=1)
-            close()
+                if open_browser:
+                    browser = threading.Thread(
+                        target=open_when_ready, args=(server, number, stopped), daemon=True
+                    )
+                    browser.start()
+                print(f"panel/API: http://{LOOPBACK}:{number}/ ; agent starts STOPPED", flush=True)
+                server.run(sockets=[listener])
+            finally:
+                stopped.set()
+                if browser is not None:
+                    browser.join(timeout=1)
+                close()
