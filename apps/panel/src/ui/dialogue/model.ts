@@ -150,3 +150,41 @@ export function validBriefing(content: string, expiresAt: string, now: number): 
   if (when - now > 366 * 86400000) return 'Срок не может превышать года.';
   return null;
 }
+
+// ---- message path: accepted → processing → ready, or an explained failure ---------------------
+// Derived only from core data: the receipt, the operation projection and the stored reply. A
+// missing projection row means "not yet known", never "failed" or "done".
+export type Stage = 'accepted' | 'processing' | 'ready' | 'failed' | 'cancelled' | 'unknown';
+export type Progress = { stage: Stage; label: string; detail: string };
+export function messageProgress(receipt: Receipt, operations: OperationProjection[], utterances: Utterance[]): Progress {
+  const id = receipt.operation_id ?? null;
+  if (id !== null && utterances.some((row) => row.operation_id === id)) {
+    return { stage: 'ready', label: 'Ответ готов', detail: 'Ядро сохранило ответ персонажа.' };
+  }
+  const row = id === null ? undefined : operations.find((item) => item.operation_id === id);
+  if (!row) return { stage: 'accepted', label: 'Принято', detail: 'Ядро приняло сообщение. Статус обработки уточняется.' };
+  switch (row.status) {
+    case 'RUNNING': return { stage: 'processing', label: 'Обрабатывается', detail: 'Персонаж готовит ответ.' };
+    case 'SUCCEEDED': return { stage: 'processing', label: 'Обработка завершена', detail: 'Ответ ещё не получен панелью.' };
+    case 'FAILED': return { stage: 'failed', label: 'Ошибка обработки', detail: 'Ответа нет. Сообщение сохранено; панель не отправит его повторно сама.' };
+    case 'CANCELLED': return { stage: 'cancelled', label: 'Обработка отменена', detail: 'Ответ не будет создан для этого сообщения.' };
+    case 'OUTCOME_UNKNOWN': return { stage: 'unknown', label: 'Исход неизвестен', detail: 'Ядро не знает, получен ли ответ. Автоматического повтора нет.' };
+    case 'EXPIRED': return { stage: 'unknown', label: 'Срок обработки истёк', detail: 'Ответ мог не быть создан. Автоматического повтора нет.' };
+    default: return { stage: 'accepted', label: 'Принято', detail: 'Сообщение ждёт своей очереди.' };
+  }
+}
+
+// ---- delivery confirmation: only a final reply really shown in a visible tab -------------------
+export type AckFacts = {
+  visibility: string; ratio: number; mode: Scope['memory_mode']; runActive: boolean; runOpen: boolean;
+  sameRun: boolean; entryKey: string; row: Utterance | undefined; shownText: string | null; newestRevision: boolean;
+  delivered: boolean; streaming: boolean; readsHealthy: boolean;
+};
+export const VISIBLE_RATIO = 0.6;
+export function mayAcknowledge(f: AckFacts): boolean {
+  return f.visibility === 'visible' && f.ratio >= VISIBLE_RATIO && f.mode === 'work' && f.runActive && f.runOpen &&
+    f.sameRun && !!f.row && f.entryKey === 'out:' + f.row.utterance_id && f.shownText === f.row.content &&
+    f.newestRevision && !f.delivered && !f.streaming && f.readsHealthy &&
+    f.row.channel_ids.length === 1 && f.row.channel_ids[0] === 'operator-panel' &&
+    ['draft', 'approved'].includes(f.row.moderation_status);
+}

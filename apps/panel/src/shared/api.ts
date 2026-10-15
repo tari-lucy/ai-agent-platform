@@ -190,21 +190,22 @@ export class PanelApi {
   async profiles(scope: Scope, signal?: AbortSignal): Promise<ProfilePage> {
     return profiles(await this.#read('personas', scope, signal), scope);
   }
-  // M4-02 dialogue projections: server-ordered first page (limit 50); incompleteness is returned.
-  async utterances(scope: Scope, signal?: AbortSignal): Promise<UtterancePage> {
-    return utterances(await this.#read('utterances', scope, signal), scope);
+  // M4-02 dialogue projections: server order is by record id, not time; a cursor continues it.
+  // Incompleteness is returned, never assumed away.
+  async utterances(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<UtterancePage> {
+    return utterances(await this.#read('utterances', scope, signal, cursor), scope);
   }
-  async deliveries(scope: Scope, signal?: AbortSignal): Promise<DeliveryPage> {
-    return deliveries(await this.#read('deliveries', scope, signal), scope);
+  async deliveries(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<DeliveryPage> {
+    return deliveries(await this.#read('deliveries', scope, signal, cursor), scope);
   }
-  async briefings(scope: Scope, signal?: AbortSignal): Promise<BriefingPage> {
-    return briefings(await this.#read('briefings', scope, signal), scope);
+  async briefings(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<BriefingPage> {
+    return briefings(await this.#read('briefings', scope, signal, cursor), scope);
   }
-  async inbound(scope: Scope, signal?: AbortSignal): Promise<SourcePage> {
-    return inbound(await this.#read('sources', scope, signal), scope);
+  async inbound(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {
+    return inbound(await this.#read('sources', scope, signal, cursor), scope);
   }
-  async operations(scope: Scope, signal?: AbortSignal): Promise<OperationProjectionPage> {
-    return operations(await this.#read('operations', scope, signal), scope);
+  async operations(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<OperationProjectionPage> {
+    return operations(await this.#read('operations', scope, signal, cursor), scope);
   }
   // M4-04 memory reads. A cursor continues the server order; it never widens rights.
   async sources(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {

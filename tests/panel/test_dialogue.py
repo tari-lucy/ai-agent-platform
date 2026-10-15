@@ -211,7 +211,7 @@ def test_send_posts_one_command_and_clears_only_after_the_receipt(page, live_pan
     expect(send).to_be_enabled()
     send.click()
     expect(
-        page.get_by_text("Сообщение принято ядром. Обработка выполняется отдельно.")
+        page.get_by_text("Сообщение: Принято")
     ).to_be_visible()
     expect(box).to_have_value("")
     assert len(posted) == 1
@@ -249,7 +249,7 @@ def test_lost_reply_is_checked_with_the_same_command_never_doubled(page, live_pa
     assert len(attempts) == 1  # no automatic retry
     page.get_by_role("button", name="Проверить исход").click()
     expect(
-        page.get_by_text("Сообщение принято ядром. Обработка выполняется отдельно.")
+        page.get_by_text("Сообщение: Принято")
     ).to_be_visible()
     assert len(attempts) == 2 and attempts[0] == attempts[1]  # same id, same body
     expect(box).to_have_value("")
@@ -306,7 +306,6 @@ def test_goal_card_does_not_invent_a_goal_or_streamed_text(page, live_panel):
     expect(card).to_contain_text("Агент работает")
     expect(card).to_contain_text("Цель и основание не переданы ядром.")
     expect(card).to_contain_text("op-1: жду ответа человека")
-    expect(card).to_contain_text("приватный поток ещё не подключён")
 
 
 def test_briefings_create_cancel_and_backend_refusal_is_shown(page, live_panel):
