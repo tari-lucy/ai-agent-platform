@@ -1,5 +1,6 @@
 """Closed extraction schemas and reports (M3-01). The model proposes; the validator decides."""
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
@@ -73,3 +74,38 @@ class ExtractionReport:
     failure: str | None = None
     attempts: int = 0
     notes: tuple[str, ...] = field(default=())
+    offered: int = 0  # sources that actually reached the model
+    proposed: int = 0  # proposals the model returned before validation
+
+    @property
+    def outcome(self) -> str:
+        """Why the result looks the way it does; the empty answer is told from a rejection."""
+        if self.status in ("failed", "cancelled", "not_admitted"):
+            return self.status
+        if self.offered == 0:
+            return "no_usable_sources"
+        if self.proposed == 0:
+            return "model_returned_nothing"
+        return "accepted" if self.accepted else "all_rejected"
+
+    def diagnosis(self) -> str:
+        """Counts and fixed reason codes only: no prompt, answer, quote, id or endpoint."""
+        reasons = Counter(r.reason for r in self.rejected)
+        skipped = Counter(s.reason for s in self.skipped)
+        parts = [
+            f"outcome={self.outcome}",
+            f"offered={self.offered}",
+            f"proposed={self.proposed}",
+            f"accepted={sum(not a.duplicate for a in self.accepted)}",
+            f"duplicate={sum(a.duplicate for a in self.accepted)}",
+            f"rejected={_codes(reasons)}",
+            f"skipped={_codes(skipped)}",
+            f"attempts={self.attempts}",
+        ]
+        if self.failure is not None:
+            parts.append(f"failure={self.failure}")
+        return " ".join(parts)
+
+
+def _codes(counts: Counter[str]) -> str:
+    return ",".join(f"{code}:{counts[code]}" for code in sorted(counts)) or "-"

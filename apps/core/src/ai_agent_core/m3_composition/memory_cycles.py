@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -374,6 +375,7 @@ class DailyMemory:
             }
             today = rt.supervisor.clock.utc().replace(hour=0, minute=0, second=0, microsecond=0)
             selected: list[str] = []
+            deferred: Counter[str] = Counter()
             after = None
             repo = rt.store.repository(Episode, OPERATOR, run.scope)
             for _ in range(50):
@@ -383,7 +385,8 @@ class DailyMemory:
                         continue
                     try:
                         await pairs(rt, run.scope, [*selected, row.id])
-                    except ContractError:
+                    except ContractError as error:
+                        deferred[error.error.code.value] += 1
                         continue
                     selected.append(row.id)
                     if len(selected) == MAX_EPISODES:
@@ -391,6 +394,13 @@ class DailyMemory:
                 if len(selected) == MAX_EPISODES or len(rows) < 200:
                     break
                 after = rows[-1].id
+            if selected or deferred:
+                # Counts and fixed codes only: which experience waits, never what it contains.
+                logging.getLogger(__name__).info(
+                    "Daily memory batch: selected=%d deferred=%s",
+                    len(selected),
+                    ",".join(f"{k}:{v}" for k, v in sorted(deferred.items())) or "-",
+                )
             if selected:
                 await self.enqueue(selected)
             self.last_error = None
