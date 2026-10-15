@@ -149,3 +149,27 @@ def test_groups_and_claim_conflicts(tmp_path):
         index.close()
 
     run(scenario())
+
+
+def test_fts_put_rebuild_and_search_work_without_optional_vector_package(tmp_path, monkeypatch):
+    from ai_agent_adapters.recall import index as module
+
+    def unavailable():
+        raise ModuleNotFoundError("optional vector package is absent")
+
+    monkeypatch.setattr(module, "_sqlite_vec", unavailable)
+
+    async def scenario():
+        index = SQLiteRecallIndex(tmp_path / "fts-only.sqlite")
+        try:
+            first = await entry("Синтетическая заметка о синем зонтике")
+            await index.put_source(A, first, None)
+            assert len((await find(index, A, "зонтике")).lexical) == 1
+            await index.replace_scope(A, [first], [], None)
+            assert len((await find(index, A, "заметка")).lexical) == 1
+            await index.remove_source(A, first.source_id)
+            assert (await find(index, A, "заметка")).lexical == ()
+        finally:
+            index.close()
+
+    run(scenario())
