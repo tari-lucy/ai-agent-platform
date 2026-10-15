@@ -171,6 +171,13 @@ class AutonomousGM:
             return self._skip("LINE_NOT_OPEN")  # an operator pause/close is respected
         if line is None and rt.gm_line is None:
             return self._skip("NO_LINE")
+        if line is not None and (
+            line.cooldown_active_until is not None
+            and active < line.cooldown_active_until
+            or line.cooldown_until is not None
+            and now < line.cooldown_until
+        ):
+            return self._skip("LINE_COOLDOWN")  # the model call would only be refused later
         needed = 2 if line is not None else 3  # opening a line is screened too
         attempts = await UsageLedger(rt.store, PRINCIPALS[Owner.LLM], rt.registry).attempts(scope)
         if budget.gm_room(attempts, now) < needed:

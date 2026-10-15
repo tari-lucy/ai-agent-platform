@@ -487,11 +487,15 @@ class GameMaster:
         """Choose a family and strength with dice first, then let the model word the situation."""
         if not self._open():
             return ProposalResult(None, False, "GM_CLOSED")
-        arc = await self.storage.repository(StoryArc, self.principal, scope).get(
-            arc_id, purpose="api_transfer"
-        )
+        # The GM reads its own line privately; whether the line may reach an external model is
+        # decided by its grounds' current api_transfer rights, checked through the memory owner.
+        arc = await self.storage.repository(StoryArc, self.principal, scope).get(arc_id)
         if arc is None or arc.status != "open":
             return ProposalResult(None, False, "ARC_NOT_OPEN")
+        for ref in arc.grounds:
+            source = await self.memory.get_source(scope, ref.source_id, purpose="api_transfer")
+            if source is None or source.version != ref.version:
+                return ProposalResult(None, False, "ARC_GROUNDS_UNAVAILABLE")
         eligible = self._eligible(available_capabilities, await self._resting(scope))
         if not eligible:
             return ProposalResult(None, False, "NO_ELIGIBLE_FAMILY")
