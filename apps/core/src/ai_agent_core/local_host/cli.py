@@ -27,6 +27,11 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--persona-id", default="persona")
     init.add_argument("--port", type=int, default=8765)
     init.add_argument("--test-scopes", type=int, default=4, help="empty TEST scopes, 1..7")
+    init.add_argument(
+        "--operator-controls",
+        action="store_true",
+        help="explicit owner plans/receipts and a separate TEST settings profile",
+    )
     init.add_argument("--permission-days", type=int, default=30, help="lifetime, 1..90 days")
     init.add_argument("--migrations", type=Path, help="override the repository migrations")
     run = commands.add_parser("serve", help="serve a prepared host STOPPED on 127.0.0.1")
@@ -71,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
                     test_scopes=arguments.test_scopes,
                     permission_days=arguments.permission_days,
                     migrations=arguments.migrations,
+                    operator_controls=arguments.operator_controls,
                 )
             )
             pool = len(config.test_space_ids)

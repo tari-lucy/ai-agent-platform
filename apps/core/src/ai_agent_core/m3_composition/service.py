@@ -175,6 +175,20 @@ class Runtime:
         current = self.supervisor.snapshot
         if scope.agent_id not in (None, current.agent_id):
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if scope.partition != current.scope.partition:
+            # Manual metadata in a separately prepared partition is not a second run.
+            # Verify the current host operator too; no incoming run/agent may be forged.
+            if (
+                scope.partition not in authority.partitions
+                or scope.partition not in {s.partition for s in self.scopes}
+                or scope.workspace_id != current.scope.workspace_id
+                or any(
+                    value is not None for value in (scope.agent_id, scope.run_id, scope.session_id)
+                )
+            ):
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            self.supervisor.authorize_operator(authority, current.scope)
+            return
         checked = scope.model_copy(update={"agent_id": current.agent_id})
         self.supervisor.authorize_operator(authority, checked)
 

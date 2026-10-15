@@ -56,6 +56,8 @@ def build(
     secret = read_secret(host.password_hash)
     work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
     scopes = (work, *(test_scope(work, space) for space in config.test_space_ids))
+    if config.settings_space_id is not None:
+        scopes += (test_scope(work, config.settings_space_id),)
     registry = new_registry()
     store = SQLiteStore(host.database, extensions=registry)
     opened: list[SQLiteRecallIndex] = []

@@ -21,7 +21,7 @@ from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.llm import Connection, LLMAssignment
 from ai_agent_contracts.persona import GmRuntimeState
 from ai_agent_contracts.workspace import Capability, Workspace
-from pydantic import SecretStr, TypeAdapter
+from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from ai_agent_core.access import password_hash
 from ai_agent_core.m3_composition import new_registry
@@ -73,6 +73,7 @@ async def initialise(
     test_scopes: int = 4,
     permission_days: int = 30,
     migrations: Path | None = None,
+    operator_controls: bool = False,
 ) -> HostConfig:
     if not 1 <= test_scopes <= MAX_TEST_SCOPES or not 1 <= permission_days <= MAX_PERMISSION_DAYS:
         raise HostError("INVALID_OPTION")
@@ -86,6 +87,20 @@ async def initialise(
     expires = now + timedelta(days=permission_days)
     work_id = persona_id + "-work"
     test_ids = tuple(f"{persona_id}-test-{n}" for n in range(1, test_scopes + 1))
+    settings_id = persona_id + "-settings-test" if operator_controls else None
+    try:
+        config = HostConfig(
+            workspace_id=workspace_id,
+            persona_id=persona_id,
+            work_space_id=work_id,
+            test_space_ids=test_ids,
+            port=port,
+            permission_expires_at=expires.isoformat(),
+            operator_controls=operator_controls,
+            settings_space_id=settings_id,
+        )
+    except ValidationError:
+        raise HostError("INVALID_OPTION") from None
     work = work_scope(workspace_id, persona_id, work_id)
     tests = tuple(test_scope(work, space) for space in test_ids)
 
@@ -121,20 +136,43 @@ async def initialise(
             from_wire(TypeAdapter(CreateCommand), json.dumps(create).encode(), extensions=registry)
         )
         await _prepare_records(store, registry, work, expires)
-        # Prepared; from here the runtime cannot write Capability/Permission/Connection.
-        await store.provision(work, rights.work_grants())
+        # Only explicit init controls mode retains WORKSPACE writes for reviewed plans.
+        await store.provision(work, rights.work_grants(operator_controls=operator_controls))
+        if settings_id is not None:
+            settings = test_scope(work, settings_id)
+            await store.provision(settings, rights.settings_grants())
+            # A new independent initial state: no WORK memory/relationships/live values copied.
+            sample = dict(
+                create,
+                request_id="local-host-settings-profile",
+                scope=settings.model_dump(mode="json"),
+            )
+            await persona.create(
+                from_wire(
+                    TypeAdapter(CreateCommand), json.dumps(sample).encode(), extensions=registry
+                )
+            )
+            now = datetime.now(UTC)
+            gm = record(
+                registry,
+                GmRuntimeState,
+                id="gm-runtime",
+                scope=settings,
+                version=1,
+                created_at=now,
+                updated_at=now,
+                intensity=0.5,
+                active_seconds=0,
+                rules_version=1,
+                rules=extension(registry, "m3.rules", {"rules": []}),
+            )
+            await put(
+                store, registry, Owner.GM, settings, "local-host-settings-gm", gm, None, readers
+            )
         for scope in tests:
             await store.provision(scope, rights.lab_scope_grants())
     finally:
         await store.close()
-    config = HostConfig(
-        workspace_id=workspace_id,
-        persona_id=persona_id,
-        work_space_id=work_id,
-        test_space_ids=test_ids,
-        port=port,
-        permission_expires_at=expires.isoformat(),
-    )
     temporary = host.root / "host.json.tmp"
     write_secret(temporary, config.model_dump_json(indent=1) + "\n")
     os.replace(temporary, host.config)

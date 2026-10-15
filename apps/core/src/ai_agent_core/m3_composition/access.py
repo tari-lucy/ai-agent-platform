@@ -35,6 +35,23 @@ class Mutations:
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt:
         runtime = self.runtime
         runtime.authorize_configuration(authority, request.scope)
+        inactive_edits = {
+            "persona.create",
+            "persona.copy",
+            "persona.apply",
+            "gm.configure",
+            "change.decision",
+            "change.interpretation",
+            "change.rollback.preview",
+            "change.rollback.execute",
+            "opportunity.cancel",
+            "arc.pause",
+        }
+        if request.scope.partition != runtime.supervisor.snapshot.scope.partition and (
+            not isinstance(request, (CreateCommand, EditCommand, PlanCommand, ExecutePlanCommand))
+            or request.type not in inactive_edits
+        ):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
         if isinstance(request, CreateCommand) and request.type == "laboratory.create":
             args = runtime.registry.validate(
                 request.arguments.schema_id,
@@ -93,7 +110,10 @@ class Mutations:
                     return await service.copy(request)
                 if request.type == "persona.apply" and isinstance(request, EditCommand):
                     result = await service.apply(request)
-                    if runtime.supervisor.snapshot.state.value in ("ACTIVE", "STARTING"):
+                    if (
+                        request.scope.partition == runtime.supervisor.snapshot.scope.partition
+                        and runtime.supervisor.snapshot.state.value in ("ACTIVE", "STARTING")
+                    ):
                         runtime.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                     return result
         if isinstance(request, PlanCommand) and request.type == "change.rollback.preview":
@@ -133,13 +153,21 @@ class Mutations:
                     or request.arguments.schema_id != "gm.configure-args"
                 ):
                     raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                if (
+                    args.paused is not None
+                    and request.scope.partition != runtime.supervisor.snapshot.scope.partition
+                ):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
                 # Pausing is synchronous, before storage IO. Unpause follows a committed edit.
                 if args.paused is True and not runtime.supervisor.snapshot.gm_paused:
                     runtime.supervisor.set_gm(
                         authority, True, expected_version=runtime.supervisor.snapshot.version
                     )
                 result = await runtime.state.configure(request, args)
-                if args.rules is not None:
+                if (
+                    args.rules is not None
+                    and request.scope.partition == runtime.supervisor.snapshot.scope.partition
+                ):
                     runtime.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                 elif args.paused is False and runtime.supervisor.snapshot.gm_paused:
                     current()

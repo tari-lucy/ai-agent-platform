@@ -8,9 +8,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
 MAX_TEST_SCOPES = 7  # the runtime accepts at most 8 scopes including the work scope
@@ -36,6 +36,19 @@ class HostConfig(BaseModel):
     test_space_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_TEST_SCOPES)
     port: int = Field(ge=1024, le=65535)
     permission_expires_at: str
+    operator_controls: bool = False
+    settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
+
+    @model_validator(mode="after")
+    def scope_layout(self) -> Self:
+        if self.operator_controls != (self.settings_space_id is not None):
+            raise ValueError("OPERATOR_SETTINGS_SCOPE")
+        spaces = [self.work_space_id, *self.test_space_ids]
+        if self.settings_space_id is not None:
+            spaces.append(self.settings_space_id)
+        if len(spaces) > MAX_TEST_SCOPES + 1 or len(set(spaces)) != len(spaces):
+            raise ValueError("SCOPE_LAYOUT")
+        return self
 
 
 @dataclass(frozen=True)

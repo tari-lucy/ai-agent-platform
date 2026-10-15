@@ -10,6 +10,10 @@ the same flow still passed without them; JOBS->BEHAVIOR and BEHAVIOR/JOBS/GATEWA
 each shown necessary by a failing run. Paths this host does not run yet (extract, consolidate, gm
 and other jobs, which the mock leaves unanswered) get their reads only with their own acceptance:
 until then they are denied, not widened.
+
+Explicit --operator-controls is a separately accepted matrix: WORKSPACE plan/receipt
+writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separate
+metadata-only TEST scope has no execution grants. Serve never provisions either mode.
 """
 
 from ai_agent_application.laboratory import lab_grants
@@ -48,14 +52,19 @@ OPERATOR_OWNERS = (
 OPERATOR_LAB_OWNERS = (Owner.MEMORY, Owner.CATALOGUE, Owner.LABORATORY)
 
 
-def core_grants(*, preparing: bool = False) -> tuple[Grant, ...]:
-    """WORKSPACE (Capability/Permission/Connection) is written only while `init` prepares it."""
+def core_grants(*, preparing: bool = False, operator_controls: bool = False) -> tuple[Grant, ...]:
+    """Default WORKSPACE is read-only; explicit controls mode also stores plans/receipts.
+
+    Existing grants are owner-level (not per-kind). The trusted WORKSPACE owner
+    can therefore write its own records, including Permission. No HTTP permission
+    editing is enabled; the operator never gets direct storage write access.
+    """
     grants = [
         Grant(
             PRINCIPALS[o],
             o,
             read=True,
-            write=preparing or o is not Owner.WORKSPACE,
+            write=preparing or operator_controls or o is not Owner.WORKSPACE,
             api_transfer=o in TRANSFER_OWNERS,
         )
         for o in WRITERS
@@ -67,15 +76,31 @@ def core_grants(*, preparing: bool = False) -> tuple[Grant, ...]:
         Grant(PRINCIPALS[Owner.BEHAVIOR], Owner.MEMORY, read=True),
         Grant(PRINCIPALS[Owner.JOBS], Owner.MEMORY, read=True),
     ]
+    if operator_controls:
+        grants += [Grant(PRINCIPALS[o], Owner.MEMORY, read=True) for o in (Owner.PERSONA, Owner.GM)]
     return tuple(grants)
 
 
-def operator_grants() -> tuple[Grant, ...]:
-    return tuple(Grant(OPERATOR, o, read=True, api_transfer=True) for o in OPERATOR_OWNERS)
+def operator_grants(*, operator_controls: bool = False) -> tuple[Grant, ...]:
+    return tuple(
+        Grant(OPERATOR, o, read=True, api_transfer=True)
+        for o in (*OPERATOR_OWNERS, *((Owner.WORKSPACE,) if operator_controls else ()))
+    )
 
 
-def work_grants(*, preparing: bool = False) -> tuple[Grant, ...]:
-    return core_grants(preparing=preparing) + operator_grants()
+def work_grants(*, preparing: bool = False, operator_controls: bool = False) -> tuple[Grant, ...]:
+    return core_grants(preparing=preparing, operator_controls=operator_controls) + operator_grants(
+        operator_controls=operator_controls
+    )
+
+
+def settings_grants() -> tuple[Grant, ...]:
+    """Configuration TEST scope has no model, jobs, channel or autonomous capability."""
+    owners = (Owner.PERSONA, Owner.GM, Owner.WORKSPACE)
+    return tuple(
+        Grant(PRINCIPALS[o], o, read=True, write=True, api_transfer=o in TRANSFER_OWNERS)
+        for o in owners
+    ) + tuple(Grant(OPERATOR, o, read=True, api_transfer=True) for o in (*owners, Owner.MEMORY))
 
 
 def lab_scope_grants() -> tuple[Grant, ...]:
