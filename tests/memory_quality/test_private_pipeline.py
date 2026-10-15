@@ -12,6 +12,7 @@ from ai_agent_application.storage import Owner
 from ai_agent_contracts.memory import Claim, MemoryCycle
 from ai_agent_contracts.persona import CharacterState
 from quality_support import Model, prepared_host, view
+from test_http import scope_params
 
 from ai_agent_core.m3_composition.state import PRINCIPALS
 
@@ -132,8 +133,15 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
                 "Ника снова здесь. Напомни, какие зонтики мне нравятся и о чём мы договорились?",
                 "Синие зонтики, и встреча у маяка в пятницу.",
             )
+            out["status"] = (
+                await host.env.client.get(
+                    "/api/v1/private-api-status", params=scope_params(host.scope)
+                )
+            ).json()
             out["view"] = view(model.last("character"))
             out["system"] = model.last("character")["messages"][0]["content"]
+            out["extractor_system"] = model.last("extractor")["messages"][0]["content"]
+            out["consolidator_system"] = model.last("consolidator")["messages"][0]["content"]
         return out
 
     out = asyncio.run(scenario())
@@ -156,6 +164,9 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
     assert out["replay"] and out["calls_after_cycle"] == 5 + 3
     assert out["calls_after_restart"] == out["calls_after_cycle"]
     assert out["cycles_after_tick"] == 1 and out["state_same"]
+    status = out["status"]
+    assert status["memory_calls_used"] == 3 and status["attempts_used"] == 5 + 3 + 1
+    assert status["dialogue_remaining"] == 300 - 8 - 6  # the memory reserve is inside the limit
     # 3. the next reply sees the old detail through memory, not through the 8-turn window
     seen = out["view"]
     texts = " ".join(text for _, text in seen["turns"])
@@ -174,6 +185,11 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
     shown = " ".join(m["text"] for m in seen["memory"])
     assert "море" not in shown and "ездили" not in shown  # no invented shared history
     assert len(seen["memory"]) <= 3 and all(m["at"] for m in seen["memory"])
+    # the closed wire protocol states the output limits and pays for the schema once
+    extractor = out["extractor_system"]
+    assert extractor.count('"$defs"') == 1 and "Схема приведена выше." in extractor
+    assert "не более 5 утверждений" in extractor and "кратчайший дословный фрагмент" in extractor
+    assert '"content"' in out["consolidator_system"].split("## Протокол приложения")[1]
     # 4. what was kept out of this request is visible to the operator as counts
     context = next(r.message for r in caplog.records if r.message.startswith("Private memory"))
     assert "shown=" in context and "stale_source=0" in context

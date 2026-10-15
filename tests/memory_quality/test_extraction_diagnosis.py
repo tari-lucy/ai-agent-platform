@@ -2,8 +2,10 @@
 
 import logging
 
+import pytest
 from ai_agent_application.extraction.model import ExtractionReport
 from ai_agent_application.memory import ClaimDraft
+from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.memory import Claim
 from ai_agent_contracts.states import Provenance
 from extraction_support import MEMORY, answer, new_world, proposal, run
@@ -174,3 +176,19 @@ def test_diagnosis_is_fixed_vocabulary_only():
         "rejected=- skipped=- attempts=0"
     )
     assert SECRET not in report.diagnosis() and Claim and MEMORY
+
+
+def test_a_simulated_source_cannot_enter_work_memory_and_is_kept_in_test(tmp_path):
+    async def scenario(mode):
+        world = await new_world(tmp_path, [[]], mode=mode)
+        ref = await world.source(
+            "Мне нравятся синие зонтики.", provenance=Provenance.SIMULATION, source_type="chat"
+        )
+        world.provider.scripts[0] = answer(
+            proposal(ref.source_id, "нравятся синие зонтики", "Любит зонтики.", type_="observed")
+        )
+        return await world.extractor.extract(world.scope, [ref.source_id])
+
+    with pytest.raises(ContractError):  # the owner refuses it before extraction can see it
+        run(scenario("work"))
+    assert run(scenario("test")).outcome == "accepted"
