@@ -96,8 +96,7 @@ function Composer({ api, run, scope, budgetBlocked, operationRows, utteranceRows
       const color = progress.stage === 'ready' ? 'teal' : progress.stage === 'failed' || progress.stage === 'unknown' ? 'orange' :
         progress.stage === 'cancelled' ? 'gray' : 'blue';
       return <Alert color={color} mt="sm" role="status" title={`Сообщение: ${progress.label}`}>
-        <Group gap="xs"><Badge variant="light" color={color}>{['Принято', 'Обрабатывается', 'Ответ готов'].includes(progress.label) ? progress.label : progress.stage}</Badge>
-          <Text size="sm">{progress.detail}</Text></Group>
+        <Text size="sm">{progress.detail}</Text>
         <Text size="xs" c="dimmed" mt={4}>Путь: принято → обрабатывается → ответ готов. Статус берётся у ядра, а не угадывается.</Text>
       </Alert>;
     })()}
