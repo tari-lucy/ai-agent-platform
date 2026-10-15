@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PanelApi, ApiFailure } from '../src/shared/api.ts';
-import { briefings, deliveries, inbound, operations, utterances } from '../src/shared/validation.ts';
+import { privateApiStatus, briefings, deliveries, inbound, operations, utterances } from '../src/shared/validation.ts';
 import {
   afterSend, buildTimeline, canSend, cancelBriefing, createBriefing, deliveryStatus, generating, goal,
   latestRevisions, messageCommand, validBriefing,
@@ -172,4 +172,15 @@ test('an utterance must name at least one and at most 200 channels', () => {
   assert.throws(() => utterances(page([utterance({ channel_ids: [] })]), scope));
   assert.throws(() => utterances(page([utterance({ channel_ids: Array.from({ length: 201 }, (_, n) => 'c' + n) })]), scope));
   assert.throws(() => utterances(page([utterance({ channel_ids: ['ok', 'bad id'] })]), scope));
+});
+
+
+test('private API counter rejects foreign scope, inconsistent totals and missing reset', () => {
+  const status = { scope, enabled: true, period: 'utc_day', attempt_limit: 100,
+    attempts_used: 7, attempts_remaining: 93, resets_at: '2026-10-15T00:00:00Z', checked_at: T(0) };
+  assert.equal(privateApiStatus(status, scope).attempts_remaining, 93);
+  for (const changed of [ { attempts_remaining: 94 }, { scope: { ...scope, memory_space_id: 'foreign' } },
+    { resets_at: null }, { attempt_limit: 101 }, { attempts_used: -1 }, { attempts_used: 0.5 } ]) {
+    assert.throws(() => privateApiStatus({ ...status, ...changed }, scope));
+  }
 });

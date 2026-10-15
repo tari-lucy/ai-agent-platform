@@ -22,6 +22,11 @@ Windows/Linux: [инструкция](docs/local-host-setup.md),
 [приёмка](docs/implementation-reports/Integration-host-controls.md).
 Ограниченный private API pilot для роли character:
 [подготовка и границы](docs/implementation-reports/Integration-live-api.md).
+Повседневный private pilot: запуск панели через `Start-Panel.cmd`, ограниченная
+история разговора после restart и явный суточный предел API:
+[инструкция](docs/local-host-setup.md),
+[связность](docs/implementation-reports/Integration-dialogue-continuity.md),
+[эксплуатация](docs/implementation-reports/Integration-daily-local-use.md).
 Остальные live роли и owner actions остаются следующими стыками; исходный
 порядок согласования — [сверка стыков](docs/implementation-reports/M4-M5-integration-readiness.md).
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),

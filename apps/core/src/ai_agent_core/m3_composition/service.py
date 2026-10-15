@@ -2,10 +2,10 @@
 
 import asyncio
 import hashlib
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
@@ -50,7 +50,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
 from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, Job, Lease
 from ai_agent_contracts.extensions import ExtensionRegistry
-from ai_agent_contracts.llm import Connection
+from ai_agent_contracts.llm import Connection, LLMAttempt
 from ai_agent_contracts.memory import Episode, Source
 from ai_agent_contracts.persona import StateChange
 from ai_agent_contracts.states import ChangeState, ErrorCode, OperationState, RunState
@@ -79,17 +79,29 @@ DOMAIN_OWNERS = frozenset(
 
 @dataclass(frozen=True)
 class PrivateAPIBudget:
-    """Lifetime attempt cap for a trusted single-host private dialogue pilot."""
+    """Durable bounded API admission; calendar resets require explicit operator configuration."""
 
     connection_id: str
     max_attempts: int
     max_prompt_chars: int
+    period: Literal["lifetime", "utc_day"] = "lifetime"
 
     def __post_init__(self) -> None:
+        if self.period not in ("lifetime", "utc_day"):
+            raise ValueError("PRIVATE_API_PERIOD")
         if not self.connection_id or not 1 <= self.max_attempts <= 100:
             raise ValueError("PRIVATE_API_BUDGET")
         if not 1000 <= self.max_prompt_chars <= 40000:
             raise ValueError("PRIVATE_API_PROMPT_LIMIT")
+
+    def used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return sum(self.period == "lifetime" or row.started_at >= start for row in attempts)
+
+    def reset_at(self, now: datetime) -> datetime | None:
+        if self.period == "lifetime":
+            return None
+        return now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
 class Runtime:
@@ -913,8 +925,8 @@ class Execution:
         budget = self.runtime.private_api_budget
         if budget is not None and report.connection_id == budget.connection_id:
             # Count every prior attempt in the partition, including running/unknown/mock.
-            # This conservative cap cannot reset with a new operation, session or model.
-            if len(attempts) >= budget.max_attempts:
+            # A new operation, session, model or restart cannot reset the configured window.
+            if budget.used(attempts, self.runtime.supervisor.clock.utc()) >= budget.max_attempts:
                 raise ContractError(ErrorCode.RESOURCE_BUSY)
         consumed = sum(
             row.operation_id.startswith(self.command.operation_id + ".") for row in attempts

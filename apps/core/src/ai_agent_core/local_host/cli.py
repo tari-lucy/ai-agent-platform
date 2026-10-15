@@ -11,6 +11,7 @@ from ai_agent_application.laboratory.profile import REFERENCE_PROFILE
 from ai_agent_contracts.codec import ContractError
 from pydantic import ValidationError
 
+from .budget import configure_budget
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
 from .serve import permissions_expired, serve
@@ -51,6 +52,15 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--panel-dir", type=Path, help="absolute path of a built apps/panel/dist to serve"
     )
+    run.add_argument(
+        "--open-browser", action="store_true", help="open panel once after successful startup"
+    )
+    budget = commands.add_parser(
+        "configure-api-budget", help="explicit offline cap update; stop the server first"
+    )
+    budget.add_argument("--root", type=Path, required=True)
+    budget.add_argument("--attempt-limit", type=int, required=True)
+    budget.add_argument("--period", choices=("lifetime", "utc_day"), required=True)
     return main
 
 
@@ -70,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
+        if arguments.command == "configure-api-budget":
+            configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)
+            print("API budget configured; usage history retained; restart remains STOPPED")
+            return 0
         if arguments.command == "init":
             try:
                 live = (
@@ -108,13 +122,14 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(paths(arguments.root))
         if permissions_expired(config):
             print("NOTICE: prepared permissions expired; start stays closed", file=sys.stderr)
-        print("serving STOPPED on loopback; start is an explicit operator command", flush=True)
+        print("checking prepared local host; agent start requires an explicit command", flush=True)
         serve(
             arguments.root,
             provider=arguments.provider,
             port=arguments.port,
             panel_dir=arguments.panel_dir,
             env_file=arguments.env_file,
+            open_browser=arguments.open_browser,
         )
         return 0
     except HostError as error:

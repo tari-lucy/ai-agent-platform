@@ -449,7 +449,8 @@ class Surface:
                 },
             )
         custom = re.fullmatch(
-            r"/api/v1/(laboratory-catalogue|laboratory-runs|persona-markdown|settings-transfer-status)(?:/([^/]+))?",
+            r"/api/v1/(private-api-status|laboratory-catalogue|laboratory-runs|"
+            r"persona-markdown|settings-transfer-status)(?:/([^/]+))?",
             path,
         )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
@@ -488,6 +489,7 @@ class Surface:
                 )
             self.sessions.check_scope(authority, scope)
             expected = {
+                "private-api-status": "PrivateApiStatus",
                 "laboratory-catalogue": "LaboratoryCatalogue",
                 "laboratory-runs": "LaboratoryRuns",
                 "persona-markdown": "ProfileMarkdown",

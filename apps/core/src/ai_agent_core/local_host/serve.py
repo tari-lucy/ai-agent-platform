@@ -1,5 +1,6 @@
 """Open an initialised host directory STOPPED on loopback. No migration, grant or auto-start."""
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ from . import rights
 from .init import test_scope, work_scope
 from .layout import HostConfig, HostError, HostPaths, load_config, paths, read_secret
 from .panel import mount, validate
+from .process import exclusive_host, loopback_socket, open_when_ready
 from .provider import provider_factory
 
 LOOPBACK = "127.0.0.1"
@@ -101,7 +103,12 @@ def build(
         allowed_adapters=frozenset({"mock", ADAPTER_ID} if config.live else {"mock"}),
         private_api_budget=None
         if config.live is None
-        else PrivateAPIBudget("conn-live", config.live.attempt_limit, config.live.max_prompt_chars),
+        else PrivateAPIBudget(
+            "conn-live",
+            config.live.attempt_limit,
+            config.live.max_prompt_chars,
+            config.live.attempt_period,
+        ),
         scopes=scopes,
         reader_access=rights.record_readers(),
         dialogue_index=dialogue,
@@ -130,27 +137,47 @@ def serve(
     port: int | None = None,
     panel_dir: Path | None = None,
     env_file: Path | None = None,
+    open_browser: bool = False,
 ) -> None:
     host = paths(root)
     config = load_config(host)
-    app, close = build(
-        host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
-    )
-    number = port or config.port
-    try:
-        uvicorn.run(
-            app,
-            host=LOOPBACK,  # fixed: no public or remote listener
-            port=number,
-            workers=1,
-            access_log=False,
-            log_level="warning",
-            ws="websockets",
-            ws_per_message_deflate=False,
-            ws_max_size=4096,
-            ws_max_queue=1,
-            backlog=128,
-            timeout_keep_alive=5,
+    number = config.port if port is None else port
+    if not 1024 <= number <= 65535:
+        raise HostError("INVALID_OPTION")
+    if open_browser and panel_dir is None:
+        raise HostError("PANEL_REQUIRED")
+    with exclusive_host(host.root), loopback_socket(number) as listener:
+        app, close = build(
+            host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
         )
-    finally:
-        close()
+        stopped = threading.Event()
+        browser = None
+        try:
+            server = uvicorn.Server(
+                uvicorn.Config(
+                    app,
+                    host=LOOPBACK,
+                    port=number,
+                    workers=1,
+                    access_log=False,
+                    log_level="warning",
+                    ws="websockets",
+                    ws_per_message_deflate=False,
+                    ws_max_size=4096,
+                    ws_max_queue=1,
+                    backlog=128,
+                    timeout_keep_alive=5,
+                )
+            )
+            if open_browser:
+                browser = threading.Thread(
+                    target=open_when_ready, args=(server, number, stopped), daemon=True
+                )
+                browser.start()
+            print(f"panel/API: http://{LOOPBACK}:{number}/ ; agent starts STOPPED", flush=True)
+            server.run(sockets=[listener])
+        finally:
+            stopped.set()
+            if browser is not None:
+                browser.join(timeout=1)
+            close()

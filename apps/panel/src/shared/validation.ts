@@ -470,3 +470,18 @@ export function ownerOperation(value: unknown, selected: Scope, operationId: str
     value.receipt.status === 'completed' && id(value.receipt.resource_id) && version(value.receipt.version) : value.receipt === null);
   return value as unknown as import('./contracts.ts').OwnerOperation;
 }
+
+
+export function privateApiStatus(value: unknown, selected: Scope): import('./contracts.ts').PrivateApiStatus {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    typeof value.enabled === 'boolean' && date(value.checked_at) &&
+    Number.isSafeInteger(value.attempts_used) && Number(value.attempts_used) >= 0);
+  if (value.enabled) {
+    demand(['lifetime', 'utc_day'].includes(String(value.period)) &&
+      Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= 1 && Number(value.attempt_limit) <= 100 &&
+      value.attempts_remaining === Math.max(0, Number(value.attempt_limit) - Number(value.attempts_used)) &&
+      (value.period === 'utc_day' ? date(value.resets_at) && Date.parse(String(value.resets_at)) > Date.parse(String(value.checked_at)) : value.resets_at === null));
+  } else demand(value.period === null && value.attempt_limit === null && value.attempts_remaining === null &&
+    value.attempts_used === 0 && value.resets_at === null);
+  return value as import('./contracts.ts').PrivateApiStatus;
+}

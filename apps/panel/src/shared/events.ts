@@ -101,5 +101,5 @@ export const affectedResources: Record<PanelEvent['type'], readonly string[]> = 
   'relationship.changed': ['people', 'relationships', 'topics', 'promises'],
   'arc.changed': ['arcs', 'opportunities'], 'change.changed': ['changes', 'character-states'],
   'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities'],
-  'usage.changed': ['llm-attempts', 'cost-calculations'],
+  'usage.changed': ['llm-attempts', 'cost-calculations', 'private-api-status'],
 };

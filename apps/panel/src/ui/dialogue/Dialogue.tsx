@@ -36,11 +36,11 @@ function EntryRow({ entry }: { entry: Entry }) {
   </li>;
 }
 
-function Composer({ api, run, scope }: { api: PanelApi; run: RunSession | undefined; scope: Scope }) {
+function Composer({ api, run, scope, budgetBlocked }: { api: PanelApi; run: RunSession | undefined; scope: Scope; budgetBlocked: boolean }) {
   const cache = useQueryClient();
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<Composer>({ phase: 'idle' });
-  const verdict = canSend(run, text, phase.phase);
+  const verdict = budgetBlocked ? { ok: false, reason: 'Лимит API исчерпан. Дождитесь обновления лимита.' } : canSend(run, text, phase.phase);
   async function submit(command: ReturnType<typeof messageCommand>) {
     setPhase({ phase: 'sending', command });
     try {
@@ -51,7 +51,7 @@ function Composer({ api, run, scope }: { api: PanelApi; run: RunSession | undefi
     } catch (error) {
       setPhase(afterSend(command, { code: error instanceof ApiFailure ? error.code : 'NETWORK' }));
     } finally {
-      for (const resource of ['sources', 'operations', 'utterances', 'deliveries']) {
+      for (const resource of ['sources', 'operations', 'utterances', 'deliveries', 'private-api-status']) {
         void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
       }
     }
@@ -137,6 +137,8 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
   const utterances = useProjection(api, scope, 'utterances', (s, signal) => api.utterances(s, signal));
   const deliveries = useProjection(api, scope, 'deliveries', (s, signal) => api.deliveries(s, signal));
   const operations = useProjection(api, scope, 'operations', (s, signal) => api.operations(s, signal));
+  const budget = useQuery({ queryKey: projectionKey('private-api-status', scope),
+    queryFn: ({ signal }) => api.privateApiStatus(scope, signal), refetchInterval: 15000 });
   const cache = useQueryClient();
   const preview = useQuery<PrivatePreview>({ queryKey: previewKey(scope), enabled: false });
   const [receiving, setReceiving] = useState<string | null>(null);
@@ -190,7 +192,13 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Button key={row.id} variant="light" disabled={receiving !== null} onClick={() => void receiveReply(row)}>
         Подтвердить получение приватного ответа
       </Button>)}
-    <Composer api={api} run={run} scope={scope} />
+    {budget.data?.enabled && <Alert color={budget.data.attempts_remaining === 0 ? 'orange' : 'blue'} title="Лимит API">
+      Осталось {budget.data.attempts_remaining} из {budget.data.attempt_limit} запросов{budget.data.period === 'utc_day' ? ' за сутки' : ' за весь пробный период'}.
+      {budget.data.resets_at && <> Обновление: {when(budget.data.resets_at)}.</>}
+      <Text size="xs" mt={4}>Начатые неудачные попытки тоже учитываются. Денежный расход показывается отдельно.</Text>
+    </Alert>}
+    {budget.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
+    <Composer api={api} run={run} scope={scope} budgetBlocked={budget.data?.enabled === true && budget.data.attempts_remaining === 0} />
     <BriefingPanel api={api} scope={scope} run={run} />
   </Stack>;
 }

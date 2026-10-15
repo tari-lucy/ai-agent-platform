@@ -70,12 +70,13 @@ def answer(content='{"reply":"Вымышленный ответ."}', *, finish="
     return (text + "data: [DONE]\n\n").encode()
 
 
+@pytest.mark.parametrize("period", ["lifetime", "utc_day"])
 def test_real_adapter_private_http_ledger_errors_stop_and_durable_budget(
-    tmp_path, monkeypatch, caplog
+    tmp_path, monkeypatch, caplog, period
 ):
     async def scenario():
         root = tmp_path / "host"
-        live = LiveConfig(model_id="fixture-model", attempt_limit=6)
+        live = LiveConfig(model_id="fixture-model", attempt_limit=6, attempt_period=period)
         config = await initialise(root, profile_markdown=REFERENCE_PROFILE, live=live)
         env = binding(tmp_path / "binding.env")
         calls = []
@@ -141,6 +142,9 @@ def test_real_adapter_private_http_ledger_errors_stop_and_durable_budget(
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=app), base_url=origin
                 ) as http:
+                    assert (
+                        await http.get("/api/v1/private-api-status", params=base)
+                    ).status_code == 401
                     login = await http.post(
                         "/api/v1/auth/login",
                         json={"password": password},
@@ -202,6 +206,16 @@ def test_real_adapter_private_http_ledger_errors_stop_and_durable_budget(
                             "items"
                         ]
                         assert len(attempts) == 6
+                        status = await http.get("/api/v1/private-api-status", params=base)
+                        assert status.status_code == 200, status.text
+                        value = status.json()
+                        assert value["attempts_used"] == 6 and value["attempts_remaining"] == 0
+                        assert value["period"] == period
+                        assert (value["resets_at"] is not None) == (period == "utc_day")
+                        foreign = await http.get(
+                            "/api/v1/private-api-status", params={**base, "persona_id": "foreign"}
+                        )
+                        assert foreign.status_code == 403
                         return
 
                     await message("first", success=True)

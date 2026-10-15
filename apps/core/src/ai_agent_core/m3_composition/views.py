@@ -13,6 +13,7 @@ from ai_agent_contracts.common import Contract, Scope
 from ai_agent_contracts.panel import (
     LaboratoryCatalogue,
     LaboratoryScenario,
+    PrivateApiStatus,
     ProfileMarkdown,
     ProfileValidation,
     SettingsTransferStatus,
@@ -49,6 +50,27 @@ class Views:
     ) -> Contract:
         if scope.partition not in {s.partition for s in self.runtime.scopes}:
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if resource == "private-api-status" and identifier is None:
+            from ai_agent_application.usage import UsageLedger
+
+            now = self.runtime.supervisor.clock.utc()
+            budget = self.runtime.private_api_budget if scope.memory_mode == "work" else None
+            used = 0
+            if budget is not None:
+                rows = await UsageLedger(
+                    self.runtime.store, PRINCIPALS[Owner.LLM], self.runtime.registry
+                ).attempts(scope)
+                used = budget.used(rows, now)
+            return PrivateApiStatus(
+                scope=scope,
+                enabled=budget is not None,
+                period=None if budget is None else budget.period,
+                attempt_limit=None if budget is None else budget.max_attempts,
+                attempts_used=used,
+                attempts_remaining=None if budget is None else max(0, budget.max_attempts - used),
+                resets_at=None if budget is None else budget.reset_at(now),
+                checked_at=now,
+            )
         if resource == "laboratory-runs" and identifier is None:
             return await self.runtime.lab_control.read(principal_id, scope, limit, cursor)
         if resource == "settings-transfer-status" and identifier is not None:

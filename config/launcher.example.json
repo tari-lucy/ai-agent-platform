@@ -1,0 +1,7 @@
+{
+  "python": "C:/ai-agent-platform/.venv/Scripts/python.exe",
+  "host_root": "C:/ai-agent-platform/runtime/my-character",
+  "provider": "live",
+  "env_file": "C:/ai-agent-platform/.env",
+  "panel_dir": "C:/ai-agent-platform/apps/panel/dist"
+}
