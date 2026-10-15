@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   TEXT_LIMIT, applyBlocker, applyCommand, changedLines, checkedFrom, draftKey, draftProblems, emptyNew, hasProblems, idPattern, lineDiff, newCommand, newProblem,
-  propertyRows, stateNote, validateCommand,
+  propertyRows, stateNote, validateCommand, profileDraftMarkdown,
 } from '../src/ui/persona/model.ts';
-import type { CharacterState, Profile, Receipt, Scope } from '../src/shared/contracts.ts';
+import type { CharacterState, Profile, ProfileValidation, Scope } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
 const runScope: Scope = { ...scope, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' };
@@ -58,7 +58,7 @@ test('the state note names a missing state and a profile version mismatch', () =
 });
 test('apply opens only for the exact draft and profile version that was validated, with a digest', () => {
   const p = profile();
-  const receipt = (resource: string | undefined) => ({ request_id: 'r', scope: runScope, status: 'completed', resource_id: resource }) as unknown as Receipt;
+  const receipt = (resource: string | undefined) => ({ request_id: 'r', scope: runScope, ready: true, digest: resource ?? null, current_version: p.version, version_conflict: false, unchanged: false, issues: [], blockers: [] }) as unknown as ProfileValidation;
   assert.match(applyBlocker(p, draft, null)!, /Сначала проверьте/);
   const ok = checkedFrom(p, draft, receipt('rev-abc'));
   assert.equal(applyBlocker(p, draft, ok), null);
@@ -71,12 +71,12 @@ test('apply opens only for the exact draft and profile version that was validate
 });
 test('validate and apply carry the seen version; apply repeats the checked digest', () => {
   const p = profile({ version: 7 });
-  const v = validateCommand(runScope, 'session-1', p, draft, 'req-v');
-  assert.deepEqual([v.type, v.expected_version, v.target], ['persona.validate', 7, 'session-1']);
-  assert.deepEqual(v.arguments.data, { profile_id: 'profile-1', canon: draft.canon, style: draft.style });
-  const a = applyCommand(runScope, 'session-1', p, { canon: 'Новый', style: 'Стиль' }, 'rev-abc', 'req-a');
+  const v = validateCommand(runScope, p, draft, 'req-v');
+  assert.deepEqual([v.type, v.expected_version, v.target], ['persona.validate', 7, 'alpha']);
+  assert.deepEqual(v.arguments.data, { markdown: profileDraftMarkdown(p, draft) });
+  const a = applyCommand(runScope, p, { canon: 'Новый', style: 'Стиль' }, 'rev-abc', 'req-a');
   assert.deepEqual([a.type, a.expected_version], ['persona.apply', 7]);
-  assert.deepEqual(a.arguments.data, { profile_id: 'profile-1', canon: 'Новый', style: 'Стиль', revision_digest: 'rev-abc' });
+  assert.deepEqual(a.arguments.data, { markdown: profileDraftMarkdown(p, { canon: 'Новый', style: 'Стиль' }), revision_digest: 'rev-abc' });
   assert.deepEqual(a.scope, runScope);
 });
 test('a new persona needs a free id, its own memory space and, from scratch, a canon and a style', () => {
@@ -117,4 +117,14 @@ test('a draft that changes only the style, or only the canon, is a change', () =
 test('a list in place of a values map is read as no values, not as numbered properties', () => {
   const rows = propertyRows(profile({ initial_values: { schema_id: 'i', data: ['x', 'y'] }, property_definitions: { schema_id: 'd', data: ['p'] } }), state({ values: { schema_id: 'v', data: ['z'] } }));
   assert.deepEqual(rows, []);
+});
+
+test('canonical property wrappers display values and profile edits retain accepted policy', () => {
+  const p = profile({ property_definitions: {schema_id: 'persona.property-definitions', data: {properties: [{name: 'trust', kind: 'scale'}]}}, initial_values: {schema_id: 'persona.initial-values', data: {values: {trust: 0.4}}}, development_bounds: {schema_id: 'persona.development-bounds', data: {bounds: [{name: 'trust', autonomous: false}]}} });
+  const s = state({values: {schema_id: 'persona.state-values', data: {values: {trust: 0.55}}}});
+  assert.deepEqual(propertyRows(p, s).map((r) => [r.name, r.initial, r.live]), [['trust', '0.4', '0.55']]);
+  const markdown = profileDraftMarkdown(p, {canon: 'Новый канон', style: p.style});
+  assert.match(markdown, /## Канон\n\nНовый канон/);
+  assert.match(markdown, /"autonomous": false/);
+  assert.match(markdown, /"trust": 0.4/);
 });

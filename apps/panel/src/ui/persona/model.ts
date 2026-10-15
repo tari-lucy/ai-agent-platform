@@ -1,4 +1,5 @@
-import type { CharacterState, CreateCommand, EditCommand, Profile, Receipt, Scope } from '../../shared/contracts.ts';
+import { applyProfile, validateProfile } from '../../shared/owner-commands.ts';
+import type { CharacterState, CreateCommand, Profile, ProfileValidation, Scope } from '../../shared/contracts.ts';
 
 // Pure persona-editor logic: line diff, static vs live values, validate → apply gate, commands. No I/O.
 export const TEXT_LIMIT = 16000;
@@ -44,9 +45,15 @@ const dataOf = (payload: { data: unknown } | undefined): Record<string, unknown>
   const data = payload?.data;
   return typeof data === 'object' && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
 };
-// The canon's starting values and the lived values stay in separate columns; "drifted" means experience moved it.
+// The canon's starting values and the lived values stay in separate columns; "drifted" only reports a difference; its cause belongs to the history.
 export function propertyRows(profile: Profile | undefined, state: CharacterState | undefined): PropertyRow[] {
-  const [defs, initial, live] = [dataOf(profile?.property_definitions), dataOf(profile?.initial_values), dataOf(state?.values)];
+  const raw = dataOf(profile?.property_definitions);
+  const defs: Record<string, unknown> = Array.isArray(raw.properties) ? Object.fromEntries(raw.properties.filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && typeof p.name === 'string').map((p) => [p.name, p])) : raw;
+  const values = (value: { data: unknown } | undefined) => {
+    const data = dataOf(value);
+    return typeof data.values === 'object' && data.values !== null && !Array.isArray(data.values) ? data.values as Record<string, unknown> : data;
+  };
+  const [initial, live] = [values(profile?.initial_values), values(state?.values)];
   const names = [...new Set([...Object.keys(defs), ...Object.keys(initial), ...Object.keys(live)])].sort();
   return names.map((name) => {
     const [start, now] = [show(initial[name]), show(live[name])];
@@ -60,27 +67,34 @@ export function stateNote(profile: Profile | undefined, state: CharacterState | 
 }
 
 // ---- validate → apply ----------------------------------------------------------------------------------
-// ASSUMPTION (owner decision pending): payload schema ids are undefined; the core is expected to return the checked
-// revision digest as the validate receipt's resource_id, which apply must repeat (M2-01: apply needs revision_digest).
-export const PERSONA_SCHEMA = { validate: 'persona.validate', apply: 'persona.apply', create: 'persona.create', copy: 'persona.copy' } as const;
+// Existing canonical owner API; validation is a typed report, not a mutation receipt.
 export const draftKey = (profile: Profile, draft: Draft) => JSON.stringify([profile.id, profile.version, draft.canon, draft.style]);
 export type Checked = { key: string; digest: string | null };
-export function checkedFrom(profile: Profile, draft: Draft, receipt: Receipt): Checked {
-  return { key: draftKey(profile, draft), digest: receipt.resource_id ?? null };
+export function checkedFrom(profile: Profile, draft: Draft, report: ProfileValidation): Checked {
+  const ready = report.ready && !report.version_conflict && !report.unchanged &&
+    report.current_version === profile.version && !report.issues.length && !report.blockers.length;
+  return { key: draftKey(profile, draft), digest: ready ? report.digest : null };
 }
-// Apply is open only for the exact draft and profile version that was validated, and only with a digest in hand.
 export function applyBlocker(profile: Profile, draft: Draft, checked: Checked | null): string | null {
   if (!checked) return 'Сначала проверьте правку.';
   if (checked.key !== draftKey(profile, draft)) return 'Черновик или версия профиля изменились после проверки: проверьте заново.';
   if (!checked.digest) return 'Ядро не вернуло проверенную редакцию: применять нечего.';
   return null;
 }
-const edit = (type: EditCommand['type'], scope: Scope, target: string, profile: Profile, schema: string, data: Record<string, string>, requestId: string): EditCommand =>
-  ({ type, request_id: requestId, scope, target, expected_version: profile.version, arguments: { schema_id: schema, data } });
-export const validateCommand = (scope: Scope, target: string, profile: Profile, draft: Draft, requestId: string) =>
-  edit('persona.validate', scope, target, profile, PERSONA_SCHEMA.validate, { profile_id: profile.id, canon: draft.canon, style: draft.style }, requestId);
-export const applyCommand = (scope: Scope, target: string, profile: Profile, draft: Draft, digest: string, requestId: string) =>
-  edit('persona.apply', scope, target, profile, PERSONA_SCHEMA.apply, { profile_id: profile.id, canon: draft.canon, style: draft.style, revision_digest: digest }, requestId);
+// Preserve every accepted definition/bound/initial value while editing canon and style.
+export function profileDraftMarkdown(profile: Profile, draft: Draft): string {
+  const block = (data: unknown) => '```json\n' + JSON.stringify(data, null, 2) + '\n```';
+  return [
+    '<!-- ai-agent-persona-profile/1 -->', '## Канон\n\n' + draft.canon,
+    '## Стиль\n\n' + draft.style, '## Свойства\n\n' + block(profile.property_definitions.data),
+    '## Начальные значения\n\n' + block(profile.initial_values.data),
+    '## Границы развития\n\n' + block(profile.development_bounds.data),
+  ].join('\n\n') + '\n';
+}
+export const validateCommand = (scope: Scope, profile: Profile, draft: Draft, requestId: string) =>
+  validateProfile(scope, profile.version, profileDraftMarkdown(profile, draft), requestId);
+export const applyCommand = (scope: Scope, profile: Profile, draft: Draft, digest: string, requestId: string) =>
+  applyProfile(scope, profile.version, profileDraftMarkdown(profile, draft), digest, requestId);
 
 // ---- create and copy -------------------------------------------------------------------------------------
 export const idPattern = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -101,5 +115,5 @@ export function newCommand(scope: Scope, source: Profile | undefined, input: New
   if (input.mode === 'copy' && source) data.source_profile_id = source.id;
   if (input.mode === 'create') { data.canon = input.canon; data.style = input.style; }
   return { type: input.mode === 'create' ? 'persona.create' : 'persona.copy', request_id: requestId, scope, target: 'persona',
-    arguments: { schema_id: PERSONA_SCHEMA[input.mode], data } };
+    arguments: { schema_id: 'persona.' + input.mode, data } };
 }

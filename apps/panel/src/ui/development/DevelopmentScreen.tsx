@@ -47,7 +47,7 @@ function useAction(api: PanelApi, scope: Scope, refresh: string[]) {
   return { run, busy: state.phase === 'sending' || state.phase === 'unknown', view };
 }
 
-function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; run: RunSession | undefined; change: StateChange }) {
+function ChangeCard({ api, scope, change }: { api: PanelApi; scope: Scope; change: StateChange }) {
   const patch = patchOf(change);
   const action = useAction(api, scope, ['changes', 'character-states']);
   const [reason, setReason] = useState('');
@@ -55,22 +55,21 @@ function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; 
   const [problem, setProblem] = useState<string | null>(null);
   const [mode, setMode] = useState<'interpret' | 'rollback' | null>(null);
   function decide(decision: Decision) {
-    if (!run) return;
-    void action.run(decisionCommand(run, change, decision, reason, crypto.randomUUID()));
+    void action.run(decisionCommand({ scope }, change, decision, reason, crypto.randomUUID()));
   }
   function interpret() {
     const invalid = validInterpretation(change, text, reason);
-    if (invalid || !run) { setProblem(invalid ?? 'Нет подтверждённого запуска.'); return; }
-    setProblem(null); void action.run(interpretationCommand(run, change, text, reason, crypto.randomUUID()));
+    if (invalid) { setProblem(invalid); return; }
+    setProblem(null); void action.run(interpretationCommand({ scope }, change, text, reason, crypto.randomUUID()));
   }
-  const spec: PlanSpec | null = run ? {
+  const spec: PlanSpec = {
     ownerOperation: true, label: 'Откат', previewLabel: 'Подготовить откат', executeLabel: 'Откатить изменение', danger: true,
     confirmText: 'Я понимаю: создастся новая компенсирующая версия; опыт и уже случившееся не стираются',
     note: 'Откат пересматривает зависимые предложения и текущий контекст, но не отменяет событие мира и не забирает отправленную реплику.',
-    preview: (requestId) => rollbackPreview(run, change, requestId), execute: (plan, requestId) => rollbackExecute(run, change, plan, requestId),
+    preview: (requestId) => rollbackPreview({ scope }, change, requestId), execute: (plan, requestId) => rollbackExecute({ scope }, change, plan, requestId),
     problem: (plan, now) => rollbackProblem(plan, change, now), related: (plan) => plan.dependencies.filter((dep) => dep.resource_id !== change.id).length,
     refresh: ['changes', 'character-states', 'opportunities'],
-  } : null;
+  };
   return <Paper withBorder p="md" radius="lg" aria-label="Карточка изменения">
     <Group gap="xs" mb="xs"><Badge variant="light" color={change.status === 'APPLIED' ? 'teal' : awaitingOperator(change) ? 'orange' : 'gray'}>{changeLabels[change.status]}</Badge>
       {patch?.rollback && <Badge variant="outline">Компенсирующая версия</Badge>}</Group>
@@ -85,7 +84,7 @@ function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; 
     <Text size="xs" c="dimmed">{versions(change)} · автор предложения {change.owner} · {when(change.updated_at)}{change.operator_decision_id ? ` · решение ${change.operator_decision_id}` : ''}</Text>
     <Text size="xs" c="dimmed">Наблюдённые позднее проявления: связанных записей нет.</Text>
     {awaitingOperator(change) && <Stack gap="xs" mt="sm"><Textarea label="Основание решения" autosize minRows={1} maxLength={1000} value={reason} onChange={(event) => setReason(event.currentTarget.value)} />
-      <Group><Button disabled={!run || action.busy || !reason.trim()} onClick={() => decide('accept')}>Принять</Button><Button color="red" variant="light" disabled={!run || action.busy || !reason.trim()} onClick={() => decide('reject')}>Отклонить</Button></Group>
+      <Group><Button disabled={action.busy || !reason.trim()} onClick={() => decide('accept')}>Принять</Button><Button color="red" variant="light" disabled={action.busy || !reason.trim()} onClick={() => decide('reject')}>Отклонить</Button></Group>
       <Text size="xs" c="dimmed">Истечение ожидания не означает одобрения: изменение останется непринятым.</Text></Stack>}
     <Group mt="sm" gap="xs">
       {canCorrect(change) && <Button size="compact-sm" variant="light" onClick={() => setMode(mode === 'interpret' ? null : 'interpret')}>Исправить интерпретацию</Button>}
@@ -99,7 +98,7 @@ function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; 
   </Paper>;
 }
 
-function ArcCard({ api, scope, run, arc, opps }: { api: PanelApi; scope: Scope; run: RunSession | undefined; arc: StoryArc; opps: Opportunity[] }) {
+function ArcCard({ api, scope, arc, opps }: { api: PanelApi; scope: Scope; arc: StoryArc; opps: Opportunity[] }) {
   const action = useAction(api, scope, ['arcs', 'opportunities']);
   const groups = opportunitiesOf(arc, opps);
   return <Paper withBorder p="md" radius="lg" aria-label="Карточка линии">
@@ -118,12 +117,12 @@ function ArcCard({ api, scope, run, arc, opps }: { api: PanelApi; scope: Scope; 
     {!groups.possible.length ? <Text size="sm" c="dimmed">Предложенных испытаний нет.</Text> : groups.possible.map((opp) => <Paper key={opp.id} withBorder p="xs" mt={4}>
       <Group justify="space-between" wrap="nowrap"><div><Badge variant="outline" size="sm">{opportunityLabels[opp.status]}</Badge>
         <Text size="sm" className="plain-text">{opp.applicability}</Text><Text size="xs" c="dimmed">до {when(opp.expires_at)}</Text></div>
-        {canCancelOpportunity(opp) && run && <Button size="compact-xs" variant="subtle" color="gray" disabled={action.busy}
-          onClick={() => void action.run(cancelOpportunityCommand(run, opp, crypto.randomUUID()))}>Отменить</Button>}</Group></Paper>)}
+        {canCancelOpportunity(opp) && <Button size="compact-xs" variant="subtle" color="gray" disabled={action.busy}
+          onClick={() => void action.run(cancelOpportunityCommand({ scope }, opp, crypto.randomUUID()))}>Отменить</Button>}</Group></Paper>)}
     {groups.blocked.length > 0 && <><Title order={4} size="h5" mt="sm">Заблокировано границами</Title>
       {groups.blocked.map((opp) => <Text key={opp.id} size="sm">{opp.reason_code ?? 'причина не указана'}</Text>)}</>}
-    {canPauseArc(arc) && run && <Group mt="sm"><Button size="compact-sm" color="orange" variant="light" disabled={action.busy}
-      onClick={() => void action.run(pauseArcCommand(run, arc, crypto.randomUUID()))}>Приостановить линию</Button></Group>}
+    {canPauseArc(arc) && <Group mt="sm"><Button size="compact-sm" color="orange" variant="light" disabled={action.busy}
+      onClick={() => void action.run(pauseArcCommand({ scope }, arc, crypto.randomUUID()))}>Приостановить линию</Button></Group>}
     {action.view}
   </Paper>;
 }
@@ -162,11 +161,11 @@ export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelAp
       <Tabs.Tab value="changes">Изменения</Tabs.Tab><Tabs.Tab value="bounds">Границы</Tabs.Tab></Tabs.List>
       <Tabs.Panel value="overview" pt="md"><Stack gap="md">
         <Paper withBorder p="md" radius="lg" aria-label="Гейммастер"><Title order={3} size="h5" mb="xs">Гейммастер</Title>
-          <Group gap="xs"><Badge color={run?.gm_paused ? 'gray' : 'teal'} variant="light">{!run ? 'Состояние неизвестно' : run.gm_paused ? 'На паузе' : 'Пауза снята по данным ядра'}</Badge></Group>
+          <Group gap="xs"><Badge color={run?.gm_paused ? 'gray' : 'teal'} variant="light">{!run ? scope.memory_mode === 'test' ? 'Тестовые настройки' : 'Состояние неизвестно' : run.gm_paused ? 'На паузе' : 'Пауза снята по данным ядра'}</Badge></Group>
           <Group mt="xs" align="flex-end">
             <Button variant="light" disabled={!run || !gmSettings || gm.busy} onClick={() => run && void gm.run(gmPauseCommand(run, gmSettings!, !run.gm_paused, crypto.randomUUID()))}>{run?.gm_paused ? 'Снять паузу' : 'Приостановить гейммастера'}</Button>
             <Select label="Интенсивность" size="xs" w={170} allowDeselect={false} value={intensity} data={Object.entries(intensities).map(([value, label]) => ({ value, label }))} onChange={(v) => v && setIntensity(v as Intensity)} />
-            <Button variant="light" disabled={!run || !gmSettings || gm.busy} onClick={() => run && void gm.run(gmIntensityCommand(run, gmSettings!, intensity, crypto.randomUUID()))}>Применить интенсивность</Button></Group>
+            <Button variant="light" disabled={!gmSettings || gm.busy} onClick={() => gmSettings && void gm.run(gmIntensityCommand({ scope }, gmSettings!, intensity, crypto.randomUUID()))}>Применить интенсивность</Button></Group>
           <Text size="xs" c="dimmed" mt="xs">Текущая интенсивность: {gmSettings?.intensity ?? 'недоступна'}. Гейммастер внутренний: у него нет собственного голоса, он не решает за людей и не пишет биографию.</Text>
           {gm.view}{settings.isError && <Alert color="orange">{failureMessage(settings.error)}</Alert>}</Paper>
         <Paper withBorder p="md" radius="lg" aria-label="Требует внимания"><Title order={3} size="h5" mb="xs">Требует внимания</Title>
@@ -182,7 +181,7 @@ export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelAp
           {arcs.isPending ? <Text size="sm">Получаем линии…</Text> : !arcRows.length ? <Text size="sm" c="dimmed">Линий пока нет.</Text> : <ul className="memory-list" aria-label="Список линий">{arcRows.map((item) => <li key={item.id}>
             <button type="button" className={`memory-item ${item.id === selectedArc ? 'selected' : ''}`} onClick={() => setSelectedArc(item.id)}>
               <Badge size="xs" variant="light">{arcLabels[item.status]}</Badge><Text size="sm" className="plain-text" lineClamp={2}>{item.direction}</Text></button></li>)}</ul>}</Paper>
-        <div style={{ flex: '1 1 24rem' }}>{arc ? <ArcCard key={arc.id + arc.version} api={api} scope={scope} run={run} arc={arc} opps={oppRows} /> : <Alert color="gray">Выберите линию, чтобы увидеть основания, пережитое и возможные продолжения.</Alert>}</div>
+        <div style={{ flex: '1 1 24rem' }}>{arc ? <ArcCard key={arc.id + arc.version} api={api} scope={scope} arc={arc} opps={oppRows} /> : <Alert color="gray">Выберите линию, чтобы увидеть основания, пережитое и возможные продолжения.</Alert>}</div>
       </Group></Tabs.Panel>
       <Tabs.Panel value="changes" pt="md"><Group align="flex-start" grow wrap="wrap">
         <Paper withBorder p="md" radius="lg" style={{ flex: '1 1 20rem' }}><Title order={3} size="h5" mb="xs">Изменения ({changeRows.length})</Title>
@@ -192,7 +191,7 @@ export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelAp
               <Group gap="xs"><Badge size="xs" variant="light" color={awaitingOperator(item) ? 'orange' : 'gray'}>{changeLabels[item.status]}</Badge></Group>
               <Text size="sm">{patch ? `${patch.property}: ${patch.before} → ${patch.after}` : 'Формат правки не распознан'}</Text></button></li>;
           })}</ul>}</Paper>
-        <div style={{ flex: '1 1 24rem' }}>{change ? <ChangeCard key={change.id + change.version} api={api} scope={scope} run={run} change={change} /> : <Alert color="gray">Выберите изменение, чтобы сравнить прежнее и новое значение, основания и интерпретацию.</Alert>}</div>
+        <div style={{ flex: '1 1 24rem' }}>{change ? <ChangeCard key={change.id + change.version} api={api} scope={scope} change={change} /> : <Alert color="gray">Выберите изменение, чтобы сравнить прежнее и новое значение, основания и интерпретацию.</Alert>}</div>
       </Group></Tabs.Panel>
       <Tabs.Panel value="bounds" pt="md"><Stack gap="md">
         <Paper withBorder p="md" radius="lg" aria-label="Допустимые изменения"><Title order={3} size="h5" mb="xs">Допустимые изменения личности</Title>

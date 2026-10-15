@@ -140,17 +140,33 @@ def mock_screen(
             request.fulfill(json=page_of([run_row()] if mine else []))
         elif path in data:
             request.fulfill(json=page_of(list(data[path]) if mine else []))
-        elif path == "/api/v1/commands":
+        elif path in ("/api/v1/commands", "/api/v1/personas/alpha/validate"):
             posted.append(body)
             if command is not None:
                 command(request, body, len(posted))
+            elif body["type"] == "persona.validate":
+                request.fulfill(
+                    json={
+                        "request_id": body["request_id"],
+                        "scope": body["scope"],
+                        "ready": True,
+                        "digest": "a" * 64,
+                        "current_version": body["expected_version"],
+                        "version_conflict": False,
+                        "unchanged": False,
+                        "issues": [],
+                        "blockers": [],
+                        "diff": {},
+                    }
+                )
             else:
                 request.fulfill(
                     json={
                         "request_id": body["request_id"],
                         "scope": body["scope"],
                         "status": "completed",
-                        "resource_id": "rev-digest-1",
+                        "resource_id": "profile-1",
+                        "version": 4,
                     }
                 )
         else:
@@ -186,7 +202,7 @@ def test_accepted_profile_keeps_canon_and_live_state_in_separate_columns(page, l
     expect(row).to_contain_text("experience")
     expect(row.get_by_role("cell").nth(2)).to_have_text("0.4")
     expect(row.get_by_role("cell").nth(3)).to_contain_text("0.55")
-    expect(row).to_contain_text("изменилось опытом")
+    expect(row).to_contain_text("отличается от начального")
     expect(
         table.get_by_role("row").filter(has_text="calm").get_by_role("cell").nth(3)
     ).to_contain_text("нет данных")
@@ -236,15 +252,27 @@ def test_apply_repeats_the_checked_digest_and_the_seen_version(page, live_panel)
     expect(editor.get_by_text("Версия принята ядром.")).to_be_visible()
     apply = posted[1]
     assert apply["type"] == "persona.apply" and apply["expected_version"] == 3
-    assert apply["arguments"]["data"]["revision_digest"] == "rev-digest-1"
-    assert apply["arguments"]["data"]["style"] == "Тёплый стиль"
-    assert apply["scope"] == RUN_SCOPE
+    assert apply["arguments"]["data"]["revision_digest"] == "a" * 64
+    assert "## Стиль\n\nТёплый стиль" in apply["arguments"]["data"]["markdown"]
+    assert apply["target"] == "alpha"
+    assert apply["scope"] == WORK
 
 
 def test_without_a_returned_digest_nothing_is_applied(page, live_panel):
     def command(request, body, count):
         request.fulfill(
-            json={"request_id": body["request_id"], "scope": body["scope"], "status": "completed"}
+            json={
+                "request_id": body["request_id"],
+                "scope": body["scope"],
+                "ready": False,
+                "digest": None,
+                "current_version": body["expected_version"],
+                "version_conflict": False,
+                "unchanged": False,
+                "issues": [],
+                "blockers": [],
+                "diff": {},
+            }
         )
 
     posted = open_persona(page, live_panel, command=command)

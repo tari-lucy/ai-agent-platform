@@ -2,7 +2,7 @@ import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Table, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { Profile, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import type { Profile, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
@@ -19,7 +19,7 @@ function Diff({ title, before, after }: { title: string; before: string; after: 
       <div key={index} className={line.op}>{line.op === 'add' ? '+ ' : '− '}{line.text}</div>)}</pre>}</div>;
 }
 
-function Editor({ api, run, profile, onReload }: { api: PanelApi; run: RunSession | undefined; profile: Profile; onReload: () => void }) {
+function Editor({ api, scope, profile, onReload }: { api: PanelApi; scope: Scope; profile: Profile; onReload: () => void }) {
   const [draft, setDraft] = useState<Draft>({ canon: profile.canon, style: profile.style });
   const [checked, setChecked] = useState<Checked | null>(null);
   const [busy, setBusy] = useState<'validate' | 'apply' | null>(null);
@@ -30,20 +30,21 @@ function Editor({ api, run, profile, onReload }: { api: PanelApi; run: RunSessio
   const blocker = applyBlocker(profile, draft, checked);
   const edit = (patch: Partial<Draft>) => { setDraft({ ...draft, ...patch }); setMessage(null); };
   async function validate() {
-    if (!run) return;
+    if (hasProblems(problems)) return;
     setBusy('validate'); setMessage(null); setConflict(false); setUnknown(null);
     try {
-      const receipt = await api.command(validateCommand(run.scope, run.session_id, profile, draft, crypto.randomUUID())) as Receipt;
-      setChecked(checkedFrom(profile, draft, receipt));
-      setMessage({ tone: 'ok', text: 'Правка проверена. Различия показаны ниже; профиль ещё не изменён.' });
+      const report = await api.validateProfile(validateCommand(scope, profile, draft, crypto.randomUUID()));
+      setChecked(checkedFrom(profile, draft, report));
+      if (report.version_conflict) { setConflict(true); setMessage({ tone: 'bad', text: 'Профиль уже изменён. Загрузите актуальную редакцию.' }); }
+      else setMessage({ tone: report.ready ? 'ok' : 'bad', text: report.ready ? 'Правка проверена. Различия показаны ниже; профиль ещё не изменён.' : 'Правка не готова: ' + [...report.issues, ...report.blockers].map((i) => i.message).join(' ') });
     } catch (error) { fail(error, 'validate'); }
     finally { setBusy(null); }
   }
   async function apply() {
-    if (!run || !checked?.digest) return;
+    if (!checked?.digest) return;
     setBusy('apply'); setMessage(null); setUnknown(null);
     try {
-      await api.command(applyCommand(run.scope, run.session_id, profile, draft, checked.digest, crypto.randomUUID()));
+      await api.command(applyCommand(scope, profile, draft, checked.digest, crypto.randomUUID()));
       setMessage({ tone: 'ok', text: 'Версия принята ядром. Накопленное состояние сохраняется, канон и состояние остаются раздельными.' }); setChecked(null); onReload();
     } catch (error) { fail(error, 'apply'); }
     finally { setBusy(null); }
@@ -60,11 +61,10 @@ function Editor({ api, run, profile, onReload }: { api: PanelApi; run: RunSessio
     {problems.general && <Text size="xs" c="dimmed" mt="xs">{problems.general}</Text>}
     <Stack gap="xs" mt="sm" aria-label="Различия до применения"><Diff title="Канон" before={profile.canon} after={draft.canon} /><Diff title="Стиль" before={profile.style} after={draft.style} /></Stack>
     <Group mt="sm">
-      <Button variant="light" disabled={!run || hasProblems(problems) || busy !== null} onClick={() => void validate()}>{busy === 'validate' ? 'Проверяем…' : 'Проверить правку'}</Button>
-      <Button disabled={!run || !!blocker || busy !== null} onClick={() => void apply()}>{busy === 'apply' ? 'Применяем…' : 'Применить версию'}</Button>
+      <Button variant="light" disabled={hasProblems(problems) || busy !== null} onClick={() => void validate()}>{busy === 'validate' ? 'Проверяем…' : 'Проверить правку'}</Button>
+      <Button disabled={!!blocker || busy !== null} onClick={() => void apply()}>{busy === 'apply' ? 'Применяем…' : 'Применить версию'}</Button>
       <Button variant="subtle" color="gray" onClick={() => { setDraft({ canon: profile.canon, style: profile.style }); setChecked(null); setMessage(null); }}>Сбросить черновик</Button></Group>
-    {!run && <Text size="xs" c="orange.8" mt="xs">Нет подтверждённого запуска в этой области: проверка и применение недоступны.</Text>}
-    {run && blocker && <Text size="xs" c="dimmed" mt="xs" role="status">{blocker}</Text>}
+    {blocker && <Text size="xs" c="dimmed" mt="xs" role="status">{blocker}</Text>}
     {message && <Alert mt="xs" color={message.tone === 'ok' ? 'teal' : 'orange'} role={message.tone === 'ok' ? 'status' : 'alert'}>{message.text}</Alert>}
     {(conflict || unknown) && <Button mt="xs" size="compact-sm" variant="light" onClick={onReload}>Загрузить актуальную редакцию</Button>}
     <Text size="xs" c="dimmed" mt="xs">Текст профиля — данные: он не исполняется. Свойства, пределы развития и начальные значения меняются через импорт профиля.</Text>
@@ -100,8 +100,6 @@ function NewProfile({ api, scope, source, existing }: { api: PanelApi; scope: Sc
 
 export function PersonaScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
   const cache = useQueryClient();
-  const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
-  const run = (runs.data as RunSessionPage | undefined)?.items[0];
   const profiles = useQuery({ queryKey: projectionKey('personas', scope), queryFn: ({ signal }) => api.profiles(scope, signal) });
   const states = useQuery({ queryKey: projectionKey('character-states', scope), queryFn: ({ signal }) => api.characterStates(scope, signal) });
   const profile = profiles.data?.items.find((item) => item.persona_id === scope.persona_id) ?? profiles.data?.items[0];
@@ -124,9 +122,9 @@ export function PersonaScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
         {note && <Alert color="orange" mb="xs">{note}</Alert>}
         {!rows.length ? <Text size="sm" c="dimmed">Свойств нет.</Text> : <Table aria-label="Свойства личности"><Table.Thead><Table.Tr><Table.Th>Свойство</Table.Th><Table.Th>Определение и автономность</Table.Th><Table.Th>Начальное (канон)</Table.Th><Table.Th>Живое</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>{rows.map((row) => <Table.Tr key={row.name}><Table.Td>{row.name}</Table.Td><Table.Td className="plain-text">{row.definition}</Table.Td>
-            <Table.Td>{row.initial ?? '—'}</Table.Td><Table.Td>{row.live ?? 'нет данных'}{row.drifted && <Badge ml="xs" size="xs" color="blue" variant="light">изменилось опытом</Badge>}</Table.Td></Table.Tr>)}</Table.Tbody></Table>}
+            <Table.Td>{row.initial ?? '—'}</Table.Td><Table.Td>{row.live ?? 'нет данных'}{row.drifted && <Badge ml="xs" size="xs" color="blue" variant="light">отличается от начального</Badge>}</Table.Td></Table.Tr>)}</Table.Tbody></Table>}
         <details><summary>Пределы развития</summary><Text size="xs" component="pre" className="plain-text">{JSON.stringify(profile.development_bounds.data, null, 2)}</Text></details></Paper>
-      <Editor key={profile.id + profile.version} api={api} run={run} profile={profile} onReload={reload} /></>}
+      <Editor key={profile.id + profile.version} api={api} scope={scope} profile={profile} onReload={reload} /></>}
     <NewProfile api={api} scope={scope} source={profile} existing={(profiles.data?.items ?? []).map((item) => item.persona_id)} />
   </Stack>;
 }
