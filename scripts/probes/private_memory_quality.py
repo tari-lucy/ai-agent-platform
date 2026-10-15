@@ -217,11 +217,13 @@ async def run(
     collector = Collector()
     steps: dict[str, Any] = {}
     root_logger, level = logging.getLogger(), logging.getLogger().level
+    original_provider = vars(providers)["OpenAICompatibleProvider"]
     root_logger.addHandler(collector)
     root_logger.setLevel(logging.INFO)
     try:
         return await converse(arguments, inner, config, scope, collector, steps)
     finally:
+        setattr(providers, "OpenAICompatibleProvider", original_provider)  # noqa: B010
         root_logger.removeHandler(collector)
         root_logger.setLevel(level)
 

@@ -85,7 +85,9 @@ def test_a_six_call_run_reports_counts_and_codes_without_any_text(tmp_path, monk
             str(tmp_path / "host"),
         ]
     )
+    original_provider = providers.OpenAICompatibleProvider
     report = asyncio.run(probe.run(arguments, httpx.MockTransport(model)))
+    assert providers.OpenAICompatibleProvider is original_provider
     text = json.dumps(report, ensure_ascii=False, default=str)
     assert [c["role"] for c in report["calls"]] == [
         "character",
