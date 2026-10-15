@@ -45,7 +45,7 @@ export function historyNote(walks: { complete: boolean; error: string | null }[]
     return { tone: 'error', text: 'Часть истории не загрузилась. Это не конец переписки: список может быть неполным.' };
   }
   if (walks.some((w) => !w.complete)) {
-    return { tone: 'partial', text: `Загружено до ${budget} страниц по 50 записей; более ранние записи есть на сервере.` };
+    return { tone: 'partial', text: `Загружено до ${budget} страниц по 50 записей; часть записей осталась на сервере.` };
   }
   return { tone: 'ok', text: 'Вся переписка загружена.' };
 }

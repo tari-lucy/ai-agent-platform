@@ -7,7 +7,7 @@ scrambled against record ids.
 
 from pathlib import Path
 
-from dialogue_support import label, seed_history
+from dialogue_daily_support import label, seed_history
 from host_support import Server, free_port, init
 from playwright.sync_api import expect
 
