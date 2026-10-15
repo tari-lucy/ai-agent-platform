@@ -34,17 +34,24 @@ def init(root: Path, *arguments: str) -> subprocess.CompletedProcess:
 class Server:
     """`serve` as a child process; stdout/stderr go to a file the test can inspect."""
 
-    def __init__(self, root: Path, port: int, log: Path, provider: str = "mock") -> None:
+    def __init__(
+        self,
+        root: Path,
+        port: int,
+        log: Path,
+        provider: str = "mock",
+        panel_dir: Path | None = None,
+    ) -> None:
         self.root, self.port, self.log = root, port, log
         self.origin = f"http://127.0.0.1:{port}"
-        self.provider = provider
+        self.provider, self.panel_dir = provider, panel_dir
         self.process: subprocess.Popen | None = None
 
     def __enter__(self) -> Server:
         handle = self.log.open("ab")
         self.process = subprocess.Popen(
             command(
-                "serve",
+                *(("serve", "--panel-dir", str(self.panel_dir)) if self.panel_dir else ("serve",)),
                 "--root",
                 str(self.root),
                 "--provider",

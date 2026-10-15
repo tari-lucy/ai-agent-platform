@@ -38,6 +38,9 @@ def parser() -> argparse.ArgumentParser:
         help="mock is the explicit technical mode; live is refused until accepted",
     )
     run.add_argument("--port", type=int, help="override the prepared port")
+    run.add_argument(
+        "--panel-dir", type=Path, help="absolute path of a built apps/panel/dist to serve"
+    )
     return main
 
 
@@ -79,7 +82,12 @@ def main(argv: list[str] | None = None) -> int:
         if permissions_expired(config):
             print("NOTICE: prepared permissions expired; start stays closed", file=sys.stderr)
         print("serving STOPPED on loopback; start is an explicit operator command", flush=True)
-        serve(arguments.root, provider=arguments.provider, port=arguments.port)
+        serve(
+            arguments.root,
+            provider=arguments.provider,
+            port=arguments.port,
+            panel_dir=arguments.panel_dir,
+        )
         return 0
     except HostError as error:
         print(f"local-host refused: {error.code}", file=sys.stderr)

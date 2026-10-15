@@ -26,6 +26,7 @@ from ai_agent_core.m3_composition.state import OPERATOR
 from . import rights
 from .init import test_scope, work_scope
 from .layout import HostConfig, HostError, HostPaths, load_config, paths, read_secret
+from .panel import mount, validate
 from .provider import provider_factory
 
 LOOPBACK = "127.0.0.1"
@@ -37,12 +38,18 @@ async def _no_scope(_label: str) -> Scope:
 
 
 def build(
-    host: HostPaths, config: HostConfig, *, provider: str, port: int | None = None
+    host: HostPaths,
+    config: HostConfig,
+    *,
+    provider: str,
+    port: int | None = None,
+    panel_dir: Path | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     """Compose the app. Returns it with a closer for the indexes this function opened."""
     factory = provider_factory(provider)  # fail closed before anything is opened
     if not host.database.is_file():
         raise HostError("INIT_INCOMPLETE")
+    panel = None if panel_dir is None else validate(panel_dir, host.root)
     number = port or config.port
     secret = read_secret(host.password_hash)
     work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
@@ -90,6 +97,9 @@ def build(
         reports=reports,
     )
 
+    if panel is not None:
+        mount(app, panel)
+
     def close() -> None:
         for index in opened:
             index.close()
@@ -101,10 +111,12 @@ def permissions_expired(config: HostConfig) -> bool:
     return datetime.fromisoformat(config.permission_expires_at) <= datetime.now(UTC)
 
 
-def serve(root: Path, *, provider: str, port: int | None = None) -> None:
+def serve(
+    root: Path, *, provider: str, port: int | None = None, panel_dir: Path | None = None
+) -> None:
     host = paths(root)
     config = load_config(host)
-    app, close = build(host, config, provider=provider, port=port)
+    app, close = build(host, config, provider=provider, port=port, panel_dir=panel_dir)
     number = port or config.port
     try:
         uvicorn.run(
