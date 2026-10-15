@@ -44,14 +44,26 @@ def test_offline_budget_update_preserves_state_and_refuses_active_root(tmp_path)
     database = host.database.read_bytes()
     with exclusive_host(root):
         with pytest.raises(HostError, match="HOST_ALREADY_RUNNING"):
-            configure_budget(root, limit=100, period="utc_day")
+            configure_budget(root, limit=300, period="utc_day")
     assert load_config(host) == before
-    configure_budget(root, limit=100, period="utc_day")
+    configure_budget(root, limit=300, period="utc_day")
     updated = load_config(host)
-    assert updated.live.attempt_limit == 100 and updated.live.attempt_period == "utc_day"
+    assert updated.live.attempt_limit == 300 and updated.live.attempt_period == "utc_day"
     assert updated.model_copy(update={"live": before.live}) == before
     assert host.database.read_bytes() == database
-    for limit in (0, 101):
+    for limit in (0, -1, True, 1.5):
         with pytest.raises(HostError, match="INVALID_OPTION"):
             configure_budget(root, limit=limit, period="utc_day")
     assert load_config(host) == updated
+
+
+@pytest.mark.parametrize("limit", [300, 750, 2500])
+def test_budget_has_no_fixed_business_ceiling(limit):
+    assert LiveConfig(model_id="fixture-model", attempt_limit=limit).attempt_limit == limit
+    assert PrivateAPIBudget("conn", limit, 24000, "utc_day").max_attempts == limit
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5])
+def test_runtime_rejects_invalid_budget_types(limit):
+    with pytest.raises(ValueError, match="PRIVATE_API_BUDGET"):
+        PrivateAPIBudget("conn", limit, 24000, "utc_day")

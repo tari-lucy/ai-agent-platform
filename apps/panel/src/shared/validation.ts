@@ -478,7 +478,7 @@ export function privateApiStatus(value: unknown, selected: Scope): import('./con
     Number.isSafeInteger(value.attempts_used) && Number(value.attempts_used) >= 0);
   if (value.enabled) {
     demand(['lifetime', 'utc_day'].includes(String(value.period)) &&
-      Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= 1 && Number(value.attempt_limit) <= 100 &&
+      Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= 1 &&
       value.attempts_remaining === Math.max(0, Number(value.attempt_limit) - Number(value.attempts_used)) &&
       (value.period === 'utc_day' ? date(value.resets_at) && Date.parse(String(value.resets_at)) > Date.parse(String(value.checked_at)) : value.resets_at === null));
   } else demand(value.period === null && value.attempt_limit === null && value.attempts_remaining === null &&

@@ -30,7 +30,7 @@ class LiveConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     model_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-    attempt_limit: int = Field(default=10, strict=True, ge=1, le=100)
+    attempt_limit: int = Field(default=10, strict=True, ge=1)
     attempt_period: Literal["lifetime", "utc_day"] = "lifetime"
     max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
     max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)

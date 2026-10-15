@@ -6702,7 +6702,6 @@
         "attempt_limit": {
           "anyOf": [
             {
-              "maximum": 100,
               "minimum": 1,
               "type": "integer"
             },
@@ -6715,7 +6714,6 @@
         "attempts_remaining": {
           "anyOf": [
             {
-              "maximum": 100,
               "minimum": 0,
               "type": "integer"
             },

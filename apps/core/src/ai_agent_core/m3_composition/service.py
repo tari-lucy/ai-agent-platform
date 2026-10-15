@@ -89,7 +89,7 @@ class PrivateAPIBudget:
     def __post_init__(self) -> None:
         if self.period not in ("lifetime", "utc_day"):
             raise ValueError("PRIVATE_API_PERIOD")
-        if not self.connection_id or not 1 <= self.max_attempts <= 100:
+        if not self.connection_id or type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("PRIVATE_API_BUDGET")
         if not 1000 <= self.max_prompt_chars <= 40000:
             raise ValueError("PRIVATE_API_PROMPT_LIMIT")

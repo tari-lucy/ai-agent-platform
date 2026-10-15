@@ -300,9 +300,9 @@ class PrivateApiStatus(Contract):
     scope: Scope
     enabled: bool = Field(strict=True)
     period: Literal["lifetime", "utc_day"] | None
-    attempt_limit: int | None = Field(strict=True, ge=1, le=100)
+    attempt_limit: int | None = Field(strict=True, ge=1)
     attempts_used: int = Field(strict=True, ge=0)
-    attempts_remaining: int | None = Field(strict=True, ge=0, le=100)
+    attempts_remaining: int | None = Field(strict=True, ge=0)
     resets_at: UTC | None
     checked_at: UTC
 
