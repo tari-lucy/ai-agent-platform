@@ -258,6 +258,8 @@ class Repository[T: Record]:
         limit: int = 50,
         after_id: str | None = None,
         lifecycle: bool = False,
+        newest: bool = False,
+        before: datetime | None = None,
     ) -> list[T]:
         check_principal(self.principal)
         if type(limit) is not int or not 1 <= limit <= 200:
@@ -305,8 +307,15 @@ class Repository[T: Record]:
             query = query.where(db.records.c.id == record_id)
         if after_id is not None:
             query = query.where(db.records.c.id > after_id)
+        if before is not None:
+            query = query.where(db.records.c.created_at <= stamp(before))
+        ordering = (
+            (db.records.c.created_at.desc(), db.records.c.id.desc())
+            if newest
+            else (db.records.c.id,)
+        )
         async with self.store.connection() as connection:
-            result = await connection.execute(query.order_by(db.records.c.id).limit(limit))
+            result = await connection.execute(query.order_by(*ordering).limit(limit))
             decoded = [self._decode(row["payload"]) for row in result.mappings()]
             ref_ids = {
                 ref.source_id
@@ -399,6 +408,15 @@ class Repository[T: Record]:
         purpose: ReadPurpose = "private",
     ) -> list[T]:
         return await self._rows(limit=limit, after_id=after_id, purpose=purpose)
+
+    async def recent(
+        self,
+        *,
+        limit: int = 50,
+        before: datetime | None = None,
+        purpose: ReadPurpose = "private",
+    ) -> builtins.list[T]:
+        return await self._rows(limit=limit, purpose=purpose, newest=True, before=before)
 
     async def get_for_lifecycle(self, record_id: str) -> T | None:
         rows = await self._rows(record_id=record_id, lifecycle=True, limit=1)

@@ -1098,3 +1098,39 @@ def test_registered_extension_source_scope_and_access_are_checked(tmp_path):
             await store.close()
 
     run(scenario())
+
+
+def test_recent_creation_order_keeps_authoritative_filters_and_cutoff(tmp_path):
+    async def scenario():
+        store = await new_store(tmp_path)
+        try:
+            for i in range(5):
+                await save(
+                    store,
+                    source(
+                        f"row-{4 - i}",
+                        created_at=(NOW + timedelta(seconds=i)).isoformat(),
+                        updated_at=(NOW + timedelta(seconds=i)).isoformat(),
+                        api_transfer_allowed=i != 3,
+                    ),
+                    request_id=f"save-{i}",
+                    access=(RecordAccess(OPERATOR.id, api_transfer=True),),
+                )
+            repo = store.repository(Source, OPERATOR, SCOPE)
+            assert [r.id for r in await repo.recent(limit=2, purpose="api_transfer")] == [
+                "row-0",
+                "row-2",
+            ]
+            assert [
+                r.id
+                for r in await repo.recent(
+                    limit=2, before=NOW + timedelta(seconds=2), purpose="api_transfer"
+                )
+            ] == ["row-2", "row-3"]
+            assert len(await repo.recent(limit=5)) == 5
+            with pytest.raises(ContractError):
+                await repo.recent(limit=201)
+        finally:
+            await store.close()
+
+    asyncio.run(scenario())

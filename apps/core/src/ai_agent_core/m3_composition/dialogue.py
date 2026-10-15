@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from contextlib import ExitStack
+from dataclasses import replace
 from typing import Any, Literal
 
 from ai_agent_application.control.ports import ControlAuthority
@@ -14,7 +15,7 @@ from ai_agent_application.dialogue import (
     SourceRights,
     Turn,
 )
-from ai_agent_application.memory import EpisodeDraft, MemoryService, RecallService, SourceDraft
+from ai_agent_application.memory import EpisodeDraft, MemoryService, SourceDraft
 from ai_agent_application.memory.service import derived_id
 from ai_agent_application.social import SocialService
 from ai_agent_application.storage import Owner, Principal, ReadPurpose
@@ -33,6 +34,7 @@ from ai_agent_contracts.memory import Source
 from ai_agent_contracts.persona import CharacterState, Profile
 from ai_agent_contracts.states import DeliveryState, ErrorCode, Provenance
 
+from .history import PrivateHistory, PrivateRecall
 from .schemas import TaskInput
 from .service import DOMAIN_OWNERS, Execution, Runtime
 from .state import PRINCIPALS, command, put
@@ -66,6 +68,9 @@ class Context(ContextBuilder):
     def __init__(self, execution: Execution, *args: Any) -> None:
         super().__init__(*args)
         self.execution = execution
+        self.history = PrivateHistory(execution.runtime)
+        assert isinstance(self.recall, PrivateRecall)
+        self.recall.history = self.history
 
     async def build(
         self,
@@ -77,20 +82,21 @@ class Context(ContextBuilder):
         turns: Sequence[Turn],
         capabilities: Sequence[str],
     ) -> BuiltContext:
+        recent = await self.history.recent(scope, incoming, self.policy.recent_turns)
         built = await super().build(
             scope,
             signal,
             person_id=person_id,
             incoming=incoming,
-            turns=turns,
+            turns=(*recent, *turns),
             capabilities=capabilities,
         )
-        refs = {ref.source_id: ref for ref in built.manifest.sources}
+        refs = {**self.history.sources, **{ref.source_id: ref for ref in built.manifest.sources}}
         if incoming is not None:
             refs[incoming.source_id] = incoming
         self.execution.extra_sources = tuple(refs.values())
         await self.execution.verify()
-        return built
+        return replace(built, manifest=replace(built.manifest, sources=tuple(refs.values())))
 
 
 class View:
@@ -182,7 +188,7 @@ async def perform(ex: Execution) -> list[str]:
             ex,
             Profiles(rt),
             social,
-            RecallService(
+            PrivateRecall(
                 rt.store,
                 Principal("operator", "operator"),
                 rt.dialogue_index,
@@ -233,7 +239,9 @@ async def perform(ex: Execution) -> list[str]:
             audience_id="operator-panel",
             channel_ids=["operator-panel"],
             moderation_status="draft",
-            sources=list(draft.evidence),
+            sources=list(
+                {ref.source_id: ref for ref in (*draft.evidence, *ex.extra_sources)}.values()
+            ),
             operation_id=ex.command.operation_id,
         )
         await put(

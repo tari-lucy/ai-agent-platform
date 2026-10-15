@@ -82,6 +82,16 @@ class RecordRepository[T: Record](Protocol):
         self, *, limit: int = 50, after_id: str | None = None, purpose: ReadPurpose = "private"
     ) -> list[T]: ...
 
+    async def recent(
+        self,
+        *,
+        limit: int = 50,
+        before: datetime | None = None,
+        purpose: ReadPurpose = "private",
+    ) -> builtins.list[T]:
+        """Newest creations first (created_at, id), with the get/list read policy."""
+        ...
+
     async def get_for_lifecycle(self, record_id: str) -> T | None: ...
 
     async def list_for_lifecycle(
