@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack, suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
@@ -77,6 +77,21 @@ DOMAIN_OWNERS = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class PrivateAPIBudget:
+    """Lifetime attempt cap for a trusted single-host private dialogue pilot."""
+
+    connection_id: str
+    max_attempts: int
+    max_prompt_chars: int
+
+    def __post_init__(self) -> None:
+        if not self.connection_id or not 1 <= self.max_attempts <= 100:
+            raise ValueError("PRIVATE_API_BUDGET")
+        if not 1000 <= self.max_prompt_chars <= 40000:
+            raise ValueError("PRIVATE_API_PROMPT_LIMIT")
+
+
 class Runtime:
     def __init__(
         self,
@@ -93,6 +108,7 @@ class Runtime:
         reports: Reports | None = None,
         reader_access: tuple[RecordAccess, ...] = (),
         dialogue_index: RecallIndex | None = None,
+        private_api_budget: PrivateAPIBudget | None = None,
     ) -> None:
         if scheduler.supervisor is not supervisor or store.extensions is not registry:
             raise ValueError("M3_COMPOSITION")
@@ -111,6 +127,8 @@ class Runtime:
         self.providers, self.scopes, self.families, self.lab = providers, scopes, families, lab
         self.readers = reader_access
         self.dialogue_index = dialogue_index
+        self.private_api_budget = private_api_budget
+        self.attempt_lock = asyncio.Lock()
         from ai_agent_core.access.events import Events
         from ai_agent_core.access.sessions import AccessLimits
 
@@ -877,6 +895,10 @@ class Execution:
             self.cancel.set()
 
     async def begin(self, report: AttemptReport) -> None:
+        async with self.runtime.attempt_lock:
+            await self._begin(report)
+
+    async def _begin(self, report: AttemptReport) -> None:
         self.current_attempt = report.attempt_id
         await self.verify()
         _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
@@ -887,9 +909,15 @@ class Execution:
             clock=self.runtime.supervisor.clock.utc,
             reader_access=self.runtime.readers,
         )
+        attempts = await ledger.attempts(self.command.scope)
+        budget = self.runtime.private_api_budget
+        if budget is not None and report.connection_id == budget.connection_id:
+            # Count every prior attempt in the partition, including running/unknown/mock.
+            # This conservative cap cannot reset with a new operation, session or model.
+            if len(attempts) >= budget.max_attempts:
+                raise ContractError(ErrorCode.RESOURCE_BUSY)
         consumed = sum(
-            row.operation_id.startswith(self.command.operation_id + ".")
-            for row in await ledger.attempts(self.command.scope)
+            row.operation_id.startswith(self.command.operation_id + ".") for row in attempts
         )
         if consumed >= limits.max_calls:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
@@ -945,6 +973,15 @@ class Execution:
         _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
         if binding.parameters.max_output_tokens > limits.max_output_tokens:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
+        budget = self.runtime.private_api_budget
+        live = binding.adapter_id != "mock"
+        if live and (
+            budget is None
+            or binding.connection_id != budget.connection_id
+            or request.role_id != "character"
+            or sum(len(message.content) for message in request.messages) > budget.max_prompt_chars
+        ):
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         unique = (
             self.command.operation_id
             + "."
@@ -958,7 +995,7 @@ class Execution:
             journal=self,
             admission=self.allowed,
             clock=self.runtime.supervisor.clock.utc,
-            max_attempts=2,
+            max_attempts=1 if live else 2,
         )
         result = await gateway.generate(
             replace(request, operation_id=unique), self.cancel, on_delta=on_delta

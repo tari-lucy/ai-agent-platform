@@ -20,7 +20,9 @@ Windows/Linux: [инструкция](docs/local-host-setup.md),
 [combined review](docs/implementation-reports/Integration-local-host-review.md).
 Явный init --operator-controls готовит ручные решения и TEST→WORK настройки:
 [приёмка](docs/implementation-reports/Integration-host-controls.md).
-Живой API и остальные owner actions остаются следующими стыками; исходный
+Ограниченный private API pilot для роли character:
+[подготовка и границы](docs/implementation-reports/Integration-live-api.md).
+Остальные live роли и owner actions остаются следующими стыками; исходный
 порядок согласования — [сверка стыков](docs/implementation-reports/M4-M5-integration-readiness.md).
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),

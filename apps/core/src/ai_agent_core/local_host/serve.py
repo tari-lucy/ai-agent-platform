@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import uvicorn
 from ai_agent_adapters.configuration import BootstrapSettings
+from ai_agent_adapters.llm import ADAPTER_ID
 from ai_agent_adapters.recall import SQLiteRecallIndex
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.laboratory import LabRunner
@@ -21,6 +22,7 @@ from pydantic import SecretStr
 from ai_agent_core.m3_composition import new_registry
 from ai_agent_core.m3_composition.app import create_m3_app
 from ai_agent_core.m3_composition.artifacts import Reports
+from ai_agent_core.m3_composition.service import PrivateAPIBudget
 from ai_agent_core.m3_composition.state import OPERATOR
 
 from . import rights
@@ -44,11 +46,13 @@ def build(
     provider: str,
     port: int | None = None,
     panel_dir: Path | None = None,
+    env_file: Path | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     """Compose the app. Returns it with a closer for the indexes this function opened."""
     if port is not None and not 1024 <= port <= 65535:
         raise HostError("INVALID_OPTION")
-    factory = provider_factory(provider)  # fail closed before anything is opened
+    factory = provider_factory(provider, live=config.live, env_file=env_file)
+    # Credential/config refusals above happen before opening the database or indexes.
     if not host.database.is_file():
         raise HostError("INIT_INCOMPLETE")
     panel = None if panel_dir is None else validate(panel_dir, host.root)
@@ -94,6 +98,10 @@ def build(
         store,
         registry,
         providers=factory,
+        allowed_adapters=frozenset({"mock", ADAPTER_ID} if config.live else {"mock"}),
+        private_api_budget=None
+        if config.live is None
+        else PrivateAPIBudget("conn-live", config.live.attempt_limit, config.live.max_prompt_chars),
         scopes=scopes,
         reader_access=rights.record_readers(),
         dialogue_index=dialogue,
@@ -116,11 +124,18 @@ def permissions_expired(config: HostConfig) -> bool:
 
 
 def serve(
-    root: Path, *, provider: str, port: int | None = None, panel_dir: Path | None = None
+    root: Path,
+    *,
+    provider: str,
+    port: int | None = None,
+    panel_dir: Path | None = None,
+    env_file: Path | None = None,
 ) -> None:
     host = paths(root)
     config = load_config(host)
-    app, close = build(host, config, provider=provider, port=port, panel_dir=panel_dir)
+    app, close = build(
+        host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
+    )
     number = port or config.port
     try:
         uvicorn.run(

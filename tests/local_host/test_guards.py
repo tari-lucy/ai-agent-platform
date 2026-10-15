@@ -89,7 +89,7 @@ def test_serve_refuses_unprepared_or_unfinished(prepared, tmp_path):
 def test_live_provider_and_missing_mode_are_refused_before_opening(prepared):
     root, _ = prepared
     live = serve(root, "--provider", "live")
-    assert live.returncode == 78 and "LIVE_PROVIDER_NOT_ENABLED" in live.stderr
+    assert live.returncode == 78 and "LIVE_NOT_PREPARED" in live.stderr
     assert serve(root).returncode == 2  # the mode must be named explicitly
 
 

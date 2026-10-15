@@ -9,9 +9,10 @@ from pathlib import Path
 from ai_agent_adapters.configuration import ConfigurationError
 from ai_agent_application.laboratory.profile import REFERENCE_PROFILE
 from ai_agent_contracts.codec import ContractError
+from pydantic import ValidationError
 
 from .init import PROFILE_LIMIT, initialise
-from .layout import HostError, load_config, paths
+from .layout import HostError, LiveConfig, load_config, paths
 from .serve import permissions_expired, serve
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
@@ -33,6 +34,9 @@ def parser() -> argparse.ArgumentParser:
         help="explicit owner plans/receipts and a separate TEST settings profile",
     )
     init.add_argument("--permission-days", type=int, default=30, help="lifetime, 1..90 days")
+    init.add_argument("--live-model", help="explicit exact model ID for private API dialogue")
+    init.add_argument("--live-attempt-limit", type=int, default=10, help="durable pilot call cap")
+    init.add_argument("--live-max-output-tokens", type=int, default=512)
     init.add_argument("--migrations", type=Path, help="override the repository migrations")
     run = commands.add_parser("serve", help="serve a prepared host STOPPED on 127.0.0.1")
     run.add_argument("--root", type=Path, required=True)
@@ -40,8 +44,9 @@ def parser() -> argparse.ArgumentParser:
         "--provider",
         choices=("mock", "live"),
         required=True,
-        help="mock is the explicit technical mode; live is refused until accepted",
+        help="explicit technical mock or a previously prepared private live pilot",
     )
+    run.add_argument("--env-file", type=Path, help="absolute local credential binding; live only")
     run.add_argument("--port", type=int, help="override the prepared port")
     run.add_argument(
         "--panel-dir", type=Path, help="absolute path of a built apps/panel/dist to serve"
@@ -66,6 +71,22 @@ def main(argv: list[str] | None = None) -> int:
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
         if arguments.command == "init":
+            try:
+                live = (
+                    None
+                    if arguments.live_model is None
+                    else LiveConfig(
+                        model_id=arguments.live_model,
+                        attempt_limit=arguments.live_attempt_limit,
+                        max_output_tokens=arguments.live_max_output_tokens,
+                    )
+                )
+            except ValidationError:
+                raise HostError("INVALID_OPTION") from None
+            if live is None and (
+                arguments.live_attempt_limit != 10 or arguments.live_max_output_tokens != 512
+            ):
+                raise HostError("LIVE_MODEL_REQUIRED")
             config = asyncio.run(
                 initialise(
                     arguments.root,
@@ -77,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
                     permission_days=arguments.permission_days,
                     migrations=arguments.migrations,
                     operator_controls=arguments.operator_controls,
+                    live=live,
                 )
             )
             pool = len(config.test_space_ids)
@@ -92,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             provider=arguments.provider,
             port=arguments.port,
             panel_dir=arguments.panel_dir,
+            env_file=arguments.env_file,
         )
         return 0
     except HostError as error:

@@ -32,6 +32,7 @@ from .layout import (
     MAX_TEST_SCOPES,
     HostConfig,
     HostError,
+    LiveConfig,
     new_password,
     paths,
     private_dir,
@@ -74,6 +75,7 @@ async def initialise(
     permission_days: int = 30,
     migrations: Path | None = None,
     operator_controls: bool = False,
+    live: LiveConfig | None = None,
 ) -> HostConfig:
     if not 1 <= test_scopes <= MAX_TEST_SCOPES or not 1 <= permission_days <= MAX_PERMISSION_DAYS:
         raise HostError("INVALID_OPTION")
@@ -98,6 +100,7 @@ async def initialise(
             permission_expires_at=expires.isoformat(),
             operator_controls=operator_controls,
             settings_space_id=settings_id,
+            live=live,
         )
     except ValidationError:
         raise HostError("INVALID_OPTION") from None
@@ -135,7 +138,7 @@ async def initialise(
         await persona.create(
             from_wire(TypeAdapter(CreateCommand), json.dumps(create).encode(), extensions=registry)
         )
-        await _prepare_records(store, registry, work, expires)
+        await _prepare_records(store, registry, work, expires, live=live)
         # Only explicit init controls mode retains WORKSPACE writes for reviewed plans.
         await store.provision(work, rights.work_grants(operator_controls=operator_controls))
         if settings_id is not None:
@@ -181,7 +184,12 @@ async def initialise(
 
 
 async def _prepare_records(
-    store: SQLiteStore, registry: ExtensionRegistry, scope: Scope, expires: datetime
+    store: SQLiteStore,
+    registry: ExtensionRegistry,
+    scope: Scope,
+    expires: datetime,
+    *,
+    live: LiveConfig | None = None,
 ) -> None:
     now = datetime.now(UTC)
     common = dict(scope=scope, created_at=now, updated_at=now, version=1)
@@ -213,7 +221,7 @@ async def _prepare_records(
                 settings=extension(registry, "m3.empty", {}),
                 active_agent_id=None,
                 profile_ids=[scope.persona_id],
-                connection_ids=["conn-mock"],
+                connection_ids=["conn-mock", *(["conn-live"] if live else [])],
             ),
             llm_access,
         ),
@@ -237,7 +245,31 @@ async def _prepare_records(
             llm_access,
         ),
     ]
+    if live is not None:
+        from ai_agent_adapters.llm import ADAPTER_ID
+
+        records.append(
+            (
+                Owner.WORKSPACE,
+                record(
+                    registry,
+                    Connection,
+                    id="conn-live",
+                    **common,
+                    name="Private API pilot",
+                    adapter_id=ADAPTER_ID,
+                    adapter_version="1",
+                    endpoint_setting="AI_PLATFORM_LLM_ENDPOINT",
+                    credential_setting="AI_PLATFORM_LLM_API_KEY",
+                    configured=True,
+                    verification="unverified",
+                    capabilities=[],
+                ),
+                llm_access,
+            )
+        )
     for role in sorted({r for roles in ROLES.values() for r in roles}):
+        selected = live if role == "character" else None
         records.append(
             (
                 Owner.LLM,
@@ -247,12 +279,15 @@ async def _prepare_records(
                     id="asg-" + role,
                     **common,
                     role_id=role,
-                    connection_id="conn-mock",
-                    model_id="mock-" + role,
+                    connection_id="conn-live" if selected else "conn-mock",
+                    model_id=selected.model_id if selected else "mock-" + role,
                     parameters=extension(
                         registry,
                         "llm.generation-parameters",
-                        {"max_output_tokens": 500, "timeout_seconds": 5.0},
+                        {
+                            "max_output_tokens": selected.max_output_tokens if selected else 500,
+                            "timeout_seconds": selected.timeout_seconds if selected else 5.0,
+                        },
                     ),
                     required_capabilities=[],
                     capability_verification="unverified",

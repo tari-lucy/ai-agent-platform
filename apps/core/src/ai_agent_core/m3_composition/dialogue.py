@@ -1,4 +1,4 @@
-"""Private mock dialogue through the accepted owners; no publisher or implicit grants."""
+"""Private admitted dialogue through the accepted owners; no publisher or implicit grants."""
 
 from collections.abc import Sequence
 from contextlib import ExitStack
@@ -157,10 +157,14 @@ async def perform(ex: Execution) -> list[str]:
     rt, scope, request = ex.runtime, ex.command.scope, ex.args.request
     if rt.dialogue_index is None:
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-    # This entry is mock only even if a host enables another adapter for M3 separately.
+    # A real adapter also needs an explicit bounded private-pilot admission.
     roles = await rt.state.roles(scope)
     binding = await rt.state.binding(scope, roles["character"])
-    if binding.adapter_id != "mock":
+    if binding.adapter_id != "mock" and (
+        binding.adapter_id not in rt.policy.allowed_adapters
+        or rt.private_api_budget is None
+        or binding.connection_id != rt.private_api_budget.connection_id
+    ):
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
     identifier = derived_id("reply", scope, request.trigger_id)
     old = await rt.store.repository(Utterance, PRINCIPALS[Owner.GATEWAY], scope).get(identifier)

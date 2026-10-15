@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from ai_agent_core.bootstrap import create_app
 
 from .artifacts import Reports
-from .service import Runtime
+from .service import PrivateAPIBudget, Runtime
 
 
 def create_m3_app(
@@ -32,6 +32,7 @@ def create_m3_app(
     reports: Reports | None = None,
     reader_access: tuple[RecordAccess, ...] = (),
     dialogue_index: RecallIndex | None = None,
+    private_api_budget: PrivateAPIBudget | None = None,
 ) -> FastAPI:
     if not scopes:
         raise ValueError("M3_SCOPES")
@@ -50,6 +51,7 @@ def create_m3_app(
             reports=reports,
             reader_access=reader_access,
             dialogue_index=dialogue_index,
+            private_api_budget=private_api_budget,
         )
 
     return create_app(settings, runtime_factory=compose, base_scope=scopes[0])

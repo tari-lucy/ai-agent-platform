@@ -25,6 +25,17 @@ class HostError(Exception):
         super().__init__(code)
 
 
+class LiveConfig(BaseModel):
+    """Explicit private-dialogue pilot. Contains no credentials or endpoint values."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    model_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    attempt_limit: int = Field(default=10, strict=True, ge=1, le=100)
+    max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
+    max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)
+    timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -37,6 +48,7 @@ class HostConfig(BaseModel):
     port: int = Field(ge=1024, le=65535)
     permission_expires_at: str
     operator_controls: bool = False
+    live: LiveConfig | None = None
     settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
 
     @model_validator(mode="after")
