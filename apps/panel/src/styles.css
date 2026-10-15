@@ -8,12 +8,12 @@ button, a, summary { touch-action: manipulation; }
 .login-page { min-height: 100dvh; display: grid; grid-template-columns: 1fr 410px; align-items: center; gap: 70px; max-width: 1100px; margin: auto; padding: 48px; }
 .login-intro h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.15; letter-spacing: -.045em; }
 .login-card { background: #fff; box-shadow: 0 18px 70px #3530480a; }
-.workspace { --header-height: 145px; padding-top: var(--header-height); min-height: 100dvh; }
+.workspace { --header-height: 145px; padding-top: var(--header-offset, var(--header-height)); min-height: 100dvh; }
 .workspace-header { position: fixed; inset: 0 0 auto; z-index: 50; display: grid; grid-template-columns: 230px minmax(200px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: 15px 24px; min-height: var(--header-height); padding: 22px 28px 12px; background: #fff; border-bottom: 1px solid #e6e3ee; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .header-status { grid-column: 2 / -1; display: flex; gap: 20px; flex-wrap: wrap; }
 .stop-button, .start-button { min-width: 100px; font-weight: 800; letter-spacing: .08em; }
-.sidebar { position: fixed; top: var(--header-height); bottom: 0; width: 258px; padding: 32px 20px; border-right: 1px solid #e6e3ee; background: #fcfbfe; display: flex; flex-direction: column; }
+.sidebar { position: fixed; top: var(--header-offset, var(--header-height)); bottom: 0; width: 258px; padding: 32px 20px; border-right: 1px solid #e6e3ee; background: #fcfbfe; display: flex; flex-direction: column; }
 .nav-item { display: flex; gap: 14px; align-items: center; text-decoration: none; color: #696179; border-radius: 10px; padding: 13px 12px; font-size: 14px; margin-bottom: 5px; }
 .nav-number { font-size: 11px; opacity: .6; font-variant-numeric: tabular-nums; }
 .nav-item:hover { background: #f0edf8; }
@@ -72,3 +72,7 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 .diff { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--mantine-color-gray-0); font: inherit; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff .add { background: var(--mantine-color-teal-0); }
 .diff .del { background: var(--mantine-color-red-0); }
+
+.panel-guide-links { margin: 0; padding-left: 20px; }
+.panel-guide-links li + li { margin-top: 8px; }
+.panel-guide-links a { color: #6741d9; font-weight: 600; }

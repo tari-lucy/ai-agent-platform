@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Select, Text } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { OperatorSession, RunSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
@@ -16,6 +16,7 @@ import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
 import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 import { PersonaScreen } from './persona/PersonaScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
+import { PanelGuide } from './help/PanelGuide.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -76,6 +77,17 @@ const screenComponents: Record<typeof screens[number]['path'], (props: ScreenPro
 };
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();
+  const header = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = header.current;
+    if (!node) return;
+    // Scope names and connection notices wrap; keep the content below the actual header.
+    const observer = new ResizeObserver(() => {
+      node.parentElement?.style.setProperty('--header-offset', `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -123,7 +135,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   }
   return <div className="workspace">
     <a className="skip-link" href="#content">Перейти к содержимому</a>
-    <header className="workspace-header">
+    <header ref={header} className="workspace-header">
       <div className="header-brand"><Text className="brand">AI Agent Platform</Text><Text size="xs" c="dimmed">Пространство: {scope.workspace_id}</Text></div>
       <div className="view-selector"><Select label="Просматриваемый персонаж и память" value={selected}
         data={auth.scopes.map((item) => ({ value: scopeKey(item), label: scopeLabel(item) }))}
@@ -161,6 +173,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         {!!confirmed.unconfirmed_resource_ids?.length && <Text size="sm">{confirmed.unconfirmed_resource_ids.join(', ')}</Text>}
       </Alert>}
       {logoutError && <Alert color="red" mb="lg">{logoutError}</Alert>}
+      <PanelGuide scope={scope} run={target ?? undefined} fresh={!!targetRead?.isSuccess && !errors} />
       <Routes>{screens.map((screen) => {
         const Screen = screenComponents[screen.path];
         return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} />} />;

@@ -61,7 +61,7 @@ export function Application() {
           <Title order={1}>Рабочее пространство<br />для вашего персонажа</Title>
           <Text c="dimmed" mt="lg">Диалог, память и развитие — под вашим контролем.</Text></div>
         <Paper className="login-card" withBorder radius="lg" p="xl">
-          <Stack gap="lg"><div><Title order={2}>Вход оператора</Title><Text c="dimmed" size="sm" mt="xs">Локальный доступ к панели управления.</Text></div>
+          <Stack gap="lg"><div><Title order={2}>Вход оператора</Title><Text c="dimmed" size="sm" mt="xs">Пароль оператора открывает локальную панель управления.</Text></div>
             {booting ? <Text role="status">Проверяем сессию…</Text> :
               <form onSubmit={(event) => { event.preventDefault(); void login(event.currentTarget); }}>
                 <PasswordInput name="password" label="Пароль" aria-label="Пароль" autoComplete="current-password" required maxLength={1024}
@@ -69,7 +69,7 @@ export function Application() {
                 <Button type="submit" fullWidth disabled={busy}>{busy ? 'Проверяем пароль…' : 'Войти'}</Button>
               </form>}
             {error && <Alert color="orange" role="alert">{error}</Alert>}
-            <Text size="xs" c="dimmed">Вход не запускает агента. После перезапуска запуск остаётся остановленным.</Text>
+            <Text size="xs" c="dimmed">После входа нажмите START вверху панели, чтобы начать общение. Если пароль ещё не подготовлен, сначала выполните настройку локального host по инструкции проекта.</Text>
           </Stack>
         </Paper>
       </main>}

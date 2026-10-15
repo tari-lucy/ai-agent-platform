@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import { PeopleTab } from '../people/PeopleTab.tsx';
+import { MemoryAutomation } from './MemoryAutomation.tsx';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
@@ -139,6 +140,11 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
   return <Stack gap="lg">
     <div><Text className="eyebrow">03 / Память и люди</Text><Title order={1}>Память</Title></div>
     {scope.memory_mode === 'test' && <Alert color="violet" title="Тестовая память">Записи изолированы от рабочей биографии.</Alert>}
+    <MemoryAutomation api={api} scope={scope} run={run} runUnavailable={runs.isError || !runs.data} records={{
+      claims: claims.isError ? [] : claims.data?.pages.flatMap((p) => p.items) ?? [],
+      summaries: summaries.isError ? [] : summaries.data?.pages.flatMap((p) => p.items) ?? [],
+      incomplete: [claims, summaries].some((q) => q.isError || q.isPending || q.hasNextPage),
+    }} />
     <Tabs defaultValue="memory">
       <Tabs.List><Tabs.Tab value="memory">Записи</Tabs.Tab><Tabs.Tab value="people">Люди</Tabs.Tab></Tabs.List>
       <Tabs.Panel value="people" pt="md"><PeopleTab api={api} scope={scope} /></Tabs.Panel>
