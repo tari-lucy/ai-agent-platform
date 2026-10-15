@@ -114,27 +114,35 @@ async def include_memory(
             if member not in ordered:
                 ordered.append(member)
     stats = dict(considered=len(ordered), stale_source=0, over_budget=0, unrelated=0)
+    known: dict[str, tuple[SourceRef, ...] | None] = {}
+
+    async def grounded(record: Summary | Claim) -> tuple[SourceRef, ...] | None:
+        """Current, deliverable evidence for every source of the record, else None."""
+        if record.id not in known:
+            grounds: list[SourceRef] = []
+            known[record.id] = None
+            for ref in record.sources:
+                source = await rt.store.repository(Source, OPERATOR, scope).get(
+                    ref.source_id, purpose="api_transfer"
+                )
+                if (
+                    ref.scope.partition != scope.partition
+                    or source is None
+                    or source.version != ref.version
+                ):
+                    break
+                evidence = await history.evidence(scope, source)
+                if evidence is None:
+                    break
+                grounds.extend(evidence)
+            else:
+                known[record.id] = tuple(grounds)
+        return known[record.id]
+
     fragments, used, truncated = [], 0, False
     for record in ordered:
-        grounds: list[SourceRef] = []
-        valid = True
-        for ref in record.sources:
-            source = await rt.store.repository(Source, OPERATOR, scope).get(
-                ref.source_id, purpose="api_transfer"
-            )
-            if (
-                ref.scope.partition != scope.partition
-                or source is None
-                or source.version != ref.version
-            ):
-                valid = False
-                break
-            evidence = await history.evidence(scope, source)
-            if evidence is None:
-                valid = False
-                break
-            grounds.extend(evidence)
-        if not valid:
+        grounds = await grounded(record)
+        if grounds is None:
             stats["stale_source"] += 1
             continue
         if isinstance(record, Summary):
@@ -142,9 +150,13 @@ async def include_memory(
         else:
             label = "утверждение-" + record.knowledge_type
             when, ceiling = record.created_at.date(), 200
-        disputed = (
-            ' disputed="true"' if isinstance(record, Claim) and partners(record, pool) else ""
-        )
+        # Flagged only while the other side is itself deliverable: a revoked claim leaves no trace.
+        disputed = ""
+        if isinstance(record, Claim):
+            for other in partners(record, pool):
+                if await grounded(other) is not None:
+                    disputed = ' disputed="true"'
+                    break
         capacity = min(ceiling, remaining - used)
         if capacity < 45:
             stats["over_budget"] += 1
@@ -155,7 +167,7 @@ async def include_memory(
             f'<memory by="{label}" at="{when.isoformat()}"{disputed}{partial}>{content}</memory>'
         )
         cost = estimate_tokens("\n" + fragment)
-        if cost > remaining - used or not history.remember(tuple(grounds)):
+        if cost > remaining - used or not history.remember(grounds):
             stats["over_budget"] += 1
             continue
         fragments.append(fragment)
