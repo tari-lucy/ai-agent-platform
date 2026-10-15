@@ -51,7 +51,11 @@ GRANT_COLUMNS = (
 
 
 def _open(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    # Without a -wal file there is nothing to recover, and an immutable read leaves no -wal/-shm
+    # behind the live database; with one, a normal read-only open applies it.
+    wal = Path(str(path) + "-wal")
+    mode = "mode=ro&immutable=1" if not wal.exists() else "mode=ro"
+    return sqlite3.connect(f"{path.as_uri()}?{mode}", uri=True)
 
 
 def _bindings(connection: sqlite3.Connection) -> dict[tuple[str, str, str], dict[str, Any]]:

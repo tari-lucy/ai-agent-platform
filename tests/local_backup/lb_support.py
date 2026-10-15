@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import io
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -81,6 +82,7 @@ async def make_host(
     live_model: str | None = None,
     retention: bool = True,
     ledger: bool = True,
+    test_scopes: int = 2,
 ) -> Host:
     """`initialise` as an operator would run it, then the retention owner's own admin step."""
     root = base / name
@@ -88,7 +90,7 @@ async def make_host(
     try:
         live = None if live_model is None else LiveConfig(model_id=live_model)
         config = await initialise(
-            root, profile_markdown=REFERENCE_PROFILE, port=1024, test_scopes=2, live=live
+            root, profile_markdown=REFERENCE_PROFILE, port=1024, test_scopes=test_scopes, live=live
         )
     finally:
         os.umask(previous)
@@ -199,6 +201,23 @@ def tree_digest(base: Path) -> str:
         if item.is_file() and item.name != "host.lock":
             digest.update(item.read_bytes())
     return digest.hexdigest()
+
+
+def live_digest(host: Host) -> str:
+    """The live database and index files as they are (a refused restore must not touch them)."""
+    digest = hashlib.sha256()
+    for item in (host.paths.database, host.paths.dialogue_index):
+        digest.update(item.read_bytes() if item.exists() else b"absent")
+        for suffix in ("-wal", "-shm"):
+            digest.update(str(Path(str(item) + suffix).exists()).encode())
+    return digest.hexdigest()
+
+
+def rehearsal(host: Host, base: Path) -> Host:
+    """A separate area: a byte copy of the (closed) host directory, same copies and ledger."""
+    target = base / (host.root.name + "-rehearsal")
+    shutil.copytree(host.root, target)
+    return Host(target, host.store_dir, host.ledger, host.config)
 
 
 def residue(host: Host, needle: str) -> list[str]:
