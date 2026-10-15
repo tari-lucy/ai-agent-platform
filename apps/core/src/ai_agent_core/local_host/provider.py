@@ -17,6 +17,7 @@ from ai_agent_adapters.llm import ADAPTER_ID, OpenAICompatibleProvider, checked_
 from ai_agent_application.development.schemas import ReflectionResult
 from ai_agent_application.dialogue.model import DialogueDecision
 from ai_agent_application.extraction.model import ExtractionResult, SummaryResult
+from ai_agent_application.gamemaster.service import Draft
 from ai_agent_application.llm import (
     ChatMessage,
     Delta,
@@ -32,9 +33,8 @@ from ai_agent_application.llm.service import parse_result
 from pydantic import BaseModel
 
 from ai_agent_core.m3_composition.schemas import StoryVerdict
-from ai_agent_core.m3_composition.state import MEMORY_ROLES
 
-from .layout import HostError, LiveConfig
+from .layout import HostError, LiveConfig, live_roles
 
 PRIVATE_JSON_PROTOCOL = (
     "\n\n## Формат передачи в приложение (после правил образа)\n"
@@ -52,6 +52,7 @@ ROLE_MODELS: dict[str, type[BaseModel]] = {
     "consolidator": SummaryResult,
     "reflection": ReflectionResult,
     "story-screen": StoryVerdict,
+    "game-master": Draft,
 }
 
 
@@ -64,6 +65,9 @@ ROLE_LIMITS = {
         "Поле content сводки: до 900 символов, с атрибуцией, без литературных отступлений.\n"
     ),
     "reflection": "Для reflection не более двух предложений изменений.\n",
+    "game-master": (
+        "Одна ситуация: applicability до 600 символов, boundaries до 300, короткий topic_key.\n"
+    ),
 }
 
 
@@ -126,7 +130,7 @@ class PrivateLiveProvider:
     def stream(self, call: ProviderCall) -> AsyncIterator[ProviderEvent]:
         assignment = call.assignment
         role = assignment.role_id
-        allowed = role == "character" or self.config.memory_processing and role in MEMORY_ROLES
+        allowed = role in live_roles(self.config)
         if (
             not allowed
             or assignment.connection_id != "conn-live"

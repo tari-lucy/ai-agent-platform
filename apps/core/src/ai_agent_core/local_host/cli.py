@@ -15,6 +15,7 @@ from ai_agent_core.local_artifacts import ArtifactsError
 
 from .budget import configure_budget
 from .finish_restore import finish_restore
+from .gm import configure_gm
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
 from .memory import enable_memory
@@ -70,6 +71,19 @@ def parser() -> argparse.ArgumentParser:
         "enable-memory", help="explicit offline automatic memory admission"
     )
     memory.add_argument("--root", type=Path, required=True)
+    gm = commands.add_parser(
+        "configure-gm", help="explicit offline internal game master switch and limits"
+    )
+    gm.add_argument("--root", type=Path, required=True)
+    switch = gm.add_mutually_exclusive_group()
+    switch.add_argument("--enable", action="store_true")
+    switch.add_argument("--disable", action="store_true")
+    gm.add_argument("--daily-offers", type=int)
+    gm.add_argument("--daily-calls", type=int)
+    gm.add_argument("--interval-minutes", type=int)
+    gm.add_argument("--dialogue-floor", type=int)
+    gm.add_argument("--line-direction-file", type=Path, help="UTF-8 text of the story line")
+    gm.add_argument("--line-boundaries-file", type=Path, help="UTF-8 text of its boundaries")
     recovery = commands.add_parser(
         "enable-recovery", help="offline independent ledger and daily copies"
     )
@@ -86,6 +100,17 @@ def parser() -> argparse.ArgumentParser:
     finish.add_argument("--digest")
     finish.add_argument("--decision-id")
     return main
+
+
+def read_text(path: Path) -> str:
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(4001)
+        if len(raw) > 4000:
+            raise HostError("TEXT_TOO_LONG")
+        return raw.decode("utf-8").strip()
+    except OSError, UnicodeDecodeError:
+        raise HostError("TEXT_UNREADABLE") from None
 
 
 def read_profile(path: Path | None) -> str:
@@ -121,6 +146,25 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             print("recovery prepared; daily copies enabled on serve; agent stays STOPPED")
+            return 0
+        if arguments.command == "configure-gm":
+            changes: dict[str, object] = {}
+            if arguments.enable or arguments.disable:
+                changes["enabled"] = bool(arguments.enable)
+            for name in ("daily_offers", "daily_calls", "interval_minutes", "dialogue_floor"):
+                if getattr(arguments, name) is not None:
+                    changes[name] = getattr(arguments, name)
+            if arguments.line_direction_file is not None:
+                changes["line_direction"] = read_text(arguments.line_direction_file)
+            if arguments.line_boundaries_file is not None:
+                changes["line_boundaries"] = read_text(arguments.line_boundaries_file)
+            settings = asyncio.run(configure_gm(arguments.root, **changes))
+            print(
+                f"game master enabled={str(settings.enabled).lower()}"
+                f" daily_offers={settings.daily_offers} daily_calls={settings.daily_calls}"
+                f" interval_minutes={settings.interval_minutes}"
+                f" line={'set' if settings.line_direction else 'none'}; agent stays STOPPED"
+            )
             return 0
         if arguments.command == "enable-memory":
             asyncio.run(enable_memory(arguments.root))
