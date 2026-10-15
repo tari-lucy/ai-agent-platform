@@ -5,7 +5,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { OperatorSession, RunSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
 import { failureMessage, type PanelApi } from '../shared/api.ts';
 import { affectedResources, connectEvents, eventsUrl, type ConnectionState } from '../shared/events.ts';
-import { partition, projectionKey, scopeKey, scopeLabel } from '../shared/scope.ts';
+import { partition, projectionKey, scopeKey, scopeLabel, samePartition } from '../shared/scope.ts';
 import { appendPreview, previewKey, type PrivatePreview } from '../shared/private-preview.ts';
 import { mergeRuns, stopTarget, stopObservation } from '../shared/projections.ts';
 import { Dialogue } from './dialogue/Dialogue.tsx';
@@ -15,6 +15,7 @@ import { LlmScreen } from './llm/LlmScreen.tsx';
 import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
 import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 import { PersonaScreen } from './persona/PersonaScreen.tsx';
+import { RunPowerControl } from './RunPowerControl.tsx';
 
 const screens = [
   { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
@@ -100,6 +101,8 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const pending = results.some((result) => result.isPending);
   const confirmed = stopObservation(stopped, target);
   const state = confirmed?.state ?? target?.state;
+  const targetRead = target ? results[auth.scopes.findIndex((item) => samePartition(item, target.scope))] : undefined;
+  const startReady = !!targetRead?.isSuccess && !targetRead.isFetching;
   async function stop() {
     if (!target || stopBusy) return;
     setStopBusy(true); setStopError(null);
@@ -130,8 +133,8 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         <Text fw={600}>{target ? target.scope.persona_id : pending ? 'Получаем состояние…' : 'Нет подтверждённого запуска'}</Text>
         <Text size="sm">{state ? runLabels[state] : 'Состояние неизвестно'}{target?.scope.memory_mode === 'test' ? ' · ТЕСТ' : ''}</Text>
       </div>
-      <div className="header-actions"><Button className="stop-button" color="red" size="md" onClick={() => void stop()}
-        disabled={!target || stopBusy} aria-label="STOP — остановить активного агента">{stopBusy ? 'Останавливаем…' : 'STOP'}</Button>
+      <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
+        ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} />)}</div>
     </header>

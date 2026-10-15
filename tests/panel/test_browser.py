@@ -136,22 +136,20 @@ def open_mock(page, origin, **kwargs):
     return state
 
 
-def test_real_login_cookie_reload_stop_ws_logout(page, live_panel, panel_password):
+def test_real_login_cookie_reload_ws_logout(page, live_panel, panel_password):
     page.goto(live_panel)
     expect(page.get_by_role("heading", name="Вход оператора")).to_be_visible()
     page.get_by_label("Пароль", exact=True).fill(panel_password)
     page.get_by_role("button", name="Войти", exact=True).click()
-    stop = page.get_by_role("button", name="STOP — остановить активного агента")
-    expect(stop).to_be_enabled()
+    start = page.get_by_role("button", name="START — запустить агента")
+    expect(start).to_be_enabled()
     expect(page.locator(".header-status")).to_contain_text("События подключены")
     cookie = next(c for c in page.context.cookies() if c["name"] == "ai_operator_session")
     assert cookie["httpOnly"] and cookie["sameSite"] == "Strict"
     assert not page.evaluate("localStorage.length + sessionStorage.length")
     assert panel_password not in page.content()
     page.reload()
-    expect(stop).to_be_enabled()
-    stop.click()
-    expect(page.get_by_text("Ядро подтвердило остановку.", exact=False)).to_be_visible()
+    expect(start).to_be_enabled()
     page.get_by_role("link", name="Рабочее пространство", exact=True).click()
     expect(page.get_by_text("Тестовая память", exact=True)).to_be_visible()
     page.get_by_role("button", name="Выйти", exact=True).click()
@@ -281,7 +279,7 @@ def test_real_foreign_origin_and_missing_csrf_are_denied(page, live_panel, panel
     page.goto(live_panel)
     page.get_by_label("Пароль", exact=True).fill(panel_password)
     page.get_by_role("button", name="Войти", exact=True).click()
-    expect(page.get_by_role("button", name="STOP — остановить активного агента")).to_be_enabled()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_enabled()
     status = page.evaluate("""async () => (await fetch('/api/v1/agents/primary/stop', {
         method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({type:'agent.stop', request_id:'no-csrf',target:'primary',
@@ -301,6 +299,15 @@ def test_real_foreign_origin_and_missing_csrf_are_denied(page, live_panel, panel
 
 
 def test_real_stop_while_profile_read_is_pending(page, live_panel, panel_password):
+    def active_projection(route):
+        # Isolate the UI STOP path while M1 auth/STOP remain the real handlers.
+        response = route.fetch()
+        payload = response.json()
+        for row in payload["items"]:
+            row["state"] = "ACTIVE"
+        route.fulfill(json=payload)
+
+    page.route("**/api/v1/sessions?*", active_projection)
     page.goto(live_panel)
     page.get_by_label("Пароль", exact=True).fill(panel_password)
     page.get_by_role("button", name="Войти", exact=True).click()
@@ -315,3 +322,45 @@ def test_real_stop_while_profile_read_is_pending(page, live_panel, panel_passwor
     assert pending
     for route in pending:
         route.abort()
+
+
+def test_header_start_unknown_reuses_request_and_ignores_viewed_test_profile(page, live_panel):
+    calls, _, state = mock_panel(page)
+    state["run"] = "STOPPED"
+    commands = []
+
+    def start_command(route):
+        body = route.request.post_data_json
+        commands.append(body)
+        if len(commands) == 1:
+            route.abort()
+        else:
+            route.fulfill(
+                json={
+                    "request_id": body["request_id"],
+                    "scope": body["scope"],
+                    "status": "accepted",
+                    "resource_id": "primary",
+                    "version": 1,
+                }
+            )
+
+    page.route("**/api/v1/commands", start_command)
+    page.goto(live_panel)
+    start = page.get_by_role("button", name="START — запустить агента", exact=True)
+    expect(start).to_be_enabled()
+    page.get_by_role("combobox", name="Просматриваемый персонаж и память", exact=True).click()
+    page.get_by_role("option", name="beta · ТЕСТ · beta-test", exact=True).click()
+    start.click()
+    expect(page.get_by_text("Результат запуска неизвестен", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="STOP — остановить активного агента")).to_be_enabled()
+    assert len(commands) == 1
+    page.get_by_role("button", name="Проверить исход запуска", exact=True).click()
+    expect(page.get_by_text("Запускаем… STOP доступен.", exact=True)).to_be_visible()
+    assert len(commands) == 2 and commands[0] == commands[1]
+    assert commands[0]["scope"]["persona_id"] == "alpha"
+    assert commands[0]["scope"]["memory_mode"] == "work"
+    assert commands[0]["arguments"] == {"autonomy": "autonomous"}
+    page.get_by_role("button", name="STOP — остановить активного агента").click()
+    expect(page.get_by_text("Допуски отозваны.", exact=False)).to_be_visible()
+    assert len([path for path, _ in calls if path.endswith("/primary/stop")]) == 1
