@@ -42,6 +42,11 @@ from .ports import (
 
 STOPPED = "STOPPED"
 CHUNK = 1 << 20
+_UNREADABLE = frozenset({"CHECKSUM_MISMATCH", "FILE_MISSING_OR_RESIZED", "INTEGRITY_FAILED"})
+
+# Composition-supplied compatibility check of a stored copy with the current host
+# (manifest, directory of the copy). Runs inside the preview, so its issues are part of the digest.
+RestoreCheck = Callable[[Manifest, Path], Awaitable[list[Issue]]]
 
 
 def sha256_file(path: Path) -> str:
@@ -68,6 +73,7 @@ class BackupService:
         ledger_dir: Path | None = None,
         extra: ExtraFiles | None = None,
         upgrade_staged: Callable[[Path], Awaitable[None]] | None = None,
+        restore_check: RestoreCheck | None = None,
         policy: BackupPolicy | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         software: str = "",
@@ -76,6 +82,7 @@ class BackupService:
         self.staging, self.switcher = staging, switcher
         self.work_dir, self.current_head, self.close_live = work_dir, current_head, close_live
         self.ledger_dir, self.extra, self.upgrade_staged = ledger_dir, extra, upgrade_staged
+        self.restore_check = restore_check
         self.policy, self.clock, self.software = policy or BackupPolicy(), clock, software
 
     # ---- creating copies ------------------------------------------------------------------
@@ -202,14 +209,14 @@ class BackupService:
             if self.upgrade_staged is None:
                 issues.append(Issue("MIGRATION_REQUIRED", f"{head} -> {self.current_head}"))
         issues.extend(await self._ledger_issues(manifest))
+        if self.restore_check is not None and not any(i.code in _UNREADABLE for i in issues):
+            copy_dir = (await self.store.path(backup_id, DATABASE)).parent
+            issues.extend(await self.restore_check(manifest, copy_dir))
         state = await self.gate.run_state()
         if state != STOPPED:
             issues.append(Issue("AGENT_NOT_STOPPED", state))
         scopes = at_risk = outbox = 0
-        if not any(
-            i.code in {"CHECKSUM_MISMATCH", "FILE_MISSING_OR_RESIZED", "INTEGRITY_FAILED"}
-            for i in issues
-        ):
+        if not any(i.code in _UNREADABLE for i in issues):
             scopes, at_risk, outbox = await self._inspect(backup_id, needs_migration)
         if at_risk:
             issues.append(Issue("OPERATIONS_AT_RISK", str(at_risk), blocking=False))
