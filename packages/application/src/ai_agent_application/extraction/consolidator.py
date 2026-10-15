@@ -9,6 +9,7 @@ same period over the same sources returns the stored summary instead of writing 
 import asyncio
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
@@ -47,6 +48,11 @@ class Consolidator:
             admission_guard(self.admitted), owner=self.memory.principal.owner
         )
 
+    def _refused(self, code: str) -> Summary | None:
+        # A fixed code only: no source, prompt, answer or endpoint reaches the log.
+        logging.getLogger(__name__).info("Summary not stored: %s", code)
+        return None
+
     @fenced
     async def summarise(
         self,
@@ -58,7 +64,7 @@ class Consolidator:
     ) -> Summary | None:
         """The stored summary; None if nothing may be summarised or the answer is unusable."""
         if not self.admitted() or period_end < period_start:
-            return None
+            return self._refused("NOT_ADMITTED" if not self.admitted() else "PERIOD_INVALID")
         sources = []
         for source_id in list(dict.fromkeys(source_ids))[:MAX_SOURCES]:
             source = await self.memory.get_source(scope, source_id, purpose="api_transfer")
@@ -71,7 +77,7 @@ class Consolidator:
             ):
                 sources.append(source)
         if not sources:
-            return None
+            return self._refused("NO_USABLE_SOURCES")
         key = hashlib.sha256(
             json.dumps(
                 [sorted(s.id for s in sources), period_start.isoformat(), period_end.isoformat()]
@@ -107,9 +113,10 @@ class Consolidator:
         )
         result = generation.parsed
         if generation.status != "completed" or not isinstance(result, SummaryResult):
-            return None
+            failure = generation.failure.value if generation.failure else generation.status
+            return self._refused("GENERATION_" + failure.upper())
         if not self.admitted():
-            return None
+            return self._refused("NOT_ADMITTED")
         now = self.clock()
         record = Summary.model_validate(
             {
