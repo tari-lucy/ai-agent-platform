@@ -190,7 +190,7 @@ class SQLiteRecallIndex:
         return True
 
     def _insert(self, key: str, entry: IndexedSource, vectors: bool) -> None:
-        sqlite_vec = _sqlite_vec()
+        sqlite_vec = _sqlite_vec() if vectors else None
 
         previous = self._db.execute(
             "SELECT group_key FROM sources WHERE scope_key=? AND source_id=?",
@@ -232,7 +232,7 @@ class SQLiteRecallIndex:
                 "INSERT INTO lexical(rowid, text) VALUES(?,?)", (cursor.lastrowid, item.chunk.text)
             )
             if embedded:
-                assert item.embedding is not None
+                assert item.embedding is not None and sqlite_vec is not None
                 if len(item.embedding) != self.dimension:
                     raise ValueError("EMBEDDING_DIMENSION")
                 self._db.execute(
