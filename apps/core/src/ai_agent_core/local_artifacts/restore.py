@@ -20,7 +20,7 @@ from ai_agent_application.retention import LedgerEntry
 from ai_agent_contracts.common import Scope
 
 from .indexes import held, purge_closed, recognised
-from .purger import DECISION, ReportFiles
+from .purger import DECISION, ReportPurge
 from .roots import (
     INDEX_SUFFIX,
     REPORT_SUFFIXES,
@@ -123,7 +123,7 @@ async def apply_restore(
     plan: RestorePlan,
     decision_id: str,
     *,
-    reports: ReportFiles | None = None,
+    reports: ReportPurge | None = None,
     open_handles: Collection[Path] = (),
 ) -> RestoreResult:
     """Only the previewed plan, only with a decision. Retry-safe; raises instead of claiming."""

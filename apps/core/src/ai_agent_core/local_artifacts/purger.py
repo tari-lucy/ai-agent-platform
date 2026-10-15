@@ -25,14 +25,17 @@ DECISION = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 PAGE = 200
 
 
-class ReportFiles(Protocol):
-    """`m3_composition.artifacts.Reports` plus the one port it lacks (see the report).
-
-    `purge` removes the body and its expiry marker. `holds` says whether the body file of that
-    report source still exists; it is NOT yet public on `Reports` (requested from the coordinator).
-    """
+class ReportPurge(Protocol):
+    """`m3_composition.artifacts.Reports` as it is: purge removes a body and its expiry marker."""
 
     async def purge(self, scope: Scope, source_id: str) -> None: ...
+
+
+class ReportFiles(ReportPurge, Protocol):
+    """Reports plus the one port it lacks: whether a report body file still exists.
+
+    `holds` is NOT yet public on `Reports` (requested from the coordinator, see the report).
+    """
 
     def holds(self, scope: Scope, source_id: str) -> bool: ...
 
@@ -144,7 +147,7 @@ async def preview_scope_reports(scope: Scope, catalogue: ReportCatalogue) -> Sco
 async def invalidate_scope_reports(
     preview: ScopeReportsPreview,
     decision_id: str,
-    reports: ReportFiles,
+    reports: ReportPurge,
     catalogue: ReportCatalogue,
 ) -> int:
     """Remove the bodies of the previewed reports. Catalogue records stay: reading them then
