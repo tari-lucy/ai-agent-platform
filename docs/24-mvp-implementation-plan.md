@@ -719,3 +719,19 @@ laboratory control; незавершённые development-controls не явл�
 HTTP smoke. Реальный пользовательский профиль и live API подключаются отдельным
 следующим шагом после данных оператора и проверки composition. Условия
 самостоятельности/границы/критерии и экономные проверки заданы в поручении.
+
+
+## Integration-local-host-review — координатор, 2026-10-15
+
+Base 469cda3 + второй агент d216ee8, отдельная codex/integration-host-review.
+Приёмка нового init/serve и panel-dir на общей версии; исправления stdout,
+Windows DACL verification и port/static guards, реальные HTTP/browser/restart
+на synthetic данных. [Отчёт](implementation-reports/Integration-local-host-review.md).
+Не закрывает полный MVP/live/Compose и недостающие grants для manual controls;
+новые права не создаются автоматически в serve. Owner matrix — следующий
+отдельный стык; M4/M5 общая приёмка остаётся частичной.
+
+Итог combined review: Windows host 17 cases проверены (14 + 4 affected rerun,
+один общий case), POSIX skip отдельно; настоящий host browser 1 passed;
+Linux host+development 30 passed/2 Windows skips. Ruff/mypy186/export/imports
+прошли; подробности и текущие ограничения — в отчёте.

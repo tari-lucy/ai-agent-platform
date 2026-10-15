@@ -74,5 +74,15 @@ LLM, GM; в TEST-области — MEMORY, CATALOGUE, LABORATORY. Запись 
 ## Проверка
 
 `tests/local_host` — сквозной smoke и guards (`python -m pytest tests/local_host`).
-Windows: код учитывает `icacls`, но на Windows не запускался; права и пути там
-не объявляются проверенными.
+Native Windows приёмка координатора: init/serve, реальный HTTP mock-диалог,
+лаборатория/отчёт, STOP/restart и браузер с собранной панелью проверены. На Windows
+init назначает владельца и защищённый DACL через icacls. Serve только проверяет
+SID владельца/allow rules у hash, каталога secrets и root через штатный Windows
+PowerShell; при лишних правах или недоступности проверки — SECRET_PERMISSIONS.
+Serve не исправляет ACL сам. В выводе используется относительное имя файла
+пароля без локального имени пользователя. Подробно: [combined review](implementation-reports/Integration-local-host-review.md).
+
+Текущая матрица host покрывает private mock dialogue/laboratory. Ручные development
+plans/receipts и перенос настроек требуют отдельного явного provisioning под
+новые owner paths; serve права не расширяет. Полный запуск с пользовательским
+профилем и настоящим API этой проверкой не объявляется готовым.

@@ -1,3 +1,9 @@
+Актуализация координатора 2026-10-15: production local host/panel-dir принят
+на общей версии, native Windows HTTP/browser/STOP/restart:
+[combined review](Integration-local-host-review.md). Полный набор host grants
+для manual controls/settings transfer, live и Compose остаются отдельными
+стыками; старое утверждение «host отсутствует» ниже — историческое.
+
 Актуализация координатора 2026-10-15: ручные PERSONA/GM controls, canonical
 rollback plan и owner receipts подключены: [Integration-development-controls](Integration-development-controls.md).
 Панель использует версии реальных ресурсов, читает GM settings/rules; применение,

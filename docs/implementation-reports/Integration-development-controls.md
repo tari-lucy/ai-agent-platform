@@ -70,3 +70,8 @@ mock dialogue/lab путь. Её minimal grants не включают WORKSPACE 
 Ручные unknown records читаются через owner-operations, при отсутствии factual
 result требуется разбор; автоматический повтор не добавлен. Новые зависимости,
 миграции, Compose и live-provider fences этой задачей не меняются.
+
+Уточнение recovery GM: current paused/CANCELLED при версии ровно expected+1
+подтверждает достигнутое состояние, но не доказывает автора перехода. PERSONA
+recovery требует совпадения operator_decision_id. Причинность чужого действия
+не приписывается запросу оператора.

@@ -13,7 +13,12 @@ HTTP управления/auth/service identity и WebSocket events провер
 Фоновая M3 composition (SQLite/jobs/GM/reflection/usage/mock-lab) проверена:
 [отчёт](docs/implementation-reports/M3-runtime-integration.md).
 Приватный mock HTTP-диалог подключён и проверен на подготовленной SQLite: [отчёт](docs/implementation-reports/Integration-dialogue.md).
-Общая M4/M5 сборка и host setup остаются следующим этапом; исходный
+Ручные решения по развитию/предпросмотр и компенсирующий откат подключены:
+[приёмка](docs/implementation-reports/Integration-development-controls.md).
+Production local host init/serve с optional собранной панелью и mock smoke на
+Windows/Linux: [инструкция](docs/local-host-setup.md),
+[combined review](docs/implementation-reports/Integration-local-host-review.md).
+Полный набор host прав и живой API остаются следующими стыками; исходный
 порядок согласования — [сверка стыков](docs/implementation-reports/M4-M5-integration-readiness.md).
 Отчёты: [M0-01](docs/implementation-reports/M0-01.md),
 [M0-02](docs/implementation-reports/M0-02.md),
