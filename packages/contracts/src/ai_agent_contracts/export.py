@@ -252,6 +252,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         }
     }
     for route, projection_name in (
+        ("/api/v1/private-api-status", "PrivateApiStatus"),
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
         ("/api/v1/laboratory-runs", "LaboratoryRuns"),
         ("/api/v1/settings-transfer-status/{operation_id}", "SettingsTransferStatus"),

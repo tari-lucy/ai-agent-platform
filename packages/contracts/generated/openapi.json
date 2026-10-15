@@ -6755,6 +6755,94 @@
         "title": "PlanDependency",
         "type": "object"
       },
+      "PrivateApiStatus": {
+        "additionalProperties": false,
+        "description": "Safe private-dialogue admission counter, not a monetary cost or permission grant.",
+        "properties": {
+          "attempt_limit": {
+            "anyOf": [
+              {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Limit"
+          },
+          "attempts_remaining": {
+            "anyOf": [
+              {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts Remaining"
+          },
+          "attempts_used": {
+            "minimum": 0,
+            "title": "Attempts Used",
+            "type": "integer"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lifetime",
+                  "utc_day"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets At"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "scope",
+          "enabled",
+          "period",
+          "attempt_limit",
+          "attempts_used",
+          "attempts_remaining",
+          "resets_at",
+          "checked_at"
+        ],
+        "title": "PrivateApiStatus",
+        "type": "object"
+      },
       "ProcessedOperation": {
         "additionalProperties": false,
         "properties": {
@@ -14991,6 +15079,66 @@
               }
             },
             "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/private-api-status": {
+      "get": {
+        "operationId": "read_PrivateApiStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateApiStatus"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
           },
           "409": {
             "$ref": "#/components/responses/ApiError"

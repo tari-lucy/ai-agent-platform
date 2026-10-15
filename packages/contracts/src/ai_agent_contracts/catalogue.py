@@ -8,6 +8,7 @@ from ai_agent_contracts import access, api, common, control, llm, memory, panel,
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
+    panel.PrivateApiStatus,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
     panel.PersonaApplyArguments,

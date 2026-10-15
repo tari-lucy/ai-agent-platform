@@ -292,3 +292,43 @@ class OwnerOperation(VersionedRecord):
         ):
             raise ValueError("OWNER_OPERATION_SCOPE")
         return self
+
+
+class PrivateApiStatus(Contract):
+    """Safe private-dialogue admission counter, not a monetary cost or permission grant."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    period: Literal["lifetime", "utc_day"] | None
+    attempt_limit: int | None = Field(strict=True, ge=1, le=100)
+    attempts_used: int = Field(strict=True, ge=0)
+    attempts_remaining: int | None = Field(strict=True, ge=0, le=100)
+    resets_at: UTC | None
+    checked_at: UTC
+
+    @model_validator(mode="after")
+    def consistent(self) -> Self:
+        if not self.enabled:
+            if (
+                any(
+                    x is not None
+                    for x in (
+                        self.period,
+                        self.attempt_limit,
+                        self.attempts_remaining,
+                        self.resets_at,
+                    )
+                )
+                or self.attempts_used != 0
+            ):
+                raise ValueError("PRIVATE_API_DISABLED")
+        elif (
+            self.period is None
+            or self.attempt_limit is None
+            or self.attempts_remaining != max(0, self.attempt_limit - self.attempts_used)
+            or (self.period == "utc_day") != (self.resets_at is not None)
+            or self.resets_at is not None
+            and self.resets_at <= self.checked_at
+        ):
+            raise ValueError("PRIVATE_API_COUNTER")
+        return self
