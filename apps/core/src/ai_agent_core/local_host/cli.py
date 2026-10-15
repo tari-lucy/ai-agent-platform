@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from .budget import configure_budget
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
+from .memory import enable_memory
 from .serve import permissions_expired, serve
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
@@ -61,6 +62,10 @@ def parser() -> argparse.ArgumentParser:
     budget.add_argument("--root", type=Path, required=True)
     budget.add_argument("--attempt-limit", type=int, required=True)
     budget.add_argument("--period", choices=("lifetime", "utc_day"), required=True)
+    memory = commands.add_parser(
+        "enable-memory", help="explicit offline automatic memory admission"
+    )
+    memory.add_argument("--root", type=Path, required=True)
     return main
 
 
@@ -80,6 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
+        if arguments.command == "enable-memory":
+            asyncio.run(enable_memory(arguments.root))
+            print("automatic daily memory enabled; usage retained; agent stays STOPPED")
+            return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)
             print("API budget configured; usage history retained; restart remains STOPPED")

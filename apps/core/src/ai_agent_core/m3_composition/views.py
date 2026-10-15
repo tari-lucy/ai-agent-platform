@@ -56,6 +56,7 @@ class Views:
             now = self.runtime.supervisor.clock.utc()
             budget = self.runtime.private_api_budget if scope.memory_mode == "work" else None
             used = 0
+            rows = []
             if budget is not None:
                 rows = await UsageLedger(
                     self.runtime.store, PRINCIPALS[Owner.LLM], self.runtime.registry
@@ -64,6 +65,14 @@ class Views:
             return PrivateApiStatus(
                 scope=scope,
                 enabled=budget is not None,
+                memory_processing=budget is not None and budget.memory_processing,
+                memory_daily_calls=budget.memory_daily_calls
+                if budget and budget.memory_processing
+                else 0,
+                memory_calls_used=budget.memory_used(rows, now)
+                if budget and budget.memory_processing
+                else 0,
+                dialogue_remaining=budget.dialogue_remaining(rows, now) if budget else None,
                 period=None if budget is None else budget.period,
                 attempt_limit=None if budget is None else budget.max_attempts,
                 attempts_used=used,

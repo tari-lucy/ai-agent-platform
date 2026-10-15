@@ -131,6 +131,8 @@ def _build(
             config.live.attempt_limit,
             config.live.max_prompt_chars,
             config.live.attempt_period,
+            config.live.memory_processing,
+            config.live.memory_daily_calls,
         ),
         scopes=scopes,
         reader_access=rights.record_readers(),

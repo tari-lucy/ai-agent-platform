@@ -3,6 +3,7 @@
 from ai_agent_adapters.configuration import BootstrapSettings
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.control import Supervisor
+from ai_agent_application.control.ports import Clock
 from ai_agent_application.gamemaster import Family
 from ai_agent_application.laboratory import LabRunner
 from ai_agent_application.llm import ProviderFactory
@@ -33,6 +34,7 @@ def create_m3_app(
     reader_access: tuple[RecordAccess, ...] = (),
     dialogue_index: RecallIndex | None = None,
     private_api_budget: PrivateAPIBudget | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
     if not scopes:
         raise ValueError("M3_SCOPES")
@@ -54,4 +56,4 @@ def create_m3_app(
             private_api_budget=private_api_budget,
         )
 
-    return create_app(settings, runtime_factory=compose, base_scope=scopes[0])
+    return create_app(settings, runtime_factory=compose, base_scope=scopes[0], clock=clock)

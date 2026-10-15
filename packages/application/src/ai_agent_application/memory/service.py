@@ -457,7 +457,7 @@ class MemoryService:
                     "conflict_ids": list(draft.conflicts_with),
                 },
             )
-            await unit.put(created)
+            await unit.put(created, access=self.reader_access or None)
             touched.append(created)
             for other in opposed:
                 if draft.claim_id in other.conflict_ids:

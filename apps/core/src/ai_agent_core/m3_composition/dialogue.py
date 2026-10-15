@@ -91,6 +91,11 @@ class Context(ContextBuilder):
             turns=(*recent, *turns),
             capabilities=capabilities,
         )
+        from .long_term import include_memory
+
+        built = await include_memory(
+            self.execution.runtime, scope, built, self.history, signal.text, self.policy
+        )
         refs = {**self.history.sources, **{ref.source_id: ref for ref in built.manifest.sources}}
         if incoming is not None:
             refs[incoming.source_id] = incoming

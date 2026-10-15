@@ -61,7 +61,18 @@ from ai_agent_core.access import AccessPorts
 from .artifacts import Reports
 from .policy import WORKER_ID, Policy, Readiness
 from .schemas import JobArguments, StoryVerdict, TaskInput, TaskResult
-from .state import CAPABILITIES, PRINCIPALS, ROLES, State, command, extension, put, record, rules_of
+from .state import (
+    CAPABILITIES,
+    MEMORY_ROLES,
+    PRINCIPALS,
+    ROLES,
+    State,
+    command,
+    extension,
+    put,
+    record,
+    rules_of,
+)
 
 DOMAIN_OWNERS = frozenset(
     {
@@ -85,14 +96,39 @@ class PrivateAPIBudget:
     max_attempts: int
     max_prompt_chars: int
     period: Literal["lifetime", "utc_day"] = "lifetime"
+    memory_processing: bool = False
+    memory_daily_calls: int = 8
 
     def __post_init__(self) -> None:
         if self.period not in ("lifetime", "utc_day"):
             raise ValueError("PRIVATE_API_PERIOD")
-        if not self.connection_id or not 1 <= self.max_attempts <= 100:
+        if not self.connection_id or type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("PRIVATE_API_BUDGET")
         if not 1000 <= self.max_prompt_chars <= 40000:
             raise ValueError("PRIVATE_API_PROMPT_LIMIT")
+        if type(self.memory_processing) is not bool or type(self.memory_daily_calls) is not int:
+            raise ValueError("PRIVATE_MEMORY_BUDGET")
+        if (
+            not 3 <= self.memory_daily_calls <= 32
+            or self.memory_processing
+            and (self.period != "utc_day" or self.memory_daily_calls >= self.max_attempts)
+        ):
+            raise ValueError("PRIVATE_MEMORY_BUDGET")
+
+    def allows(self, role: str) -> bool:
+        return role == "character" or self.memory_processing and role in MEMORY_ROLES
+
+    def memory_used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return sum(row.role_id in MEMORY_ROLES and row.started_at >= start for row in attempts)
+
+    def dialogue_remaining(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        reserved = (
+            max(0, self.memory_daily_calls - self.memory_used(attempts, now))
+            if self.memory_processing
+            else 0
+        )
+        return max(0, self.max_attempts - self.used(attempts, now) - reserved)
 
     def used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -141,6 +177,9 @@ class Runtime:
         self.dialogue_index = dialogue_index
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
+        from .memory_cycles import DailyMemory
+
+        self.daily_memory = DailyMemory(self)
         from ai_agent_core.access.events import Events
         from ai_agent_core.access.sessions import AccessLimits
 
@@ -346,6 +385,7 @@ class Runtime:
                 return
             self._active.result()
             self._active = None
+        await self.daily_memory.tick()
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:
             if (
@@ -356,12 +396,32 @@ class Runtime:
                 self._active = asyncio.create_task(self.execute(job))
                 break
 
-    async def submit(self, authority: ControlAuthority, request_id: str, request: TaskInput) -> Job:
+    def authorize_submission(
+        self, authority: ControlAuthority | None, scope: Scope, request: TaskInput
+    ) -> None:
+        if authority is not None:
+            self.supervisor.authorize_operator(authority, scope)
+            return
+        run = self.supervisor.snapshot
+        if (
+            request.kind != "post_session"
+            or self.private_api_budget is None
+            or not self.private_api_budget.memory_processing
+            or scope != run.scope
+            or run.state != RunState.ACTIVE
+            or run.activity.value != "OPEN"
+            or run.autonomy != "autonomous"
+        ):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    async def submit(
+        self, authority: ControlAuthority | None, request_id: str, request: TaskInput
+    ) -> Job:
         if not self._opened:
             raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
         async with self._lock:
             scope = self.supervisor.snapshot.scope
-            self.supervisor.authorize_operator(authority, scope)
+            self.authorize_submission(authority, scope, request)
             identifier = derived_id("m3cmd", scope, request_id)
             existing = await self.store.repository(
                 ExecutionCommand, PRINCIPALS[Owner.BEHAVIOR], scope
@@ -382,6 +442,7 @@ class Runtime:
             if request.kind == "dialogue" and self.dialogue_index is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             if request.kind == "laboratory":
+                assert authority is not None
                 if (
                     request.lab_scope is None
                     or request.lab_scope.partition not in {s.partition for s in self.scopes}
@@ -414,6 +475,8 @@ class Runtime:
                     ):
                         raise ContractError(ErrorCode.RESOURCE_BUSY)
             capability, permission, _ = await self.policy.permit(scope, request.kind)
+            if authority is None and permission.level != "automatic":
+                raise ContractError(ErrorCode.ACCESS_DENIED)
             context = await self.policy.context(scope)
             if permission.policy_version != context.workspace.policy_version:
                 raise ContractError(ErrorCode.STALE_CONTEXT)
@@ -496,7 +559,7 @@ class Runtime:
                 await self.policy.check(execution, None)
 
                 def guard() -> None:
-                    self.supervisor.authorize_operator(authority, scope)
+                    self.authorize_submission(authority, scope, request)
                     self.supervisor.validate(admission)
 
                 with self.store.fence(guard, owner=Owner.BEHAVIOR):
@@ -674,6 +737,34 @@ class Runtime:
         return accepted
 
     async def _perform(self, execution: Execution) -> list[str]:
+        from .memory_cycles import CycleJournal
+
+        cycle = (
+            CycleJournal(execution)
+            if execution.args.request.kind == "post_session"
+            and execution.args.request.trigger_id.startswith("cycle-")
+            else None
+        )
+        if cycle is not None:
+            await cycle.enter()
+        try:
+            result = await self._perform_body(execution)
+            if cycle is not None:
+                await cycle.save("done", result, "completed")
+            return result
+        except BaseException:
+            if cycle is not None:
+                with suppress(ContractError):
+                    current = await cycle.get()
+                    await cycle.save(
+                        current.stage,
+                        current.record_ids,
+                        "failed",
+                        ErrorCode.CAPABILITY_UNAVAILABLE,
+                    )
+            raise
+
+    async def _perform_body(self, execution: Execution) -> list[str]:
         request, scope = execution.args.request, execution.command.scope
         memory = MemoryService(
             self.store,
@@ -694,6 +785,10 @@ class Runtime:
             if report.status not in ("completed", "nothing"):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             ids.extend(a.claim_id for a in report.accepted)
+        if request.kind == "post_session" and request.trigger_id.startswith("cycle-"):
+            from .memory_cycles import CycleJournal
+
+            await CycleJournal(execution).save("consolidate", ids)
         if request.kind in ("consolidate", "post_session"):
             assert request.period_start is not None and request.period_end is not None
             summary = await Consolidator(
@@ -708,6 +803,10 @@ class Runtime:
             if summary is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             ids.append(summary.id)
+        if request.kind == "post_session" and request.trigger_id.startswith("cycle-"):
+            from .memory_cycles import CycleJournal
+
+            await CycleJournal(execution).save("reflect", ids)
         gm = await self.state.gm(scope)
         classifier = Classifier(execution)
         if request.kind in ("reflect", "post_session"):
@@ -731,6 +830,8 @@ class Runtime:
                 controller, execution, clock=self.supervisor.clock.utc
             ).reflect(scope, request.trigger_id, request.episode_ids, execution.cancel)
             if reflection.status in ("too_soon", "not_lived"):
+                if request.kind == "post_session" and request.trigger_id.startswith("cycle-"):
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
                 return ids
             if reflection.status not in ("completed", "kept", "duplicate"):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
@@ -926,7 +1027,15 @@ class Execution:
         if budget is not None and report.connection_id == budget.connection_id:
             # Count every prior attempt in the partition, including running/unknown/mock.
             # A new operation, session, model or restart cannot reset the configured window.
-            if budget.used(attempts, self.runtime.supervisor.clock.utc()) >= budget.max_attempts:
+            now = self.runtime.supervisor.clock.utc()
+            if budget.memory_processing and (
+                report.role_id in MEMORY_ROLES
+                and budget.memory_used(attempts, now) >= budget.memory_daily_calls
+                or report.role_id == "character"
+                and budget.dialogue_remaining(attempts, now) == 0
+            ):
+                raise ContractError(ErrorCode.RESOURCE_BUSY)
+            if budget.used(attempts, now) >= budget.max_attempts:
                 raise ContractError(ErrorCode.RESOURCE_BUSY)
         consumed = sum(
             row.operation_id.startswith(self.command.operation_id + ".") for row in attempts
@@ -978,6 +1087,10 @@ class Execution:
         on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> Generation:
         await self.verify()
+        if request.role_id == "reflection" and self.args.request.kind == "post_session":
+            from .memory_cycles import reflection_input
+
+            request = await reflection_input(self, request)
         rows = await self.runtime.state.roles(self.command.scope)
         if request.role_id not in ROLES[self.args.request.kind] or request.role_id not in rows:
             raise ContractError(ErrorCode.ACCESS_DENIED)
@@ -990,7 +1103,8 @@ class Execution:
         if live and (
             budget is None
             or binding.connection_id != budget.connection_id
-            or request.role_id != "character"
+            or not budget.allows(request.role_id)
+            or self.command.scope.memory_mode != "work"
             or sum(len(message.content) for message in request.messages) > budget.max_prompt_chars
         ):
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

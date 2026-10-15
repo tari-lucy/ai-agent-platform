@@ -6,6 +6,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Self
@@ -30,11 +31,21 @@ class LiveConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     model_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-    attempt_limit: int = Field(default=10, strict=True, ge=1, le=100)
+    attempt_limit: int = Field(default=10, strict=True, ge=1)
     attempt_period: Literal["lifetime", "utc_day"] = "lifetime"
+    memory_processing: bool = Field(default=False, strict=True)
+    memory_daily_calls: int = Field(default=8, strict=True, ge=3, le=32)
     max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
     max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)
     timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+
+    @model_validator(mode="after")
+    def memory_budget(self) -> Self:
+        if self.memory_processing and (
+            self.attempt_period != "utc_day" or self.memory_daily_calls >= self.attempt_limit
+        ):
+            raise ValueError("DAILY_MEMORY_BUDGET_REQUIRED")
+        return self
 
 
 class HostConfig(BaseModel):
@@ -54,6 +65,8 @@ class HostConfig(BaseModel):
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:
+        if self.live is not None and self.live.memory_processing and not self.operator_controls:
+            raise ValueError("MEMORY_CONTROLS_REQUIRED")
         if self.operator_controls != (self.settings_space_id is not None):
             raise ValueError("OPERATOR_SETTINGS_SCOPE")
         spaces = [self.work_space_id, *self.test_space_ids]
@@ -234,7 +247,9 @@ def read_secret(path: Path) -> str:
         raise HostError("SECRET_UNREADABLE") from None
 
 
-def load_config(host: HostPaths) -> HostConfig:
+def load_config(host: HostPaths, *, allow_memory_pending: bool = False) -> HostConfig:
+    if not allow_memory_pending and (host.root / "MEMORY-ENABLE-PENDING").exists():
+        raise HostError("MEMORY_ENABLE_INCOMPLETE")
     if host.unfinished.exists() or not host.config.is_file():
         raise HostError("INIT_INCOMPLETE")
     try:
@@ -245,3 +260,28 @@ def load_config(host: HostPaths) -> HostConfig:
         return HostConfig.model_validate(json.loads(raw))
     except OSError, ValueError, ValidationError:
         raise HostError("CONFIG_INVALID") from None
+
+
+def save_config(host: HostPaths, config: HostConfig) -> None:
+    """Atomic local metadata update; caller must hold the host process lock."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=host.root,
+            prefix=".host-config-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(config.model_dump_json(indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(host.config)
+    except OSError:
+        raise HostError("CONFIG_WRITE_FAILED") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

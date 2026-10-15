@@ -17,6 +17,7 @@ from ai_agent_adapters.configuration import (
 )
 from ai_agent_adapters.control.journal import UnavailableJournal, UnavailableReadiness
 from ai_agent_application.control import Supervisor
+from ai_agent_application.control.ports import Clock
 from ai_agent_application.scheduling import ResourceScheduler, SchedulerLimits
 from ai_agent_application.scheduling.model import DEFAULT_POOLS
 from ai_agent_application.telemetry import HealthState, Telemetry
@@ -39,6 +40,7 @@ def create_app(
     previous_state: str | None = None,
     base_scope: Scope | None = None,
     runtime_factory: Callable[[Supervisor, ResourceScheduler], ManagedRuntime] | None = None,
+    clock: Clock | None = None,
     access_ports: AccessPorts | None = None,
     access_factory: Callable[[Supervisor], AccessPorts] | None = None,
 ) -> FastAPI:
@@ -64,6 +66,7 @@ def create_app(
         "primary",
         UnavailableJournal(),
         UnavailableReadiness(),
+        clock=clock,
     )
 
     telemetry = Telemetry(clock=supervisor.clock, critical_failure=supervisor.critical_failure)

@@ -16,10 +16,11 @@ from ai_agent_core.m3_composition.app import create_m3_app
 from ai_agent_core.m3_composition.state import PRINCIPALS, put
 
 
-async def prepare_app(tmp_path, scripts=(), *, origin=ORIGIN):
+async def prepare_app(tmp_path, scripts=(), *, origin=ORIGIN, clock=None):
     env = await setup(tmp_path, scripts, start=False)
     await env.runtime.close()
     world = env.world
+    fixture_now = datetime.now(UTC) if clock is None else clock.utc()
     scope = world.scope
     operator = Principal("operator", "operator")
     owners = (
@@ -53,12 +54,12 @@ async def prepare_app(tmp_path, scripts=(), *, origin=ORIGIN):
     ):
         rows = await world.store.repository(model, PRINCIPALS[owner], scope).list(limit=100)
         for old in rows:
-            changes = dict(version=old.version + 1, updated_at=datetime.now(UTC))
+            changes = dict(version=old.version + 1, updated_at=fixture_now)
             if isinstance(old, CharacterState):
                 changes["profile_version"] = profile.version + 1
                 changes["state_version"] = old.version + 1
             if isinstance(old, Permission):
-                changes["expires_at"] = datetime.now(UTC) + timedelta(hours=1)
+                changes["expires_at"] = fixture_now + timedelta(hours=1)
             await put(
                 world.store,
                 world.registry,
@@ -69,7 +70,7 @@ async def prepare_app(tmp_path, scripts=(), *, origin=ORIGIN):
                 old.version,
                 readers,
             )
-    world.clock.now = datetime.now(UTC)
+    world.clock.now = fixture_now
     index = SQLiteRecallIndex(tmp_path / "dialogue-index.sqlite")
     app = create_m3_app(
         BootstrapSettings(
@@ -84,14 +85,15 @@ async def prepare_app(tmp_path, scripts=(), *, origin=ORIGIN):
         scopes=(scope,),
         reader_access=readers,
         dialogue_index=index,
+        clock=clock,
     )
     env.app, env.index = app, index
     return env
 
 
 @asynccontextmanager
-async def prepared(tmp_path, scripts=()):
-    env = await prepare_app(tmp_path, scripts)
+async def prepared(tmp_path, scripts=(), *, clock=None):
+    env = await prepare_app(tmp_path, scripts, clock=clock)
     app = env.app
     try:
         async with app.router.lifespan_context(app):

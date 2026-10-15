@@ -25,7 +25,14 @@ from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from ai_agent_core.access import password_hash
 from ai_agent_core.m3_composition import new_registry
-from ai_agent_core.m3_composition.state import PRINCIPALS, ROLES, extension, put, record
+from ai_agent_core.m3_composition.state import (
+    MEMORY_ROLES,
+    PRINCIPALS,
+    ROLES,
+    extension,
+    put,
+    record,
+)
 
 from . import rights
 from .layout import (
@@ -269,7 +276,12 @@ async def _prepare_records(
             )
         )
     for role in sorted({r for roles in ROLES.values() for r in roles}):
-        selected = live if role == "character" else None
+        selected = (
+            live
+            if live is not None
+            and (role == "character" or live.memory_processing and role in MEMORY_ROLES)
+            else None
+        )
         records.append(
             (
                 Owner.LLM,

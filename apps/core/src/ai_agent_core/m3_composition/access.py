@@ -12,6 +12,7 @@ from ai_agent_contracts.api import (
     ExecutePlanCommand,
     MessageCommand,
     PlanCommand,
+    ProcessMemoryCommand,
     Receipt,
     ReflectCommand,
 )
@@ -67,6 +68,10 @@ class Mutations:
             from .lab_scopes import prepare
 
             return await prepare(runtime, authority, request)
+        if isinstance(request, ProcessMemoryCommand):
+            from .memory_cycles import manual
+
+            return await manual(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

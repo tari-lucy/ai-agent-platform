@@ -140,7 +140,7 @@ class Consolidator:
         )
         async with self.memory.storage.transaction(self.memory.principal, scope, command) as unit:
             if unit.replay is None:
-                await unit.put(record)
+                await unit.put(record, access=self.memory.reader_access or None)
                 await unit.complete(
                     Receipt(
                         request_id=summary_id,

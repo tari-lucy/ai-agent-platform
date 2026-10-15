@@ -35,6 +35,7 @@ ROLES = {
     "gm": ("game-master", "story-screen"),
     "laboratory": (),
 }
+MEMORY_ROLES = frozenset({"extractor", "consolidator", "reflection", "story-screen"})
 CAPABILITIES = tuple("m3." + kind for kind in ROLES)
 
 
