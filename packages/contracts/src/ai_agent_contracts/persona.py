@@ -123,6 +123,7 @@ class StateChange(VersionedRecord):
     checks: list[Id] = Field(default_factory=list, max_length=200)
     status: ChangeState
     operator_decision_id: Id | None = None
+    operator_reason: Text | None = None
     new_version: Version | None = None
     revision_of: Id | None = None
 

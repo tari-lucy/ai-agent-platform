@@ -19,6 +19,11 @@ MODELS = (
     panel.LaboratoryStartArguments,
     panel.LaboratoryScenario,
     panel.LaboratoryCatalogue,
+    panel.ChangeDecisionArguments,
+    panel.ChangeInterpretationArguments,
+    panel.ResourceArguments,
+    panel.RollbackProof,
+    panel.OwnerOperation,
     panel.LaboratoryStopArguments,
     panel.LaboratoryEventArguments,
     panel.LaboratoryRun,
@@ -129,6 +134,7 @@ type StreamEvent = Annotated[
 ADAPTERS["StreamEvent"] = TypeAdapter(cast(Any, StreamEvent))
 
 READ_MODELS = {
+    "owner-operations": panel.OwnerOperation,
     "gm-settings": persona.GmRuntimeState,
     "settings-transfers": persona.SettingsTransferOperation,
     "workspaces": workspace.Workspace,

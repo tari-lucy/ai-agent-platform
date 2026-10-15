@@ -636,6 +636,54 @@
       "title": "Capability",
       "type": "object"
     },
+    "ChangeDecisionArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "accept",
+            "reject"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "reason"
+      ],
+      "title": "ChangeDecisionArguments",
+      "type": "object"
+    },
+    "ChangeInterpretationArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "interpretation": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Interpretation",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "interpretation",
+        "reason"
+      ],
+      "title": "ChangeInterpretationArguments",
+      "type": "object"
+    },
     "ChangeState": {
       "enum": [
         "PROPOSED",
@@ -4110,6 +4158,150 @@
       "title": "OutboxEntry",
       "type": "object"
     },
+    "OwnerOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "command_type": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Command Type",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "expected_result_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Expected Result Ids",
+          "type": "array"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "fingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "operator_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operator Id",
+          "type": "string"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "result_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Result Ids",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "completed",
+            "reconciliation_required"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_owner": {
+          "enum": [
+            "persona",
+            "gm",
+            "memory",
+            "llm",
+            "workspace"
+          ],
+          "title": "Target Owner",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "request_id",
+        "operator_id",
+        "command_type",
+        "fingerprint",
+        "target_owner",
+        "target_id",
+        "state",
+        "expires_at"
+      ],
+      "title": "OwnerOperation",
+      "type": "object"
+    },
     "Page_Artifact_": {
       "additionalProperties": false,
       "properties": {
@@ -5060,6 +5252,62 @@
         "complete"
       ],
       "title": "Page[Opportunity]",
+      "type": "object"
+    },
+    "Page_OwnerOperation_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/OwnerOperation"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[OwnerOperation]",
       "type": "object"
     },
     "Page_Permission_": {
@@ -7509,6 +7757,12 @@
       "title": "Relationship",
       "type": "object"
     },
+    "ResourceArguments": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ResourceArguments",
+      "type": "object"
+    },
     "Retention": {
       "additionalProperties": false,
       "properties": {
@@ -7542,6 +7796,105 @@
         "expires_at"
       ],
       "title": "Retention",
+      "type": "object"
+    },
+    "RollbackProof": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Chain Ids",
+          "type": "array"
+        },
+        "change_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Change Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "operator_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operator Id",
+          "type": "string"
+        },
+        "pins": {
+          "additionalProperties": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxProperties": 200,
+          "propertyNames": {
+            "maxLength": 512
+          },
+          "title": "Pins",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "operator_id",
+        "change_id",
+        "chain_ids",
+        "digest",
+        "expires_at",
+        "pins"
+      ],
+      "title": "RollbackProof",
       "type": "object"
     },
     "RuleData": {
@@ -8843,6 +9196,19 @@
           ],
           "default": null,
           "title": "Operator Decision Id"
+        },
+        "operator_reason": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator Reason"
         },
         "owner": {
           "maxLength": 128,
@@ -10253,6 +10619,12 @@
     "CapabilityPage": {
       "$ref": "#/$defs/Page_Capability_"
     },
+    "ChangeDecisionArguments": {
+      "$ref": "#/$defs/ChangeDecisionArguments"
+    },
+    "ChangeInterpretationArguments": {
+      "$ref": "#/$defs/ChangeInterpretationArguments"
+    },
     "CharacterState": {
       "$ref": "#/$defs/CharacterState"
     },
@@ -10430,6 +10802,12 @@
     "OutboxEntry": {
       "$ref": "#/$defs/OutboxEntry"
     },
+    "OwnerOperation": {
+      "$ref": "#/$defs/OwnerOperation"
+    },
+    "OwnerOperationPage": {
+      "$ref": "#/$defs/Page_OwnerOperation_"
+    },
     "PanelCommand": {
       "$ref": "#/$defs/PanelCommand"
     },
@@ -10523,8 +10901,14 @@
     "RelationshipPage": {
       "$ref": "#/$defs/Page_Relationship_"
     },
+    "ResourceArguments": {
+      "$ref": "#/$defs/ResourceArguments"
+    },
     "Retention": {
       "$ref": "#/$defs/Retention"
+    },
+    "RollbackProof": {
+      "$ref": "#/$defs/RollbackProof"
     },
     "RuleData": {
       "$ref": "#/$defs/RuleData"

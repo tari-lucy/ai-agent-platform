@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, JsonValue, model_validator
 
+from .api import Receipt
 from .common import UTC, Contract, Digest, Id, Scope, ShortText, Version, VersionedRecord
 from .extensions import ExtensionRegistry
 from .persona import SettingsTransferOperation
@@ -121,6 +122,11 @@ class ProfileValidation(Contract):
 
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("gm.configure-args", ConfigureGM)
+    registry.register("change.decision-args", ChangeDecisionArguments)
+    registry.register("change.interpretation-args", ChangeInterpretationArguments)
+    registry.register("change.rollback-args", ResourceArguments)
+    registry.register("opportunity.cancel-args", ResourceArguments)
+    registry.register("arc.pause-args", ResourceArguments)
     registry.register("laboratory.start-args", LaboratoryStartArguments)
     registry.register("laboratory.stop-args", LaboratoryStopArguments)
     registry.register("laboratory.event-args", LaboratoryEventArguments)
@@ -238,3 +244,51 @@ class LaboratoryRuns(Contract):
     limit: Annotated[int, Field(strict=True, ge=1, le=200)]
     next_cursor: Id | None
     complete: bool
+
+
+class ChangeDecisionArguments(Contract):
+    decision: Literal["accept", "reject"]
+    reason: Annotated[str, Field(strict=True, min_length=1, max_length=1000)]
+
+
+class ChangeInterpretationArguments(Contract):
+    interpretation: Annotated[str, Field(strict=True, min_length=1, max_length=1500)]
+    reason: Annotated[str, Field(strict=True, min_length=1, max_length=1000)]
+
+
+class ResourceArguments(Contract):
+    pass
+
+
+class RollbackProof(VersionedRecord):
+    operator_id: Id
+    change_id: Id
+    chain_ids: list[Id] = Field(min_length=1, max_length=100)
+    digest: Digest
+    expires_at: UTC
+    # kind:id separates same ID values owned by different entity types.
+    pins: dict[ShortText, Version] = Field(max_length=200)
+
+
+class OwnerOperation(VersionedRecord):
+    request_id: Id
+    operator_id: Id
+    command_type: Id
+    fingerprint: Digest
+    target_owner: Literal["persona", "gm", "memory", "llm", "workspace"]
+    target_id: Id
+    state: Literal["planned", "completed", "reconciliation_required"]
+    expected_result_ids: list[Id] = Field(default_factory=list, max_length=200)
+    result_ids: list[Id] = Field(default_factory=list, max_length=200)
+    receipt: Receipt | None = None
+    expires_at: UTC
+
+    @model_validator(mode="after")
+    def outcome(self) -> Self:
+        if (self.state == "completed") != (self.receipt is not None):
+            raise ValueError("OWNER_OPERATION_RECEIPT")
+        if self.receipt is not None and (
+            self.receipt.scope != self.scope or self.receipt.operation_id != self.id
+        ):
+            raise ValueError("OWNER_OPERATION_SCOPE")
+        return self

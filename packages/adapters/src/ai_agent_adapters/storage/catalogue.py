@@ -47,6 +47,8 @@ SPECS = {
     "StoryArc": Spec(persona.StoryArc, Owner.GM),
     "GmRuntimeState": Spec(persona.GmRuntimeState, Owner.GM),
     "ReflectionCheckpoint": Spec(persona.ReflectionCheckpoint, Owner.PERSONA),
+    "OwnerOperation": Spec(panel.OwnerOperation, Owner.WORKSPACE),
+    "RollbackProof": Spec(panel.RollbackProof, Owner.WORKSPACE),
     "SettingsTransferPreview": Spec(panel.SettingsTransferPreview, Owner.WORKSPACE),
     "SettingsTransferOperation": Spec(persona.SettingsTransferOperation, Owner.WORKSPACE),
     "Opportunity": Spec(persona.Opportunity, Owner.GM),

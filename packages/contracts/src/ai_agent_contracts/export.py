@@ -330,6 +330,8 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         }
     }
     from ai_agent_contracts.panel import (
+        ChangeDecisionArguments,
+        ChangeInterpretationArguments,
         ConfigureGM,
         LaboratoryCreateArguments,
         LaboratoryEventArguments,
@@ -339,6 +341,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         PersonaCopyArguments,
         PersonaCreateArguments,
         PersonaValidateArguments,
+        ResourceArguments,
         SettingsTransferArguments,
     )
 
@@ -350,6 +353,11 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             ("persona.apply-args", PersonaApplyArguments),
             ("persona.copy-args", PersonaCopyArguments),
             ("gm.configure-args", ConfigureGM),
+            ("change.decision-args", ChangeDecisionArguments),
+            ("change.interpretation-args", ChangeInterpretationArguments),
+            ("change.rollback-args", ResourceArguments),
+            ("opportunity.cancel-args", ResourceArguments),
+            ("arc.pause-args", ResourceArguments),
             ("laboratory.transfer-settings-args", SettingsTransferArguments),
             ("laboratory.start-args", LaboratoryStartArguments),
             ("laboratory.stop-args", LaboratoryStopArguments),
