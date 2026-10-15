@@ -704,3 +704,18 @@ Windows owner HTTP 14 passed, client 158, реальный browser путь и �
 17 UI cases проверены; [отчёт](implementation-reports/Integration-development-controls.md).
 Это приёмка ручных controls на подготовленной SQLite; host grants/общий старт
 и live API остаются следующей интеграцией, не считаются закрытыми fixture.
+
+
+## Integration-local-host — подготовленное поручение 2026-10-15
+
+Для второго агента на Linux/VPS после передачи оператором:
+[точное поручение](implementation-reports/Integration-local-host-assignment.md).
+Ветка codex/integration-local-host, отдельный checkout от проверенного origin/main.
+Его зона: новый local_host package/entrypoints/свои tests и setup/report docs.
+Координатор сохраняет contracts/M3 composition/shared UI/deploy/migrations/statuses;
+ветку второго агента объединяет координатор. Current main 855144f включает
+laboratory control; незавершённые development-controls не являются зависимостью.
+Цель — воспроизводимый init/serve на минимальных явных правах и один synthetic
+HTTP smoke. Реальный пользовательский профиль и live API подключаются отдельным
+следующим шагом после данных оператора и проверки composition. Условия
+самостоятельности/границы/критерии и экономные проверки заданы в поручении.
