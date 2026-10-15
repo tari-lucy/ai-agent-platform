@@ -18,6 +18,7 @@ from ai_agent_application.dialogue.context import (
     data,
 )
 from ai_agent_application.dialogue.model import SectionInfo
+from ai_agent_application.extraction.evidence import STRENGTH
 from ai_agent_application.extraction.relevance import score, words
 from ai_agent_application.llm import ChatMessage
 from ai_agent_application.memory.recall import estimate_tokens
@@ -99,8 +100,14 @@ async def include_memory(
         found = score(claim.content, asked)
         if found or not asked:
             ranked.append((found, claim))
-    # Most relevant first, then newest (recent() lists newest first and the sort is stable).
-    ranked.sort(key=lambda row: -row[0])
+    # Most relevant first; at equal relevance what a person said outranks the character's own
+    # interpretation; then newest (recent() lists newest first and the sort is stable).
+    ranked.sort(
+        key=lambda row: (
+            -row[0],
+            -STRENGTH[row[1].knowledge_type] if isinstance(row[1], Claim) else 0,
+        )
+    )
     ordered: list[Summary | Claim] = []
     for _, record in ranked:
         for member in (record, *(partners(record, pool) if isinstance(record, Claim) else ())):
