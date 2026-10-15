@@ -61,10 +61,19 @@ Temporary host создан настоящим `initialise`; записи — ч
 5. **Публичный способ закрытия хранилища/чтения HEAD** по-прежнему в composition: HEAD берётся из
    `ai_agent_adapters.storage.migrations`.
 
+## Ответ координатора (учтён)
+
+Принято: единый ledger и RetentionService, расписание, очистка lab-индексов/reports и сверка jobs
+подключаются координатором; production recovery закрыт до общей проверки. Backup не хранит
+собственный список допустимых live-ролей: `_assignments_fit` удалён, `HostCompatibility` принимает
+необязательное правило `assignments_fit(config, bindings)` от координатора, а пока сравнивает
+назначения с текущей БД (`ROLE_BINDINGS_DIFFER`). Актуальный main 707fca8 (лимит API
+настраиваемый) файлов этой ветки не затрагивает; ветка на 1bf0123, слияния не было.
+
 ## Решения
 
 - Restore всегда offline под `exclusive_host`; create может идти рядом с serve (backup API).
 - Копия допускается только к тому же host: identity host.json, области, права (`storage_grants`),
-  назначения ролей; для live-host число `LLMAttempt` в копии не меньше текущего (лимит платного API
+  назначения ролей (равенство текущей БД); для live-host число `LLMAttempt` в копии не меньше текущего (лимит платного API
   не сбрасывается откатом).
 - Живая БД читается проверкой совместимости без следов: при отсутствии `-wal` — immutable-чтение.

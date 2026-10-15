@@ -8,6 +8,7 @@ a copy must not bring back another host's roles, wider rights or a lower API att
 import asyncio
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,8 @@ from ai_agent_core.local_host.init import test_scope, work_scope
 from ai_agent_core.local_host.layout import MAX_CONFIG_BYTES, HostConfig, HostPaths
 
 from .layout import ALLOWED_EXTRA, HOST_CONFIG
+
+AssignmentRule = Callable[[HostConfig, dict[tuple[str, str, str], dict[str, Any]]], bool]
 
 # Fields that decide what a live role or a right can do; volatile fields (verification, state)
 # are deliberately not compared.
@@ -117,31 +120,18 @@ def _expected_scopes(config: HostConfig) -> list[tuple[str, str, str, str]]:
     return sorted((s.workspace_id, s.persona_id, s.memory_space_id, s.memory_mode) for s in every)
 
 
-def _assignments_fit(config: HostConfig, bindings: dict[tuple[str, str, str], Any]) -> bool:
-    """Every role is on the technical mock, except `character` on the prepared live pilot."""
-    seen = 0
-    for (_, kind, identifier), fields in bindings.items():
-        if kind != "LLMAssignment":
-            continue
-        seen += 1
-        live = config.live is not None and fields["role_id"] == "character"
-        wanted = (
-            ("conn-live", config.live.model_id) if live and config.live else ("conn-mock", None)
-        )
-        if fields["connection_id"] != wanted[0]:
-            return False
-        if wanted[1] is not None and fields["model_id"] != wanted[1]:
-            return False
-        if identifier != "asg-" + str(fields["role_id"]):
-            return False
-    return seen > 0
-
-
 class HostCompatibility:
     """The `restore_check` of the local backup service."""
 
-    def __init__(self, host: HostPaths, config: HostConfig) -> None:
-        self.host, self.config = host, config
+    def __init__(
+        self,
+        host: HostPaths,
+        config: HostConfig,
+        assignments_fit: AssignmentRule | None = None,
+    ) -> None:
+        # The rule of admissible role assignments belongs to the coordinator; backup keeps no
+        # role list of its own and only compares the copy with the current database.
+        self.host, self.config, self.assignments_fit = host, config, assignments_fit
 
     async def __call__(self, manifest: Manifest, copy_dir: Path) -> list[Issue]:
         return await asyncio.to_thread(self._check, manifest, copy_dir)
@@ -173,8 +163,9 @@ class HostCompatibility:
             issues.append(Issue("SCOPES_INCOMPATIBLE"))
         if theirs["grants"] != ours["grants"]:
             issues.append(Issue("GRANTS_DIFFER"))
-        if theirs["bindings"] != ours["bindings"] or not _assignments_fit(
-            self.config, theirs["bindings"]
+        if theirs["bindings"] != ours["bindings"] or (
+            self.assignments_fit is not None
+            and not self.assignments_fit(self.config, theirs["bindings"])
         ):
             issues.append(Issue("ROLE_BINDINGS_DIFFER"))
         if self.config.live is not None and theirs["attempts"] < ours["attempts"]:
