@@ -18,18 +18,20 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 from ai_agent_adapters.llm import OpenAICompatibleProvider
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
+from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import Utterance
 from ai_agent_contracts.memory import Claim, MemoryCycle, Summary
 from ai_agent_contracts.persona import CharacterState, ReflectionCheckpoint, StateChange
 
 from ai_agent_core.local_host import provider as providers
 from ai_agent_core.local_host.init import initialise, work_scope
-from ai_agent_core.local_host.layout import HostError, LiveConfig, load_config, paths
+from ai_agent_core.local_host.layout import HostConfig, HostError, LiveConfig, load_config, paths
 from ai_agent_core.local_host.memory import enable_memory
 from ai_agent_core.local_host.serve import build
 from ai_agent_core.m3_composition.state import PRINCIPALS
@@ -79,8 +81,8 @@ class Counting(httpx.AsyncBaseTransport):
 
     def __init__(self, inner: httpx.AsyncBaseTransport, limit: int) -> None:
         self.inner, self.limit = inner, limit
-        self.calls: list[dict] = []
-        self.final_view: dict | None = None
+        self.calls: list[dict[str, Any]] = []
+        self.final_view: dict[str, Any] | None = None
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if len(self.calls) >= self.limit:
@@ -106,21 +108,24 @@ class Counting(httpx.AsyncBaseTransport):
         return response
 
 
-async def poll(env, operation_id: str, seconds: int = 240) -> str:
+async def poll(env: SimpleNamespace, operation_id: str, seconds: int = 240) -> str:
     scope = env.runtime.supervisor.snapshot.scope
     for _ in range(seconds * 10):
         stored = await env.runtime.jobs.store.load(operation_id, scope)
         if stored is not None and stored[0].status.value in TERMINAL:
-            return stored[0].status.value
+            return str(stored[0].status.value)
         await asyncio.sleep(0.1)
     return "TIMEOUT"
 
 
-async def command(env, **body) -> httpx.Response:
-    return await env.client.post("/api/v1/commands", json=body, headers=env.headers)
+async def command(env: SimpleNamespace, **body: Any) -> httpx.Response:
+    response: httpx.Response = await env.client.post(
+        "/api/v1/commands", json=body, headers=env.headers
+    )
+    return response
 
 
-async def say(env, request_id: str, text: str) -> str:
+async def say(env: SimpleNamespace, request_id: str, text: str) -> str:
     run = env.runtime.supervisor.snapshot
     scope = run.scope.model_dump(mode="json")
     made = await command(
@@ -152,7 +157,13 @@ async def say(env, request_id: str, text: str) -> str:
     return "SUCCEEDED" if ack.status_code == 200 else f"ACK_HTTP_{ack.status_code}"
 
 
-async def observe(env, scope, wire: Counting, collector: Collector, steps: dict) -> dict:
+async def observe(
+    env: SimpleNamespace,
+    scope: Scope,
+    wire: Counting,
+    collector: Collector,
+    steps: dict[str, Any],
+) -> dict[str, Any]:
     store = env.runtime.store
     claims = await store.repository(Claim, PRINCIPALS[Owner.MEMORY], scope).list(limit=200)
     cycles = await store.repository(MemoryCycle, PRINCIPALS[Owner.MEMORY], scope).list(limit=200)
@@ -189,7 +200,9 @@ async def observe(env, scope, wire: Counting, collector: Collector, steps: dict)
     )
 
 
-async def run(arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | None = None) -> dict:
+async def run(
+    arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | None = None
+) -> dict[str, Any]:
     root = arguments.workdir
     live = LiveConfig(model_id=arguments.model, attempt_limit=20, attempt_period="utc_day")
     await initialise(
@@ -201,7 +214,8 @@ async def run(arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | N
     await enable_memory(root)
     config = load_config(paths(root))
     scope = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
-    collector, steps = Collector(), {}
+    collector = Collector()
+    steps: dict[str, Any] = {}
     root_logger, level = logging.getLogger(), logging.getLogger().level
     root_logger.addHandler(collector)
     root_logger.setLevel(logging.INFO)
@@ -212,14 +226,23 @@ async def run(arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | N
         root_logger.setLevel(level)
 
 
-async def converse(arguments, inner, config, scope, collector, steps) -> dict:
+async def converse(
+    arguments: argparse.Namespace,
+    inner: httpx.AsyncBaseTransport | None,
+    config: HostConfig,
+    scope: Scope,
+    collector: Collector,
+    steps: dict[str, Any],
+) -> dict[str, Any]:
     root = arguments.workdir
     async with httpx.AsyncClient(
         transport=(wire := Counting(inner or httpx.AsyncHTTPTransport(), arguments.max_calls))
     ) as client:
-        providers.OpenAICompatibleProvider = lambda settings: OpenAICompatibleProvider(  # type: ignore[misc]
-            settings, client
-        )
+
+        def real(settings: dict[str, str]) -> OpenAICompatibleProvider:
+            return OpenAICompatibleProvider(settings, client)
+
+        setattr(providers, "OpenAICompatibleProvider", real)  # noqa: B010
         app, close = build(paths(root), config, provider="live", env_file=arguments.env_file)
         try:
             async with app.router.lifespan_context(app):
