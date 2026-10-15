@@ -361,7 +361,7 @@ def test_a_copy_with_an_unlisted_file_is_refused(tmp_path):
 # ---- after the restore --------------------------------------------------------------------
 
 
-def test_after_restore_a_new_serve_is_stopped_and_nothing_old_runs_again(tmp_path):
+def test_a_malformed_orphan_job_blocks_serve_instead_of_proving_reconciliation(tmp_path):
     async def scenario():
         host = await make_host(tmp_path)
 
@@ -395,8 +395,11 @@ def test_after_restore_a_new_serve_is_stopped_and_nothing_old_runs_again(tmp_pat
     assert code == 0 and "open_operations=1" in out and "OPERATIONS_AT_RISK warning" in out
     code, out, err = restore(host, backup_id)
     assert code == 0, err
-    with Serve(host, tmp_path / "serve.log") as server:
-        assert server.run_state() == "STOPPED"  # a restore never starts the agent
+    import pytest
+
+    with pytest.raises(AssertionError, match="serve exited early"):
+        with Serve(host, tmp_path / "serve.log"):
+            pytest.fail("a malformed job must not admit a host")
     connection = sqlite3.connect(host.paths.database)
     job = connection.execute(
         "SELECT json_extract(payload,'$.status') FROM record_revisions WHERE id='job-1'"
@@ -410,5 +413,5 @@ def test_after_restore_a_new_serve_is_stopped_and_nothing_old_runs_again(tmp_pat
         "SELECT COUNT(*) FROM records WHERE kind='LLMAttempt'"
     ).fetchone()[0]
     connection.close()
-    assert job == "RUNNING"  # unknown stays unknown: nobody re-executed or closed it
+    assert job == "RUNNING"  # malformed records are not silently rewritten as valid owner results
     assert live_events == 0 and attempts == 0

@@ -85,6 +85,11 @@ def _summary(path: Path) -> dict[str, Any]:
         attempts = connection.execute(
             "SELECT COUNT(*) FROM records WHERE kind='LLMAttempt'"
         ).fetchone()[0]
+        jobs = connection.execute(
+            "SELECT r.scope_id,r.id,json_extract(v.payload,'$.status') FROM records r "
+            "JOIN record_revisions v ON r.scope_id=v.scope_id AND r.kind=v.kind "
+            "AND r.id=v.id AND r.version=v.version WHERE r.kind='Job'"
+        ).fetchall()
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -94,6 +99,7 @@ def _summary(path: Path) -> dict[str, Any]:
             "grants": sorted(tuple(map(str, r)) for r in grants),
             "bindings": _bindings(connection),
             "attempts": int(attempts),
+            "jobs": {(scope, identifier): status for scope, identifier, status in jobs},
             "retention": "retention_usage_aggregates" in tables,
         }
     finally:
@@ -139,6 +145,8 @@ class HostCompatibility:
     def _check(self, manifest: Manifest, copy_dir: Path) -> list[Issue]:
         names = {f.name for f in manifest.files}
         issues: list[Issue] = []
+        if (self.host.root / "RESTORE-PENDING").exists():
+            issues.append(Issue("RESTORE_PENDING"))
         if not names <= ALLOWED_EXTRA | {DATABASE}:
             issues.append(Issue("FILE_NOT_ALLOWED"))
         copied = _read_config(copy_dir / HOST_CONFIG) if HOST_CONFIG in names else None
@@ -170,6 +178,12 @@ class HostCompatibility:
             issues.append(Issue("ROLE_BINDINGS_DIFFER"))
         if self.config.live is not None and theirs["attempts"] < ours["attempts"]:
             issues.append(Issue("API_ATTEMPTS_WOULD_ROLL_BACK"))  # the cap must not be reset
+        closed = {"SUCCEEDED", "FAILED", "REJECTED", "CANCELLED", "EXPIRED"}
+        if any(
+            key not in theirs["jobs"] and status not in closed
+            for key, status in ours["jobs"].items()
+        ):
+            issues.append(Issue("LIVE_OPERATIONS_WOULD_BE_LOST"))
         if not theirs["retention"]:
             issues.append(Issue("RETENTION_NOT_INSTALLED"))
         return issues

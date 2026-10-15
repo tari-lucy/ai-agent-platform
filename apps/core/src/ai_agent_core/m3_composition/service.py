@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from ai_agent_adapters.control.journal import SQLiteRunJournal
+from ai_agent_adapters.jobs.recovery import check_inventory
 from ai_agent_adapters.jobs.store import SQLiteJobs
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.control import Supervisor
@@ -140,6 +141,12 @@ class PrivateAPIBudget:
         return now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
+class Maintenance(Protocol):
+    async def open(self) -> None: ...
+    def start(self) -> None: ...
+    async def close(self) -> None: ...
+
+
 class Runtime:
     def __init__(
         self,
@@ -212,6 +219,7 @@ class Runtime:
         self._lock = asyncio.Lock()
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
         self._opened = False
+        self.maintenance: Maintenance | None = None
         from .lab_control import LabControl
 
         self.lab_control = LabControl(self)
@@ -282,9 +290,14 @@ class Runtime:
 
     async def open(self) -> None:
         await self.store.check_schema()  # no implicit migrations/provisioning
+        if self.maintenance is not None:
+            await self.maintenance.open()
+        await check_inventory(self.store)
         # A bounded full pass closes prior queued/running jobs; it cannot revive old permits.
         for _ in range(6):
             await self.jobs.reconcile()
+        if (await self.jobs.store.active(limit=1)).items:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
         await self._recover_usage()
         try:
             await self.supervisor.recover()
@@ -301,6 +314,8 @@ class Runtime:
         )
         self._unsubscribe = self.supervisor.observe(self.clock.observe)
         self._opened = True
+        if self.maintenance is not None:
+            self.maintenance.start()
 
     async def _recover_usage(self) -> None:
         from ai_agent_contracts.llm import LLMAttempt
@@ -351,6 +366,8 @@ class Runtime:
         if self.clock is not None:
             await self.state.checkpoint_time(self.supervisor.snapshot.scope, self.active_seconds())
         await self.supervisor.flush()
+        if self.maintenance is not None:
+            await self.maintenance.close()
         if self._unsubscribe:
             self._unsubscribe()
 
