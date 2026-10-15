@@ -2,7 +2,7 @@ import { formatTime } from '../time.ts';
 import { Alert, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { ConsequencePlan, ExecutePlanCommand, PlanCommand, Receipt, Scope } from '../../shared/contracts.ts';
+import type { OwnerOperation, OperationProjection, ConsequencePlan, ExecutePlanCommand, PlanCommand, Receipt, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { afterExecute, progress, type PlanPhase } from './plan.ts';
@@ -11,6 +11,7 @@ import { afterExecute, progress, type PlanPhase } from './plan.ts';
 // One flow for every operation with consequences: plan first, explicit confirmation, one command,
 // an unknown outcome is checked with the identical command, progress comes from the owner.
 export type PlanSpec = {
+  ownerOperation?: boolean;
   label: string; previewLabel: string; executeLabel: string; danger?: boolean;
   confirmText?: string;      // checkbox that must be ticked
   typedConfirm?: string;     // text the operator must type exactly
@@ -31,9 +32,9 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
   const [typed, setTyped] = useState('');
   const [opened] = useState(() => Date.now()); // render stays pure; the click checks the term again
   const operationId = state.phase === 'running' ? (state.receipt.operation_id ?? state.receipt.resource_id ?? null) : null;
-  const status = useQuery({
+  const status = useQuery<OwnerOperation | OperationProjection>({
     queryKey: [...projectionKey('operations', scope), 'one', operationId], enabled: operationId !== null,
-    queryFn: ({ signal }) => api.operation(scope, operationId!, signal),
+    queryFn: ({ signal }) => spec.ownerOperation ? api.ownerOperation(scope, operationId!, signal) : api.operation(scope, operationId!, signal),
   });
   const problem = state.phase === 'ready' ? spec.problem(state.plan, opened) : null;
   const confirmed = (!spec.confirmText || understood) && (!spec.typedConfirm || typed === spec.typedConfirm);
@@ -63,7 +64,7 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
       <><Button variant="light" disabled={state.phase === 'previewing' || !!spec.blocked} onClick={() => void preview()}>
         {state.phase === 'previewing' ? 'Готовим план…' : spec.previewLabel}</Button>
         {spec.blocked && <Text size="xs" c="orange.8" role="status">{spec.blocked}</Text>}</>}
-    {state.phase === 'refused' && <Alert color="orange" role="alert">{failureMessage(new ApiFailure(state.code))} Ничего не изменено.</Alert>}
+    {state.phase === 'refused' && <Alert color="orange" role="alert">{failureMessage(new ApiFailure(state.code))} Операция не подтверждена. Проверьте текущее состояние.</Alert>}
     {(state.phase === 'ready' || state.phase === 'executing' || state.phase === 'unknown') && <Paper withBorder p="sm" aria-label="План последствий">
       <Text fw={600}>План: {spec.label}</Text>
       <Text className="plain-text" size="sm" mt={4}>{state.plan.consequences}</Text>

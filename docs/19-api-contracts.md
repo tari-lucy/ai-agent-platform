@@ -345,3 +345,46 @@ summary operator_events отличает интерактивный запуск
 Панель читает Job state после reload, посылает canonical команды и не повторяет
 неизвестный исход автоматически. Host явно выдаёт минимальные Job API ACL;
 default остаётся закрытым. [Приёмка](implementation-reports/Integration-laboratory-control.md).
+
+
+### Ручное управление развитием — 2026-10-15
+
+Все команды проходят прежний authenticated Origin/CSRF boundary. `target` — ID
+реального StateChange/Opportunity/StoryArc, `expected_version` — версия этой
+записи. GM configure использует `target=gm-runtime`, GmRuntimeState.version и
+числовую intensity 0..1, а не версию RunSession или строку low/high.
+
+- `change.decision` + `change.decision-args`: decision accept/reject, обязательная
+  reason 1..1000. PERSONA сохраняет operator_reason и operator_decision_id.
+- `change.interpretation` + `change.interpretation-args`: interpretation 1..1500,
+  reason 1..1000. Допускаются READY/AWAITING_APPROVAL/APPLIED; pending вновь
+  требует одобрения. APPLIED сохраняет накопленное состояние/new_version.
+  Это новая версия интерпретации, не изменение события или его оснований.
+- `opportunity.cancel` + `opportunity.cancel-args` и `arc.pause` + `arc.pause-args`:
+  пустой data; идентификатор находится в target. GM сохраняет состояние штатным
+  owner методом. Пауза линии и отмена её неразыгранных возможностей атомарны.
+- `change.rollback.preview` + `change.rollback-args`, data={}: возвращает
+  ConsequencePlan resource ID/version. В нём цепочка компенсаций/число ожидающих
+  предложений, последствия и зависимости. Private RollbackProof привязан к
+  оператору/изменению/текущим версиям/источникам/правилам; TTL пять минут.
+- `change.rollback.execute`: arguments={plan_id,plan_version}, expected_version
+  плана, target того же изменения. Создаёт компенсирующие StateChange и новую
+  CharacterState; зависимые pending предложения становятся CONFLICT в одной
+  PERSONA транзакции. Предыдущие версии, опыт и отправленные реплики сохраняются.
+
+SQL reservation повторно проверяет operator read/api_transfer/ACL, версии,
+источники, configuration и control_epoch. Новые permissions/grants эти маршруты
+не создают. GM pause синхронно закрывает выдачу до записи; ошибка сохранения не
+означает, что пауза автоматически снята.
+
+GET `/api/v1/owner-operations` и `/{id}` — обычные scoped read models с текущими
+WORKSPACE read/api_transfer/ACL. OwnerOperation — технический fingerprint,
+планируемые result IDs, подтверждённые result IDs и квитанция; это не Job и не
+копия состояния PERSONA/GM. Идентичный completed request возвращает точную
+квитанцию. После потери ответа существующий owner result сверяется без нового
+применения; rollback recovery не зависит от истёкшего preview TTL. При отсутствии
+доказанного результата остаётся planned/reconciliation_required и OUTCOME_UNKNOWN;
+слепого повтора нет. Другой payload/оператор с тем же request ID конфликтует.
+
+Host init должен явно подготовить нужные owner grants/record ACL; синтетический
+fixture не заменяет проверку host wiring. [Приёмка](implementation-reports/Integration-development-controls.md).

@@ -232,3 +232,15 @@ RUNNING требует factual executor receipt, прочие admissions ост�
 двумя pending laboratory Job. Повтор execute одного job не закрывает чужой live
 context. Прямой STOP/технические receipts после отзыва работают по прежней модели.
 Интерактивные отчёты отмечены operator_events и не обещают seed-only replay.
+
+
+Ручные development commands подключены через development_controls/OwnerOperations:
+resource target/CAS, canonical change.*-args/arc.pause-args/opportunity.cancel-args,
+пять минут на reviewed rollback preview и отдельное явное execute. PERSONA/GM
+пишут своё состояние; WORKSPACE — только план/proof/техническую owner receipt.
+Идентичный unknown request сверяет существующий результат, не применяет заново.
+Источник/права/config/epoch проверяются внутри owner SQL reservation. Пауза линии
+и отмена ожидающих возможностей, новая CharacterState и invalidation pending
+каждая атомарны внутри своего владельца. Старые версии/источники не стираются.
+API/read models и ограничения host grants: docs/19-api-contracts.md,
+приёмка docs/implementation-reports/Integration-development-controls.md.

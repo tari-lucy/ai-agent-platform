@@ -1,3 +1,10 @@
+Актуализация координатора 2026-10-15: ручные PERSONA/GM controls, canonical
+rollback plan и owner receipts подключены: [Integration-development-controls](Integration-development-controls.md).
+Панель использует версии реальных ресурсов, читает GM settings/rules; применение,
+коррекция и компенсирующий откат проверяются через настоящий owner HTTP/SQLite.
+Host grants и live API остаются отдельной интеграцией. Ниже сохранена история
+прежних UI-only запросов, а не перечень всех актуальных blockers.
+
 Актуализация координатора 2026-10-15: laboratory events/per-job cancel
 подключены к JobOwner и обычному TEST MEMORY owner:
 [Integration-laboratory-control](Integration-laboratory-control.md).

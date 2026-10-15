@@ -1,4 +1,4 @@
-"""M4-05 acceptance: story and development tab on deterministic projections (UI-only)."""
+"""M4-05 intercepted UI acceptance; real owner HTTP acceptance is separate."""
 
 from urllib.parse import parse_qs, urlsplit
 
@@ -143,6 +143,19 @@ def mock_development(
             "/api/v1/arcs": arcs,
             "/api/v1/opportunities": opportunities,
             "/api/v1/changes": changes,
+            "/api/v1/gm-settings": [
+                {
+                    **base("gm-runtime", version=12),
+                    "intensity": 0.5,
+                    "active_seconds": 0,
+                    "rules_version": 1,
+                    "rules": {
+                        "schema_id": "m3.rules",
+                        "schema_version": "1.0",
+                        "data": {"rules": []},
+                    },
+                }
+            ],
         }
         if path == "/api/v1/auth/session":
             request.fulfill(
@@ -194,6 +207,23 @@ def mock_development(
             )
         elif path == "/api/v1/plans/plan-1" and plan is not None:
             request.fulfill(json=plan)
+        elif path == "/api/v1/owner-operations/op-9":
+            request.fulfill(
+                json={
+                    **base("op-9", 21),
+                    "request_id": "rollback-request",
+                    "operator_id": "operator",
+                    "command_type": "change.rollback.execute",
+                    "fingerprint": "a" * 64,
+                    "target_owner": "persona",
+                    "target_id": "c-1",
+                    "state": "reconciliation_required",
+                    "expected_result_ids": [],
+                    "result_ids": [],
+                    "receipt": None,
+                    "expires_at": FAR,
+                }
+            )
         elif path == "/api/v1/operations/op-9":
             request.fulfill(
                 json={
@@ -291,13 +321,13 @@ def test_game_master_controls_use_the_seen_version(page, live_panel):
     box = page.get_by_label("Гейммастер")
     box.get_by_role("button", name="Снять паузу").click()
     expect(box.get_by_text("Команда принята ядром.")).to_be_visible()
-    assert posted[0]["type"] == "gm.configure" and posted[0]["expected_version"] == 4
+    assert posted[0]["type"] == "gm.configure" and posted[0]["expected_version"] == 12
     assert posted[0]["arguments"]["data"] == {"paused": False}
     box.get_by_label("Интенсивность").click()
     page.get_by_role("option", name="Высокая", exact=True).click()
     box.get_by_role("button", name="Применить интенсивность").click()
     expect(page.get_by_text("Команда принята ядром.").first).to_be_visible()
-    assert posted[-1]["arguments"]["data"] == {"intensity": "high"}
+    assert posted[-1]["arguments"]["data"] == {"intensity": 0.8}
     expect(box).to_contain_text("нет собственного голоса")
 
 
@@ -340,7 +370,7 @@ def test_cancel_a_possibility_and_pause_the_arc(page, live_panel):
     card.get_by_role("button", name="Отменить", exact=True).click()
     expect(card.get_by_text("Команда принята ядром.")).to_be_visible()
     assert posted[0]["type"] == "opportunity.cancel" and posted[0]["expected_version"] == 6
-    assert posted[0]["arguments"]["data"] == {"opportunity_id": "o-1"}
+    assert posted[0]["target"] == "o-1" and posted[0]["arguments"]["data"] == {}
     card.get_by_role("button", name="Приостановить линию").click()
     assert posted[1]["type"] == "arc.pause" and posted[1]["expected_version"] == 2
 
@@ -392,13 +422,12 @@ def test_decision_waits_for_the_operator_and_expiry_is_not_consent(page, live_pa
     page.get_by_role("button").filter(has_text="trust: 0.4 → 0.5").click()
     card = page.get_by_label("Карточка изменения")
     expect(card).to_contain_text("Истечение ожидания не означает одобрения")
-    card.get_by_label("Основание решения (необязательно)").fill("Достаточно оснований")
+    card.get_by_label("Основание решения").fill("Достаточно оснований")
     card.get_by_role("button", name="Принять", exact=True).click()
     expect(card.get_by_text("Команда принята ядром.")).to_be_visible()
     body = posted[0]
     assert body["type"] == "change.decision" and body["expected_version"] == 7
     assert body["arguments"]["data"] == {
-        "change_id": "c-1",
         "decision": "accept",
         "reason": "Достаточно оснований",
     }
@@ -413,6 +442,9 @@ def test_a_version_conflict_on_decision_never_overwrites(page, live_panel):
     )
     tab(page, "Изменения")
     page.get_by_role("button").filter(has_text="trust: 0.4 → 0.5").click()
+    page.get_by_label("Карточка изменения").get_by_label("Основание решения", exact=True).fill(
+        "Проверено оператором"
+    )
     page.get_by_label("Карточка изменения").get_by_role(
         "button", name="Отклонить", exact=True
     ).click()
@@ -442,6 +474,7 @@ def test_a_lost_reply_is_checked_with_the_same_decision(page, live_panel):
     tab(page, "Изменения")
     page.get_by_role("button").filter(has_text="trust: 0.4 → 0.5").click()
     card = page.get_by_label("Карточка изменения")
+    card.get_by_label("Основание решения", exact=True).fill("Проверено оператором")
     card.get_by_role("button", name="Принять", exact=True).click()
     expect(card.get_by_role("alert")).to_contain_text("Результат неизвестен")
     card.get_by_role("button", name="Проверить исход").click()
@@ -483,14 +516,13 @@ def test_rollback_is_a_plan_then_one_command_with_a_compensating_version(page, l
     expect(execute).to_be_disabled()
     plan.get_by_label("Я понимаю", exact=False).check()
     execute.click()
-    expect(card.get_by_label("Ход выполнения")).to_contain_text("создаём компенсирующую версию")
+    expect(card.get_by_label("Ход выполнения")).to_contain_text("требует сверки")
     assert [body["type"] for body in posted] == [
         "change.rollback.preview",
         "change.rollback.execute",
     ]
-    assert posted[0]["expected_version"] == 5 and posted[0]["arguments"]["data"] == {
-        "change_id": "c-1"
-    }
+    assert posted[0]["expected_version"] == 5 and posted[0]["arguments"]["data"] == {}
+    assert posted[0]["target"] == "c-1"
     assert posted[1]["arguments"] == {"plan_id": "plan-1", "plan_version": 1}
 
 
@@ -553,7 +585,7 @@ def test_bounds_show_the_profile_limits_state_and_the_missing_rule_editor(page, 
     expect(page.get_by_label("Текущее состояние")).to_contain_text("Версия состояния 3")
     expect(page.get_by_label("Границы линий")).to_contain_text("Без насилия и принуждения")
     expect(page.get_by_label("Границы линий")).to_contain_text("Заблокировано: граница-насилие")
-    expect(page.get_by_text("Редактор правил")).to_be_visible()
+    expect(page.get_by_text("Правила · версия 1")).to_be_visible()
 
 
 def test_empty_state_test_memory_and_narrow_window(page, live_panel):

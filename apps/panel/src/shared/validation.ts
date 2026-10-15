@@ -376,7 +376,10 @@ export function gmSettings(value: unknown, selected: Scope): import('./contracts
   page(value, selected);
   demand(value.items.every((r) => typeof r.intensity === 'number' && r.intensity >= 0 && r.intensity <= 1 &&
     version(r.rules_version) && object(r.rules) && r.rules.schema_id === 'm3.rules' && object(r.rules.data) &&
-    Array.isArray(r.rules.data.rules)));
+    Array.isArray(r.rules.data.rules) && r.rules.data.rules.length <= 200 &&
+    r.rules.data.rules.every((rule: unknown) => object(rule) && id(rule.rule_id) &&
+      ['project', 'profile', 'session'].includes(String(rule.level)) && ['hard', 'soft', 'desired'].includes(String(rule.kind)) &&
+      typeof rule.description === 'string' && rule.description.length > 0 && rule.description.length <= 1500)));
   return value as unknown as import('./contracts.ts').GmRuntimeStatePage;
 }
 
@@ -453,4 +456,17 @@ export function laboratoryRuns(value: unknown, selected: Scope): import('./contr
     (row.virtual_time === null || date(row.virtual_time)) &&
     (row.accepted_events === null || Number.isSafeInteger(row.accepted_events) && Number(row.accepted_events) >= 0 && Number(row.accepted_events) <= 32)));
   return value as unknown as import('./contracts.ts').LaboratoryRuns;
+}
+
+export function ownerOperation(value: unknown, selected: Scope, operationId: string): import('./contracts.ts').OwnerOperation {
+  demand(object(value) && value.id === operationId && isScope(value.scope) && samePartition(value.scope, selected) &&
+    version(value.version) && id(value.request_id) && id(value.operator_id) && id(value.target_id) &&
+    ['planned', 'completed', 'reconciliation_required'].includes(String(value.state)) &&
+    Array.isArray(value.result_ids) && value.result_ids.length <= 200 && value.result_ids.every(id) &&
+    Array.isArray(value.expected_result_ids) && value.expected_result_ids.length <= 200 && value.expected_result_ids.every(id) &&
+    date(value.expires_at));
+  demand(value.state === 'completed' ? object(value.receipt) && value.receipt.operation_id === operationId &&
+    value.receipt.request_id === value.request_id && isScope(value.receipt.scope) && samePartition(value.receipt.scope, selected) &&
+    value.receipt.status === 'completed' && id(value.receipt.resource_id) && version(value.receipt.version) : value.receipt === null);
+  return value as unknown as import('./contracts.ts').OwnerOperation;
 }

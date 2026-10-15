@@ -1,5 +1,6 @@
+import { configureGM } from '../../shared/owner-commands.ts';
 import type {
-  ChangeState, ConsequencePlan, EditCommand, ExecutePlanCommand, Opportunity, PlanCommand, RunSession, SourceRef, StateChange, StoryArc,
+  GmRuntimeState, ChangeState, ConsequencePlan, EditCommand, ExecutePlanCommand, Opportunity, PlanCommand, RunSession, SourceRef, StateChange, StoryArc,
 } from '../../shared/contracts.ts';
 
 // Pure development-tab logic: arcs, opportunities, change cards, attention queue, path and commands. No I/O.
@@ -49,9 +50,8 @@ export function patchOf(change: StateChange): PatchView {
   if (typeof record.property !== 'string' || before === null || after === null) return null;
   return { property: record.property, before, after, rollback: record.kind === 'rollback' };
 }
-const open = new Set<ChangeState>(['PROPOSED', 'VALIDATING', 'READY', 'AWAITING_APPROVAL']);
 export const awaitingOperator = (change: StateChange) => change.status === 'AWAITING_APPROVAL';
-export const canCorrect = (change: StateChange) => open.has(change.status) || change.status === 'APPLIED';
+export const canCorrect = (change: StateChange) => ['READY', 'AWAITING_APPROVAL', 'APPLIED'].includes(change.status);
 export const canRollback = (change: StateChange) => change.status === 'APPLIED' && patchOf(change)?.rollback !== true;
 export function versions(change: StateChange): string {
   return change.new_version == null ? `основа v${change.base_version}, ещё не применено` : `v${change.base_version} → v${change.new_version}`;
@@ -88,21 +88,21 @@ export function pathItems(changes: StateChange[], opps: Opportunity[]): PathItem
 }
 
 // ---- commands ---------------------------------------------------------------------------------------------
-// ASSUMPTION (owner decision pending): payload schema ids and command targets are not defined by the backend yet.
+// Canonical payloads; owner resource IDs and versions are independent of RunSession.
 export const DEV_SCHEMA = {
-  gm: 'gm.configure', cancel: 'opportunity.cancel', pause: 'arc.pause', decision: 'change.decision', interpretation: 'change.interpretation', rollback: 'change.rollback',
+  gm: 'gm.configure-args', cancel: 'opportunity.cancel-args', pause: 'arc.pause-args', decision: 'change.decision-args', interpretation: 'change.interpretation-args', rollback: 'change.rollback-args',
 } as const;
-const edit = (type: EditCommand['type'], run: RunSession, version: number, schema: string, data: Record<string, string | number | boolean>, requestId: string): EditCommand =>
-  ({ type, request_id: requestId, scope: run.scope, target: run.session_id, expected_version: version, arguments: { schema_id: schema, data } });
-export const gmPauseCommand = (run: RunSession, paused: boolean, requestId: string) => edit('gm.configure', run, run.version, DEV_SCHEMA.gm, { paused }, requestId);
+const edit = (type: EditCommand['type'], run: RunSession, version: number, target: string, schema: string, data: Record<string, string | number | boolean>, requestId: string): EditCommand =>
+  ({ type, request_id: requestId, scope: run.scope, target, expected_version: version, arguments: { schema_id: schema, data } });
+export const gmPauseCommand = (run: RunSession, settings: GmRuntimeState, paused: boolean, requestId: string) => configureGM(run.scope, settings, { paused }, requestId);
 export const intensities = { low: 'Низкая', normal: 'Обычная', high: 'Высокая' } as const;
 export type Intensity = keyof typeof intensities;
-export const gmIntensityCommand = (run: RunSession, intensity: Intensity, requestId: string) => edit('gm.configure', run, run.version, DEV_SCHEMA.gm, { intensity }, requestId);
-export const cancelOpportunityCommand = (run: RunSession, opp: Opportunity, requestId: string) => edit('opportunity.cancel', run, opp.version, DEV_SCHEMA.cancel, { opportunity_id: opp.id }, requestId);
-export const pauseArcCommand = (run: RunSession, arc: StoryArc, requestId: string) => edit('arc.pause', run, arc.version, DEV_SCHEMA.pause, { arc_id: arc.id }, requestId);
+export const gmIntensityCommand = (run: RunSession, settings: GmRuntimeState, intensity: Intensity, requestId: string) => configureGM(run.scope, settings, { intensity: { low: 0.2, normal: 0.5, high: 0.8 }[intensity] }, requestId);
+export const cancelOpportunityCommand = (run: RunSession, opp: Opportunity, requestId: string) => edit('opportunity.cancel', run, opp.version, opp.id, DEV_SCHEMA.cancel, {}, requestId);
+export const pauseArcCommand = (run: RunSession, arc: StoryArc, requestId: string) => edit('arc.pause', run, arc.version, arc.id, DEV_SCHEMA.pause, {}, requestId);
 export type Decision = 'accept' | 'reject';
 export const decisionCommand = (run: RunSession, change: StateChange, decision: Decision, reason: string, requestId: string) =>
-  edit('change.decision', run, change.version, DEV_SCHEMA.decision, { change_id: change.id, decision, reason: reason.trim() }, requestId);
+  edit('change.decision', run, change.version, change.id, DEV_SCHEMA.decision, { decision, reason: reason.trim() }, requestId);
 export function validInterpretation(change: StateChange, text: string, reason: string): string | null {
   if (!canCorrect(change)) return 'Изменение в этом состоянии исправлять нельзя.';
   if (!text.trim()) return 'Введите исправленную интерпретацию.';
@@ -113,12 +113,12 @@ export function validInterpretation(change: StateChange, text: string, reason: s
   return null;
 }
 export const interpretationCommand = (run: RunSession, change: StateChange, text: string, reason: string, requestId: string) =>
-  edit('change.interpretation', run, change.version, DEV_SCHEMA.interpretation, { change_id: change.id, interpretation: text, reason: reason.trim() }, requestId);
+  edit('change.interpretation', run, change.version, change.id, DEV_SCHEMA.interpretation, { interpretation: text, reason: reason.trim() }, requestId);
 export const rollbackPreview = (run: RunSession, change: StateChange, requestId: string): PlanCommand =>
-  ({ type: 'change.rollback.preview', request_id: requestId, scope: run.scope, target: run.session_id, expected_version: change.version,
-    arguments: { schema_id: DEV_SCHEMA.rollback, data: { change_id: change.id } } });
-export const rollbackExecute = (run: RunSession, plan: ConsequencePlan, requestId: string): ExecutePlanCommand =>
-  ({ type: 'change.rollback.execute', request_id: requestId, scope: run.scope, target: run.session_id, expected_version: plan.version,
+  ({ type: 'change.rollback.preview', request_id: requestId, scope: run.scope, target: change.id, expected_version: change.version,
+    arguments: { schema_id: DEV_SCHEMA.rollback, data: {} } });
+export const rollbackExecute = (run: RunSession, change: StateChange, plan: ConsequencePlan, requestId: string): ExecutePlanCommand =>
+  ({ type: 'change.rollback.execute', request_id: requestId, scope: run.scope, target: change.id, expected_version: plan.version,
     arguments: { plan_id: plan.id, plan_version: plan.version } });
 // A rollback plan must name the very change; an expired plan is not run.
 export function rollbackProblem(plan: ConsequencePlan, change: StateChange, now: number): string | null {

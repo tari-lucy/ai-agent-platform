@@ -7,7 +7,7 @@ import {
   evidenceLost, evidenceSummary, gmIntensityCommand, gmPauseCommand, interpretationCommand, isLived, isPossibility, opportunitiesOf, patchOf, pathItems,
   pauseArcCommand, rollbackExecute, rollbackPreview, rollbackProblem, validInterpretation, versions,
 } from '../src/ui/development/model.ts';
-import type { ConsequencePlan, Opportunity, RunSession, Scope, SourceRef, StateChange, StoryArc } from '../src/shared/contracts.ts';
+import type { GmRuntimeState, ConsequencePlan, Opportunity, RunSession, Scope, SourceRef, StateChange, StoryArc } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
 const runScope: Scope = { ...scope, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' };
@@ -60,8 +60,8 @@ test('the patch is read defensively and an unrecognised shape is not guessed', (
 test('which controls a change offers follows its state', () => {
   assert.equal(awaitingOperator(change('c', 'AWAITING_APPROVAL')), true);
   assert.equal(awaitingOperator(change('c', 'READY')), false);
-  for (const status of ['PROPOSED', 'VALIDATING', 'READY', 'AWAITING_APPROVAL', 'APPLIED']) assert.equal(canCorrect(change('c', status)), true, status);
-  for (const status of ['REJECTED', 'CONFLICT', 'CANCELLED']) assert.equal(canCorrect(change('c', status)), false, status);
+  for (const status of ['READY', 'AWAITING_APPROVAL', 'APPLIED']) assert.equal(canCorrect(change('c', status)), true, status);
+  for (const status of ['PROPOSED', 'VALIDATING', 'REJECTED', 'CONFLICT', 'CANCELLED']) assert.equal(canCorrect(change('c', status)), false, status);
   assert.equal(canRollback(change('c', 'APPLIED')), true);
   assert.equal(canRollback(change('c', 'READY')), false);
   assert.equal(canRollback(change('c', 'APPLIED', { patch: patch({ kind: 'rollback' }) })), false); // a rollback is not rolled back again
@@ -98,15 +98,16 @@ test('the path has lived events and applied changes in time order, never possibi
 });
 test('commands carry the version seen and the right target', () => {
   const r = run();
-  const pause = gmPauseCommand(r, false, 'req-1');
-  assert.deepEqual([pause.type, pause.expected_version, pause.target, pause.arguments.data], ['gm.configure', 4, 'session-1', { paused: false }]);
-  assert.deepEqual(gmIntensityCommand(r, 'high', 'req-2').arguments.data, { intensity: 'high' });
+  const settings = { id: 'gm-runtime', version: 12 } as GmRuntimeState;
+  const pause = gmPauseCommand(r, settings, false, 'req-1');
+  assert.deepEqual([pause.type, pause.expected_version, pause.target, pause.arguments.data], ['gm.configure', 12, 'gm-runtime', { paused: false }]);
+  assert.deepEqual(gmIntensityCommand(r, settings, 'high', 'req-2').arguments.data, { intensity: 0.8 });
   const cancel = cancelOpportunityCommand(r, opp('o1', 'OFFERED', { version: 6 }), 'req-3');
-  assert.deepEqual([cancel.type, cancel.expected_version, cancel.arguments.data], ['opportunity.cancel', 6, { opportunity_id: 'o1' }]);
+  assert.deepEqual([cancel.type, cancel.expected_version, cancel.arguments.data], ['opportunity.cancel', 6, {}]);
   const stop = pauseArcCommand(r, arc({ version: 2 }), 'req-4');
-  assert.deepEqual([stop.type, stop.expected_version, stop.arguments.data], ['arc.pause', 2, { arc_id: 'arc-1' }]);
+  assert.deepEqual([stop.type, stop.expected_version, stop.arguments.data], ['arc.pause', 2, {}]);
   const decision = decisionCommand(r, change('c1', 'AWAITING_APPROVAL', { version: 5 }), 'reject', ' слишком быстро ', 'req-5');
-  assert.deepEqual([decision.type, decision.expected_version, decision.arguments.data], ['change.decision', 5, { change_id: 'c1', decision: 'reject', reason: 'слишком быстро' }]);
+  assert.deepEqual([decision.type, decision.expected_version, decision.arguments.data], ['change.decision', 5, { decision: 'reject', reason: 'слишком быстро' }]);
   assert.deepEqual(decision.scope, runScope);
 });
 test('an interpretation correction needs a different text, a reason and an editable state', () => {
@@ -119,12 +120,12 @@ test('an interpretation correction needs a different text, a reason and an edita
   assert.match(validInterpretation(c, 'другое', ' ')!, /основание/);
   assert.match(validInterpretation(c, 'другое', 'я'.repeat(1001))!, /1000/);
   const cmd = interpretationCommand(run(), change('c1', 'READY', { version: 7 }), 'Новая версия', ' причина ', 'req-6');
-  assert.deepEqual([cmd.type, cmd.expected_version, cmd.arguments.data], ['change.interpretation', 7, { change_id: 'c1', interpretation: 'Новая версия', reason: 'причина' }]);
+  assert.deepEqual([cmd.type, cmd.expected_version, cmd.arguments.data], ['change.interpretation', 7, { interpretation: 'Новая версия', reason: 'причина' }]);
 });
 test('a rollback plan names the change, is bound to its version, and expires', () => {
   const preview = rollbackPreview(run(), change('c1', 'APPLIED', { version: 8 }), 'req-p');
-  assert.deepEqual([preview.type, preview.expected_version, preview.arguments.data], ['change.rollback.preview', 8, { change_id: 'c1' }]);
-  const exec = rollbackExecute(run(), plan({ version: 3 }), 'req-e');
+  assert.deepEqual([preview.type, preview.expected_version, preview.arguments.data], ['change.rollback.preview', 8, {}]);
+  const exec = rollbackExecute(run(), change('c1', 'APPLIED'), plan({ version: 3 }), 'req-e');
   assert.deepEqual([exec.type, exec.expected_version, exec.arguments], ['change.rollback.execute', 3, { plan_id: 'plan-1', plan_version: 3 }]);
   assert.equal(rollbackProblem(plan(), change('c1', 'APPLIED'), NOW), null);
   assert.match(rollbackProblem(plan({ dependencies: [{ resource_id: 'other', version: 1 }] }), change('c1', 'APPLIED'), NOW)!, /не содержит/);

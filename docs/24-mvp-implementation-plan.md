@@ -683,3 +683,24 @@ projection browser13; static/build passed. [Отчёт](implementation-reports/I
 панели, воспроизводимый локальный host setup и общий first-start/STOP/restart
 smoke с вымышленным профилем/mock, сохраняя и отправляя связные этапы отдельно.
 Платные API/секреты/реальные профили не требуются; остальные M4/M5 gates пока открыты.
+
+
+## Integration-development-controls — назначение 2026-10-15
+
+Продолжение поручения оператора завершить стыки панели, host setup и общий MVP
+smoke. Base 855144f, codex/integration-development-controls, отдельный checkout.
+Зона координатора: public owner payloads/plans/receipts, core manual operation
+wiring, существующие GM/DevelopmentController operator controls и их UI/client,
+целевые tests. GM CAS = GmRuntimeState.version, target = resource owner ID;
+никаких версии сессии вместо версии данных и фиктивного Job для ручной правки.
+OwnerOperation WORKSPACE хранит только orchestration receipt/fingerprint/recovery,
+не дублирует состояние PERSONA/GM/JOBS; пригоден следующим ручным owner paths.
+Apply/reject/interpretation и компенсирующий rollback сохраняют историю,
+текущие права/источники/версии/epoch; unknown не повторяется вслепую.
+Без модели/платных вызовов/новых grants/deps/миграций/Compose/реальных данных.
+
+Проверка Integration-development-controls 2026-10-15: Linux affected 302 passed,
+Windows owner HTTP 14 passed, client 158, реальный browser путь и затронутые
+17 UI cases проверены; [отчёт](implementation-reports/Integration-development-controls.md).
+Это приёмка ручных controls на подготовленной SQLite; host grants/общий старт
+и live API остаются следующей интеграцией, не считаются закрытыми fixture.

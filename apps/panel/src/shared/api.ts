@@ -1,4 +1,4 @@
-import type { LaboratoryRuns,
+import type { OwnerOperation, LaboratoryRuns,
   SettingsTransferPreview, SettingsTransferStatus, SettingsTransferOperationPage,
   ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeStatePage, EditCommand,
   ArtifactRef, LaboratoryReport, Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, WorkspacePage, ClaimPage, ConnectionPage, ConsequencePlan, DeliveryPage, EpisodePage, OperationProjectionPage, PermissionPage, SummaryPage,
@@ -6,7 +6,7 @@ import type { LaboratoryRuns,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
+  ownerOperation,  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
@@ -38,7 +38,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+type ReadResource = 'owner-operations' | 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
   'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises';
 
@@ -215,6 +215,9 @@ export class PanelApi {
   }
   async plan(scope: Scope, planId: string, signal?: AbortSignal): Promise<ConsequencePlan> {
     return plan(await this.#read('plans', scope, signal, undefined, planId), scope, planId);
+  }
+  async ownerOperation(scope: Scope, operationId: string, signal?: AbortSignal): Promise<OwnerOperation> {
+    return ownerOperation(await this.#read('owner-operations', scope, signal, undefined, operationId), scope, operationId);
   }
   async operation(scope: Scope, operationId: string, signal?: AbortSignal): Promise<OperationProjectionPage['items'][number]> {
     return operation(await this.#read('operations', scope, signal, undefined, operationId), scope, operationId);

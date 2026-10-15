@@ -2,9 +2,9 @@ import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { Opportunity, ProfilePage, Receipt, RunSession, RunSessionPage, Scope, StateChange, StoryArc } from '../../shared/contracts.ts';
+import type { RulesData, Opportunity, ProfilePage, Receipt, RunSession, RunSessionPage, Scope, StateChange, StoryArc } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
-import { projectionKey } from '../../shared/scope.ts';
+import { samePartition, projectionKey } from '../../shared/scope.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import {
   arcLabels, arcStateNote, attention, awaitingOperator, cancelOpportunityCommand, canCancelOpportunity, canCorrect, canPauseArc, canRollback,
@@ -39,7 +39,7 @@ function useAction(api: PanelApi, scope: Scope, refresh: string[]) {
   const view = <>
     {state.phase === 'done' && <Alert color="teal" mt="xs" role="status">Команда принята ядром. Результат подтвердит владелец.</Alert>}
     {state.phase === 'refused' && <Alert color="orange" mt="xs" role="alert">{state.code === 'VERSION_CONFLICT' ?
-      'Запись уже изменена. Обновите её и пересмотрите решение; чужое изменение не затирается.' : failureMessage(new ApiFailure(state.code))} Ничего не изменено.</Alert>}
+      'Запись уже изменена. Обновите её и пересмотрите решение; чужое изменение не затирается.' : failureMessage(new ApiFailure(state.code))} Операция не подтверждена. Проверьте текущее состояние.</Alert>}
     {state.phase === 'unknown' && <Alert color="orange" mt="xs" role="alert" title="Результат неизвестен">
       Команда могла быть выполнена. Проверка повторяет ту же команду; второго действия не будет.
       <Button mt="xs" size="compact-sm" variant="light" onClick={() => void run(state.command)}>Проверить исход</Button></Alert>}
@@ -64,10 +64,10 @@ function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; 
     setProblem(null); void action.run(interpretationCommand(run, change, text, reason, crypto.randomUUID()));
   }
   const spec: PlanSpec | null = run ? {
-    label: 'Откат', previewLabel: 'Подготовить откат', executeLabel: 'Откатить изменение', danger: true,
+    ownerOperation: true, label: 'Откат', previewLabel: 'Подготовить откат', executeLabel: 'Откатить изменение', danger: true,
     confirmText: 'Я понимаю: создастся новая компенсирующая версия; опыт и уже случившееся не стираются',
     note: 'Откат пересматривает зависимые предложения и текущий контекст, но не отменяет событие мира и не забирает отправленную реплику.',
-    preview: (requestId) => rollbackPreview(run, change, requestId), execute: (plan, requestId) => rollbackExecute(run, plan, requestId),
+    preview: (requestId) => rollbackPreview(run, change, requestId), execute: (plan, requestId) => rollbackExecute(run, change, plan, requestId),
     problem: (plan, now) => rollbackProblem(plan, change, now), related: (plan) => plan.dependencies.filter((dep) => dep.resource_id !== change.id).length,
     refresh: ['changes', 'character-states', 'opportunities'],
   } : null;
@@ -81,10 +81,11 @@ function ChangeCard({ api, scope, run, change }: { api: PanelApi; scope: Scope; 
     <Text size="sm" c="dimmed">Ожидаемое проявление (ещё не подтверждено): <span className="plain-text">{change.expected_manifestation}</span></Text>
     <Text size="sm">Основания: {evidenceSummary(change.evidence)}</Text>
     {evidenceLost(change) && <Alert color="orange" mt="xs">Все основания недоступны: изменение нельзя считать подтверждённым опытом.</Alert>}
+    {change.operator_reason && <Text size="sm">Основание оператора: {change.operator_reason}</Text>}
     <Text size="xs" c="dimmed">{versions(change)} · автор предложения {change.owner} · {when(change.updated_at)}{change.operator_decision_id ? ` · решение ${change.operator_decision_id}` : ''}</Text>
     <Text size="xs" c="dimmed">Наблюдённые позднее проявления: связанных записей нет.</Text>
-    {awaitingOperator(change) && <Stack gap="xs" mt="sm"><Textarea label="Основание решения (необязательно)" autosize minRows={1} maxLength={1000} value={reason} onChange={(event) => setReason(event.currentTarget.value)} />
-      <Group><Button disabled={!run || action.busy} onClick={() => decide('accept')}>Принять</Button><Button color="red" variant="light" disabled={!run || action.busy} onClick={() => decide('reject')}>Отклонить</Button></Group>
+    {awaitingOperator(change) && <Stack gap="xs" mt="sm"><Textarea label="Основание решения" autosize minRows={1} maxLength={1000} value={reason} onChange={(event) => setReason(event.currentTarget.value)} />
+      <Group><Button disabled={!run || action.busy || !reason.trim()} onClick={() => decide('accept')}>Принять</Button><Button color="red" variant="light" disabled={!run || action.busy || !reason.trim()} onClick={() => decide('reject')}>Отклонить</Button></Group>
       <Text size="xs" c="dimmed">Истечение ожидания не означает одобрения: изменение останется непринятым.</Text></Stack>}
     <Group mt="sm" gap="xs">
       {canCorrect(change) && <Button size="compact-sm" variant="light" onClick={() => setMode(mode === 'interpret' ? null : 'interpret')}>Исправить интерпретацию</Button>}
@@ -127,9 +128,11 @@ function ArcCard({ api, scope, run, arc, opps }: { api: PanelApi; scope: Scope; 
   </Paper>;
 }
 
-export function DevelopmentScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
+export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelApi; scope: Scope; run?: RunSession }) {
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
-  const run = (runs.data as RunSessionPage | undefined)?.items[0];
+  const run = activeRun && samePartition(activeRun.scope, scope) ? activeRun : (runs.data as RunSessionPage | undefined)?.items[0];
+  const settings = useQuery({ queryKey: projectionKey('gm-settings', scope), queryFn: ({ signal }) => api.gmSettings(scope, signal) });
+  const gmSettings = settings.data?.items.find((r) => r.id === 'gm-runtime');
   const arcs = usePaged(scope, 'arcs', (cursor, signal) => api.arcs(scope, signal, cursor));
   const opps = usePaged(scope, 'opportunities', (cursor, signal) => api.opportunities(scope, signal, cursor));
   const changes = usePaged(scope, 'changes', (cursor, signal) => api.changes(scope, signal, cursor));
@@ -138,7 +141,7 @@ export function DevelopmentScreen({ api, scope }: { api: PanelApi; scope: Scope 
   const [selectedArc, setSelectedArc] = useState<string | null>(null);
   const [selectedChange, setSelectedChange] = useState<string | null>(null);
   const [intensity, setIntensity] = useState<Intensity>('normal');
-  const gm = useAction(api, scope, ['sessions']);
+  const gm = useAction(api, scope, ['sessions', 'gm-settings']);
   const arcRows = arcs.data?.pages.flatMap((p) => p.items) ?? [];
   const oppRows = opps.data?.pages.flatMap((p) => p.items) ?? [];
   const changeRows = [...(changes.data?.pages.flatMap((p) => p.items) ?? [])].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.id.localeCompare(b.id));
@@ -161,11 +164,11 @@ export function DevelopmentScreen({ api, scope }: { api: PanelApi; scope: Scope 
         <Paper withBorder p="md" radius="lg" aria-label="Гейммастер"><Title order={3} size="h5" mb="xs">Гейммастер</Title>
           <Group gap="xs"><Badge color={run?.gm_paused ? 'gray' : 'teal'} variant="light">{!run ? 'Состояние неизвестно' : run.gm_paused ? 'На паузе' : 'Пауза снята по данным ядра'}</Badge></Group>
           <Group mt="xs" align="flex-end">
-            <Button variant="light" disabled={!run || gm.busy} onClick={() => run && void gm.run(gmPauseCommand(run, !run.gm_paused, crypto.randomUUID()))}>{run?.gm_paused ? 'Снять паузу' : 'Приостановить гейммастера'}</Button>
+            <Button variant="light" disabled={!run || !gmSettings || gm.busy} onClick={() => run && void gm.run(gmPauseCommand(run, gmSettings!, !run.gm_paused, crypto.randomUUID()))}>{run?.gm_paused ? 'Снять паузу' : 'Приостановить гейммастера'}</Button>
             <Select label="Интенсивность" size="xs" w={170} allowDeselect={false} value={intensity} data={Object.entries(intensities).map(([value, label]) => ({ value, label }))} onChange={(v) => v && setIntensity(v as Intensity)} />
-            <Button variant="light" disabled={!run || gm.busy} onClick={() => run && void gm.run(gmIntensityCommand(run, intensity, crypto.randomUUID()))}>Применить интенсивность</Button></Group>
-          <Text size="xs" c="dimmed" mt="xs">Текущая интенсивность ядром не передаётся. Гейммастер внутренний: у него нет собственного голоса, он не решает за людей и не пишет биографию.</Text>
-          {gm.view}</Paper>
+            <Button variant="light" disabled={!run || !gmSettings || gm.busy} onClick={() => run && void gm.run(gmIntensityCommand(run, gmSettings!, intensity, crypto.randomUUID()))}>Применить интенсивность</Button></Group>
+          <Text size="xs" c="dimmed" mt="xs">Текущая интенсивность: {gmSettings?.intensity ?? 'недоступна'}. Гейммастер внутренний: у него нет собственного голоса, он не решает за людей и не пишет биографию.</Text>
+          {gm.view}{settings.isError && <Alert color="orange">{failureMessage(settings.error)}</Alert>}</Paper>
         <Paper withBorder p="md" radius="lg" aria-label="Требует внимания"><Title order={3} size="h5" mb="xs">Требует внимания</Title>
           {!queue.length ? <Text size="sm" c="dimmed">Ничего не ждёт решения.</Text> : <ul>{queue.map((item) => <li key={item.key}><Text size="sm">{item.text}</Text></li>)}</ul>}</Paper>
         <Paper withBorder p="md" radius="lg" aria-label="Путь развития"><Title order={3} size="h5" mb="xs">Путь развития</Title>
@@ -205,7 +208,13 @@ export function DevelopmentScreen({ api, scope }: { api: PanelApi; scope: Scope 
           {!arcRows.length && !oppRows.some((o) => o.status === 'BLOCKED') ? <Text size="sm" c="dimmed">Границ и блокировок нет в загруженных данных.</Text> : <Stack gap="xs">
             {arcRows.map((item) => <Text key={item.id} size="sm" className="plain-text">Линия «{item.direction.slice(0, 60)}»: {item.boundaries}</Text>)}
             {oppRows.filter((o) => o.status === 'BLOCKED').map((o) => <Alert key={o.id} color="orange">Заблокировано: {o.reason_code ?? 'причина не указана'}</Alert>)}</Stack>}
-          <Text size="xs" c="dimmed" mt="xs">Редактор правил (жёсткие запреты, мягкие границы, желательные направления) появится после чтения набора правил из ядра: сейчас оно не отдаёт его панели.</Text></Paper>
+          {gmSettings && <Stack gap="xs" mt="xs" aria-label="Правила ядра">
+            <Text size="sm" fw={600}>Правила · версия {gmSettings.rules_version}</Text>
+            {((gmSettings.rules.data as unknown as RulesData).rules).map((rule) => <Text size="sm" key={rule.rule_id}>
+              {{ hard: 'Жёсткое ограничение', soft: 'Мягкая граница', desired: 'Желательное направление' }[rule.kind]}: {rule.description}
+            </Text>)}
+            {!((gmSettings.rules.data as unknown as RulesData).rules).length && <Text size="sm">Список правил пуст.</Text>}
+          </Stack>}</Paper>
       </Stack></Tabs.Panel>
     </Tabs>
   </Stack>;
