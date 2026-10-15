@@ -289,18 +289,24 @@ class GameMaster:
                 version=arc.version + 1,
                 updated_at=max(self.clock(), arc.updated_at).isoformat(),
             )
+            puts: list[tuple[Record, int | None]] = [(revised, arc.version)]
+            if status != "open":
+                for offer in await self._all(Opportunity, scope):
+                    if offer.arc_id == arc_id and offer.status in UNRESOLVED:
+                        cancelled = self._revised(
+                            offer,
+                            scope=scope.model_dump(mode="json"),
+                            status=S.CANCELLED.value,
+                            version=offer.version + 1,
+                            updated_at=max(self.clock(), offer.updated_at).isoformat(),
+                        )
+                        puts.append((cancelled, offer.version))
             try:
-                await self._write(
-                    scope, f"arcst-{arc_id}-{revised.version}", [(revised, arc.version)]
-                )
+                await self._write(scope, f"arcst-{arc_id}-{revised.version}", puts)
             except ContractError as error:
                 if error.error.code is ErrorCode.VERSION_CONFLICT:
                     continue
                 raise
-            if status != "open":
-                for offer in await self._all(Opportunity, scope):
-                    if offer.arc_id == arc_id and offer.status in UNRESOLVED:
-                        await self._move(scope, offer.id, S.CANCELLED)
             return revised
         raise ContractError(ErrorCode.VERSION_CONFLICT)
 

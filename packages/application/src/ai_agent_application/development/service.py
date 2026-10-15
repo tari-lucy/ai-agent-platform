@@ -466,15 +466,27 @@ class DevelopmentController:
     # ---- apply / decide ---------------------------------------------------------------
 
     async def apply(
-        self, scope: Scope, change_id: str, operator_decision_id: str | None = None
+        self,
+        scope: Scope,
+        change_id: str,
+        operator_decision_id: str | None = None,
+        *,
+        operator_reason: str | None = None,
     ) -> StateChange:
         if operator_decision_id is not None:
-            return await self._apply(scope, change_id, operator_decision_id)
+            return await self._apply(
+                scope, change_id, operator_decision_id, operator_reason=operator_reason
+            )
         with self._write_fence():
             return await self._apply(scope, change_id)
 
     async def _apply(
-        self, scope: Scope, change_id: str, operator_decision_id: str | None = None
+        self,
+        scope: Scope,
+        change_id: str,
+        operator_decision_id: str | None = None,
+        *,
+        operator_reason: str | None = None,
     ) -> StateChange:
         """Apply a READY change autonomously (control open) or an approved one (operator)."""
         change = await self._repo(StateChange, scope).get(change_id)
@@ -539,13 +551,14 @@ class DevelopmentController:
             updated_at=now.isoformat(),
             new_version=state.version + 1,
             operator_decision_id=operator_decision_id,
+            operator_reason=operator_reason,
         )
-        await self._write(
-            scope,
-            f"chga-{change.id}-{applied.version}",
-            [(new_state, state.version), (applied, change.version)],
-        )
-        await self.invalidate_stale(scope)
+        puts: list[tuple[Record, int | None]] = [
+            (new_state, state.version),
+            (applied, change.version),
+        ]
+        puts.extend(await self._stale_puts(scope, new_state.version, exclude=change.id))
+        await self._write(scope, f"chga-{change.id}-{applied.version}", puts)
         return applied
 
     async def _new_episodes_for(
@@ -600,23 +613,56 @@ class DevelopmentController:
         return revised
 
     async def decide(
-        self, scope: Scope, change_id: str, approve: bool, operator_decision_id: str
+        self,
+        scope: Scope,
+        change_id: str,
+        approve: bool,
+        operator_decision_id: str,
+        *,
+        reason: str | None = None,
     ) -> StateChange:
         """Operator verdict on a waiting change. Approval applies it; silence never does."""
         change = await self._repo(StateChange, scope).get(change_id)
         if change is None or change.status not in (C.AWAITING_APPROVAL, C.READY):
             raise ContractError(ErrorCode.STALE_CONTEXT)
         if approve:
-            return await self.apply(scope, change_id, operator_decision_id)
+            return await self.apply(scope, change_id, operator_decision_id, operator_reason=reason)
         revised = self._revised(
             change,
             scope,
             status=C.REJECTED.value,
             version=change.version + 1,
             operator_decision_id=operator_decision_id,
+            operator_reason=reason,
             updated_at=max(self.clock(), change.updated_at).isoformat(),
         )
         await self._write(scope, f"chgr-{change.id}-{revised.version}", [(revised, change.version)])
+        return revised
+
+    async def correct_interpretation(
+        self, scope: Scope, change_id: str, text: str, reason: str, decision_id: str
+    ) -> StateChange:
+        """Explicit operator annotation; immutable revisions retain the previous reading.
+
+        The event/evidence and accumulated CharacterState do not change. A pending
+        proposal needs another explicit decision after its interpretation changes.
+        """
+        change = await self._repo(StateChange, scope).get(change_id)
+        if change is None or change.status not in (C.READY, C.AWAITING_APPROVAL, C.APPLIED):
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        if not text.strip() or not reason.strip() or len(text) > 1500 or len(reason) > 1000:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        revised = self._revised(
+            change,
+            scope,
+            version=change.version + 1,
+            updated_at=max(self.clock(), change.updated_at).isoformat(),
+            interpretation=text,
+            operator_reason=reason,
+            operator_decision_id=decision_id,
+            status=C.APPLIED.value if change.status is C.APPLIED else C.AWAITING_APPROVAL.value,
+        )
+        await self._write(scope, f"chgi-{change.id}-{revised.version}", [(revised, change.version)])
         return revised
 
     async def cancel(self, scope: Scope, change_id: str) -> StateChange:
@@ -624,6 +670,27 @@ class DevelopmentController:
         if change is None or change.status not in PENDING:
             raise ContractError(ErrorCode.STALE_CONTEXT)
         return await self._set_status(scope, change, C.CANCELLED)
+
+    async def _stale_puts(
+        self, scope: Scope, state_version: int, *, exclude: str | None = None
+    ) -> list[tuple[Record, int | None]]:
+        """Keep invalidation in the same owner transaction as the state revision."""
+        return [
+            (
+                self._revised(
+                    change,
+                    scope,
+                    status=C.CONFLICT.value,
+                    version=change.version + 1,
+                    updated_at=max(self.clock(), change.updated_at).isoformat(),
+                ),
+                change.version,
+            )
+            for change in await self._all(StateChange, scope)
+            if change.id != exclude
+            and change.status in (C.READY, C.AWAITING_APPROVAL)
+            and change.base_version < state_version
+        ]
 
     async def invalidate_stale(self, scope: Scope) -> list[str]:
         """Pending changes built on an older state version can no longer be applied blindly."""
@@ -765,8 +832,8 @@ class DevelopmentController:
             )
             puts.append((record, None))
             compensations.append(record)
+        puts.extend(await self._stale_puts(scope, new_state.version))
         await self._write(scope, f"chgb-{change_id}-{state.version}", puts)
-        await self.invalidate_stale(scope)
         return compensations
 
 

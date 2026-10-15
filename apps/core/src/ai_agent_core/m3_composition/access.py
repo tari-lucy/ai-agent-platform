@@ -9,7 +9,9 @@ from ai_agent_contracts.api import (
     CommandBase,
     CreateCommand,
     EditCommand,
+    ExecutePlanCommand,
     MessageCommand,
+    PlanCommand,
     Receipt,
     ReflectCommand,
 )
@@ -94,6 +96,22 @@ class Mutations:
                     if runtime.supervisor.snapshot.state.value in ("ACTIVE", "STARTING"):
                         runtime.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                     return result
+        if isinstance(request, PlanCommand) and request.type == "change.rollback.preview":
+            from .development_controls import preview
+
+            async with runtime._lock:
+                return await preview(runtime, authority, request)
+        if isinstance(request, (EditCommand, ExecutePlanCommand)) and request.type in (
+            "change.rollback.execute",
+            "change.decision",
+            "change.interpretation",
+            "opportunity.cancel",
+            "arc.pause",
+        ):
+            from .development_controls import mutate as development_mutate
+
+            async with runtime._lock:
+                return await development_mutate(runtime, authority, request)
         if isinstance(request, EditCommand) and request.type in (
             "laboratory.stop",
             "laboratory.event",
