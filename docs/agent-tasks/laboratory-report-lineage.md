@@ -32,7 +32,7 @@ host retention/ledger, расписание backup, инвентарь откр�
 - `apps/core/src/ai_agent_core/local_artifacts/**`, когда этот пакет принят в main;
 - `tests/laboratory/**`, `tests/local_artifacts/**`, новый `tests/report_lineage/**`;
 - только необходимые report/download проверки в
-  `apps/panel/src/shared/validation.ts` и `apps/panel/tests/reports-download.test.ts`,
+  `apps/panel/src/shared/validation.ts` и `apps/panel/tests/report-download.test.ts`,
   если формат отчёта потребует этого; другие функции клиента не менять;
 - `docs/implementation-reports/Integration-report-lineage.md` и точечные README
   своей зоны.
