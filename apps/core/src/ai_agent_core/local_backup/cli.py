@@ -79,7 +79,7 @@ class _NoLedger:
 
 
 @contextmanager
-def _local(arguments: argparse.Namespace, *, offline: bool) -> Iterator[LocalBackup]:
+def _unlocked_local(arguments: argparse.Namespace, *, offline: bool) -> Iterator[LocalBackup]:
     place: BackupLayout = layout(
         arguments.root,
         arguments.store,
@@ -102,6 +102,20 @@ def _local(arguments: argparse.Namespace, *, offline: bool) -> Iterator[LocalBac
         finally:
             local.gate.held = False
             local.close()
+
+
+@contextmanager
+def _local(arguments: argparse.Namespace, *, offline: bool) -> Iterator[LocalBackup]:
+    from ai_agent_core.local_host.recovery import no_links
+
+    no_links(arguments.store)
+    if not arguments.store.is_absolute():
+        raise HostError("ABSOLUTE_PATH_REQUIRED")
+    work = arguments.store / ".work"
+    work.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with exclusive_host(work):
+        with _unlocked_local(arguments, offline=offline) as local:
+            yield local
 
 
 def _print_preview(preview: RestorePreview) -> None:

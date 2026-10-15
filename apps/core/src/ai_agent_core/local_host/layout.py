@@ -48,6 +48,19 @@ class LiveConfig(BaseModel):
         return self
 
 
+class RecoveryConfig(BaseModel):
+    """Local paths and monotonic ledger binding; never credentials or source text."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    store_dir: str = Field(min_length=1, max_length=4096)
+    ledger_path: str = Field(min_length=1, max_length=4096)
+    ledger_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    ledger_floor: int = Field(default=0, strict=True, ge=0)
+    interval_seconds: int = Field(default=300, strict=True, ge=60, le=3600)
+    keep_daily: int = Field(default=7, strict=True, ge=1, le=30)
+    backup_quota_bytes: int = Field(default=1073741824, strict=True, ge=1048576)
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -61,6 +74,7 @@ class HostConfig(BaseModel):
     permission_expires_at: str
     operator_controls: bool = False
     live: LiveConfig | None = None
+    recovery: RecoveryConfig | None = None
     settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
 
     @model_validator(mode="after")
@@ -168,7 +182,7 @@ def new_password() -> str:
     return secrets.token_urlsafe(24)
 
 
-def windows_private(path: Path) -> bool:
+def windows_private(path: Path, *, parents: int = 2) -> bool:
     """Check file, secret directory and host-root DACL by SID without printing identities.
 
     The existing init uses icacls to protect each new directory/file. Serve must
@@ -180,8 +194,11 @@ $ErrorActionPreference = 'Stop'
 try {
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     $file = $env:AI_PLATFORM_ACL_TARGET
-    foreach ($target in @($file, (Split-Path -LiteralPath $file),
-                         (Split-Path -LiteralPath (Split-Path -LiteralPath $file)))) {
+    $targets = @($file)
+    for ($i = 0; $i -lt [int]$env:AI_PLATFORM_ACL_PARENTS; $i++) {
+        $targets += Split-Path -LiteralPath $targets[-1]
+    }
+    foreach ($target in $targets) {
         $item = Get-Item -LiteralPath $target -Force
         if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { exit 3 }
         $acl = Get-Acl -LiteralPath $target
@@ -207,6 +224,7 @@ try {
     # A parent pwsh 7 PSModulePath can break Windows PowerShell 5.1 module loading.
     environment = {k: v for k, v in environment.items() if k.upper() != "PSMODULEPATH"}
     environment["AI_PLATFORM_ACL_TARGET"] = str(path)
+    environment["AI_PLATFORM_ACL_PARENTS"] = str(parents)
     executable = (
         Path(os.environ.get("SystemRoot", "C:/Windows"))
         / "System32"
@@ -248,6 +266,8 @@ def read_secret(path: Path) -> str:
 
 
 def load_config(host: HostPaths, *, allow_memory_pending: bool = False) -> HostConfig:
+    if (host.root / "RECOVERY-ENABLE-PENDING").exists():
+        raise HostError("RECOVERY_ENABLE_INCOMPLETE")
     if not allow_memory_pending and (host.root / "MEMORY-ENABLE-PENDING").exists():
         raise HostError("MEMORY_ENABLE_INCOMPLETE")
     if host.unfinished.exists() or not host.config.is_file():

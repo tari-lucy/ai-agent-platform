@@ -20,7 +20,7 @@ from ai_agent_adapters.backup import (
     SQLiteStagingFactory,
 )
 from ai_agent_adapters.recall import SQLiteRecallIndex
-from ai_agent_adapters.retention import SQLiteDeletionLedger, SQLitePhysicalStore
+from ai_agent_adapters.retention import SQLitePhysicalStore
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_adapters.storage.migrations import HEAD
 from ai_agent_application.backup import (
@@ -34,7 +34,7 @@ from ai_agent_application.memory import IndexHealth, MemoryService
 from ai_agent_application.retention import DeletionLedger, RetentionService
 from ai_agent_application.storage import Owner
 
-from ai_agent_core.local_host.layout import HostConfig, HostError, load_config
+from ai_agent_core.local_host.layout import HostConfig, HostError, load_config, write_secret
 from ai_agent_core.m3_composition import new_registry
 from ai_agent_core.m3_composition.state import PRINCIPALS
 
@@ -59,6 +59,18 @@ class HostLockGate:
         return "STOPPED" if self.held else "UNKNOWN"
 
 
+class GuardedSwitcher:
+    """A database switch alone cannot admit an old derived directory to serve."""
+
+    def __init__(self, switcher: FileSwitcher, marker: Path) -> None:
+        self.switcher, self.marker = switcher, marker
+
+    async def switch(self, staged_dir: Path) -> None:
+        write_secret(self.marker, "restore needs derived cleanup and job inventory check\n")
+        await self.switcher.switch(staged_dir)
+        # Only the explicit finish-restore gate removes this marker, even after an IO failure.
+
+
 class HostConfigFile:
     """The one allowed extra file: a private, consistent copy of the nonsecret host.json."""
 
@@ -81,11 +93,15 @@ class BackupLedger(LedgerView, DeletionLedger, Protocol):
     """What the service needs of the ledger: its identity for copies and the deletion history."""
 
 
+class OwnedLedger(BackupLedger, Protocol):
+    def close(self) -> None: ...
+
+
 class LocalBackup:
     """The composed service plus the pieces a caller needs to release."""
 
     def __init__(
-        self, service: BackupService, gate: HostLockGate, owned_ledger: SQLiteDeletionLedger | None
+        self, service: BackupService, gate: HostLockGate, owned_ledger: OwnedLedger | None
     ) -> None:
         self.service, self.gate, self._owned = service, gate, owned_ledger
 
@@ -106,9 +122,22 @@ def compose(
     host = layout.host
     if not host.database.is_file():
         raise HostError("INIT_INCOMPLETE")
-    owned: SQLiteDeletionLedger | None = None
+    if policy is None and config.recovery is not None:
+        policy = BackupPolicy(
+            keep_daily=config.recovery.keep_daily, quota_bytes=config.recovery.backup_quota_bytes
+        )
+    owned: OwnedLedger | None = None
     if ledger is None:
-        owned = open_existing_ledger(layout)
+        if config.recovery is not None:
+            from ai_agent_core.local_host.recovery import HostLedger
+
+            binding = HostLedger(host, config)
+            if binding.place != layout:
+                binding.close()
+                raise HostError("RECOVERY_BINDING_DIFFERS")
+            owned = binding
+        else:
+            owned = open_existing_ledger(layout)
         ledger = owned
     layout.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     registry = new_registry()
@@ -127,13 +156,16 @@ def compose(
         """Offline restore: this process opened no live store, and the host lock is held."""
 
     gate = HostLockGate()
+    switcher = FileSwitcher(host.database, host.dialogue_index, layout.replaced_dir)
     service = BackupService(
         SQLiteSnapshotter(host.database),
         DirectoryBackupStore(layout.store_dir),
         ledger,
         gate,
         SQLiteStagingFactory(build),
-        FileSwitcher(host.database, host.dialogue_index, layout.replaced_dir),
+        GuardedSwitcher(switcher, host.root / "RESTORE-PENDING")
+        if config.recovery is not None
+        else switcher,
         work_dir=layout.work_dir,
         current_head=HEAD,
         close_live=close_live,

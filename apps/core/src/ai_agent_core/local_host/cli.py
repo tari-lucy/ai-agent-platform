@@ -11,10 +11,14 @@ from ai_agent_application.laboratory.profile import REFERENCE_PROFILE
 from ai_agent_contracts.codec import ContractError
 from pydantic import ValidationError
 
+from ai_agent_core.local_artifacts import ArtifactsError
+
 from .budget import configure_budget
+from .finish_restore import finish_restore
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
 from .memory import enable_memory
+from .recovery import enable_recovery
 from .serve import permissions_expired, serve
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
@@ -66,6 +70,21 @@ def parser() -> argparse.ArgumentParser:
         "enable-memory", help="explicit offline automatic memory admission"
     )
     memory.add_argument("--root", type=Path, required=True)
+    recovery = commands.add_parser(
+        "enable-recovery", help="offline independent ledger and daily copies"
+    )
+    recovery.add_argument("--root", type=Path, required=True)
+    recovery.add_argument(
+        "--store", type=Path, required=True, help="new absolute private copies directory"
+    )
+    recovery.add_argument(
+        "--ledger", type=Path, required=True, help="ledger in a new absolute private directory"
+    )
+    finish = commands.add_parser("finish-restore", help="offline preview/apply of derived cleanup")
+    finish.add_argument("--root", type=Path, required=True)
+    finish.add_argument("--drop-reports", action="store_true")
+    finish.add_argument("--digest")
+    finish.add_argument("--decision-id")
     return main
 
 
@@ -85,6 +104,24 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
+        if arguments.command == "finish-restore":
+            asyncio.run(
+                finish_restore(
+                    arguments.root,
+                    drop_reports=arguments.drop_reports,
+                    digest=arguments.digest,
+                    decision_id=arguments.decision_id,
+                )
+            )
+            return 0
+        if arguments.command == "enable-recovery":
+            asyncio.run(
+                enable_recovery(
+                    arguments.root, store_dir=arguments.store, ledger_path=arguments.ledger
+                )
+            )
+            print("recovery prepared; daily copies enabled on serve; agent stays STOPPED")
+            return 0
         if arguments.command == "enable-memory":
             asyncio.run(enable_memory(arguments.root))
             print("automatic daily memory enabled; usage retained; agent stays STOPPED")
@@ -141,8 +178,11 @@ def main(argv: list[str] | None = None) -> int:
             open_browser=arguments.open_browser,
         )
         return 0
-    except HostError as error:
+    except (HostError, ArtifactsError) as error:
         print(f"local-host refused: {error.code}", file=sys.stderr)
+        return EXIT_CONFIG
+    except OSError:
+        print("local-host refused: LOCAL_IO_FAILED", file=sys.stderr)
         return EXIT_CONFIG
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)

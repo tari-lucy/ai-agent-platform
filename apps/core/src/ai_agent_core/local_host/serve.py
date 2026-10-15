@@ -30,6 +30,7 @@ from ai_agent_core.m3_composition.state import OPERATOR
 from . import rights
 from .init import test_scope, work_scope
 from .layout import HostConfig, HostError, HostPaths, load_config, paths, read_secret
+from .maintenance import HostMaintenance
 from .panel import mount, validate
 from .process import exclusive_host, loopback_socket, open_when_ready
 from .provider import provider_factory
@@ -67,6 +68,8 @@ def _prepare(
     panel_dir: Path | None,
     env_file: Path | None,
 ) -> tuple[ProviderFactory, Path | None, str, int]:
+    if (host.root / "RESTORE-PENDING").exists():
+        raise HostError("RESTORE_INCOMPLETE")
     if port is not None and not 1024 <= port <= 65535:
         raise HostError("INVALID_OPTION")
     factory = provider_factory(provider, live=config.live, env_file=env_file)
@@ -89,15 +92,15 @@ def _build(
         scopes += (test_scope(work, config.settings_space_id),)
     registry = new_registry()
     store = SQLiteStore(host.database, extensions=registry)
-    opened: list[SQLiteRecallIndex] = []
+    opened: dict[Path, RecallIndex] = {}
 
     def lab_index() -> RecallIndex:
-        index = SQLiteRecallIndex(host.lab_indexes / (uuid4().hex + ".sqlite"))
-        opened.append(index)
+        path = host.lab_indexes / (uuid4().hex + ".sqlite")
+        index = SQLiteRecallIndex(path)
+        opened[path] = index
         return index
 
     dialogue = SQLiteRecallIndex(host.dialogue_index)
-    opened.append(dialogue)
     lab = LabRunner(
         store,
         _no_scope,
@@ -141,12 +144,17 @@ def _build(
         reports=reports,
     )
 
+    if config.recovery is not None:
+        app.state.runtime.maintenance = HostMaintenance(host, config, app.state.runtime, opened)
+
     if panel is not None:
         mount(app, panel)
 
     def close() -> None:
-        for index in opened:
+        for index in opened.values():
+            assert isinstance(index, SQLiteRecallIndex)
             index.close()
+        dialogue.close()
 
     return app, close
 

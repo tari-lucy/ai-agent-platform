@@ -205,6 +205,13 @@ class Reports:
             raise ContractError(ErrorCode.ACCESS_DENIED)
         return body
 
+    def holds(self, scope: Scope, source_id: str) -> bool:
+        """Trusted retention inventory; an unsafe link is never evidence of absence."""
+        path = self._path(scope, source_id)
+        if path.is_symlink():
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        return path.is_file()
+
     async def purge(self, scope: Scope, source_id: str) -> None:
         # Trusted M5 DerivedPurger port: deterministic path, no arbitrary client pathname.
         path = self._path(scope, source_id)
