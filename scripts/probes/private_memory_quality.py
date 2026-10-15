@@ -90,7 +90,12 @@ class Counting(httpx.AsyncBaseTransport):
         body = json.loads(request.content)
         system = body["messages"][0]["content"]
         role = next((r for m, r in MARKERS if m in system), "character")
-        entry = {"n": len(self.calls) + 1, "role": role, "prompt_chars": len(request.content)}
+        entry = {
+            "n": len(self.calls) + 1,
+            "role": role,
+            "prompt_chars": len(request.content),
+            "read_timeout_seconds": request.extensions.get("timeout", {}).get("read"),
+        }
         self.calls.append(entry)
         if role == "character":
             user = body["messages"][-1]["content"]
@@ -204,7 +209,9 @@ async def run(
     arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | None = None
 ) -> dict[str, Any]:
     root = arguments.workdir
-    live = LiveConfig(model_id=arguments.model, attempt_limit=20, attempt_period="utc_day")
+    live = LiveConfig(
+        model_id=arguments.model, attempt_limit=20, attempt_period="utc_day", max_output_tokens=1024
+    )
     await initialise(
         root,
         profile_markdown=PROFILE.read_text(encoding="utf-8"),
@@ -237,8 +244,13 @@ async def converse(
     steps: dict[str, Any],
 ) -> dict[str, Any]:
     root = arguments.workdir
+    assert config.live is not None
+    timeout = config.live.timeout_seconds
     async with httpx.AsyncClient(
-        transport=(wire := Counting(inner or httpx.AsyncHTTPTransport(), arguments.max_calls))
+        transport=(wire := Counting(inner or httpx.AsyncHTTPTransport(), arguments.max_calls)),
+        timeout=httpx.Timeout(timeout, connect=min(timeout, 10.0)),
+        follow_redirects=False,
+        limits=httpx.Limits(max_connections=4, max_keepalive_connections=0),
     ) as client:
 
         def real(settings: dict[str, str]) -> OpenAICompatibleProvider:
@@ -273,7 +285,15 @@ async def converse(
                     )
                     first = (FICTION if arguments.label_fictional else "") + FIRST
                     steps["reply_1"] = await say(env, "probe-1", first)
-                    steps["reply_2"] = await say(env, "probe-2", SECOND)
+                    if steps["reply_1"] != "SUCCEEDED":
+                        return await observe(env, scope, wire, collector, steps)
+                    steps["reply_2"] = (
+                        "SKIPPED_BUDGET"
+                        if arguments.max_calls == 4
+                        else await say(env, "probe-2", SECOND)
+                    )
+                    if steps["reply_2"] not in ("SUCCEEDED", "SKIPPED_BUDGET"):
+                        return await observe(env, scope, wire, collector, steps)
                     items = (
                         await http.get(
                             "/api/v1/episodes",
@@ -321,11 +341,16 @@ def parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--model", required=True, help="model id the configured endpoint serves")
     parser.add_argument("--env-file", type=Path, required=True, help="absolute path to local .env")
     parser.add_argument("--workdir", type=Path, required=True, help="NEW absolute directory")
-    parser.add_argument("--max-calls", type=int, default=6, help="5 (no follow-up) or 6")
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=6,
+        help="4 (one reply and memory), 5 (two replies), or 6 (follow-up)",
+    )
     parser.add_argument("--label-fictional", action="store_true", help="say the talk is fictional")
     arguments = parser.parse_args(argv)
-    if arguments.max_calls not in (5, 6):
-        parser.error("--max-calls must be 5 or 6")
+    if arguments.max_calls not in (4, 5, 6):
+        parser.error("--max-calls must be 4, 5 or 6")
     for name in ("env_file", "workdir"):
         if not getattr(arguments, name).is_absolute():
             parser.error(f"--{name.replace('_', '-')} must be absolute")
@@ -343,7 +368,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": type(error).__name__}))
         return 1
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-    return 0
+    steps = report["steps"]
+    succeeded = steps.get("reply_1") == "SUCCEEDED" and steps.get("cycle") == "SUCCEEDED"
+    if arguments.max_calls == 6:
+        succeeded = succeeded and steps.get("reply_3") == "SUCCEEDED"
+    return 0 if succeeded else 2
 
 
 if __name__ == "__main__":

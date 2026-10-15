@@ -32,7 +32,7 @@ def test_the_probe_refuses_to_start_without_explicit_consent_limits_and_absolute
     for argv in (
         base,  # no consent
         [CONSENT, *base, "--max-calls", "7"],
-        [CONSENT, *base, "--max-calls", "4"],
+        [CONSENT, *base, "--max-calls", "3"],
         [CONSENT, "--model", "m", "--env-file", "rel.env", "--workdir", str(tmp_path / "w")],
         [CONSENT, "--model", "m", "--env-file", str(tmp_path / "e"), "--workdir", "rel"],
     ):
@@ -104,5 +104,35 @@ def test_a_six_call_run_reports_counts_and_codes_without_any_text(tmp_path, monk
     assert [m["by"] for m in final["derived_memory"]] == ["сводка-интерпретация"]
     # the usage the scripted wire did not report stays unknown, never zero-complete
     assert report["usage"]["attempts"] == 6
+    assert {c["read_timeout_seconds"] for c in report["calls"]} == {60.0}
     for forbidden in ("Мне нравятся", "provider.invalid", "fixture-$literal", "Мало опыта"):
         assert forbidden not in text
+
+
+def test_probe_stops_after_the_first_transport_failure(tmp_path, monkeypatch):
+    probe = load()
+    sent = []
+
+    async def broken(request):
+        sent.append(True)
+        raise httpx.ReadTimeout("synthetic fixed failure")
+
+    arguments = probe.parse(
+        [
+            CONSENT,
+            "--model",
+            "fixture-model",
+            "--env-file",
+            str(binding(tmp_path / "synthetic.env")),
+            "--workdir",
+            str(tmp_path / "host"),
+            "--max-calls",
+            "4",
+        ]
+    )
+    original_provider = providers.OpenAICompatibleProvider
+    report = asyncio.run(probe.run(arguments, httpx.MockTransport(broken)))
+    assert providers.OpenAICompatibleProvider is original_provider
+    assert len(sent) == 1 and len(report["calls"]) == 1
+    assert report["steps"] == {"reply_1": "FAILED"}
+    assert not report["cycle"]
