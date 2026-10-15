@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 
-from .layout import HostError
+from .layout import HostError, restrict
 
 
 @contextmanager
@@ -18,9 +18,13 @@ def exclusive_host(root: Path) -> Iterator[None]:
     lock = root / "host.lock"
     if lock.is_symlink():
         raise HostError("HOST_LOCK_UNSAFE")
+    handle = None
     try:
         handle = lock.open("a+b")
-    except OSError:
+        restrict(lock, directory=False)
+    except OSError, HostError:
+        if handle is not None:
+            handle.close()
         raise HostError("HOST_LOCK_UNAVAILABLE") from None
     acquired = False
     try:

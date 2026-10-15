@@ -9,6 +9,7 @@ started by the restore. A copy whose ledger is missing or older than the copy's 
 
 import hashlib
 import json
+import os
 import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -102,7 +103,7 @@ class BackupService:
             backup_id = f"{stem}-{number}"
         stage = self.work_dir / f"make-{backup_id}"
         shutil.rmtree(stage, ignore_errors=True)
-        stage.mkdir(parents=True, mode=0o700)
+        stage.mkdir(parents=True, mode=0o777 if os.name == "nt" else 0o700)
         try:
             database = stage / DATABASE
             await self.snapshotter.snapshot(database)
@@ -128,7 +129,9 @@ class BackupService:
             )
             await self.store.write(backup_id, kind, files, manifest)
             if self.ledger_dir is not None:
-                self.ledger_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                self.ledger_dir.mkdir(
+                    parents=True, exist_ok=True, mode=0o777 if os.name == "nt" else 0o700
+                )
                 await self.ledger.snapshot_to(self.ledger_dir / f"{backup_id}.ledger.sqlite")
         finally:
             shutil.rmtree(stage, ignore_errors=True)
@@ -248,7 +251,7 @@ class BackupService:
     async def _inspect(self, backup_id: str, migrate: bool) -> tuple[int, int, int]:
         scratch = self.work_dir / f"inspect-{backup_id}"
         shutil.rmtree(scratch, ignore_errors=True)
-        scratch.mkdir(parents=True, mode=0o700)
+        scratch.mkdir(parents=True, mode=0o777 if os.name == "nt" else 0o700)
         try:
             copy = scratch / DATABASE
             shutil.copyfile(await self.store.path(backup_id, DATABASE), copy)
@@ -294,7 +297,7 @@ class BackupService:
         )  # a way back, taken before anything changes
         stage = self.work_dir / f"restore-{preview.backup_id}"
         shutil.rmtree(stage, ignore_errors=True)
-        stage.mkdir(parents=True, mode=0o700)
+        stage.mkdir(parents=True, mode=0o777 if os.name == "nt" else 0o700)
         try:
             report = await self._stage(preview, stage, safety.manifest.backup_id)
             await self.close_live()
@@ -366,7 +369,7 @@ class BackupService:
         """Run the upgrade on a snapshot copy; the live database is not touched."""
         scratch = self.work_dir / "rehearsal"
         shutil.rmtree(scratch, ignore_errors=True)
-        scratch.mkdir(parents=True, mode=0o700)
+        scratch.mkdir(parents=True, mode=0o777 if os.name == "nt" else 0o700)
         try:
             copy = scratch / DATABASE
             await self.snapshotter.snapshot(copy)

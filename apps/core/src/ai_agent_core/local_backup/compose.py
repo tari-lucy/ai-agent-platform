@@ -34,7 +34,13 @@ from ai_agent_application.memory import IndexHealth, MemoryService
 from ai_agent_application.retention import DeletionLedger, RetentionService
 from ai_agent_application.storage import Owner
 
-from ai_agent_core.local_host.layout import HostConfig, HostError, load_config, write_secret
+from ai_agent_core.local_host.layout import (
+    HostConfig,
+    HostError,
+    load_config,
+    restrict,
+    write_secret,
+)
 from ai_agent_core.m3_composition import new_registry
 from ai_agent_core.m3_composition.state import PRINCIPALS
 
@@ -81,7 +87,9 @@ class HostConfigFile:
         config = load_config(self.layout.host)  # validated and size bounded; never raw bytes
         directory = self.layout.work_dir / "extra"
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        restrict(directory, directory=True)
         handle, name = tempfile.mkstemp(dir=directory, prefix=".host-", suffix=".tmp")
+        restrict(Path(name), directory=False)
         target = directory / HOST_CONFIG
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as out:
             out.write(config.model_dump_json(indent=1) + "\n")
@@ -140,6 +148,7 @@ def compose(
             owned = open_existing_ledger(layout)
         ledger = owned
     layout.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    restrict(layout.work_dir, directory=True)
     registry = new_registry()
     reader = PRINCIPALS[Owner.MEMORY]
 

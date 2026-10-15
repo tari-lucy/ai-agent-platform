@@ -9,6 +9,8 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
+from ai_agent_adapters.local_files import restrict_private
+
 
 class SQLiteSnapshotter:
     def __init__(self, live: Path) -> None:
@@ -16,6 +18,7 @@ class SQLiteSnapshotter:
 
     async def snapshot(self, target: Path) -> None:
         def work() -> None:
+            restrict_private(target.parent, directory=True)
             source = sqlite3.connect(self.live, timeout=30)
             destination = sqlite3.connect(target)
             try:
@@ -24,7 +27,7 @@ class SQLiteSnapshotter:
             finally:
                 destination.close()
                 source.close()
-            target.chmod(0o600)
+            restrict_private(target, directory=False)
 
         await asyncio.to_thread(work)
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Self
 
+from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
@@ -139,29 +140,11 @@ def paths(root: Path) -> HostPaths:
 
 
 def restrict(path: Path, *, directory: bool) -> None:
-    """Owner-only access by the OS's own means. Fails closed when it cannot be applied."""
-    if sys.platform == "win32":
-        # Fresh init paths only; read_secret independently verifies SID-based DACLs.
-        user = os.environ.get("USERNAME", "")
-        if not user:
-            raise HostError("ACL_NOT_APPLIED")
-        grant = f"{user}:(OI)(CI)F" if directory else f"{user}:F"
-        done = subprocess.run(  # noqa: S603
-            ["icacls", str(path), "/inheritance:r", "/grant:r", grant],  # noqa: S607
-            capture_output=True,
-            check=False,
-        )
-        if done.returncode != 0:
-            raise HostError("ACL_NOT_APPLIED")
-        owned = subprocess.run(
-            ["icacls", str(path), "/setowner", user],
-            capture_output=True,
-            check=False,
-        )
-        if owned.returncode != 0:
-            raise HostError("ACL_NOT_APPLIED")
-        return
-    os.chmod(path, 0o700 if directory else 0o600)
+    """Replace the full DACL; explicit broad ACEs from mkdir(0700) must not survive."""
+    try:
+        restrict_private(path, directory=directory)
+    except PrivatePathError:
+        raise HostError("ACL_NOT_APPLIED") from None
 
 
 def private_dir(path: Path) -> None:

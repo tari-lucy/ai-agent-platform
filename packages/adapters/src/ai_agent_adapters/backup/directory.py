@@ -11,6 +11,8 @@ from pathlib import Path
 from ai_agent_application.backup import FileEntry, Manifest
 from ai_agent_application.backup.model import Kind
 
+from ai_agent_adapters.local_files import restrict_private
+
 MANIFEST = "manifest.json"
 WIPE_CHUNK = 1 << 20
 
@@ -64,7 +66,7 @@ class DirectoryBackupStore:
     def __init__(self, root: Path) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        root.chmod(0o700)
+        restrict_private(root, directory=True)
 
     def free_bytes(self) -> int:
         return shutil.disk_usage(self.root).free
@@ -80,13 +82,14 @@ class DirectoryBackupStore:
             raise FileExistsError(backup_id)
         temporary = self.root / f".{backup_id}.{uuid.uuid4().hex}.tmp"
         temporary.mkdir(mode=0o700)
+        restrict_private(temporary, directory=True)
         try:
             for name, source in files:
                 target = temporary / name
                 shutil.copyfile(source, target)
-                target.chmod(0o600)
+                restrict_private(target, directory=False)
             (temporary / MANIFEST).write_text(_encode(manifest), encoding="utf-8")
-            (temporary / MANIFEST).chmod(0o600)
+            restrict_private(temporary / MANIFEST, directory=False)
             for item in temporary.iterdir():  # durable before the copy becomes visible
                 with item.open("r+b") as handle:
                     os.fsync(handle.fileno())

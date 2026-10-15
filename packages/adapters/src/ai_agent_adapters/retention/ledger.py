@@ -11,6 +11,8 @@ from ai_agent_application.retention import LedgerEntry
 from ai_agent_application.retention.model import Reason
 from ai_agent_contracts.common import Scope
 
+from ai_agent_adapters.local_files import restrict_private
+
 STRENGTH = {"expired": 0, "rights_revoked": 1, "operator_delete": 2}
 
 
@@ -62,6 +64,7 @@ class SQLiteDeletionLedger:
                     self._db.backup(copy)
                 finally:
                     copy.close()
+                restrict_private(target, directory=False)
 
         await asyncio.to_thread(work)
 

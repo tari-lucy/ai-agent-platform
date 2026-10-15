@@ -142,6 +142,10 @@ class HostLedger:
         self.host = host
         self.place = configured_layout(host, config)
         self.raw = open_existing_ledger(self.place)
+        for suffix in ("-wal", "-shm"):
+            companion = Path(str(self.place.ledger_path) + suffix)
+            if companion.exists():
+                restrict(companion, directory=False)
         self.fail = fail
         self.lock = asyncio.Lock()
         self.failed = False

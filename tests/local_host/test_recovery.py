@@ -3,7 +3,9 @@
 import asyncio
 import json
 import sqlite3
-from contextlib import closing
+import subprocess
+import sys
+from contextlib import closing, suppress
 from datetime import UTC, datetime
 
 import pytest
@@ -52,6 +54,11 @@ def test_prepared_host_takes_one_daily_copy_while_stopped_and_restarts_stopped(t
                     copies = await DirectoryBackupStore(host.store_dir).manifests()
                     assert len([m for m in copies if m.kind == "daily"]) == 1
                     assert copies[0].ledger_id == host.config.recovery.ledger_id
+                    if sys.platform == "win32":
+                        from ai_agent_core.local_host.layout import windows_private
+
+                        for entry in (host.store_dir / copies[0].backup_id).iterdir():
+                            assert windows_private(entry, parents=0)
                     status = json.loads((host.root / "maintenance.json").read_text())
                     assert status["status"] == "READY"
                     assert rt.supervisor.snapshot.state == RunState.STOPPED
@@ -180,6 +187,7 @@ def test_restore_requires_completion_and_reconciles_real_owner_jobs(tmp_path, ca
             ),
         )
         assert claim and claim.acquired
+        watchdog = asyncio.create_task(rt.supervisor.watchdog())
         code, out, err = await asyncio.to_thread(cli, "create", *host.args())
         assert code == 0, err
         backup_id = copy_id(out)
@@ -215,6 +223,9 @@ def test_restore_requires_completion_and_reconciles_real_owner_jobs(tmp_path, ca
             host.scope, await retention.preview_delete(host.scope, [source_id])
         )
         assert result.complete
+        watchdog.cancel()
+        with suppress(asyncio.CancelledError):
+            await watchdog
         await rt.close()
         await rt.store.close()
         close()
@@ -269,3 +280,20 @@ def test_restore_requires_completion_and_reconciles_real_owner_jobs(tmp_path, ca
             close()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows DACL acceptance")
+def test_native_private_path_removes_explicit_broad_acl(tmp_path):
+    from ai_agent_core.local_host.layout import restrict, windows_private
+
+    target = tmp_path / "synthetic-permissions"
+    target.mkdir(mode=0o700)
+    broaden = subprocess.run(
+        ["icacls", str(target), "/grant", "*S-1-5-32-545:(OI)(CI)R"],
+        capture_output=True,
+        check=False,
+    )
+    assert broaden.returncode == 0
+    assert not windows_private(target, parents=0)
+    restrict(target, directory=True)
+    assert windows_private(target, parents=0)

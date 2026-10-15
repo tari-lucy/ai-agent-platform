@@ -61,3 +61,23 @@ START, внешних инструментов, миграций/пакетов/
 Свойства SSD/CoW/шифрования не подтверждены. Replaced-файлы не удалялись.
 Полное происхождение report bodies отложено; строгая pending-граница сохранена.
 Рабочий host до отдельной deployment-проверки не изменялся этим acceptance.
+
+
+## Дополнительная native Windows приёмка
+
+На первой рабочей копии проверка фактических дочерних ACL выявила явные широкие
+ACE и владельца Administrators, хотя root DACL был закрыт. Это не было обнаружено
+POSIX skip и проверкой только корней. Созданные recovery-деревья немедленно
+ограничены; host-данные и содержимое копии не удалялись.
+
+Исправление: единый native restrict_private заменяет весь DACL owner-only,
+включая явные ACE, выставляет владельца; применяется до записи в каталоги
+копирования и к готовым файлам/ledger copies. Windows staging наследует уже
+защищённый work-каталог; POSIX сохраняет mode 0700/0600. Ledger WAL/SHM и lock
+получают ту же защиту. Копирование остаётся вне потока control watchdog.
+
+Узкая дополнительная приёмка Windows: удаление заведомо широкой explicit ACE,
+файлы настоящей daily-копии после restart, native HTTP smoke — 3 passed.
+Restore owner-сценарий — 1 passed после добавления production control watchdog
+в ручной fixture (sleep/lease guards не менялись). Повтор всего набора не делался.
+Ruff, strict mypy (211 файлов), import boundaries — чисто.

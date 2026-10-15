@@ -18,7 +18,7 @@ from typing import Any
 from ai_agent_application.backup import RestorePreview
 from ai_agent_contracts.codec import ContractError
 
-from ai_agent_core.local_host.layout import HostError, load_config
+from ai_agent_core.local_host.layout import HostError, load_config, restrict
 from ai_agent_core.local_host.process import exclusive_host
 
 from .compose import LocalBackup, compose
@@ -113,6 +113,7 @@ def _local(arguments: argparse.Namespace, *, offline: bool) -> Iterator[LocalBac
         raise HostError("ABSOLUTE_PATH_REQUIRED")
     work = arguments.store / ".work"
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
+    restrict(work, directory=True)
     with exclusive_host(work):
         with _unlocked_local(arguments, offline=offline) as local:
             yield local

@@ -6,6 +6,8 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ai_agent_adapters.local_files import restrict_private
+
 from .directory import wipe
 
 DATABASE = "database.sqlite"
@@ -20,9 +22,11 @@ class FileSwitcher:
     async def switch(self, staged_dir: Path) -> None:
         def work() -> None:
             self.aside.mkdir(parents=True, exist_ok=True, mode=0o700)
+            restrict_private(self.aside, directory=True)
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
             kept = self.aside / stamp
             kept.mkdir(mode=0o700)
+            restrict_private(kept, directory=True)
             moved: list[tuple[Path, Path]] = []
             try:
                 for live in (self.live_database, self.live_index):
@@ -39,7 +43,7 @@ class FileSwitcher:
                     if staged.exists():
                         shutil.copyfile(staged, Path(str(live) + ".incoming"))
                         os.replace(Path(str(live) + ".incoming"), live)
-                        live.chmod(0o600)
+                        restrict_private(live, directory=False)
             except BaseException:
                 for destination, source in reversed(moved):  # put the old state back
                     os.replace(destination, source)

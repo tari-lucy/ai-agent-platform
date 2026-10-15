@@ -27,7 +27,7 @@ from ai_agent_core.local_artifacts import (
 from ai_agent_core.local_backup.compose import create_backup_callback
 from ai_agent_core.m3_composition.state import PRINCIPALS
 
-from .layout import HostConfig, HostError, HostPaths
+from .layout import HostConfig, HostError, HostPaths, restrict
 from .process import exclusive_host
 from .recovery import HostLedger
 
@@ -123,6 +123,7 @@ class HostMaintenance:
         async def work() -> None:
             place = self.ledger.place
             place.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            restrict(place.work_dir, directory=True)
             with exclusive_host(place.work_dir):
                 manifests = await DirectoryBackupStore(place.store_dir).manifests()
                 if any(
