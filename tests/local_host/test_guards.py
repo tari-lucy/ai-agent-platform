@@ -36,7 +36,11 @@ def test_init_output_has_no_secret_and_owner_only_files(prepared):
     assert password not in done.stdout + done.stderr
     assert (root / "INIT-UNFINISHED").exists() is False
     if sys.platform == "win32":
-        pytest.skip("POSIX modes only; Windows ACL is not verified here")
+        from ai_agent_core.local_host.layout import windows_private
+
+        assert windows_private(root / "secrets" / "operator-password.hash")
+        assert windows_private(root / "secrets" / "operator-password.txt")
+        return
     for path in root.rglob("*"):
         mode = stat.S_IMODE(path.stat().st_mode)
         assert mode & 0o077 == 0, path.name
@@ -116,3 +120,29 @@ def test_rights_matrix_is_narrow():
     assert not any(g.write for g in runtime if g.owner is Owner.WORKSPACE)
     assert any(g.write for g in rights.work_grants(preparing=True) if g.owner is Owner.WORKSPACE)
     assert not any(g.owner is Owner.LABORATORY for g in rights.operator_grants())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows DACL")
+@pytest.mark.parametrize("parent", [False, True])
+def test_serve_refuses_broadened_windows_secret_acl(prepared, parent):
+    root, _ = prepared
+    target = root / "secrets" if parent else root / "secrets" / "operator-password.hash"
+    changed = subprocess.run(
+        ["icacls", str(target), "/grant", "*S-1-1-0:R"], capture_output=True, check=False
+    )
+    assert changed.returncode == 0
+    try:
+        refused = serve(root, "--provider", "mock")
+        assert refused.returncode == 78 and "SECRET_PERMISSIONS" in refused.stderr
+    finally:
+        restored = subprocess.run(
+            ["icacls", str(target), "/remove:g", "*S-1-1-0"], capture_output=True, check=False
+        )
+        assert restored.returncode == 0
+
+
+@pytest.mark.parametrize("port", ["0", "-1", "65536"])
+def test_invalid_serve_port_is_refused_before_listening(prepared, port):
+    root, _ = prepared
+    refused = serve(root, "--provider", "mock", "--port", port)
+    assert refused.returncode == 78 and "INVALID_OPTION" in refused.stderr

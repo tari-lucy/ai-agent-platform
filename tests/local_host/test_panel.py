@@ -3,7 +3,6 @@
 import http.client
 import os
 import subprocess
-import sys
 
 import pytest
 from host_support import Server, command, free_port, init, wait_for  # noqa: F401
@@ -95,6 +94,7 @@ def test_panel_serving_is_confined_and_api_stays_json(host, build, tmp_path):
             "/data/platform.sqlite",
             "/secrets/operator-password.txt",
             "/.env",
+            "/.git/config",
             "/leak.txt",
             "/assets/%2e%2e/%2e%2e/outside.txt",
             "/assets%5c..%5cindex.html",
@@ -118,7 +118,6 @@ def test_without_the_parameter_there_is_no_panel(host, tmp_path):
         assert status == 404 and "<html" not in body.lower()
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="native Linux evidence")
 def test_panel_and_api_on_one_address_smoke(host, build, tmp_path):
     root, password = host
     port, log = free_port(), tmp_path / "log"

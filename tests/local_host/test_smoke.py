@@ -1,4 +1,4 @@
-"""One real end-to-end run on native Linux: HTTP over loopback to a separate `serve` process.
+"""One real end-to-end run on the native host OS: HTTP over loopback to a separate `serve` process.
 
 login -> STOPPED -> explicit start -> private mock dialogue -> delivery acknowledgment ->
 TEST laboratory and persisted report -> STOP -> restart is STOPPED again. Mock provider only;
@@ -6,12 +6,8 @@ no external network, no live API. Synthetic profile and generated local credenti
 """
 
 import json
-import sys
 
-import pytest
 from host_support import Server, free_port, init, scope_query, wait_for
-
-pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="native Linux evidence")
 
 
 def test_end_to_end_mock_host(tmp_path):

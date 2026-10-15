@@ -46,6 +46,8 @@ def build(
     panel_dir: Path | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     """Compose the app. Returns it with a closer for the indexes this function opened."""
+    if port is not None and not 1024 <= port <= 65535:
+        raise HostError("INVALID_OPTION")
     factory = provider_factory(provider)  # fail closed before anything is opened
     if not host.database.is_file():
         raise HostError("INIT_INCOMPLETE")

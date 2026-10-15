@@ -88,7 +88,7 @@ def paths(root: Path) -> HostPaths:
 def restrict(path: Path, *, directory: bool) -> None:
     """Owner-only access by the OS's own means. Fails closed when it cannot be applied."""
     if sys.platform == "win32":
-        # Applied through icacls only; this was not exercised on Windows (see report).
+        # Fresh init paths only; read_secret independently verifies SID-based DACLs.
         user = os.environ.get("USERNAME", "")
         if not user:
             raise HostError("ACL_NOT_APPLIED")
@@ -99,6 +99,13 @@ def restrict(path: Path, *, directory: bool) -> None:
             check=False,
         )
         if done.returncode != 0:
+            raise HostError("ACL_NOT_APPLIED")
+        owned = subprocess.run(
+            ["icacls", str(path), "/setowner", user],
+            capture_output=True,
+            check=False,
+        )
+        if owned.returncode != 0:
             raise HostError("ACL_NOT_APPLIED")
         return
     os.chmod(path, 0o700 if directory else 0o600)
@@ -122,10 +129,72 @@ def new_password() -> str:
     return secrets.token_urlsafe(24)
 
 
-def read_secret(path: Path) -> str:
-    """Refuses a secret that other local users could read (POSIX; Windows is unverified)."""
+def windows_private(path: Path) -> bool:
+    """Check file, secret directory and host-root DACL by SID without printing identities.
+
+    The existing init uses icacls to protect each new directory/file. Serve must
+    refuse later broadening as well. PowerShell returns an exit code only; the
+    path is passed through a dedicated environment variable, never script text.
+    """
+    script = r"""
+$ErrorActionPreference = 'Stop'
+try {
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $file = $env:AI_PLATFORM_ACL_TARGET
+    foreach ($target in @($file, (Split-Path -LiteralPath $file),
+                         (Split-Path -LiteralPath (Split-Path -LiteralPath $file)))) {
+        $item = Get-Item -LiteralPath $target -Force
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { exit 3 }
+        $acl = Get-Acl -LiteralPath $target
+        if (-not $acl.AreAccessRulesProtected) { exit 3 }
+        if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $me.Value) {
+            exit 3
+        }
+        $own = $false
+        foreach ($rule in $acl.GetAccessRules($true, $true,
+                    [System.Security.Principal.SecurityIdentifier])) {
+            $allow = [System.Security.AccessControl.AccessControlType]::Allow
+            if ($rule.AccessControlType -eq $allow) {
+                if ($rule.IdentityReference.Value -ne $me.Value) { exit 3 }
+                $own = $true
+            }
+        }
+        if (-not $own) { exit 3 }
+    }
+    exit 0
+} catch { exit 3 }
+"""
+    environment = os.environ.copy()
+    # A parent pwsh 7 PSModulePath can break Windows PowerShell 5.1 module loading.
+    environment = {k: v for k, v in environment.items() if k.upper() != "PSMODULEPATH"}
+    environment["AI_PLATFORM_ACL_TARGET"] = str(path)
+    executable = (
+        Path(os.environ.get("SystemRoot", "C:/Windows"))
+        / "System32"
+        / "WindowsPowerShell/v1.0/powershell.exe"
+    )
     try:
-        if sys.platform != "win32":
+        result = subprocess.run(
+            [str(executable), "-NoProfile", "-NonInteractive", "-Command", script],
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError, subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def read_secret(path: Path) -> str:
+    """Refuse a secret readable by other local users; never repair permissions on serve."""
+    try:
+        if sys.platform == "win32":
+            if not windows_private(path):
+                raise HostError("SECRET_PERMISSIONS")
+        else:
             info = path.lstat()
             if (
                 not stat.S_ISREG(info.st_mode)

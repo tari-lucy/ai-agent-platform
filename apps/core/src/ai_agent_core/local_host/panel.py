@@ -78,6 +78,8 @@ def mount(app: FastAPI, build: Path) -> None:
     async def serve(request: Request, path: str) -> Response:
         if request.method not in ("GET", "HEAD"):
             return PlainTextResponse("", status_code=405, headers=HEADERS)
+        if any(part.startswith(".") for part in path.split("/") if part):
+            return PlainTextResponse("", status_code=404, headers=HEADERS)
         if path == "" or "." not in path.rsplit("/", 1)[-1]:
             # Page navigation. Dot-segments in the path are not navigation.
             if any(part in ("..", ".") for part in path.split("/")):

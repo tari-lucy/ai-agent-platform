@@ -73,10 +73,9 @@ def main(argv: list[str] | None = None) -> int:
                     migrations=arguments.migrations,
                 )
             )
-            where = paths(arguments.root)
             pool = len(config.test_space_ids)
             print(f"init complete: persona={config.persona_id} test_scopes={pool}")
-            print(f"operator password file (owner-only): {where.password}")
+            print("operator password file (owner-only): <root>/secrets/operator-password.txt")
             return 0
         config = load_config(paths(arguments.root))
         if permissions_expired(config):
