@@ -6,7 +6,7 @@ from dataclasses import replace
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
 from ai_agent_contracts.states import OperationState
-from gm_support import (
+from private_gm_support import (
     BOUNDS,
     CLEAR,
     DRAFT,

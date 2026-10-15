@@ -170,6 +170,8 @@ class PrivateAPIBudget:
         """An attempt made by a GM job, whatever role (game-master or the shared screen)."""
         if row.role_id == "game-master":
             return True
+        if row.role_id != "story-screen":  # only the shared screen needs attribution
+            return False
         job = row.operation_id.rsplit(".", 1)[0]
         day, key = row.started_at.date(), row.scope.partition
         return job in _gm_jobs(key, day) or job in _gm_jobs(key, day - timedelta(days=1))

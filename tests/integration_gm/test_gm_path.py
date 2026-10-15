@@ -7,7 +7,7 @@ import logging
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
 from ai_agent_contracts.memory import Episode
-from gm_support import (
+from private_gm_support import (
     BOUNDS,
     CLEAR,
     DRAFT,
