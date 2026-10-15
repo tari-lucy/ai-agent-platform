@@ -3345,6 +3345,145 @@
         "title": "Lease",
         "type": "object"
       },
+      "MemoryCycle": {
+        "additionalProperties": false,
+        "description": "Bounded processing receipt. IDs/status only; it does not retain raw or derived text.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "episode_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Episode Ids",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Operation Id"
+          },
+          "record_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Record Ids",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "source_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "stage": {
+            "enum": [
+              "queued",
+              "extract",
+              "consolidate",
+              "reflect",
+              "done"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "episode_ids",
+          "source_ids",
+          "input_digest",
+          "stage",
+          "status"
+        ],
+        "title": "MemoryCycle",
+        "type": "object"
+      },
       "MessageArguments": {
         "additionalProperties": false,
         "properties": {
@@ -5202,6 +5341,62 @@
         "title": "Page[LaboratoryReport]",
         "type": "object"
       },
+      "Page_MemoryCycle_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryCycle"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[MemoryCycle]",
+        "type": "object"
+      },
       "Page_OperationProjection_": {
         "additionalProperties": false,
         "properties": {
@@ -6255,6 +6450,7 @@
             "persona.validate": "#/components/schemas/EditCommand",
             "session.create": "#/components/schemas/CreateCommand",
             "session.end": "#/components/schemas/ControlCommand",
+            "session.process-memory": "#/components/schemas/ProcessMemoryCommand",
             "session.reflect": "#/components/schemas/ReflectCommand",
             "tariff.create": "#/components/schemas/CreateCommand",
             "workspace.backup.execute": "#/components/schemas/ExecutePlanCommand",
@@ -6279,6 +6475,9 @@
           },
           {
             "$ref": "#/components/schemas/ReflectCommand"
+          },
+          {
+            "$ref": "#/components/schemas/ProcessMemoryCommand"
           },
           {
             "$ref": "#/components/schemas/CreateCommand"
@@ -6762,7 +6961,6 @@
           "attempt_limit": {
             "anyOf": [
               {
-                "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -6775,7 +6973,6 @@
           "attempts_remaining": {
             "anyOf": [
               {
-                "maximum": 100,
                 "minimum": 0,
                 "type": "integer"
               },
@@ -6795,8 +6992,39 @@
             "title": "Checked At",
             "type": "string"
           },
+          "dialogue_remaining": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dialogue Remaining"
+          },
           "enabled": {
             "title": "Enabled",
+            "type": "boolean"
+          },
+          "memory_calls_used": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Memory Calls Used",
+            "type": "integer"
+          },
+          "memory_daily_calls": {
+            "default": 0,
+            "maximum": 32,
+            "minimum": 0,
+            "title": "Memory Daily Calls",
+            "type": "integer"
+          },
+          "memory_processing": {
+            "default": false,
+            "title": "Memory Processing",
             "type": "boolean"
           },
           "period": {
@@ -6841,6 +7069,79 @@
           "checked_at"
         ],
         "title": "PrivateApiStatus",
+        "type": "object"
+      },
+      "ProcessMemoryArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Episode Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "episode_ids"
+        ],
+        "title": "ProcessMemoryArguments",
+        "type": "object"
+      },
+      "ProcessMemoryCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "$ref": "#/components/schemas/ProcessMemoryArguments"
+          },
+          "expected_version": {
+            "minimum": 1,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "target": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Target",
+            "type": "string"
+          },
+          "type": {
+            "const": "session.process-memory",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "scope",
+          "target",
+          "type",
+          "arguments",
+          "expected_version"
+        ],
+        "title": "ProcessMemoryCommand",
         "type": "object"
       },
       "ProcessedOperation": {
@@ -13811,6 +14112,164 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LLMAttempt"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/memory-cycles": {
+      "get": {
+        "operationId": "list_memory_cycles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MemoryCycle_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/memory-cycles/{resource_id}": {
+      "get": {
+        "operationId": "read_memory_cycles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCycle"
                 }
               }
             },

@@ -28,6 +28,7 @@ SPECS = {
     "Source": Spec(memory.Source, Owner.MEMORY),
     "MessageEnvelope": Spec(control.MessageEnvelope, Owner.MEMORY),
     "Episode": Spec(memory.Episode, Owner.MEMORY),
+    "MemoryCycle": Spec(memory.MemoryCycle, Owner.MEMORY),
     "Claim": Spec(memory.Claim, Owner.MEMORY),
     "Summary": Spec(memory.Summary, Owner.MEMORY),
     "DeletionTombstone": Spec(workspace.DeletionTombstone, Owner.MEMORY),

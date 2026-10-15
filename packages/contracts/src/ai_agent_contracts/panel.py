@@ -299,10 +299,14 @@ class PrivateApiStatus(Contract):
 
     scope: Scope
     enabled: bool = Field(strict=True)
+    memory_processing: bool = Field(default=False, strict=True)
+    memory_daily_calls: int = Field(default=0, strict=True, ge=0, le=32)
+    memory_calls_used: int = Field(default=0, strict=True, ge=0)
+    dialogue_remaining: int | None = Field(default=None, strict=True, ge=0)
     period: Literal["lifetime", "utc_day"] | None
-    attempt_limit: int | None = Field(strict=True, ge=1, le=100)
+    attempt_limit: int | None = Field(strict=True, ge=1)
     attempts_used: int = Field(strict=True, ge=0)
-    attempts_remaining: int | None = Field(strict=True, ge=0, le=100)
+    attempts_remaining: int | None = Field(strict=True, ge=0)
     resets_at: UTC | None
     checked_at: UTC
 
@@ -331,4 +335,26 @@ class PrivateApiStatus(Contract):
             and self.resets_at <= self.checked_at
         ):
             raise ValueError("PRIVATE_API_COUNTER")
+        if self.memory_processing:
+            if (
+                not self.enabled
+                or self.period != "utc_day"
+                or self.attempt_limit is None
+                or not 3 <= self.memory_daily_calls < self.attempt_limit
+                or self.memory_calls_used > self.attempts_used
+                or self.dialogue_remaining
+                != max(
+                    0,
+                    self.attempt_limit
+                    - self.attempts_used
+                    - max(0, self.memory_daily_calls - self.memory_calls_used),
+                )
+            ):
+                raise ValueError("PRIVATE_MEMORY_COUNTER")
+        elif (
+            self.memory_daily_calls
+            or self.memory_calls_used
+            or (self.dialogue_remaining not in (None, self.attempts_remaining))
+        ):
+            raise ValueError("PRIVATE_MEMORY_DISABLED")
         return self

@@ -19,7 +19,7 @@ from ai_agent_contracts.common import (
     TrueFlag,
     VersionedRecord,
 )
-from ai_agent_contracts.states import Provenance
+from ai_agent_contracts.states import ErrorCode, Provenance
 
 
 class Retention(Contract):
@@ -179,3 +179,29 @@ class RecallResult(Contract):
     complete: bool = Field(strict=True)
     index_state: Literal["ready", "lagging", "degraded", "unavailable"]
     missing_source_ids: list[Id] = Field(default_factory=list, max_length=200)
+
+
+class MemoryCycle(VersionedRecord):
+    """Bounded processing receipt. IDs/status only; it does not retain raw or derived text."""
+
+    episode_ids: list[Id] = Field(min_length=1, max_length=10)
+    source_ids: list[Id] = Field(min_length=1, max_length=20)
+    input_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    operation_id: Id | None = None
+    stage: Literal["queued", "extract", "consolidate", "reflect", "done"]
+    status: Literal["queued", "running", "completed", "failed", "unknown"]
+    record_ids: list[Id] = Field(default_factory=list, max_length=100)
+    error_code: ErrorCode | None = None
+
+    @model_validator(mode="after")
+    def progress(self) -> Self:
+        if (
+            (self.status == "completed") != (self.stage == "done")
+            or self.status == "queued"
+            and self.stage != "queued"
+            or self.status == "running"
+            and self.stage in ("queued", "done")
+            or (self.status in ("failed", "unknown")) != (self.error_code is not None)
+        ):
+            raise ValueError("MEMORY_CYCLE_PROGRESS")
+        return self

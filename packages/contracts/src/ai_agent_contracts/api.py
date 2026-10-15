@@ -102,6 +102,16 @@ class ReflectCommand(CommandBase):
     expected_version: Version
 
 
+class ProcessMemoryArguments(Contract):
+    episode_ids: list[Id] = Field(min_length=1, max_length=10)
+
+
+class ProcessMemoryCommand(CommandBase):
+    type: Literal["session.process-memory"]
+    arguments: ProcessMemoryArguments
+    expected_version: Version
+
+
 class CreateCommand(CommandBase):
     type: Literal[
         "persona.create",
@@ -180,6 +190,7 @@ type PanelCommand = Annotated[
     | MessageCommand
     | AcknowledgeCommand
     | ReflectCommand
+    | ProcessMemoryCommand
     | CreateCommand
     | EditCommand
     | PlanCommand
