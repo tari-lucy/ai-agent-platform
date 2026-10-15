@@ -202,12 +202,14 @@ async def run(arguments: argparse.Namespace, inner: httpx.AsyncBaseTransport | N
     config = load_config(paths(root))
     scope = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
     collector, steps = Collector(), {}
-    logging.getLogger().addHandler(collector)
-    logging.getLogger().setLevel(logging.INFO)
+    root_logger, level = logging.getLogger(), logging.getLogger().level
+    root_logger.addHandler(collector)
+    root_logger.setLevel(logging.INFO)
     try:
         return await converse(arguments, inner, config, scope, collector, steps)
     finally:
-        logging.getLogger().removeHandler(collector)
+        root_logger.removeHandler(collector)
+        root_logger.setLevel(level)
 
 
 async def converse(arguments, inner, config, scope, collector, steps) -> dict:
