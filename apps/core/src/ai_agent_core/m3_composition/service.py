@@ -2,10 +2,12 @@
 
 import asyncio
 import hashlib
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from functools import lru_cache
 from typing import Literal, Protocol
 from uuid import uuid4
 
@@ -89,9 +91,31 @@ DOMAIN_OWNERS = frozenset(
 )
 
 
+GM_SLOTS = 16  # bounded per-run-day GM job identifiers; see PrivateAPIBudget.gm_attempt
+
+
+def gm_request_id(day: date, slot: int) -> str:
+    return f"gm-{day:%Y%m%d}-{slot}"
+
+
+@lru_cache(maxsize=64)
+def _gm_jobs(partition: tuple[str, str, str, str], day: date) -> frozenset[str]:
+    workspace, persona, space, mode = partition
+    scope = Scope.model_validate(
+        dict(workspace_id=workspace, persona_id=persona, memory_space_id=space, memory_mode=mode)
+    )
+    return frozenset(
+        derived_id("m3job", scope, gm_request_id(day, n)) for n in range(1, GM_SLOTS + 1)
+    )
+
+
 @dataclass(frozen=True)
 class PrivateAPIBudget:
-    """Durable bounded API admission; calendar resets require explicit operator configuration."""
+    """Durable bounded API admission; calendar resets require explicit operator configuration.
+
+    The shared story-screen role serves both reflection and the game master, so its calls are
+    attributed by the operation that made them: GM jobs have deterministic per-day identifiers.
+    """
 
     connection_id: str
     max_attempts: int
@@ -99,6 +123,11 @@ class PrivateAPIBudget:
     period: Literal["lifetime", "utc_day"] = "lifetime"
     memory_processing: bool = False
     memory_daily_calls: int = 8
+    gm_enabled: bool = False
+    gm_daily_calls: int = 4
+    gm_daily_offers: int = 2
+    gm_interval_seconds: float = 3600.0
+    gm_dialogue_floor: int = 10
 
     def __post_init__(self) -> None:
         if self.period not in ("lifetime", "utc_day"):
@@ -115,13 +144,49 @@ class PrivateAPIBudget:
             and (self.period != "utc_day" or self.memory_daily_calls >= self.max_attempts)
         ):
             raise ValueError("PRIVATE_MEMORY_BUDGET")
+        reserved = self.memory_daily_calls if self.memory_processing else 0
+        if type(self.gm_enabled) is not bool or not (
+            2 <= self.gm_daily_calls <= GM_SLOTS
+            and 1 <= self.gm_daily_offers <= 8
+            and self.gm_interval_seconds >= 60
+            and self.gm_dialogue_floor >= 1
+        ):
+            raise ValueError("PRIVATE_GM_BUDGET")
+        if self.gm_enabled and (
+            self.period != "utc_day"
+            or reserved + self.gm_daily_calls + self.gm_dialogue_floor > self.max_attempts
+        ):
+            raise ValueError("PRIVATE_GM_BUDGET")
 
-    def allows(self, role: str) -> bool:
-        return role == "character" or self.memory_processing and role in MEMORY_ROLES
+    def allows(self, role: str, kind: str | None = None) -> bool:
+        if role == "character":
+            return True
+        if kind == "gm":
+            return self.gm_enabled and role in ROLES["gm"]
+        return self.memory_processing and role in MEMORY_ROLES
+
+    @staticmethod
+    def gm_attempt(row: LLMAttempt) -> bool:
+        """An attempt made by a GM job, whatever role (game-master or the shared screen)."""
+        if row.role_id == "game-master":
+            return True
+        if row.role_id != "story-screen":  # only the shared screen needs attribution
+            return False
+        job = row.operation_id.rsplit(".", 1)[0]
+        day, key = row.started_at.date(), row.scope.partition
+        return job in _gm_jobs(key, day) or job in _gm_jobs(key, day - timedelta(days=1))
+
+    def _today(self, row: LLMAttempt, now: datetime) -> bool:
+        return row.started_at >= now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     def memory_used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        return sum(row.role_id in MEMORY_ROLES and row.started_at >= start for row in attempts)
+        return sum(
+            row.role_id in MEMORY_ROLES and self._today(row, now) and not self.gm_attempt(row)
+            for row in attempts
+        )
+
+    def gm_used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        return sum(self._today(row, now) and self.gm_attempt(row) for row in attempts)
 
     def dialogue_remaining(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
         reserved = (
@@ -130,6 +195,18 @@ class PrivateAPIBudget:
             else 0
         )
         return max(0, self.max_attempts - self.used(attempts, now) - reserved)
+
+    def gm_room(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        """GM calls allowed now: its own cap, never the memory reserve or the dialogue floor."""
+        if not self.gm_enabled:
+            return 0
+        return max(
+            0,
+            min(
+                self.gm_daily_calls - self.gm_used(attempts, now),
+                self.dialogue_remaining(attempts, now) - self.gm_dialogue_floor,
+            ),
+        )
 
     def used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -187,6 +264,10 @@ class Runtime:
         from .memory_cycles import DailyMemory
 
         self.daily_memory = DailyMemory(self)
+        from .gm_cycle import AutonomousGM
+
+        self.autonomous_gm = AutonomousGM(self)
+        self.gm_line: tuple[str, str] | None = None  # operator's line: (direction, boundaries)
         from ai_agent_core.access.events import Events
         from ai_agent_core.access.sessions import AccessLimits
 
@@ -403,6 +484,7 @@ class Runtime:
             self._active.result()
             self._active = None
         await self.daily_memory.tick()
+        await self.autonomous_gm.tick()
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:
             if (
@@ -420,10 +502,17 @@ class Runtime:
             self.supervisor.authorize_operator(authority, scope)
             return
         run = self.supervisor.snapshot
+        budget = self.private_api_budget
         if (
-            request.kind != "post_session"
-            or self.private_api_budget is None
-            or not self.private_api_budget.memory_processing
+            budget is None
+            or not (
+                request.kind == "post_session"
+                and budget.memory_processing
+                or request.kind == "gm"
+                and budget.gm_enabled
+                and not run.gm_paused
+                and scope.memory_mode == "work"
+            )
             or scope != run.scope
             or run.state != RunState.ACTIVE
             or run.activity.value != "OPEN"
@@ -892,6 +981,7 @@ class Runtime:
                     scope, request.trigger_id, refs, request.direction, request.boundaries
                 )
                 if arc.arc is None:
+                    logging.getLogger(__name__).info("GM job: line refused reason=%s", arc.reason)
                     return []
                 arc_id = arc.arc.id
             registered = await self.store.repository(
@@ -908,6 +998,10 @@ class Runtime:
             )
             if offer.opportunity:
                 ids.append(offer.opportunity.id)
+            # Fixed reason codes only: OK, UNCERTAIN, HARD:<rule id>, COOLDOWN, ...
+            logging.getLogger(__name__).info(
+                "GM job: offered=%s reason=%s", str(offer.offered).lower(), offer.reason
+            )
         if request.kind == "laboratory":
             if self.lab is None or self.lab.artifact_writer is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
@@ -1045,7 +1139,11 @@ class Execution:
             # Count every prior attempt in the partition, including running/unknown/mock.
             # A new operation, session, model or restart cannot reset the configured window.
             now = self.runtime.supervisor.clock.utc()
-            if budget.memory_processing and (
+            if self.args.request.kind == "gm":
+                # Attributed to the actual GM operation, including its story-screen call.
+                if budget.gm_room(attempts, now) < 1:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+            elif budget.memory_processing and (
                 report.role_id in MEMORY_ROLES
                 and budget.memory_used(attempts, now) >= budget.memory_daily_calls
                 or report.role_id == "character"
@@ -1120,7 +1218,7 @@ class Execution:
         if live and (
             budget is None
             or binding.connection_id != budget.connection_id
-            or not budget.allows(request.role_id)
+            or not budget.allows(request.role_id, self.args.request.kind)
             or self.command.scope.memory_mode != "work"
             or sum(len(message.content) for message in request.messages) > budget.max_prompt_chars
         ):

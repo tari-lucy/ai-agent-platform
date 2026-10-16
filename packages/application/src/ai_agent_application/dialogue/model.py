@@ -72,6 +72,14 @@ class ActionIntent(Contract):
     priority: Annotated[int, Field(strict=True, ge=0, le=100)] = 50
 
 
+class OfferDecision(Contract):
+    """The character's explicit choice on one shown internal offer, by exact id and version."""
+
+    opportunity_id: Id
+    version: Annotated[int, Field(strict=True, ge=1)]
+    decision: Literal["accept", "decline"]
+
+
 class DialogueDecision(Contract):
     """What the model may propose. Everything is validated and executed by the controller."""
 
@@ -80,6 +88,7 @@ class DialogueDecision(Contract):
     promise: PromiseIntent | None = None
     action: ActionIntent | None = None
     silence_reason: ShortText | None = None
+    offer: OfferDecision | None = None  # optional: older answers stay valid
 
 
 @dataclass(frozen=True)

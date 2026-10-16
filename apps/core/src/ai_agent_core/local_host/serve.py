@@ -24,6 +24,7 @@ from pydantic import SecretStr
 from ai_agent_core.m3_composition import new_registry
 from ai_agent_core.m3_composition.app import create_m3_app
 from ai_agent_core.m3_composition.artifacts import Reports
+from ai_agent_core.m3_composition.gm_cycle import PRIVATE_FAMILIES
 from ai_agent_core.m3_composition.service import PrivateAPIBudget
 from ai_agent_core.m3_composition.state import OPERATOR
 
@@ -136,6 +137,11 @@ def _build(
             config.live.attempt_period,
             config.live.memory_processing,
             config.live.memory_daily_calls,
+            gm_enabled=config.live.gm.enabled,
+            gm_daily_calls=config.live.gm.daily_calls,
+            gm_daily_offers=config.live.gm.daily_offers,
+            gm_interval_seconds=config.live.gm.interval_minutes * 60.0,
+            gm_dialogue_floor=config.live.gm.dialogue_floor,
         ),
         scopes=scopes,
         reader_access=rights.record_readers(),
@@ -143,6 +149,13 @@ def _build(
         lab=lab,
         reports=reports,
     )
+
+    runtime = app.state.runtime
+    if config.live is not None and config.live.gm.enabled:
+        # Explicitly enabled offline: the private family and the operator's own line only.
+        runtime.families = PRIVATE_FAMILIES
+        if config.live.gm.line_direction is not None:
+            runtime.gm_line = (config.live.gm.line_direction, config.live.gm.line_boundaries)
 
     if config.recovery is not None:
         app.state.runtime.maintenance = HostMaintenance(host, config, app.state.runtime, opened)

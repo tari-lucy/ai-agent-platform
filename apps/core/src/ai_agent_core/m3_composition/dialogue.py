@@ -15,7 +15,10 @@ from ai_agent_application.dialogue import (
     SourceRights,
     Turn,
 )
+from ai_agent_application.dialogue.model import DialogueDecision, SectionInfo
+from ai_agent_application.llm import ChatMessage
 from ai_agent_application.memory import EpisodeDraft, MemoryService, SourceDraft
+from ai_agent_application.memory.recall import estimate_tokens
 from ai_agent_application.memory.service import derived_id
 from ai_agent_application.social import SocialService
 from ai_agent_application.storage import Owner, Principal, ReadPurpose
@@ -34,6 +37,7 @@ from ai_agent_contracts.memory import Source
 from ai_agent_contracts.persona import CharacterState, Profile
 from ai_agent_contracts.states import DeliveryState, ErrorCode, Provenance
 
+from .gm_cycle import ShownOffer, apply_decision, offer_for_context, resolve_accepted
 from .history import PrivateHistory, PrivateRecall
 from .schemas import TaskInput
 from .service import DOMAIN_OWNERS, Execution, Runtime
@@ -69,6 +73,7 @@ class Context(ContextBuilder):
         super().__init__(*args)
         self.execution = execution
         self.history = PrivateHistory(execution.runtime)
+        self.shown_offer: ShownOffer | None = None
         assert isinstance(self.recall, PrivateRecall)
         self.recall.history = self.history
 
@@ -96,12 +101,51 @@ class Context(ContextBuilder):
         built = await include_memory(
             self.execution.runtime, scope, built, self.history, signal.text, self.policy
         )
+        built = await self._offer(scope, built)
         refs = {**self.history.sources, **{ref.source_id: ref for ref in built.manifest.sources}}
         if incoming is not None:
             refs[incoming.source_id] = incoming
         self.execution.extra_sources = tuple(refs.values())
         await self.execution.verify()
         return replace(built, manifest=replace(built.manifest, sources=tuple(refs.values())))
+
+    async def _offer(self, scope: Scope, built: BuiltContext) -> BuiltContext:
+        """At most one live GM offer, within the remaining context budget; never the plan."""
+        found = await offer_for_context(self.execution.runtime, scope, self.history)
+        if found is None:
+            return built
+        block, shown = found
+        cost = estimate_tokens("\n" + block)
+        if built.manifest.estimated_tokens + cost > self.policy.max_tokens:
+            return built
+        self.shown_offer = shown
+        last = built.messages[-1]
+        return replace(
+            built,
+            messages=(*built.messages[:-1], ChatMessage(last.role, last.content + "\n" + block)),
+            manifest=replace(
+                built.manifest,
+                estimated_tokens=built.manifest.estimated_tokens + cost,
+                sections=(*built.manifest.sections, SectionInfo("offer", 1, 0)),
+            ),
+        )
+
+
+class Recorder:
+    """The controller's generator, also keeping the closed decision for the offer transition."""
+
+    def __init__(self, execution: Execution) -> None:
+        self.execution = execution
+        self.decision: DialogueDecision | None = None
+
+    async def generate(self, request: Any, cancel: Any = None, on_delta: Any = None) -> Any:
+        result = await self.execution.generate(request, cancel, on_delta=on_delta)
+        if isinstance(result.parsed, DialogueDecision):
+            self.decision = result.parsed
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.execution, name)
 
 
 class View:
@@ -186,21 +230,23 @@ async def perform(ex: Execution) -> list[str]:
         rt.store, PRINCIPALS[Owner.SOCIAL], rt.registry, clock=rt.supervisor.clock.utc
     )
     stream = Stream(ex, identifier)
+    recorder = Recorder(ex)
+    context = Context(
+        ex,
+        Profiles(rt),
+        social,
+        PrivateRecall(
+            rt.store,
+            Principal("operator", "operator"),
+            rt.dialogue_index,
+            clock=rt.supervisor.clock.utc,
+        ),
+        mem,
+    )
     controller = DialogueController(
         scope,
-        ex,
-        Context(
-            ex,
-            Profiles(rt),
-            social,
-            PrivateRecall(
-                rt.store,
-                Principal("operator", "operator"),
-                rt.dialogue_index,
-                clock=rt.supervisor.clock.utc,
-            ),
-            mem,
-        ),
+        recorder,
+        context,
         social,
         mem,
         View(ex),
@@ -210,6 +256,8 @@ async def perform(ex: Execution) -> list[str]:
     incoming = await mem.get_source(scope, request.source_ids[0])
     if incoming is None or incoming.content is None:
         raise ContractError(ErrorCode.ACCESS_DENIED)
+    if rt.private_api_budget is not None and rt.private_api_budget.gm_enabled:
+        await resolve_accepted(ex, incoming)
     controller.submit(
         Signal(
             event_id=derived_id("msg", scope, request.trigger_id),
@@ -282,6 +330,8 @@ async def perform(ex: Execution) -> list[str]:
             rt.readers,
         )
         await ex.verify()
+        decision = recorder.decision.offer if recorder.decision is not None else None
+        await apply_decision(ex, context.shown_offer, decision, identifier)
         stream.finish("completed", identifier)
         return [identifier]
     except BaseException:

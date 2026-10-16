@@ -9,7 +9,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
 MAX_TEST_SCOPES = 7  # the runtime accepts at most 8 scopes including the work scope
 MAX_CONFIG_BYTES = 64 * 1024
+GM_PENDING = "GM-CHANGE-PENDING"
 
 
 class HostError(Exception):
@@ -25,6 +26,22 @@ class HostError(Exception):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+class GmConfig(BaseModel):
+    """Bounded internal game master for the private pilot. Off unless explicitly enabled offline.
+
+    The line is the operator's own story direction; the game master never invents one.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    enabled: bool = Field(default=False, strict=True)
+    daily_offers: int = Field(default=2, strict=True, ge=1, le=8)
+    daily_calls: int = Field(default=4, strict=True, ge=2, le=16)
+    interval_minutes: int = Field(default=60, strict=True, ge=15, le=1440)
+    dialogue_floor: int = Field(default=10, strict=True, ge=1, le=1000)
+    line_direction: str | None = Field(default=None, min_length=1, max_length=1000)
+    line_boundaries: str = Field(default="", max_length=1000)
 
 
 class LiveConfig(BaseModel):
@@ -39,6 +56,7 @@ class LiveConfig(BaseModel):
     max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
     max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)
     timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    gm: GmConfig = Field(default_factory=GmConfig)
 
     @model_validator(mode="after")
     def memory_budget(self) -> Self:
@@ -46,7 +64,43 @@ class LiveConfig(BaseModel):
             self.attempt_period != "utc_day" or self.memory_daily_calls >= self.attempt_limit
         ):
             raise ValueError("DAILY_MEMORY_BUDGET_REQUIRED")
+        reserved = self.memory_daily_calls if self.memory_processing else 0
+        if self.gm.enabled and (
+            self.attempt_period != "utc_day"
+            or reserved + self.gm.daily_calls + self.gm.dialogue_floor > self.attempt_limit
+        ):
+            raise ValueError("DAILY_GM_BUDGET_REQUIRED")
         return self
+
+
+def live_roles(live: LiveConfig | None) -> frozenset[str]:
+    """The single rule of which roles may be bound to the live connection."""
+    from ai_agent_core.m3_composition.state import MEMORY_ROLES, ROLES
+
+    if live is None:
+        return frozenset()
+    roles = {"character"}
+    if live.memory_processing:
+        roles |= MEMORY_ROLES
+    if live.gm.enabled:
+        roles |= set(ROLES["gm"])
+    return frozenset(roles)
+
+
+def assignments_fit(
+    config: HostConfig, bindings: dict[tuple[str, str, str], dict[str, Any]]
+) -> bool:
+    """Backup/restore rule: every role assignment matches what this host config admits."""
+    admitted = live_roles(config.live)
+    for (_, kind, _), row in bindings.items():
+        if kind != "LLMAssignment":
+            continue
+        live = row.get("connection_id") == "conn-live"
+        if live != (row.get("role_id") in admitted):
+            return False
+        if live and (config.live is None or row.get("model_id") != config.live.model_id):
+            return False
+    return True
 
 
 class RecoveryConfig(BaseModel):
@@ -248,11 +302,15 @@ def read_secret(path: Path) -> str:
         raise HostError("SECRET_UNREADABLE") from None
 
 
-def load_config(host: HostPaths, *, allow_memory_pending: bool = False) -> HostConfig:
+def load_config(
+    host: HostPaths, *, allow_memory_pending: bool = False, allow_gm_pending: bool = False
+) -> HostConfig:
     if (host.root / "RECOVERY-ENABLE-PENDING").exists():
         raise HostError("RECOVERY_ENABLE_INCOMPLETE")
     if not allow_memory_pending and (host.root / "MEMORY-ENABLE-PENDING").exists():
         raise HostError("MEMORY_ENABLE_INCOMPLETE")
+    if not allow_gm_pending and (host.root / GM_PENDING).exists():
+        raise HostError("GM_CHANGE_INCOMPLETE")
     if host.unfinished.exists() or not host.config.is_file():
         raise HostError("INIT_INCOMPLETE")
     try:
