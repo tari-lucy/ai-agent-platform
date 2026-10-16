@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Literal, Self
 
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
+from ai_agent_adapters.storage.policy import scope_key
+from ai_agent_contracts.common import Scope
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
@@ -92,10 +94,24 @@ def assignments_fit(
 ) -> bool:
     """Backup/restore rule: every role assignment matches what this host config admits."""
     admitted = live_roles(config.live)
-    for (_, kind, _), row in bindings.items():
+    work = scope_key(
+        Scope(
+            workspace_id=config.workspace_id,
+            persona_id=config.persona_id,
+            memory_space_id=config.work_space_id,
+            memory_mode="work",
+        )
+    )
+    for (partition, kind, _), row in bindings.items():
         if kind != "LLMAssignment":
             continue
+        if row.get("connection_id") not in ("conn-live", "conn-mock"):
+            return False
         live = row.get("connection_id") == "conn-live"
+        if partition != work:
+            if live:
+                return False
+            continue
         if live != (row.get("role_id") in admitted):
             return False
         if live and (config.live is None or row.get("model_id") != config.live.model_id):

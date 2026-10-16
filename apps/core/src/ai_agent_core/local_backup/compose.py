@@ -37,6 +37,7 @@ from ai_agent_application.storage import Owner
 from ai_agent_core.local_host.layout import (
     HostConfig,
     HostError,
+    assignments_fit,
     load_config,
     restrict,
     write_secret,
@@ -180,7 +181,7 @@ def compose(
         close_live=close_live,
         ledger_dir=layout.ledger_copies,
         extra=HostConfigFile(layout),
-        restore_check=HostCompatibility(host, config),
+        restore_check=HostCompatibility(host, config, assignments_fit=assignments_fit),
         policy=policy,
         clock=clock,
         software=SOFTWARE,

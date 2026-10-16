@@ -5,6 +5,7 @@ import json
 
 import pytest
 from ai_agent_adapters.storage.database import SQLiteStore
+from ai_agent_adapters.storage.policy import scope_key
 from ai_agent_application.storage import Owner
 from ai_agent_contracts.llm import LLMAssignment
 from quality_support import PUBLIC_PROFILE
@@ -33,7 +34,7 @@ async def bindings(root):
     finally:
         await store.close()
     return {
-        ("s", "LLMAssignment", r.id): dict(
+        (scope_key(scope), "LLMAssignment", r.id): dict(
             role_id=r.role_id, connection_id=r.connection_id, model_id=r.model_id
         )
         for r in rows
