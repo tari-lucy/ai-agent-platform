@@ -149,6 +149,20 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             }
         }
 
+    paths["/api/v1/memory/recall"] = {
+        "post": {
+            "operationId": "panel_memory_recall",
+            "security": writing,
+            "x-origin-check": True,
+            "description": "Local recall: api_transfer, query <=1000, limit <=20; no LLM.",
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": ref("RecallRequest")}},
+            },
+            "responses": {"200": response("RecallResult"), **errors},
+        }
+    }
+
     paths["/api/v1/laboratory-reports/{resource_id}/content"] = {
         "get": {
             "operationId": "download_laboratory_report",

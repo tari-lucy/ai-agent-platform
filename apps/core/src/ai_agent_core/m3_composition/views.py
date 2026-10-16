@@ -10,6 +10,7 @@ from ai_agent_application.storage import Owner, Principal
 from ai_agent_contracts.api import CommandBase, EditCommand
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Contract, Scope
+from ai_agent_contracts.memory import Claim, RecallRequest, RecallResult, Source
 from ai_agent_contracts.panel import (
     LaboratoryCatalogue,
     LaboratoryScenario,
@@ -28,6 +29,43 @@ from .state import PRINCIPALS
 class Views:
     def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
+
+    async def recall(self, principal_id: str, request: RecallRequest) -> RecallResult:
+        from ai_agent_application.memory.recall import RecallService
+
+        rt = self.runtime
+        if request.purpose != "api_transfer":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        if request.scope.partition not in {s.partition for s in rt.scopes}:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        if rt.dialogue_index is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        principal = Principal(principal_id, "operator")
+        result = await RecallService(
+            rt.store,
+            principal,
+            rt.dialogue_index,
+            clock=rt.supervisor.clock.utc,
+        ).recall(request)
+        # Recheck after recall's awaited index/conflict reads; sources stay authoritative.
+        fragments = []
+        for item in result.fragments:
+            source = await rt.store.repository(Source, principal, request.scope).get(
+                item.source.source_id, purpose="api_transfer"
+            )
+            if source is None or source.version != item.source.version:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            conflicts = []
+            for identifier in item.conflicts:
+                if (
+                    await rt.store.repository(Claim, principal, request.scope).get(
+                        identifier, purpose="api_transfer"
+                    )
+                    is not None
+                ):
+                    conflicts.append(identifier)
+            fragments.append(item.model_copy(update={"conflicts": conflicts}))
+        return result.model_copy(update={"fragments": fragments, "missing_source_ids": []})
 
     async def profile(self, principal_id: str, scope: Scope, identifier: str) -> Profile:
         if identifier != scope.persona_id:

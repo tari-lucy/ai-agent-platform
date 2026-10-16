@@ -35,6 +35,7 @@ from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import MAX_BODY_BYTES, ArtifactRef, Contract, Scope
 from ai_agent_contracts.control import RunSession
 from ai_agent_contracts.extensions import ExtensionRegistry
+from ai_agent_contracts.memory import RecallRequest, RecallResult
 from ai_agent_contracts.states import ErrorCode
 from fastapi import FastAPI
 from pydantic import TypeAdapter
@@ -63,6 +64,8 @@ class Reader(Protocol):
 
 
 class Views(Protocol):
+    async def recall(self, principal_id: str, request: RecallRequest) -> RecallResult: ...
+
     async def read(
         self,
         resource: str,
@@ -335,6 +338,27 @@ class Surface:
                 COOKIE, path="/", httponly=True, secure=self.secure_cookie, samesite="strict"
             )
             return response
+        if path == "/api/v1/memory/recall" and method == "POST":
+            request = from_wire(ADAPTERS["RecallRequest"], await _body(headers, receive, 16384))
+            self.sessions.check_scope(authority, request.scope)
+            if request.purpose != "api_transfer":
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            if len(request.query) > 1000 or request.limit > 20 or not request.query.strip():
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            if self.ports.views is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            recalled = await self.ports.views.recall(authority.control.principal_id, request)
+            self.sessions.check_scope(authority, request.scope)
+            checked = from_wire(ADAPTERS["RecallResult"], to_wire(recalled))
+            if checked.scope != request.scope or len(checked.fragments) > request.limit:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            for fragment in checked.fragments:
+                if fragment.source.scope.partition != request.scope.partition:
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                self.sessions.check_scope(authority, fragment.source.scope)
+            # Candidate ids can be inaccessible; never expose the recall diagnostic inventory.
+            checked = checked.model_copy(update={"missing_source_ids": []})
+            return _json(checked)
         if path == "/api/v1/laboratory/transfer-preview" and method == "POST":
             request = from_wire(
                 ADAPTERS["EditCommand"],
