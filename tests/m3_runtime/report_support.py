@@ -63,6 +63,7 @@ async def prepared(tmp_path, *, missing=None, origin=ORIGIN, realtime=False, con
         (Finding("STOP", True),),
         ({"detail": "synthetic full report"},),
         0,
+        source_refs=(),
     )
     reference = await reports.save(scope, full)
     if missing == "source-acl":

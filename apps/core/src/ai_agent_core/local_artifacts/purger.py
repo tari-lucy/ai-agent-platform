@@ -10,7 +10,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.retention import DerivedPurger
@@ -32,12 +32,14 @@ class ReportPurge(Protocol):
 
 
 class ReportFiles(ReportPurge, Protocol):
-    """Reports plus the one port it lacks: whether a report body file still exists.
-
-    `holds` is NOT yet public on `Reports` (requested from the coordinator, see the report).
-    """
+    """Owner inventory; absence includes interrupted writes as well as completed bodies."""
 
     def holds(self, scope: Scope, source_id: str) -> bool: ...
+
+
+@runtime_checkable
+class LineageReports(Protocol):
+    async def purge_for_source(self, scope: Scope, source_id: str) -> None: ...
 
 
 # Owner-supplied inventory of the indexes it holds open: file -> handle. The purger removes rows
@@ -85,17 +87,20 @@ class DerivedArtifactPurger:
                 continue
             await attempt(purge_closed(path, scope, ids))
         if self.reports is not None:
-            for source_id in ids:
-                await attempt(self.reports.files.purge(scope, source_id))
-            # A body holds the text of lab sources, but no record says which sources. Exact ids
-            # above cannot prove the other bodies clean, so any that remain keep the source
-            # blocked_pending_purge until the operator invalidates them (previewed, decided).
-            try:
-                known = await self.reports.catalogue(scope)
-                if any(self.reports.files.holds(scope, r) for r in known):
-                    failures.append("REPORT_BODIES_UNLINKED")
-            except Exception as error:
-                failures.append(type(error).__name__)
+            files = self.reports.files
+            if isinstance(files, LineageReports):
+                for source_id in ids:
+                    await attempt(files.purge_for_source(scope, source_id))
+            else:
+                # Compatibility with older bindings: they cannot prove selective cleanup.
+                for source_id in ids:
+                    await attempt(files.purge(scope, source_id))
+                try:
+                    known = await self.reports.catalogue(scope)
+                    if any(files.holds(scope, r) for r in known):
+                        failures.append("REPORT_BODIES_UNLINKED")
+                except Exception as error:
+                    failures.append(type(error).__name__)
         if failures:
             raise ArtifactsError("PURGE_INCOMPLETE", tuple(sorted(set(failures))))
 
@@ -119,15 +124,15 @@ def derived_purger(
     return DerivedArtifactPurger(roots, open_indexes, reports)
 
 
-# ---- reports: the source -> report relation is not recorded --------------------------------
+# ---- explicit fallback for legacy or otherwise unproven reports ----------------------------
 
 
 @dataclass(frozen=True)
 class ScopeReportsPreview:
-    """A report body holds the text of lab sources, but nothing records which sources.
+    """Explicit scope-wide fallback for legacy or otherwise unproven report bodies.
 
-    Until the owner records that relation, the only honest invalidation is all reports of the
-    lab scope. It is shown first and runs only on an explicit operator decision.
+    Linked reports use selective owner purge. This broader operation is previewed and
+    requires an operator decision; it never guesses missing provenance from body text.
     """
 
     scope: Scope

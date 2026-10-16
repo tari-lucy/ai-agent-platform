@@ -65,6 +65,7 @@ def test_full_report_is_durable_and_ttl_and_delete_close_file_access(tmp_path):
             (Finding("STOP", True),),
             ({"kind": "synthetic", "detail": "full-report-body"},),
             0,
+            source_refs=(),
         )
         ref = await reports.save(scope, report)
         stored = json.loads(await reports.read(scope, ref.artifact_id, PRINCIPALS[Owner.CATALOGUE]))
@@ -102,7 +103,7 @@ def test_report_purger_matches_existing_m5_port(tmp_path):
         )
         now = env.world.clock()
         report = ScenarioReport(
-            "delete", 1, "seed", now, now, "passed", (), ({"text": "synthetic"},), 0
+            "delete", 1, "seed", now, now, "passed", (), ({"text": "synthetic"},), 0, source_refs=()
         )
         ref = await reports.save(scope, report)
         from ai_agent_contracts.workspace import Artifact

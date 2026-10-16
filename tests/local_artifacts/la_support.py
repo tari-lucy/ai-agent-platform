@@ -39,8 +39,7 @@ def run(coro):
 
 
 class FileHolds:
-    """Stand-in for the requested public `Reports.holds` (uses the owner's own deterministic
-    path in the fixture only; production code must not copy it)."""
+    """Legacy port adapter without selective lineage, for explicit fallback acceptance."""
 
     def __init__(self, reports: Reports) -> None:
         self.reports = reports
@@ -49,7 +48,7 @@ class FileHolds:
         await self.reports.purge(scope, source_id)
 
     def holds(self, scope, source_id) -> bool:
-        return self.reports._path(scope, source_id).is_file()
+        return self.reports.holds(scope, source_id)
 
 
 @dataclass
@@ -147,7 +146,7 @@ class World:
         return found
 
     async def download(self, lab: Lab) -> bytes:
-        return await self.reports.read(lab.scope, lab.artifact.artifact_id, CATALOGUE)
+        return await self.reports.read(lab.scope, lab.artifact.artifact_id, OPERATOR)
 
     async def close(self) -> None:
         self.close_indexes()

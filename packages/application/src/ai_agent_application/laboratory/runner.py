@@ -88,6 +88,7 @@ class LabRunner:
             clock=self.clock,
             providers=self.providers,
             resolve=self.resolve,
+            readers=self.report_access,
         )
         if self.lifecycle is not None:
             await self.lifecycle(lab)
@@ -135,6 +136,8 @@ class LabRunner:
             model_calls=len(lab.brain.calls),
             error=error,
             mock=self.mock,
+            source_refs=await lab.capture_sources(),
+            scope=lab.scope,
         )
         if persist:
             await self._persist(lab, report)
@@ -194,11 +197,7 @@ class LabRunner:
                 "summary": (
                     f"MOCK {report.status}: {len(report.findings)} checks, {failed} failed;"
                     f" seed {report.seed}; digest {digest[:12]}"
-                    + (
-                        f"; operator_events {operator_events}"
-                        if operator_events
-                        else ""
-                    )
+                    + (f"; operator_events {operator_events}" if operator_events else "")
                 ),
             }
         )
