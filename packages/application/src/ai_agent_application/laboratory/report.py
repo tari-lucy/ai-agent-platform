@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+from ai_agent_contracts.common import Scope, SourceRef
+
 type Status = Literal["passed", "failed", "error"]
 
 
@@ -31,6 +33,9 @@ class ScenarioReport:
     error: str = ""
     mock: bool = True
     digest: str = field(default="")
+    # None means legacy/unproven; an explicit empty tuple means a source-free report.
+    source_refs: tuple[SourceRef, ...] | None = None
+    scope: Scope | None = None
 
     def __post_init__(self) -> None:
         self.digest = compute_digest(self)
@@ -43,7 +48,17 @@ class ScenarioReport:
         return json.dumps(self.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)
 
     def as_dict(self) -> dict[str, Any]:
+        lineage = (
+            {}
+            if self.source_refs is None
+            else {
+                "source_refs": [r.model_dump(mode="json") for r in self.source_refs],
+                "source_ids": sorted({r.source_id for r in self.source_refs}),
+            }
+        )
         return {
+            **lineage,
+            **({"scope": self.scope.model_dump(mode="json")} if self.scope else {}),
             "scenario_id": self.scenario_id,
             "scenario_version": self.scenario_version,
             "seed": self.seed,
@@ -69,7 +84,9 @@ def compute_digest(report: ScenarioReport) -> str:
         "end": report.finished_at.isoformat(),
         "status": report.status,
         "findings": [vars(f) for f in report.findings],
-        "log": list(report.log),
+        # Replay digest describes the scenario, not physical identities of a fresh TEST world.
+        # ArtifactRef.checksum separately authenticates the complete body, including lineage.
+        "log": [{k: v for k, v in row.items() if k != "source_id"} for row in report.log],
         "calls": report.model_calls,
         "error": report.error,
     }

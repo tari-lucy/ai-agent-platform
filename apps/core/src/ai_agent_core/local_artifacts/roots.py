@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 INDEX_SUFFIX = ".sqlite"
-REPORT_SUFFIXES = frozenset({".json", ".ttl"})
+REPORT_SUFFIXES = frozenset({".json", ".ttl", ".pending"})
 COMPANIONS = ("-wal", "-shm")
 
 

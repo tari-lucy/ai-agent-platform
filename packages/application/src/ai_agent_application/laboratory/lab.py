@@ -198,6 +198,7 @@ class Lab:
     controller: DialogueController | None = None
     proposals: list[Any] = field(default_factory=list)
     stream_text: dict[str, str] = field(default_factory=dict)
+    source_refs: dict[tuple[str, int], SourceRef] = field(default_factory=dict)
 
     # ---- construction -----------------------------------------------------------------
 
@@ -214,6 +215,7 @@ class Lab:
         clock: VirtualClock | None = None,
         providers: ProviderFactory | None = None,
         resolve: Callable[[str], ResolvedAssignment] | None = None,
+        readers: tuple[RecordAccess, ...] = (),
     ) -> Lab:
         if scope.memory_mode != "test":
             raise ContractError(ErrorCode.ACCESS_DENIED)  # the laboratory never touches work data
@@ -227,6 +229,7 @@ class Lab:
         access = tuple(
             RecordAccess(p.id, api_transfer=p in (GM, PERSONA)) for p in (SOCIAL, GM, PERSONA)
         )
+        access = (*access, *readers)
         health = IndexHealth()
         memory = MemoryService(
             storage, MEMORY, registry, index=index, health=health, clock=clock, reader_access=access
@@ -424,8 +427,10 @@ class Lab:
         assert self.controller is not None
         if decision is not None:
             self.brain.expect_json("character", decision)
+        await self.capture_sources()
         self.controller.submit(self.signal(visitor, text, directed=directed))
         outcome = await self.controller.step()
+        await self.capture_sources()
         stopped = self.control.run_state is not RunState.ACTIVE
         if outcome is not None and outcome.draft is not None and stopped:
             self.outputs_while_stopped += 1
@@ -524,12 +529,34 @@ class Lab:
                 author_id=kwargs.get("author"),
             ),
         )
-        return SourceRef(
+        ref = SourceRef(
             source_id=made.source_id,
             version=made.version,
             scope=self.scope,
             availability="available",
         )
+        self.source_refs[(ref.source_id, ref.version)] = ref
+        return ref
+
+    async def capture_sources(self) -> tuple[SourceRef, ...]:
+        """Conservative provenance of this fresh TEST world, retaining earlier captured refs.
+
+        Pin the initial version for sources not seen through source(): a correction/deletion
+        during a scenario must not legitimise earlier text by substituting its newer version.
+        """
+        repo = self.storage.repository(Source, MEMORY, self.scope)
+        after = None
+        for _ in range(10):
+            page = await repo.list(limit=200, after_id=after)
+            for source in page:
+                ref = SourceRef(
+                    source_id=source.id, version=1, scope=source.scope, availability="available"
+                )
+                self.source_refs.setdefault((ref.source_id, ref.version), ref)
+            if len(page) < 200:
+                return tuple(self.source_refs[k] for k in sorted(self.source_refs))
+            after = page[-1].id
+        raise ContractError(ErrorCode.RESOURCE_BUSY)
 
     async def episode(self, text: str, participants: Sequence[str] = ()) -> str:
         """One lived (simulated) experience: a first-hand source and an episode over it."""
@@ -547,7 +574,7 @@ class Lab:
                 provenance="simulation",
             ),
         )
-        self.note("episode", text=text)
+        self.note("episode", text=text, source_id=ref.source_id)
         return str(episode_id)
 
     # ---- inspection -------------------------------------------------------------------
