@@ -110,6 +110,24 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
                 "responses": {"200": response(model.__name__ + "Page"), **errors},
             }
         }
+        if resource in {"sources", "utterances", "deliveries", "operations"}:
+            paths["/api/v1/" + resource]["get"]["parameters"].append(
+                {
+                    "name": "order",
+                    "in": "query",
+                    "schema": {"type": "string", "enum": ["desc"]},
+                    "description": "Newest event/creation time then id; opaque time/id cursor.",
+                }
+            )
+        if resource == "deliveries":
+            paths["/api/v1/" + resource]["get"]["parameters"].append(
+                {
+                    "name": "utterance_id",
+                    "in": "query",
+                    "schema": {"type": "string", "maxLength": 128},
+                    "description": "Exact utterance filter; order=desc; current ACL applies.",
+                }
+            )
         paths["/api/v1/" + resource + "/{resource_id}"] = {
             "get": {
                 "operationId": "read_" + resource.replace("-", "_"),

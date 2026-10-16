@@ -47,6 +47,9 @@ def test_sqlite_read_uses_api_transfer_record_acl_and_current_ttl(tmp_path):
         response = await h.client.get("/api/v1/sources", params=h.scope_query())
         assert response.status_code == 200, response.text
         assert [row["id"] for row in response.json()["items"]] == ["permitted"]
+        recent = await h.client.get("/api/v1/sources", params=h.scope_query(order="desc"))
+        assert recent.status_code == 200, recent.text
+        assert [row["id"] for row in recent.json()["items"]] == ["permitted"]
         for identifier in ("denied", "private", "expired", "absent"):
             response = await h.client.get("/api/v1/sources/" + identifier, params=h.scope_query())
             assert response.status_code == 404

@@ -41,7 +41,8 @@ CORS middleware отсутствует. UI login входит в M4-01.
 - GET /api/v1/auth/session: сессия/стабильный CSRF nonce для reload UI.
 - POST /api/v1/auth/logout: сессия+Origin+X-CSRF-Token, 204 и cookie deletion.
 - GET /api/v1/{resource}[/{id}]: четыре обязательных partition query fields,
-  limit1..200/default50, cursor ID. Проверка scope до и после awaited read.
+  limit1..200/default50, cursor ID; dialogue collections additionally support order=desc
+  with an opaque time/id cursor (max512), deliveries accept exact utterance_id. Проверка scope до и после awaited read.
   Текущий RunSession доступен из RAM; SQLiteReader использует существующие
   repository ACL/TTL/source rights и purpose=api_transfer. Reader не подключается
   к рабочей БД автоматически; без owner composition — safe503.

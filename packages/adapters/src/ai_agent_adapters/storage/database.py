@@ -16,9 +16,10 @@ from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.persona import Opportunity
 from ai_agent_contracts.states import ErrorCode
 from pydantic import BaseModel, TypeAdapter
-from sqlalchemy import URL, and_, delete, event, insert, literal, select, text
+from sqlalchemy import URL, and_, case, delete, event, func, insert, literal, or_, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.sql.elements import ColumnElement
 
 from . import schema as db
 from .catalogue import SPECS
@@ -260,6 +261,9 @@ class Repository[T: Record]:
         lifecycle: bool = False,
         newest: bool = False,
         before: datetime | None = None,
+        before_id: str | None = None,
+        chronology: bool = False,
+        utterance_id: str | None = None,
     ) -> list[T]:
         check_principal(self.principal)
         if type(limit) is not int or not 1 <= limit <= 200:
@@ -307,13 +311,33 @@ class Repository[T: Record]:
             query = query.where(db.records.c.id == record_id)
         if after_id is not None:
             query = query.where(db.records.c.id > after_id)
+        if utterance_id is not None:
+            if self.model.__name__ != "Delivery":
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            query = query.where(
+                func.json_extract(revision.c.payload, "$.utterance_id") == utterance_id
+            )
+        moment: ColumnElement[str] = db.records.c.created_at
+        if chronology and self.model.__name__ == "Source":
+            raw_time = func.json_extract(revision.c.payload, "$.occurred_at")
+            fraction = case(
+                (
+                    func.substr(raw_time, 20, 1) == ".",
+                    func.substr(func.substr(raw_time, 21, 6).concat("000000"), 1, 6),
+                ),
+                else_="000000",
+            )
+            moment = func.substr(raw_time, 1, 19).concat(".").concat(fraction).concat("+00:00")
+        if before_id is not None and before is None:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if before is not None:
-            query = query.where(db.records.c.created_at <= stamp(before))
-        ordering = (
-            (db.records.c.created_at.desc(), db.records.c.id.desc())
-            if newest
-            else (db.records.c.id,)
-        )
+            boundary = stamp(before)
+            query = query.where(
+                or_(moment < boundary, and_(moment == boundary, db.records.c.id < before_id))
+                if before_id is not None
+                else moment <= boundary
+            )
+        ordering = (moment.desc(), db.records.c.id.desc()) if newest else (db.records.c.id,)
         async with self.store.connection() as connection:
             result = await connection.execute(query.order_by(*ordering).limit(limit))
             decoded = [self._decode(row["payload"]) for row in result.mappings()]
@@ -414,9 +438,20 @@ class Repository[T: Record]:
         *,
         limit: int = 50,
         before: datetime | None = None,
+        before_id: str | None = None,
+        chronology: bool = False,
+        utterance_id: str | None = None,
         purpose: ReadPurpose = "private",
     ) -> builtins.list[T]:
-        return await self._rows(limit=limit, purpose=purpose, newest=True, before=before)
+        return await self._rows(
+            limit=limit,
+            purpose=purpose,
+            newest=True,
+            before=before,
+            before_id=before_id,
+            chronology=chronology,
+            utterance_id=utterance_id,
+        )
 
     async def get_for_lifecycle(self, record_id: str) -> T | None:
         rows = await self._rows(record_id=record_id, lifecycle=True, limit=1)

@@ -87,9 +87,16 @@ class RecordRepository[T: Record](Protocol):
         *,
         limit: int = 50,
         before: datetime | None = None,
+        before_id: str | None = None,
+        chronology: bool = False,
+        utterance_id: str | None = None,
         purpose: ReadPurpose = "private",
     ) -> builtins.list[T]:
-        """Newest creations first (created_at, id), with the get/list read policy."""
+        """Newest first, strict time/id boundary; chronology uses Source.occurred_at.
+
+        utterance_id is supported for Delivery only. All get/list read policies apply.
+        Omitting before_id preserves the inclusive historical before cutoff.
+        """
         ...
 
     async def get_for_lifecycle(self, record_id: str) -> T | None: ...

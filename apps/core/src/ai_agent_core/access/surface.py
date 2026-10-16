@@ -57,6 +57,8 @@ class Reader(Protocol):
         resource_id: str | None,
         limit: int,
         cursor: str | None,
+        order: str | None = None,
+        utterance_id: str | None = None,
     ) -> Contract | None: ...
 
 
@@ -288,6 +290,8 @@ class Surface:
             "memory_mode",
             "limit",
             "cursor",
+            "order",
+            "utterance_id",
         }
         result: dict[str, str] = {}
         for key, value in pairs:
@@ -467,10 +471,28 @@ class Surface:
             limit = int(query.get("limit", "50"))
             if not 1 <= limit <= 200:
                 raise ValueError("LIMIT")
+            order = query.get("order")
+            utterance_id = query.get("utterance_id")
+            resource, identifier = match.groups()
+            if order is not None and (
+                order != "desc"
+                or resource not in {"sources", "utterances", "deliveries", "operations"}
+                or identifier is not None
+            ):
+                raise ValueError("ORDER")
+            if utterance_id is not None and (
+                resource != "deliveries"
+                or identifier is not None
+                or order != "desc"
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", utterance_id)
+            ):
+                raise ValueError("FILTER")
             cursor = query.get("cursor")
             if cursor is not None:
                 TypeAdapter(str).validate_python(cursor)
-                if len(cursor) > 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", cursor):
+                if len(cursor) > (512 if order == "desc" else 128) or not re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9_.:-]*", cursor
+                ):
                     raise ValueError("CURSOR")
         except ValueError, KeyError:
             raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
@@ -523,9 +545,21 @@ class Surface:
         elif self.ports.reader is None:
             raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
         else:
-            model = await self.ports.reader.read(
-                resource, authority.control.principal_id, scope, identifier, limit, cursor
-            )
+            if order is None:
+                model = await self.ports.reader.read(
+                    resource, authority.control.principal_id, scope, identifier, limit, cursor
+                )
+            else:
+                model = await self.ports.reader.read(
+                    resource,
+                    authority.control.principal_id,
+                    scope,
+                    identifier,
+                    limit,
+                    cursor,
+                    order=order,
+                    utterance_id=utterance_id,
+                )
         self.sessions.check_scope(authority, scope)  # logout/expiry while DB was awaited
         if model is None:
             raise Rejection(404, ErrorCode.ACCESS_DENIED)

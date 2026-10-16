@@ -12806,6 +12806,26 @@
               "maxLength": 512,
               "type": "string"
             }
+          },
+          {
+            "description": "Newest event/creation time then id; opaque time/id cursor.",
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "enum": [
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact utterance filter; order=desc; current ACL applies.",
+            "in": "query",
+            "name": "utterance_id",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -14348,6 +14368,17 @@
             "name": "cursor",
             "schema": {
               "maxLength": 512,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Newest event/creation time then id; opaque time/id cursor.",
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "enum": [
+                "desc"
+              ],
               "type": "string"
             }
           }
@@ -16414,6 +16445,17 @@
               "maxLength": 512,
               "type": "string"
             }
+          },
+          {
+            "description": "Newest event/creation time then id; opaque time/id cursor.",
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "enum": [
+                "desc"
+              ],
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -17044,6 +17086,17 @@
             "name": "cursor",
             "schema": {
               "maxLength": 512,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Newest event/creation time then id; opaque time/id cursor.",
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "enum": [
+                "desc"
+              ],
               "type": "string"
             }
           }
