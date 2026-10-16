@@ -321,6 +321,12 @@ python -m ai_agent_core.local_host configure-gm --root <абсолютный-hos
 python -m ai_agent_core.local_host configure-gm --root <абсолютный-host> --disable
 ```
 
+Для публичного примера Опечатки доступны редактируемые файлы
+`profiles/examples/opechatka/gm-line.txt` и `gm-boundaries.txt`. Их передают
+параметрами line-direction-file и line-boundaries-file после согласования
+направления; само наличие примера GM не включает. Приёмка реального API и
+фактические рабочие настройки: [отчёт](implementation-reports/Integration-private-gm-live.md).
+
 Линия — собственное направление сюжета оператора (UTF-8 файл, до 1000 символов);
 GM её не придумывает. Включение переводит только роли game-master и story-screen
 на уже выбранную модель; выключение возвращает в mock роли, которые больше не
