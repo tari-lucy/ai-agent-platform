@@ -1,10 +1,11 @@
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import { PeopleTab } from '../people/PeopleTab.tsx';
+import { MemorySearch } from './MemorySearch.tsx';
 import { MemoryAutomation } from './MemoryAutomation.tsx';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
@@ -127,19 +128,35 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
   const summaries = usePaged(scope, 'summaries', (cursor, signal) => api.summaries(scope, signal, cursor));
   const [filters, setFilters] = useState<Filters>(noFilters);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [searchedSource, setSearchedSource] = useState<string | null>(null);
+  const detail = useRef<HTMLDivElement>(null);
+  const focusSource = useRef<string | null>(null);
+  const foundSource = useQuery({ queryKey: [...projectionKey('sources', scope), 'one', searchedSource],
+    queryFn: ({ signal }) => api.memorySource(scope, searchedSource!, signal), enabled: searchedSource !== null });
+  useEffect(() => {
+    if (focusSource.current && focusSource.current === foundSource.data?.id && !foundSource.isFetching) {
+      detail.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); focusSource.current = null;
+    }
+  }, [foundSource.data, foundSource.isFetching]);
   const all = [sources, episodes, claims, summaries];
   const cards = buildCards({
     sources: sources.data?.pages.flatMap((page) => page.items) ?? [], episodes: episodes.data?.pages.flatMap((page) => page.items) ?? [],
     claims: claims.data?.pages.flatMap((page) => page.items) ?? [], summaries: summaries.data?.pages.flatMap((page) => page.items) ?? [],
   });
   const shown = filterCards(cards, filters);
-  const selected = cards.find((card) => card.key === selectedKey) ?? null;
+  const remoteCards = foundSource.isSuccess && !foundSource.isFetching && searchedSource === foundSource.data.id ?
+    buildCards({ sources: [foundSource.data], episodes: [], claims: [], summaries: [] }) : [];
+  const selected = searchedSource && selectedKey === 'source:' + searchedSource ?
+    remoteCards.find((card) => card.key === selectedKey) ?? null : cards.find((card) => card.key === selectedKey) ?? null;
   const more = all.filter((query) => query.hasNextPage);
   const failed = all.filter((query) => query.isError);
   const set = (patch: Partial<Filters>) => setFilters({ ...filters, ...patch });
   return <Stack gap="lg">
     <div><Text className="eyebrow">03 / Память и люди</Text><Title order={1}>Память</Title></div>
     {scope.memory_mode === 'test' && <Alert color="violet" title="Тестовая память">Записи изолированы от рабочей биографии.</Alert>}
+    <MemorySearch api={api} scope={scope} onSelect={(id) => { focusSource.current = id; setSearchedSource(id); setSelectedKey('source:' + id); }} />
+    {foundSource.isFetching && <Text size="sm">Получаем источник…</Text>}
+    {searchedSource && foundSource.isError && <Alert color="orange">Источник больше недоступен: {failureMessage(foundSource.error)}</Alert>}
     <MemoryAutomation api={api} scope={scope} run={run} runUnavailable={runs.isError || !runs.data} records={{
       claims: claims.isError ? [] : claims.data?.pages.flatMap((p) => p.items) ?? [],
       summaries: summaries.isError ? [] : summaries.data?.pages.flatMap((p) => p.items) ?? [],
@@ -169,7 +186,7 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
             {all.some((query) => query.isPending) ? <Text size="sm">Получаем память…</Text> : !shown.length ?
               <Text size="sm" c="dimmed">{cards.length ? 'Ничего не подходит под фильтры.' : 'Память пока пуста.'}</Text> :
               <ul className="memory-list" aria-label="Список записей">{shown.map((card) => <li key={card.key}>
-                <button type="button" className={`memory-item ${card.key === selectedKey ? 'selected' : ''}`} onClick={() => setSelectedKey(card.key)}>
+                <button type="button" className={`memory-item ${card.key === selectedKey ? 'selected' : ''}`} onClick={() => { setSearchedSource(null); setSelectedKey(card.key); }}>
                   <Group gap="xs"><Badge size="xs" variant="light">{kindLabels[card.kind]}</Badge><Badge size="xs" variant="outline">{categoryLabels[card.category]}</Badge>
                     {card.availability !== 'available' && <Badge size="xs" color="gray">{availabilityLabels[card.availability]}</Badge>}
                     {!!card.conflicts.length && <Badge size="xs" color="orange">противоречие</Badge>}</Group>
@@ -177,8 +194,8 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
                   <Text size="xs" c="dimmed">{formatTime(card.at, 'short')}</Text>
                 </button></li>)}</ul>}
           </Paper>
-          <div style={{ flex: '1 1 24rem' }}>{selected ?
-            <Detail key={selected.key} api={api} scope={scope} run={run} card={selected} all={cards} onSelect={(card) => setSelectedKey(card.key)}
+          <div ref={detail} style={{ flex: '1 1 24rem', scrollMarginTop: 'calc(var(--header-offset, 120px) + 16px)' }}>{selected ?
+            <Detail key={selected.key} api={api} scope={scope} run={run} card={selected} all={cards} onSelect={(card) => { setSearchedSource(null); setSelectedKey(card.key); }}
               onChanged={() => { for (const query of all) void query.refetch(); void cache.invalidateQueries({ queryKey: ['projection'] }); }} /> :
             <Alert color="gray">Выберите запись, чтобы увидеть источники, срок хранения и действия.</Alert>}</div>
         </Group>

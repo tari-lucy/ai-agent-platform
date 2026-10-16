@@ -513,3 +513,18 @@ export function memoryCycles(value: unknown, selected: Scope): import('./contrac
     date(r.created_at) && date(r.updated_at)));
   return value as import('./contracts.ts').MemoryCyclePage;
 }
+
+
+export function recall(value: unknown, selected: Scope, limit = 12): import('./contracts.ts').RecallResult {
+  demand(object(value) && isScope(value.scope) && samePartition(value.scope, selected) &&
+    Array.isArray(value.fragments) && value.fragments.length <= limit && typeof value.complete === 'boolean' &&
+    ['ready', 'lagging', 'degraded', 'unavailable'].includes(String(value.index_state)) &&
+    Array.isArray(value.missing_source_ids) && value.missing_source_ids.length === 0);
+  demand(value.fragments.every((fragment: unknown) => object(fragment) && object(fragment.source) &&
+    isScope(fragment.source.scope) && samePartition(fragment.source.scope, selected) &&
+    id(fragment.source.source_id) && version(fragment.source.version) && fragment.source.availability === 'available' &&
+    typeof fragment.content === 'string' && fragment.content.length <= 16000 &&
+    typeof fragment.attribution === 'string' && fragment.attribution.length <= 512 &&
+    Array.isArray(fragment.conflicts) && fragment.conflicts.length <= 200 && fragment.conflicts.every(id)));
+  return value as import('./contracts.ts').RecallResult;
+}

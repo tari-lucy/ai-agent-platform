@@ -6,7 +6,7 @@ import type { OwnerOperation, LaboratoryRuns,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  memoryCycles, privateApiStatus, ownerOperation,  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
+  recall, memoryCycles, privateApiStatus, ownerOperation,  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
@@ -214,6 +214,18 @@ export class PanelApi {
     return operations(await this.#read('operations', scope, signal, cursor, undefined, 'desc'), scope);
   }
   // M4-04 memory reads. A cursor continues the server order; it never widens rights.
+  async recall(scope: Scope, query: string, signal?: AbortSignal): Promise<import('./contracts.ts').RecallResult> {
+    if (!query.trim() || query.length > 1000) throw new ApiFailure('INVALID_ARGUMENTS');
+    return recall(await this.#request('/api/v1/memory/recall', {
+      scope: partition(scope), query, limit: 12, context_token_limit: 2000, purpose: 'api_transfer',
+    }, signal), scope);
+  }
+  async memorySource(scope: Scope, identifier: string, signal?: AbortSignal): Promise<import('./contracts.ts').Source> {
+    const row = await this.#read('sources', scope, signal, undefined, identifier);
+    const source = memorySources({ items: [row], limit: 50, next_cursor: null, complete: true }, scope).items[0];
+    if (source.id !== identifier) throw new ApiFailure('NETWORK');
+    return source;
+  }
   async sources(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {
     return memorySources(await this.#read('sources', scope, signal, cursor), scope);
   }
