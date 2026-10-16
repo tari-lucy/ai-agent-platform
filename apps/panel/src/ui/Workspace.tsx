@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Select, Text } from '@mantine/core';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { OperatorSession, RunSession, RunSessionPage, Scope, StopReceipt } from '../shared/contracts.ts';
@@ -32,7 +32,7 @@ const connectionLabels: Record<ConnectionState, string> = {
   connecting: 'Подключение событий', connected: 'События подключены', reconnecting: 'Связь прервана · переподключение',
   offline: 'События недоступны', denied: 'Подписка отклонена',
 };
-function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
+function EventLink({ api, scope, onState }: { api: PanelApi; scope: Scope; onState: (key: string, state: ConnectionState) => void }) {
   const cache = useQueryClient();
   const [status, setStatus] = useState<ConnectionState>('connecting');
   const [revision, setRevision] = useState(0);
@@ -42,7 +42,7 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
     const [workspace_id, persona_id, memory_space_id, memory_mode] = JSON.parse(key) as [string, string, string, 'work' | 'test'];
     const selected: Scope = { workspace_id, persona_id, memory_space_id, memory_mode };
     return connectEvents({
-      scope: selected, url: eventsUrl(window.location), state: setStatus,
+      scope: selected, url: eventsUrl(window.location), state: (next) => { setStatus(next); onState(key, next); },
       refresh: () => { void cache.invalidateQueries({ queryKey: ['projection', key] }); },
       stream: (event) => {
         const run = cache.getQueryData<RunSessionPage>(projectionKey('sessions', selected))?.items[0];
@@ -57,7 +57,7 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
         }
       },
     });
-  }, [cache, key, revision]);
+  }, [cache, key, revision, onState]);
   useEffect(() => {
     if (status !== 'denied') return;
     // Distinguish expired cookie from a rejected subscription; never silently mint a session.
@@ -69,7 +69,7 @@ function EventLink({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Button variant="subtle" size="compact-xs" onClick={() => setRevision((n) => n + 1)}>Повторить подключение</Button>}
   </Group>;
 }
-type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Scope[] };
+type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Scope[]; connection?: ConnectionState };
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
@@ -87,6 +87,10 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
     });
     observer.observe(node);
     return () => observer.disconnect();
+  }, []);
+  const [connections, setConnections] = useState<Record<string, ConnectionState>>({});
+  const recordConnection = useCallback((key: string, state: ConnectionState) => {
+    setConnections((previous) => previous[key] === state ? previous : { ...previous, [key]: state });
   }, []);
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
   const [stopBusy, setStopBusy] = useState(false);
@@ -148,7 +152,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
-      <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} />)}</div>
+      <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
     <aside className="sidebar"><Text className="eyebrow" mb="md">Рабочие области</Text><nav aria-label="Разделы панели">
       {screens.map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
@@ -176,7 +180,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <PanelGuide scope={scope} run={target ?? undefined} fresh={!!targetRead?.isSuccess && !errors} />
       <Routes>{screens.map((screen) => {
         const Screen = screenComponents[screen.path];
-        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} />} />;
+        return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} connection={connections[scopeKey(scope)] ?? 'connecting'} />} />;
       })}
         <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
     </main>

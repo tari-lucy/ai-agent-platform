@@ -37,8 +37,7 @@ function EntryRow({ entry, onShown }: { entry: Entry; onShown?: (entry: Entry, r
   </li>;
 }
 
-// A scrolling feed that keeps the reader's place. Older records may arrive above the reader (the
-// server pages by id, not by time), so the entry nearest the top is held in place; a new reply moves
+// A scrolling feed that keeps the reader's place. Older records arrive above the reader, so the entry nearest the top is held in place; a new reply moves
 // the view only when the reader is already at the end, otherwise a jump button counts what is new.
 export function Timeline({ entries, stream, onShown }: {
   entries: Entry[]; stream: Stream | null; onShown?: (entry: Entry, ratio: number) => void;

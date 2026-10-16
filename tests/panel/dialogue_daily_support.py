@@ -13,13 +13,14 @@ from pathlib import Path
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.memory import MemoryService, SourceDraft
 from ai_agent_application.storage import Owner
-from ai_agent_contracts.states import Provenance
+from ai_agent_contracts.control import Delivery
+from ai_agent_contracts.states import DeliveryState, Provenance
 
 from ai_agent_core.local_host import rights
 from ai_agent_core.local_host.init import work_scope
 from ai_agent_core.local_host.layout import load_config, paths
 from ai_agent_core.m3_composition import new_registry
-from ai_agent_core.m3_composition.state import PRINCIPALS, command
+from ai_agent_core.m3_composition.state import PRINCIPALS, command, put
 
 
 def label(rank: int) -> str:
@@ -57,6 +58,30 @@ async def _seed(root: Path, count: int) -> list[str]:
                 ),
             )
             order.append(label(rank))
+        # More than four delivery pages, unrelated to current replies. A new visible answer
+        # must still be acknowledged via its exact lookup, without exhausting this history.
+        for index in range(205):
+            await put(
+                store,
+                registry,
+                Owner.CHANNEL,
+                scope,
+                f"seed-delivery-{index}",
+                Delivery(
+                    id=f"old-delivery-{index}",
+                    scope=scope,
+                    version=1,
+                    created_at=start,
+                    updated_at=start,
+                    utterance_id=f"old-reply-{index}",
+                    revision=1,
+                    channel_id="operator-panel",
+                    attempt_id=f"old-attempt-{index}",
+                    status=DeliveryState.DELIVERED,
+                ),
+                expected=None,
+                access=rights.record_readers(),
+            )
         return order
     finally:
         await store.close()

@@ -19,7 +19,7 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const fetcher = (callback: (path: string, init: RequestInit) => Promise<Response>) => callback as unknown as typeof fetch;
 const base = { schema_version: '1.0', scope, version: 1, updated_at: T(0) };
 const utterance = (over: Partial<Utterance> = {}): Utterance => ({ ...base, id: 'u1', utterance_id: 'u1', revision: 1, content: 'Ответ', content_hash: 'h',
-  audience_id: 'operator', channel_ids: ['panel'], moderation_status: 'approved', moderation_check_id: 'c1', created_at: T(2), ...over } as Utterance);
+  audience_id: 'operator', channel_ids: ['panel'], moderation_status: 'approved', moderation_check_id: 't1.YTE', created_at: T(2), ...over } as Utterance);
 const delivery = (over: Partial<Delivery> = {}): Delivery => ({ ...base, id: 'd1', utterance_id: 'u1', revision: 1, channel_id: 'panel', attempt_id: 'a1',
   status: 'DELIVERED', created_at: T(3), ...over } as Delivery);
 const source = (over: Partial<Source> = {}): Source => ({ ...base, id: 's1', source_id: 's1', provenance: 'operator_input', content: 'Привет', availability: 'available',
@@ -206,10 +206,14 @@ import { mayAcknowledge, messageProgress, type AckFacts } from '../src/ui/dialog
 test('the five dialogue reads pass an optional cursor to the existing reader and validate it', async () => {
   const paths: string[] = [];
   const api = new PanelApi(fetcher(async (path) => { paths.push(path); return json(page([])); }));
-  await api.utterances(scope, undefined, 'c1'); await api.deliveries(scope, undefined, 'c2'); await api.briefings(scope, undefined, 'c3');
-  await api.inbound(scope, undefined, 'c4'); await api.operations(scope, undefined, 'c5');
-  assert.deepEqual(paths.map((path) => new URL(path, 'http://x').searchParams.get('cursor')), ['c1', 'c2', 'c3', 'c4', 'c5']);
+  await api.utterances(scope, undefined, 't1.YTE'); await api.deliveries(scope, undefined, 't1.YTI'); await api.briefings(scope, undefined, 'c3');
+  await api.inbound(scope, undefined, 't1.YTQ'); await api.operations(scope, undefined, 't1.YTU');
+  assert.deepEqual(paths.map((path) => new URL(path, 'http://x').searchParams.get('cursor')), ['t1.YTE', 't1.YTI', 'c3', 't1.YTQ', 't1.YTU']);
+  assert.deepEqual(paths.map((path) => new URL(path, 'http://x').searchParams.get('order')), ['desc', 'desc', null, 'desc', 'desc']);
+  await api.deliveries(scope, undefined, undefined, 'exact-reply');
+  assert.equal(new URL(paths.at(-1)!, 'http://x').searchParams.get('utterance_id'), 'exact-reply');
   await assert.rejects(api.inbound(scope, undefined, '../x'));
+  await assert.rejects(api.deliveries(scope, undefined, undefined, '../foreign'));
 });
 const rec = (id: string) => ({ id });
 const pages = (...chunks: string[][]) => async (cursor?: string) => {

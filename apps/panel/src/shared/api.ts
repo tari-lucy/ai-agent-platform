@@ -136,11 +136,16 @@ export class PanelApi {
     return session(await this.#request('/api/v1/auth/login', body));
   }
   async logout(): Promise<void> { await this.#request('/api/v1/auth/logout', {}); }
-  async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal, cursor?: string, identifier?: string): Promise<unknown> {
+  async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal, cursor?: string, identifier?: string, order?: 'desc', utteranceId?: string): Promise<unknown> {
     const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, limit: '50' });
     if (cursor !== undefined) {
-      if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(cursor)) throw new ApiFailure('INVALID_ARGUMENTS');
+      if (!(order === 'desc' ? /^t1\.[A-Za-z0-9_-]{1,509}$/ : /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/).test(cursor)) throw new ApiFailure('INVALID_ARGUMENTS');
       query.set('cursor', cursor);
+    }
+    if (order) query.set('order', order);
+    if (utteranceId !== undefined) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(utteranceId)) throw new ApiFailure('INVALID_ARGUMENTS');
+      query.set('utterance_id', utteranceId);
     }
     if (identifier !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identifier)) throw new ApiFailure('INVALID_ARGUMENTS');
     const path = identifier === undefined ? resource : `${resource}/${identifier}`;
@@ -190,22 +195,23 @@ export class PanelApi {
   async profiles(scope: Scope, signal?: AbortSignal): Promise<ProfilePage> {
     return profiles(await this.#read('personas', scope, signal), scope);
   }
-  // M4-02 dialogue projections: server order is by record id, not time; a cursor continues it.
-  // Incompleteness is returned, never assumed away.
+  // Dialogue reads newest event/creation first; opaque cursors continue towards older records.
   async utterances(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<UtterancePage> {
-    return utterances(await this.#read('utterances', scope, signal, cursor), scope);
+    return utterances(await this.#read('utterances', scope, signal, cursor, undefined, 'desc'), scope);
   }
-  async deliveries(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<DeliveryPage> {
-    return deliveries(await this.#read('deliveries', scope, signal, cursor), scope);
+  async deliveries(scope: Scope, signal?: AbortSignal, cursor?: string, utteranceId?: string): Promise<DeliveryPage> {
+    const result = deliveries(await this.#read('deliveries', scope, signal, cursor, undefined, 'desc', utteranceId), scope);
+    if (utteranceId !== undefined && result.items.some((row) => row.utterance_id !== utteranceId)) throw new ApiFailure('NETWORK');
+    return result;
   }
   async briefings(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<BriefingPage> {
     return briefings(await this.#read('briefings', scope, signal, cursor), scope);
   }
   async inbound(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {
-    return inbound(await this.#read('sources', scope, signal, cursor), scope);
+    return inbound(await this.#read('sources', scope, signal, cursor, undefined, 'desc'), scope);
   }
   async operations(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<OperationProjectionPage> {
-    return operations(await this.#read('operations', scope, signal, cursor), scope);
+    return operations(await this.#read('operations', scope, signal, cursor, undefined, 'desc'), scope);
   }
   // M4-04 memory reads. A cursor continues the server order; it never widens rights.
   async sources(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<SourcePage> {

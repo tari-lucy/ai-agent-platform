@@ -18,7 +18,25 @@ def free_port() -> int:
 
 
 def command(*arguments: str) -> list[str]:
-    return [sys.executable, "-I", "-m", MODULE, *arguments]
+    # -I deliberately ignores PYTHONPATH, so an installed editable checkout can be stale.
+    # Bootstrap only this test repository's trusted sources, retaining isolated env handling.
+    root = Path(__file__).resolve().parents[2]
+    sources = [
+        str(root / path)
+        for path in (
+            "apps/core/src",
+            "apps/worker/src",
+            "packages/contracts/src",
+            "packages/domain/src",
+            "packages/application/src",
+            "packages/adapters/src",
+        )
+    ]
+    script = (
+        f"import runpy,sys; sys.path[:0]={sources!r}; "
+        f"runpy.run_module({MODULE!r},run_name='__main__')"
+    )
+    return [sys.executable, "-I", "-c", script, *arguments]
 
 
 def init(root: Path, *arguments: str) -> subprocess.CompletedProcess:

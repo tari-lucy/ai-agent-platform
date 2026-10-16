@@ -86,6 +86,10 @@ def test_long_history_reading_reply_connection_reload_stop_and_acknowledgement(p
         status = page.locator("[data-history]")
         expect(status).to_contain_text("более ранние записи есть на сервере", timeout=20000)
         assert page.locator(".timeline .entry.incoming").count() == 200
+        assert texts(page) == [label(rank) for rank in range(30, SEEDED)]
+        expect(page.get_by_label("Связь диалога", exact=True)).to_contain_text(
+            "События диалога подключены"
+        )
         expect(feed(page)).to_be_visible()
         state = scroll_state(page)
         assert state["height"] - state["top"] - state["client"] <= 48  # starts at the newest
@@ -190,12 +194,24 @@ def test_long_history_reading_reply_connection_reload_stop_and_acknowledgement(p
         expect(feed(page)).to_be_visible(timeout=20000)
         expect(page.locator("[data-history]")).to_be_visible(timeout=20000)
         expect(page.get_by_role("button", name=STOP, exact=True)).to_be_enabled()
+        # Reload reset the four-page budget: delivery history is incomplete, but exact
+        # lookup still allows one acknowledgement of the next visible final answer.
+        expect(page.locator("[data-history]")).to_contain_text("более ранние записи")
+        page.get_by_label("Сообщение персонажу", exact=True).fill(
+            "Четвёртое вымышленное сообщение."
+        )
+        page.get_by_role("button", name="Отправить", exact=True).click()
+        expect(page.locator(".timeline .entry.reply")).to_have_count(4, timeout=30000)
+        expect(page.get_by_text("Приватная панель подтвердила получение.")).to_have_count(
+            4, timeout=20000
+        )
+        assert len(acknowledgements) == 4
         page.get_by_role("button", name=STOP, exact=True).click()
         expect(page.get_by_role("button", name="Отправить", exact=True)).to_be_disabled()
         expect(page.get_by_role("button", name=START, exact=True)).to_be_enabled(timeout=40000)
         page.reload()
         expect(page.get_by_role("button", name=START, exact=True)).to_be_enabled(timeout=20000)
         expect(page.get_by_role("button", name="Отправить", exact=True)).to_be_disabled()
-        assert len(messages) == sent + 2
+        assert len(messages) == sent + 3
         page.goto("about:blank")
     assert password not in log.read_text(errors="replace")

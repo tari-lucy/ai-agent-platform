@@ -1,8 +1,7 @@
 import { ApiFailure } from '../../shared/api.ts';
 
-// Reads one resource through its server cursor. The server lists by record id, NOT by time, so a
-// page is never "the newest messages": history is only complete when the server says so, and the
-// chronology is rebuilt on the client (see buildTimeline). Nothing here assumes an order.
+// Dialogue projections use descending event/creation time and id. Every refresh starts at
+// the head; subsequent opaque cursors only fetch older records, without offset shifts.
 export type Page<T> = { items: T[]; next_cursor: string | null; complete: boolean };
 export type Walk<T> = {
   items: T[];
@@ -45,7 +44,7 @@ export function historyNote(walks: { complete: boolean; error: string | null }[]
     return { tone: 'error', text: 'Часть истории не загрузилась. Это не конец переписки: список может быть неполным.' };
   }
   if (walks.some((w) => !w.complete)) {
-    return { tone: 'partial', text: `Загружено до ${budget} страниц по 50 записей; часть записей осталась на сервере.` };
+    return { tone: 'partial', text: `Загружено до ${budget} страниц по 50 записей; более ранние записи есть на сервере.` };
   }
   return { tone: 'ok', text: 'Вся переписка загружена.' };
 }

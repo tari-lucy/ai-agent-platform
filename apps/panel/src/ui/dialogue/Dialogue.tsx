@@ -1,6 +1,7 @@
+import type { ConnectionState } from '../../shared/events.ts';
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Briefing, OperationProjection, Receipt, RunSession, RunSessionPage, Scope, Utterance } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
@@ -181,7 +182,7 @@ function MemoryStatus({ api, scope, enabled }: { api: PanelApi; scope: Scope; en
 }
 
 
-export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
+export function Dialogue({ api, scope, connection = 'connecting' }: { api: PanelApi; scope: Scope; connection?: ConnectionState }) {
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
   const online = useReconnect(scope);
@@ -218,7 +219,22 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
     }
   }
   const utteranceRows = utterances.data?.items ?? [];
-  const deliveryRows = deliveries.data?.items ?? [];
+  const loadedDeliveries = deliveries.data?.items ?? [];
+  // Bound extra reads. Each lookup proves the state of this exact utterance, independently
+  // of whether historical deliveries have all been paged into the timeline.
+  const receiptCandidates = latestRevisions(utteranceRows).filter((row) => row.operation_id &&
+    row.audience_id === 'operator-panel' && row.scope.run_id === run?.run_id &&
+    !loadedDeliveries.some((d) => d.utterance_id === row.id && d.revision === row.revision && d.status === 'DELIVERED'))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 20);
+  const receiptReads = useQueries({ queries: receiptCandidates.map((row) => ({
+    queryKey: [...projectionKey('deliveries', scope), 'utterance', row.id],
+    queryFn: ({ signal }: { signal: AbortSignal }) => walk((cursor) => api.deliveries(scope, signal, cursor, row.id), PAGE_BUDGET),
+    refetchInterval: poll ? 3000 : false,
+  })) });
+  const deliveryRows = [...new Map([...loadedDeliveries, ...receiptReads.flatMap((q) => q.data?.items ?? [])]
+    .map((row) => [row.id, row])).values()];
+  const receiptKnown = new Set(receiptCandidates.filter((_, i) => receiptReads[i].isSuccess &&
+    !receiptReads[i].isFetching && receiptReads[i].data?.complete && !receiptReads[i].data?.error).map((row) => row.id));
   const privateRows = utteranceRows.filter((row) => row.operation_id &&
     row.audience_id === 'operator-panel' && row.scope.run_id === run?.run_id &&
     !deliveryRows.some((d) => d.utterance_id === row.id && d.revision === row.revision && d.status === 'DELIVERED'));
@@ -228,9 +244,9 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
   const timeline = buildTimeline(sources.data?.items ?? [], utteranceRows, deliveryRows);
   const summary = goal(run, operationRows);
   const note = historyNote(walks, budget);
-  const healthy = !failed.length && walks.length === 3 && walks.every((w) => w.error === null) && (deliveries.data?.complete ?? false);
-  const latest = useRef({ run, privateRows, utteranceRows, deliveryRows, healthy, scope });
-  useEffect(() => { latest.current = { run, privateRows, utteranceRows, deliveryRows, healthy, scope }; });
+  const healthy = !failed.length && walks.length === 3 && walks.every((w) => w.error === null);
+  const latest = useRef({ run, privateRows, utteranceRows, deliveryRows, healthy, scope, receiptKnown });
+  useEffect(() => { latest.current = { run, privateRows, utteranceRows, deliveryRows, healthy, scope, receiptKnown }; });
   // Only a final, exact, newest revision that is really on screen in a visible tab is acknowledged.
   const shown = useCallback((entry: Entry, ratio: number) => {
     const state = latest.current;
@@ -239,7 +255,7 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
     if (!row || !mayAcknowledge({
       visibility: document.visibilityState, ratio, mode: state.scope.memory_mode, runActive: state.run?.state === 'ACTIVE',
       runOpen: state.run?.activity === 'OPEN', sameRun: row.scope.run_id === state.run?.run_id, entryKey: entry.key, row,
-      shownText: entry.text, newestRevision: newest, delivered: false, streaming: false, readsHealthy: state.healthy,
+      shownText: entry.text, newestRevision: newest, delivered: false, streaming: false, readsHealthy: state.healthy && state.receiptKnown.has(row.id),
     })) return;
     const key = row.id + ':' + row.revision;
     if (automaticReceipts.current.has(key)) return; // one automatic attempt; a failure leaves the manual button
@@ -261,6 +277,18 @@ export function Dialogue({ api, scope }: { api: PanelApi; scope: Scope }) {
       {!!summary.pending.length && <><Text size="sm" fw={500} mt="xs">Ожидающие дела ({openOperations(operationRows).length})</Text>
         <ul>{summary.pending.map((line) => <li key={line}><Text size="sm" className="plain-text">{line}</Text></li>)}</ul></>}
     </Paper>
+    <Text size="sm" role="status" aria-label="Связь диалога" c={connection === 'connected' ? 'dimmed' : 'orange.8'}>
+      {connection === 'connected' ? 'События диалога подключены.' : connection === 'connecting' ? 'Подключаем события диалога…' :
+        connection === 'reconnecting' ? 'Связь событий прервана. Переподключаемся…' :
+        connection === 'denied' ? 'Подписка на события отклонена. Проверьте вход и область.' : 'События недоступны. Повторите подключение вверху панели.'}
+      {connection !== 'connected' && <> Последние данные могут устареть. Сообщения автоматически не повторяются.
+        <Button ml="sm" size="compact-xs" variant="subtle" onClick={() => {
+          for (const resource of ['sources', 'utterances', 'deliveries', 'operations', 'sessions']) {
+            void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+          }
+        }}>Перечитать диалог</Button>
+      </>}
+    </Text>
     {!online && <Alert color="orange" role="alert" title="Нет связи с сервером">
       Показаны последние полученные данные. Новые сообщения и ответы могут быть не видны; STOP отправляется отдельным запросом.
       Сообщения не повторяются автоматически.</Alert>}
