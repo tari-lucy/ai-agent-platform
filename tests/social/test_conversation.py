@@ -439,3 +439,39 @@ def test_context_collects_everything_exact_for_a_returning_person(tmp_path):
         await world.store.close()
 
     run(scenario())
+
+
+def test_a_promise_made_in_one_run_is_closed_in_a_later_run_of_the_same_partition(tmp_path):
+    run_one = A.model_copy(update={"agent_id": "agent-a", "run_id": "run-1", "session_id": "s-1"})
+    run_two = A.model_copy(update={"agent_id": "agent-a", "run_id": "run-2", "session_id": "s-2"})
+    other = make_scope("persona-b")
+
+    async def scenario():
+        world = await new_world(tmp_path, [A, other])
+        person, evidence = await world.person(run_one)
+        await world.delivery(run_one, "delivery-ok", "utt-1")
+        made, _ = await world.social.record_promise(
+            command(run_one),
+            [person.id],
+            "идеи",
+            delivery_id="delivery-ok",
+            utterance_id="utt-1",
+            promise_key="a",
+            content="Сделать",
+            completion_criterion="Готово",
+            sources=[evidence],
+        )
+        assert made.scope == run_one
+        with pytest.raises(ContractError):  # another persona's partition never sees it
+            await world.social.close_promise(command(other), made.id, 1, "withdrawn", "нет")
+        closed = await world.social.close_promise(
+            command(run_two), made.id, 1, "withdrawn", "Оператор передумал."
+        )
+        assert closed.status == "withdrawn"
+        stored = await world.social._repo(Promise, run_two).get(made.id)
+        assert stored is not None and stored.scope == run_two and stored.version == 2
+        first = await world.social._repo(Promise, run_two).get(made.id, version=1)
+        assert first is not None and first.status == "open"  # history is kept
+        await world.store.close()
+
+    run(scenario())

@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from contextlib import ExitStack
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any, Literal
 
 from ai_agent_application.control.ports import ControlAuthority
@@ -42,6 +43,11 @@ from .history import PrivateHistory, PrivateRecall
 from .schemas import JobArguments, TaskInput
 from .service import DOMAIN_OWNERS, Execution, Runtime
 from .state import PRINCIPALS, command, put
+
+# The authenticated local operator is the private interlocutor: a stable login, never a name
+# taken from the text. Its account is what the social owner identifies and links.
+PANEL_PLATFORM, PANEL_ACCOUNT, PANEL_NAME = "private-panel", "operator", "оператор"
+PENDING_PROMISES = 64
 
 
 class Profiles:
@@ -266,6 +272,10 @@ async def perform(ex: Execution) -> list[str]:
             occurred_at=incoming.occurred_at,
             directed=True,
             rights=SourceRights(read=True, api_transfer=True),
+            # Without provisioned SOCIAL rights the reply stays anonymous, as before.
+            platform_id=PANEL_PLATFORM if rt.private_social else None,
+            account_id=PANEL_ACCOUNT if rt.private_social else None,
+            display_name=PANEL_NAME if rt.private_social else None,
         )
     )
     try:
@@ -329,6 +339,12 @@ async def perform(ex: Execution) -> list[str]:
             None,
             rt.readers,
         )
+        if draft.promise is not None and draft.person_id is not None:
+            # Recorded by the social owner only when the operator confirms this exact revision.
+            pending = rt.pending_promises
+            pending[identifier] = (draft.person_id, draft.promise, draft.evidence)
+            while len(pending) > PENDING_PROMISES:
+                pending.pop(next(iter(pending)))
         await ex.verify()
         decision = recorder.decision.offer if recorder.decision is not None else None
         await apply_decision(ex, context.shown_offer, decision, identifier)
@@ -536,6 +552,7 @@ async def acknowledge(
             )
             async with rt.store.transaction(PRINCIPALS[Owner.CHANNEL], scope, request) as unit:
                 if unit.replay is not None:
+                    await promised(rt, scope, utterance.id, delivery_id)
                     return unit.replay
                 written_version = None
                 if delivery.status != DeliveryState.DELIVERED:
@@ -562,6 +579,34 @@ async def acknowledge(
                 await unit.complete(receipt)
             rt.notify("delivery.changed", scope, delivery_id)
             rt.notify("memory.changed", scope, episode)
+            await promised(rt, scope, utterance.id, delivery_id)
             return receipt
     finally:
         rt.supervisor.retire(admission)
+
+
+async def promised(rt: Runtime, scope: Scope, utterance_id: str, delivery_id: str) -> None:
+    """The promise of a now DELIVERED reply goes to the social owner; idempotent by its key."""
+    pending = rt.pending_promises.get(utterance_id)
+    if pending is None:
+        return
+    person_id, promise, evidence = pending
+    now = rt.supervisor.clock.utc()
+    social = SocialService(
+        rt.store, PRINCIPALS[Owner.SOCIAL], rt.registry, clock=rt.supervisor.clock.utc
+    )
+    await social.record_promise(
+        command(scope, derived_id("panel-promise", scope, utterance_id)),
+        [person_id],
+        promise.topic_key,
+        delivery_id=delivery_id,
+        utterance_id=utterance_id,
+        promise_key=promise.promise_key,
+        content=promise.content,
+        completion_criterion=promise.completion_criterion,
+        sources=list(evidence),
+        deadline=None
+        if promise.deadline_days is None
+        else now + timedelta(days=promise.deadline_days),
+    )
+    rt.pending_promises.pop(utterance_id, None)

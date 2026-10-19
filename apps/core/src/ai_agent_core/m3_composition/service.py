@@ -21,6 +21,7 @@ from ai_agent_application.control.ports import Admission, ControlAuthority
 from ai_agent_application.development import DevelopmentController, MemoryEvidence, Reflector
 from ai_agent_application.dialogue import ControlSnapshot
 from ai_agent_application.dialogue.context import data
+from ai_agent_application.dialogue.model import PromiseIntent
 from ai_agent_application.extraction import Consolidator, Extractor
 from ai_agent_application.gamemaster import Classification, Dice, Family, GameMaster
 from ai_agent_application.gamemaster.clock import ActiveGMClock
@@ -261,6 +262,11 @@ class Runtime:
         self.providers, self.scopes, self.families, self.lab = providers, scopes, families, lab
         self.readers = reader_access
         self.dialogue_index = dialogue_index
+        # Private promise drafts until the operator's receipt, like the controller's own pending
+        # drafts: process-local and bounded; a restart drops them, never records them.
+        self.pending_promises: dict[str, tuple[str, PromiseIntent, tuple[SourceRef, ...]]] = {}
+        # Only a host whose SOCIAL rights are provisioned links the panel login to a person.
+        self.private_social = False
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory
