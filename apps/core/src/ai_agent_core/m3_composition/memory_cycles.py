@@ -19,7 +19,7 @@ from ai_agent_contracts.api import ProcessMemoryCommand, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import ExecutionCommand, Utterance
-from ai_agent_contracts.memory import Episode, MemoryCycle, Source
+from ai_agent_contracts.memory import Episode, MemoryCycle, Source, Summary
 from ai_agent_contracts.persona import Profile, ReflectionCheckpoint
 from ai_agent_contracts.states import ErrorCode, OperationState
 
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 
 MAX_INPUT_CHARS = 8000
 MAX_EPISODES = 10
+DIGEST_AGE = timedelta(days=30)  # summaries this old are folded into one digest per month
+DIGEST_MIN = 3
 TERMINAL = {
     OperationState.SUCCEEDED,
     OperationState.FAILED,
@@ -332,6 +334,66 @@ class DailyMemory:
         finally:
             rt.supervisor.retire(token)
 
+    async def digest_due(self, scope: Scope) -> bool:
+        """Submit one knowledge digest for the oldest month of old summaries; True if submitted.
+
+        A month needs at least three summaries older than 30 days; a digested set is never
+        digested again (deterministic id) and a digest is never part of another one. One
+        memory call is required within the same daily reserve.
+        """
+        from ai_agent_application.extraction.digest import digest_id, is_digest
+
+        rt = self.rt
+        budget = rt.private_api_budget
+        if budget is None or not budget.memory_processing or scope.memory_mode != "work":
+            return False
+        now = rt.supervisor.clock.utc()
+        attempts = await UsageLedger(rt.store, PRINCIPALS[Owner.LLM], rt.registry).attempts(scope)
+        if (
+            budget.memory_daily_calls - budget.memory_used(attempts, now) < 1
+            or budget.max_attempts - budget.used(attempts, now) < 1
+        ):
+            return False
+        repo = rt.store.repository(Summary, PRINCIPALS[Owner.MEMORY], scope)
+        months: dict[tuple[int, int], list[Summary]] = {}
+        after = None
+        for _ in range(50):
+            rows = await repo.list(limit=200, after_id=after)
+            for row in rows:
+                if not is_digest(row) and row.period_end < now - DIGEST_AGE:
+                    key = (row.period_end.year, row.period_end.month)
+                    months.setdefault(key, []).append(row)
+            if len(rows) < 200:
+                break
+            after = rows[-1].id
+        for month in sorted(months):
+            group = sorted(months[month], key=lambda s: (s.period_start, s.id))[:31]
+            if len(group) < DIGEST_MIN:
+                continue
+            ids = [s.id for s in group]
+            identifier = digest_id(scope, ids)
+            if await repo.get(identifier) is not None:
+                continue
+            refs = list({r.source_id: r for s in group for r in s.sources})
+            args = TaskInput(
+                kind="consolidate",
+                trigger_id="digest-" + identifier.removeprefix("summary-")[:40],
+                source_ids=refs[:20],
+                period_start=group[0].period_start,
+                period_end=max(s.period_end for s in group),
+                digest_of=ids,
+            )
+            token = rt.supervisor.admit("reflection")
+            try:
+                await rt.submit(None, args.trigger_id, args)
+            finally:
+                rt.supervisor.retire(token)
+            logging.getLogger(__name__).info(
+                "Daily memory digest: month=%04d-%02d summaries=%d", *month, len(ids)
+            )
+            return True
+        return False
+
     async def tick(self) -> None:
         rt, run = self.rt, self.rt.supervisor.snapshot
         budget = rt.private_api_budget
@@ -421,6 +483,8 @@ class DailyMemory:
                 )
             if selected:
                 await self.enqueue(selected)
+            else:
+                await self.digest_due(run.scope)  # only when no new experience waits
             self.last_error = None
         except ContractError as error:
             code = error.error.code

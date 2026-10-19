@@ -903,6 +903,15 @@ class Runtime:
             from .memory_cycles import CycleJournal
 
             await CycleJournal(execution).save("consolidate", ids)
+        if request.kind == "consolidate" and request.digest_of:
+            from ai_agent_application.extraction.digest import Digester
+
+            digest = await Digester(
+                memory, execution, admitted=execution.allowed, clock=self.supervisor.clock.utc
+            ).digest(scope, request.digest_of, execution.cancel)
+            if digest is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            return [digest.id]
         if request.kind in ("consolidate", "post_session"):
             assert request.period_start is not None and request.period_end is not None
             summary = await Consolidator(

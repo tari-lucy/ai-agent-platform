@@ -30,6 +30,8 @@ class TaskInput(Contract):
     scenario_id: Id | None = None
     lab_scope: Scope | None = None
     seed: Annotated[str, Field(min_length=1, max_length=128)] = "lab-seed"
+    # A consolidate job over stored summaries instead of raw sources (knowledge digest).
+    digest_of: list[Id] = Field(default_factory=list, max_length=31)
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
