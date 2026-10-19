@@ -184,7 +184,11 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
     )
     shown = " ".join(m["text"] for m in seen["memory"])
     assert "море" not in shown and "ездили" not in shown  # no invented shared history
-    assert len(seen["memory"]) <= 3 and all(m["at"] for m in seen["memory"])
+    assert all(m["at"] for m in seen["memory"])
+    # long-term memory keeps its 3 fragments; the separate grounded biography adds the kept state
+    biography = [m for m in seen["memory"] if m["by"] == "вывод-рефлексии-оставить"]
+    assert len(seen["memory"]) - len(biography) <= 3
+    assert [m["text"] for m in biography] == ["Одного разговора мало для изменения характера."]
     # the closed wire protocol states the output limits and pays for the schema once
     extractor = out["extractor_system"]
     assert extractor.count('"$defs"') == 1 and "Схема приведена выше." in extractor
