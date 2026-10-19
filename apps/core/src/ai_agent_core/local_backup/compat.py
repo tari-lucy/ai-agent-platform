@@ -112,7 +112,7 @@ def _read_config(path: Path) -> HostConfig | None:
             raw = handle.read(MAX_CONFIG_BYTES + 1)
         if len(raw) > MAX_CONFIG_BYTES:
             return None
-        return HostConfig.model_validate(json.loads(raw))
+        return HostConfig.model_validate_json(raw)
     except OSError, ValueError, ValidationError:
         return None
 

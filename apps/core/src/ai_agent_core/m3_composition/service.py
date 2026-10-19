@@ -306,6 +306,9 @@ class Runtime:
         from ai_agent_application.retention import RetentionService
 
         self.retention: RetentionService | None = None
+        from .llm_controls import BudgetControls
+
+        self.budget_controls: BudgetControls | None = None
         from .lab_control import LabControl
 
         self.lab_control = LabControl(self)

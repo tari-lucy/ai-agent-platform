@@ -1,6 +1,5 @@
 """Host directory layout, nonsecret configuration and local secret files."""
 
-import json
 import os
 import secrets
 import stat
@@ -14,6 +13,7 @@ from typing import Any, Literal, Self
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from ai_agent_adapters.storage.policy import scope_key
 from ai_agent_contracts.common import Scope
+from ai_agent_contracts.panel import ApiLimitChange
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
@@ -51,8 +51,10 @@ class LiveConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     model_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-    attempt_limit: int = Field(default=10, strict=True, ge=1)
+    attempt_limit: int = Field(default=10, strict=True, ge=1, le=1_000_000)
     attempt_period: Literal["lifetime", "utc_day"] = "lifetime"
+    budget_version: int = Field(default=1, strict=True, ge=1)
+    budget_receipt: ApiLimitChange | None = None
     memory_processing: bool = Field(default=False, strict=True)
     memory_daily_calls: int = Field(default=8, strict=True, ge=3, le=32)
     max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
@@ -62,6 +64,12 @@ class LiveConfig(BaseModel):
 
     @model_validator(mode="after")
     def memory_budget(self) -> Self:
+        if self.budget_receipt is not None and (
+            self.budget_receipt.budget_version != self.budget_version
+            or self.budget_receipt.attempt_limit != self.attempt_limit
+            or self.budget_receipt.period != self.attempt_period
+        ):
+            raise ValueError("BUDGET_RECEIPT_MISMATCH")
         if self.memory_processing and (
             self.attempt_period != "utc_day" or self.memory_daily_calls >= self.attempt_limit
         ):
@@ -334,7 +342,7 @@ def load_config(
             raw = handle.read(MAX_CONFIG_BYTES + 1)
         if len(raw) > MAX_CONFIG_BYTES:
             raise HostError("CONFIG_INVALID")
-        return HostConfig.model_validate(json.loads(raw))
+        return HostConfig.model_validate_json(raw)
     except OSError, ValueError, ValidationError:
         raise HostError("CONFIG_INVALID") from None
 

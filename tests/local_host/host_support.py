@@ -59,10 +59,12 @@ class Server:
         log: Path,
         provider: str = "mock",
         panel_dir: Path | None = None,
+        env_file: Path | None = None,
     ) -> None:
         self.root, self.port, self.log = root, port, log
         self.origin = f"http://127.0.0.1:{port}"
         self.provider, self.panel_dir = provider, panel_dir
+        self.env_file = env_file
         self.process: subprocess.Popen | None = None
 
     def __enter__(self) -> Server:
@@ -76,6 +78,7 @@ class Server:
                 self.provider,
                 "--port",
                 str(self.port),
+                *(("--env-file", str(self.env_file)) if self.env_file else ()),
             ),
             stdout=handle,
             stderr=handle,

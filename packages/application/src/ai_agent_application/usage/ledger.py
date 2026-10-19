@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from ai_agent_contracts.api import CommandBase, Receipt
+from ai_agent_contracts.api import CommandBase, CreateCommand, Receipt
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import Id, Record, Scope
 from ai_agent_contracts.extensions import ExtensionRegistry
@@ -259,6 +259,64 @@ class UsageLedger:
         return await self._repo(LLMAttempt, scope).get(attempt_record_id(scope, attempt_id))
 
     # ---- tariffs ----------------------------------------------------------------------
+
+    async def create_tariff(
+        self,
+        command: CreateCommand,
+        draft: TariffDraft,
+        previous_version: int,
+        *,
+        operator_id: str,
+    ) -> Receipt:
+        """Operator CAS, without the internal set_tariff retry that could overwrite a new edit."""
+        scope = command.scope
+        identifier = tariff_record_id(scope, draft.connection_id, draft.model_id)
+        current = await self._repo(Tariff, scope).get(identifier)
+        internal = command.model_copy(
+            update={"request_id": derived_id("tariff-edit", scope, operator_id, command.request_id)}
+        )
+        async with self.storage.transaction(self.principal, scope, internal) as unit:
+            if unit.replay is not None:
+                return unit.replay.model_copy(update={"request_id": command.request_id})
+            version = 0 if current is None else current.version
+            if version != previous_version:
+                raise ContractError(ErrorCode.VERSION_CONFLICT, command.request_id, version or None)
+            if current is not None and draft.effective_at < current.effective_at:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            now = self.clock()
+            tariff = self._record(
+                Tariff,
+                dict(
+                    id=identifier,
+                    scope=scope.model_dump(mode="json"),
+                    version=version + 1,
+                    created_at=self._iso(now if current is None else current.created_at),
+                    updated_at=self._iso(now if current is None else max(now, current.updated_at)),
+                    connection_id=draft.connection_id,
+                    model_id=draft.model_id,
+                    unit_tokens=draft.unit_tokens,
+                    currency=draft.currency,
+                    effective_at=self._iso(draft.effective_at),
+                    input_rate=draft.input_rate,
+                    output_rate=draft.output_rate,
+                    cached_input_rate=draft.cached_input_rate,
+                    reasoning_output_rate=draft.reasoning_output_rate,
+                ),
+            )
+            if current is not None and self._same_terms(tariff, current):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            await unit.put(
+                tariff, expected_version=version or None, access=self.reader_access or None
+            )
+            receipt = Receipt(
+                request_id=internal.request_id,
+                scope=scope,
+                status="completed",
+                resource_id=identifier,
+                version=version + 1,
+            )
+            await unit.complete(receipt)
+        return receipt.model_copy(update={"request_id": command.request_id})
 
     async def set_tariff(self, command: CommandBase, draft: TariffDraft) -> Tariff:
         """New tariff version for (connection, model); an identical draft changes nothing."""

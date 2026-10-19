@@ -18,6 +18,7 @@ from .finish_restore import finish_restore
 from .gm import configure_gm
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
+from .llm_panel import prepare_llm_panel
 from .memory import enable_memory
 from .recovery import enable_recovery
 from .serve import permissions_expired, serve
@@ -28,6 +29,10 @@ EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 def parser() -> argparse.ArgumentParser:
     main = argparse.ArgumentParser(prog="ai_agent_core.local_host")
     commands = main.add_subparsers(dest="command", required=True)
+    llm_panel = commands.add_parser(
+        "prepare-llm-panel", help="offline operator read access to connections and assignments"
+    )
+    llm_panel.add_argument("--root", type=Path, required=True)
     init = commands.add_parser("init", help="prepare a new, empty host directory once")
     init.add_argument("--root", type=Path, required=True, help="absolute path of a new directory")
     init.add_argument("--profile-file", type=Path, help="persona Markdown; default: synthetic")
@@ -129,6 +134,10 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
+        if arguments.command == "prepare-llm-panel":
+            asyncio.run(prepare_llm_panel(arguments.root))
+            print("LLM metadata prepared for the panel; agent stays STOPPED")
+            return 0
         if arguments.command == "finish-restore":
             asyncio.run(
                 finish_restore(

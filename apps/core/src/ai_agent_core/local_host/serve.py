@@ -1,5 +1,6 @@
 """Open an initialised host directory STOPPED on loopback. No migration, grant or auto-start."""
 
+import asyncio
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -159,6 +160,16 @@ def _build(
 
     if config.recovery is not None:
         app.state.runtime.maintenance = HostMaintenance(host, config, app.state.runtime, opened)
+
+    if config.live is not None and config.operator_controls:
+        from .live_budget import LiveBudget
+
+        lock = (
+            runtime.maintenance.ledger.lock
+            if isinstance(runtime.maintenance, HostMaintenance)
+            else asyncio.Lock()
+        )
+        runtime.budget_controls = LiveBudget(host, runtime, lock)
 
     if panel is not None:
         mount(app, panel)

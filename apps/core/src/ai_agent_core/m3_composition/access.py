@@ -52,6 +52,8 @@ class Mutations:
             "memory.delete.execute",
             "memory.export.preview",
             "memory.export.execute",
+            "tariff.create",
+            "llm.limits",
         }
         if request.scope.partition != runtime.supervisor.snapshot.scope.partition and (
             not isinstance(request, (CreateCommand, EditCommand, PlanCommand, ExecutePlanCommand))
@@ -77,6 +79,16 @@ class Mutations:
             from .memory_cycles import manual
 
             return await manual(runtime, authority, request)
+        if isinstance(request, CreateCommand) and request.type == "tariff.create":
+            from .llm_controls import tariff
+
+            async with runtime._lock:
+                return await tariff(runtime, authority, request)
+        if isinstance(request, EditCommand) and request.type == "llm.limits":
+            from .llm_controls import limits
+
+            async with runtime._lock:
+                return await limits(runtime, authority, request)
         if isinstance(request, (PlanCommand, ExecutePlanCommand)) and request.type in (
             "memory.delete.preview",
             "memory.delete.execute",

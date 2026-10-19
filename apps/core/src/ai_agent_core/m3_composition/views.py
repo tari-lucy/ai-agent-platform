@@ -88,6 +88,10 @@ class Views:
     ) -> Contract:
         if scope.partition not in {s.partition for s in self.runtime.scopes}:
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if resource == "api-limits" and identifier is None:
+            if self.runtime.budget_controls is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            return await self.runtime.budget_controls.read(scope)
         if resource == "private-api-status" and identifier is None:
             from ai_agent_application.usage import UsageLedger
 

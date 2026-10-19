@@ -145,7 +145,9 @@ async def initialise(
         await persona.create(
             from_wire(TypeAdapter(CreateCommand), json.dumps(create).encode(), extensions=registry)
         )
-        await _prepare_records(store, registry, work, expires, live=live)
+        await _prepare_records(
+            store, registry, work, expires, live=live, operator_controls=operator_controls
+        )
         # Only explicit init controls mode retains WORKSPACE writes for reviewed plans.
         await store.provision(work, rights.work_grants(operator_controls=operator_controls))
         if settings_id is not None:
@@ -197,6 +199,7 @@ async def _prepare_records(
     expires: datetime,
     *,
     live: LiveConfig | None = None,
+    operator_controls: bool = False,
 ) -> None:
     now = datetime.now(UTC)
     common = dict(scope=scope, created_at=now, updated_at=now, version=1)
@@ -350,4 +353,6 @@ async def _prepare_records(
             )
         )
     for owner, item, access in records:
+        if operator_controls and isinstance(item, (Connection, LLMAssignment)):
+            access = (*access, RecordAccess("operator", api_transfer=True))
         await put(store, registry, owner, scope, "local-host-" + item.id, item, None, access)

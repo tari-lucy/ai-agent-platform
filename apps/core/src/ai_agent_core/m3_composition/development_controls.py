@@ -61,6 +61,8 @@ OWNERS = {
     "Source": Owner.MEMORY,
     "Claim": Owner.MEMORY,
     "Summary": Owner.MEMORY,
+    "Connection": Owner.WORKSPACE,
+    "Tariff": Owner.LLM,
     "StateChange": Owner.PERSONA,
     "CharacterState": Owner.PERSONA,
     "Profile": Owner.PERSONA,

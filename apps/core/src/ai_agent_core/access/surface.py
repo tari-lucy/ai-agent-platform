@@ -487,7 +487,7 @@ class Surface:
                 },
             )
         custom = re.fullmatch(
-            r"/api/v1/(private-api-status|laboratory-catalogue|laboratory-runs|"
+            r"/api/v1/(api-limits|private-api-status|laboratory-catalogue|laboratory-runs|"
             r"persona-markdown|settings-transfer-status)(?:/([^/]+))?",
             path,
         )
@@ -545,6 +545,7 @@ class Surface:
                 )
             self.sessions.check_scope(authority, scope)
             expected = {
+                "api-limits": "ApiLimits",
                 "private-api-status": "PrivateApiStatus",
                 "laboratory-catalogue": "LaboratoryCatalogue",
                 "laboratory-runs": "LaboratoryRuns",
