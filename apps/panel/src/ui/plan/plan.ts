@@ -5,10 +5,10 @@ export type PlanPhase =
   | { phase: 'idle' } | { phase: 'previewing' }
   | { phase: 'ready'; plan: ConsequencePlan } | { phase: 'executing'; plan: ConsequencePlan; command: ExecutePlanCommand }
   | { phase: 'unknown'; plan: ConsequencePlan; command: ExecutePlanCommand }
-  | { phase: 'running'; plan: ConsequencePlan; receipt: Receipt } | { phase: 'refused'; code: string };
+  | { phase: 'running'; plan: ConsequencePlan; receipt: Receipt; command: ExecutePlanCommand } | { phase: 'refused'; code: string };
 export function afterExecute(plan: ConsequencePlan, command: ExecutePlanCommand, outcome: { receipt: Receipt } | { code: string }): PlanPhase {
   if ('receipt' in outcome) {
-    return outcome.receipt.status === 'rejected' ? { phase: 'refused', code: 'ACCESS_DENIED' } : { phase: 'running', plan, receipt: outcome.receipt };
+    return outcome.receipt.status === 'rejected' ? { phase: 'refused', code: 'ACCESS_DENIED' } : { phase: 'running', plan, receipt: outcome.receipt, command };
   }
   return ['NETWORK', 'OUTCOME_UNKNOWN', 'STALE_CONTEXT'].includes(outcome.code) ?
     { phase: 'unknown', plan, command } : { phase: 'refused', code: outcome.code };
@@ -21,7 +21,8 @@ export function progress(operation: OperationProjection | OwnerOperation | null,
   if (!operation) return { done: [], pending: [operationLabel], text: 'Ожидаем подтверждение от владельца данных.' };
   if ('state' in operation) {
     return operation.state === 'completed' && operation.receipt ? { done: [operationLabel], pending: [], text: 'Выполнено.' } :
-      { done: [], pending: [operationLabel], text: 'Результат требует сверки. Повторное применение автоматически не выполняется.' };
+      { done: operation.completed_steps ?? [], pending: operation.pending_steps?.length ? operation.pending_steps : [operationLabel],
+        text: 'Результат требует сверки. Повторное применение автоматически не выполняется.' };
   }
   if (finished.has(operation.status)) return { done: [operationLabel], pending: [], text: 'Выполнено.' };
   if (failed.has(operation.status)) return { done: [], pending: [operationLabel], text: 'Не выполнено: ' + operation.status + '.' };

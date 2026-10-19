@@ -91,20 +91,24 @@ function Correct({ api, run, card, onDone }: { api: PanelApi; run: RunSession; c
 function PlanPanel({ api, scope, run, card, operation }: { api: PanelApi; scope: Scope; run: RunSession; card: Card; operation: Operation }) {
   const label = operation === 'delete' ? 'Удаление' : 'Экспорт';
   const spec: PlanSpec = {
+    ownerOperation: true, hideRelated: true,
+    blocked: operation === 'delete' && run.state !== 'STOPPED' ? 'Для удаления сначала нажмите STOP и дождитесь остановки.' : null,
+    download: operation === 'export' ? (operationId) => api.memoryExport(scope, operationId) : undefined,
     label, previewLabel: operation === 'delete' ? 'Подготовить удаление' : 'Подготовить экспорт',
     executeLabel: operation === 'delete' ? 'Удалить' : 'Экспортировать', danger: operation === 'delete',
     confirmText: operation === 'delete' ? 'Я понимаю, что удалённое восстановить нельзя' : undefined,
     note: 'Внешняя публикация, если была, удаляется на площадке отдельно; копии обрабатываются по политике резервных копий.',
-    preview: (requestId) => previewCommand(run.scope, run.session_id, card, operation, requestId),
-    execute: (plan, requestId) => executeCommand(run.scope, run.session_id, plan, operation, requestId),
+    preview: (requestId) => previewCommand(run.scope, card.id, card, operation, requestId),
+    execute: (plan, requestId) => executeCommand(run.scope, card.id, plan, operation, requestId),
     problem: (plan, now) => planProblem(plan, card, now), related: (plan) => dependencyCount(plan, card),
     refresh: ['sources', 'episodes', 'claims', 'summaries'],
   };
   return <PlanFlow api={api} scope={scope} spec={spec} />;
 }
 
-function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
-  api: PanelApi; scope: Scope; run: RunSession | undefined; card: Card; all: Card[]; onSelect: (card: Card) => void; onChanged: () => void;
+function Detail({ api, run, card, all, onSelect, onChanged, onPlan }: {
+  api: PanelApi; run: RunSession | undefined; card: Card; all: Card[]; onSelect: (card: Card) => void; onChanged: () => void;
+  onPlan: (card: Card, operation: Operation) => void;
 }) {
   const [mode, setMode] = useState<'correct' | 'delete' | 'export' | null>(null);
   const [now] = useState(() => Date.now()); // render stays pure; retention text is a snapshot of when the card opened
@@ -138,12 +142,11 @@ function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
     <Group mt="md" gap="xs">
       {(card.kind === 'claim' || card.kind === 'summary') && <Button size="compact-sm" variant={mode === 'correct' ? 'filled' : 'light'} onClick={() => setMode(mode === 'correct' ? null : 'correct')}>Исправить</Button>}
       {card.kind === 'source' && <>
-        <Button size="compact-sm" variant={mode === 'export' ? 'filled' : 'light'} onClick={() => setMode(mode === 'export' ? null : 'export')}>Экспорт</Button>
-        <Button size="compact-sm" color="red" variant={mode === 'delete' ? 'filled' : 'light'} onClick={() => setMode(mode === 'delete' ? null : 'delete')}>Удалить</Button></>}
+        <Button size="compact-sm" variant={mode === 'export' ? 'filled' : 'light'} onClick={() => { setMode('export'); onPlan(card, 'export'); }}>Экспорт</Button>
+        <Button size="compact-sm" color="red" variant={mode === 'delete' ? 'filled' : 'light'} onClick={() => { setMode('delete'); onPlan(card, 'delete'); }}>Удалить</Button></>}
     </Group>
     {mode && !run && <Alert color="orange" mt="sm">Нет подтверждённого запуска в этой области: команды недоступны.</Alert>}
     {mode === 'correct' && run && <Correct key={card.key} api={api} run={run} card={card} onDone={onChanged} />}
-    {(mode === 'delete' || mode === 'export') && run && <PlanPanel key={card.key + mode} api={api} scope={scope} run={run} card={card} operation={mode} />}
   </Paper>;
 }
 
@@ -158,6 +161,7 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
   const [filters, setFilters] = useState<Filters>(noFilters);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [searchedSource, setSearchedSource] = useState<string | null>(null);
+  const [planSelection, setPlanSelection] = useState<{ card: Card; operation: Operation } | null>(null);
   const detail = useRef<HTMLDivElement>(null);
   const focusSource = useRef<string | null>(null);
   const foundSource = useQuery({ queryKey: [...projectionKey('sources', scope), 'one', searchedSource],
@@ -195,6 +199,11 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Tabs.List><Tabs.Tab value="memory">Записи</Tabs.Tab><Tabs.Tab value="people">Люди</Tabs.Tab></Tabs.List>
       <Tabs.Panel value="people" pt="md"><PeopleTab api={api} scope={scope} /></Tabs.Panel>
       <Tabs.Panel value="memory" pt="md"><Stack gap="md">
+        {planSelection && run && <Paper withBorder p="md" aria-label="Операция с памятью">
+          <Text fw={600}>{planSelection.operation === 'delete' ? 'Удаление выбранного источника' : 'Экспорт выбранного источника'}</Text>
+          <PlanPanel key={planSelection.card.id + planSelection.operation} api={api} scope={scope} run={run}
+            card={planSelection.card} operation={planSelection.operation} />
+        </Paper>}
         <Paper withBorder p="md" radius="lg"><Group align="flex-end" gap="sm">
           <Select label="Тип" clearable data={options<Kind>(kindLabels)} value={filters.kind || null} onChange={(v) => set({ kind: (v ?? '') as Kind | '' })} />
           <Select label="Вид знания" clearable data={options<Category>(categoryLabels)} value={filters.category || null} onChange={(v) => set({ category: (v ?? '') as Category | '' })} />
@@ -224,7 +233,8 @@ export function Memory({ api, scope }: { api: PanelApi; scope: Scope }) {
                 </button></li>)}</ul>}
           </Paper>
           <div ref={detail} style={{ flex: '1 1 24rem', scrollMarginTop: 'calc(var(--header-offset, 120px) + 16px)' }}>{selected ?
-            <Detail key={selected.key} api={api} scope={scope} run={run} card={selected} all={cards} onSelect={(card) => { setSearchedSource(null); setSelectedKey(card.key); }}
+            <Detail key={selected.key} api={api} run={run} card={selected} all={cards} onSelect={(card) => { setSearchedSource(null); setSelectedKey(card.key); }}
+              onPlan={(card, operation) => setPlanSelection({ operation, card: { ...card, text: null, source: null, basis: [], people: [] } })}
               onChanged={() => { for (const query of all) void query.refetch(); void cache.invalidateQueries({ queryKey: ['projection'] }); }} /> :
             <Alert color="gray">Выберите запись, чтобы увидеть источники, срок хранения и действия.</Alert>}</div>
         </Group>

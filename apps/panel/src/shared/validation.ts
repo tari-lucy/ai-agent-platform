@@ -463,12 +463,14 @@ export function laboratoryRuns(value: unknown, selected: Scope): import('./contr
 }
 
 export function ownerOperation(value: unknown, selected: Scope, operationId: string): import('./contracts.ts').OwnerOperation {
+  const steps = (items: unknown) => items === undefined ||
+    (Array.isArray(items) && items.length <= 20 && items.every((item) => text(item, 512)));
   demand(object(value) && value.id === operationId && isScope(value.scope) && samePartition(value.scope, selected) &&
     version(value.version) && id(value.request_id) && id(value.operator_id) && id(value.target_id) &&
     ['planned', 'completed', 'reconciliation_required'].includes(String(value.state)) &&
     Array.isArray(value.result_ids) && value.result_ids.length <= 200 && value.result_ids.every(id) &&
     Array.isArray(value.expected_result_ids) && value.expected_result_ids.length <= 200 && value.expected_result_ids.every(id) &&
-    date(value.expires_at));
+    date(value.expires_at) && steps(value.completed_steps) && steps(value.pending_steps));
   demand(value.state === 'completed' ? object(value.receipt) && value.receipt.operation_id === operationId &&
     value.receipt.request_id === value.request_id && isScope(value.receipt.scope) && samePartition(value.receipt.scope, selected) &&
     value.receipt.status === 'completed' && id(value.receipt.resource_id) && version(value.receipt.version) : value.receipt === null);

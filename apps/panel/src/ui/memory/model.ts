@@ -126,9 +126,9 @@ export function conflictsOf(card: Card, all: Card[]): Card[] {
 }
 
 // ---- corrections ----------------------------------------------------------------------------
-// Correction is canonical; delete/export payloads await their owner routes.
+// Canonical owner payloads, validated again by the server.
 export const MEMORY_SCHEMA = {
-  correct: 'memory.correct-args', delete: 'memory.delete', export: 'memory.export',
+  correct: 'memory.correct-args', delete: 'memory.delete-args', export: 'memory.export-args',
 } as const;
 export type Correction = { content: string; confidence: string; reason: string };
 export function validCorrection(card: Card, input: Correction): string | null {

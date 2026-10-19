@@ -12,6 +12,8 @@ import { afterExecute, progress, type PlanPhase } from './plan.ts';
 // an unknown outcome is checked with the identical command, progress comes from the owner.
 export type PlanSpec = {
   ownerOperation?: boolean;
+  download?: (operationId: string) => Promise<Blob>;
+  hideRelated?: boolean;
   label: string; previewLabel: string; executeLabel: string; danger?: boolean;
   confirmText?: string;      // checkbox that must be ticked
   typedConfirm?: string;     // text the operator must type exactly
@@ -30,6 +32,8 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
   const [state, setState] = useState<PlanPhase>({ phase: 'idle' });
   const [understood, setUnderstood] = useState(false);
   const [typed, setTyped] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProblem, setDownloadProblem] = useState<string | null>(null);
   const [opened] = useState(() => Date.now()); // render stays pure; the click checks the term again
   const operationId = state.phase === 'running' ? (state.receipt.operation_id ?? state.receipt.resource_id ?? null) : null;
   const status = useQuery<OwnerOperation | OperationProjection>({
@@ -59,6 +63,17 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
     }
   }
   const view = progress(status.data ?? null, spec.label);
+  async function download() {
+    if (!spec.download || !operationId) return;
+    setDownloading(true); setDownloadProblem(null);
+    try {
+      const blob = await spec.download(operationId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = 'memory-source.json';
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) { setDownloadProblem(failureMessage(error)); }
+    finally { setDownloading(false); }
+  }
   return <Stack gap="xs" mt="sm">
     {(state.phase === 'idle' || state.phase === 'refused' || state.phase === 'previewing') &&
       <><Button variant="light" disabled={state.phase === 'previewing' || !!spec.blocked} onClick={() => void preview()}>
@@ -68,7 +83,7 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
     {(state.phase === 'ready' || state.phase === 'executing' || state.phase === 'unknown') && <Paper withBorder p="sm" aria-label="План последствий">
       <Text fw={600}>План: {spec.label}</Text>
       <Text className="plain-text" size="sm" mt={4}>{state.plan.consequences}</Text>
-      <Text size="sm" mt={4}>Связанных записей: {spec.related(state.plan)} · действует до {formatTime(state.plan.expires_at, 'short')}</Text>
+      <Text size="sm" mt={4}>{!spec.hideRelated && <>Связанных записей: {spec.related(state.plan)} · </>}действует до {formatTime(state.plan.expires_at, 'short')}</Text>
       {spec.note && <Text size="xs" c="dimmed">{spec.note}</Text>}
       {problem && <Alert color="orange" mt="xs" role="alert">{problem}</Alert>}
       {state.phase === 'ready' && <>
@@ -87,7 +102,12 @@ export function PlanFlow({ api, scope, spec }: { api: PanelApi; scope: Scope; sp
       {!!view.done.length && <Text size="sm">Выполнено: {view.done.join(', ')}</Text>}
       {!!view.pending.length && <Text size="sm">Ожидает: {view.pending.join(', ')}</Text>}
       {spec.doneNote && <Text size="sm" c="orange.8">{spec.doneNote}</Text>}
+      {spec.download && status.data && 'state' in status.data && status.data.state === 'completed' &&
+        <Button mt="xs" size="compact-sm" disabled={downloading} onClick={() => void download()}>Скачать JSON</Button>}
+      {downloadProblem && <Alert color="orange" role="alert">{downloadProblem}</Alert>}
       <Button mt="xs" size="compact-sm" variant="subtle" onClick={() => void status.refetch()}>Обновить статус</Button>
+      {spec.ownerOperation && status.data && 'state' in status.data && status.data.state !== 'completed' &&
+        <Button mt="xs" ml="sm" size="compact-sm" variant="light" onClick={() => void execute(state.plan, state.command)}>Проверить исход</Button>}
     </Paper>}
   </Stack>;
 }

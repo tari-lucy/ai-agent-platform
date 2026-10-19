@@ -61,7 +61,7 @@ export class PanelApi {
     this.#requests.clear();
   }
   async #request(path: string, body?: unknown, signal?: AbortSignal, timeout = 15000,
-    download?: { reference: ArtifactRef; scenario: string; version: number }): Promise<unknown> {
+    download?: { reference: ArtifactRef; scenario: string; version: number }, memoryExportScope?: Scope): Promise<unknown> {
     // Relative allowlisted paths only: no endpoints, credentials or redirects to other sites.
     if (!/^\/api\/v1\//.test(path) || path.includes('..') || path.includes('#')) throw new ApiFailure('INVALID_ARGUMENTS');
     const generation = this.#generation;
@@ -113,6 +113,19 @@ export class PanelApi {
         const report: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
         if (!object(report) || report.mock !== true || report.scenario_id !== download.scenario ||
             report.scenario_version !== download.version) throw new ApiFailure('NETWORK');
+        return new Blob([bytes], { type: 'application/json' });
+      }
+      if (memoryExportScope && response.ok) {
+        const checksum = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
+          (b) => b.toString(16).padStart(2, '0')).join('');
+        if (generation !== this.#generation || controller.signal.aborted) throw new ApiFailure('STALE_CONTEXT');
+        if (response.headers.get('Content-Type')?.split(';')[0] !== 'application/json' ||
+            response.headers.get('ETag') !== `"${checksum}"`) throw new ApiFailure('NETWORK');
+        const document: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        if (!object(document) || document.schema_id !== 'memory.source-export' || document.schema_version !== '1.0') {
+          throw new ApiFailure('NETWORK');
+        }
+        memorySources({ items: [document.source], complete: true, next_cursor: null }, memoryExportScope);
         return new Blob([bytes], { type: 'application/json' });
       }
       let value: unknown;
@@ -316,5 +329,13 @@ export class PanelApi {
   // Future screen owners may use this explicit port. Never retry mutations automatically.
   async command(command: PanelCommand): Promise<Receipt | StopReceipt> {
     return receipt(await this.#request('/api/v1/commands', command), command);
+  }
+  async memoryExport(scope: Scope, operationId: string): Promise<Blob> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId)) throw new ApiFailure('INVALID_ARGUMENTS');
+    const query = new URLSearchParams(partition(scope) as Record<string, string>);
+    const result = await this.#request(`/api/v1/memory/exports/${operationId}/content?${query}`,
+      undefined, undefined, 15000, undefined, scope);
+    if (!(result instanceof Blob)) throw new ApiFailure('NETWORK');
+    return result;
   }
 }

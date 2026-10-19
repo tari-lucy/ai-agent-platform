@@ -120,7 +120,7 @@ def mock_memory(
     plan=None,
     operation_status="RUNNING",
     command=None,
-    run_state="ACTIVE",
+    run_state="STOPPED",
 ):
     posted, reads = [], []
 
@@ -169,6 +169,30 @@ def mock_memory(
                     "status": operation_status,
                     "deadline": FAR,
                     "waiting_reason": "чистим индекс",
+                }
+            )
+        elif path == "/api/v1/owner-operations/op-9":
+            done = operation_status == "SUCCEEDED"
+            request.fulfill(
+                json={
+                    **base("op-9", 21),
+                    "request_id": "execute-fixture",
+                    "operator_id": "operator",
+                    "target_id": "s-1",
+                    "expires_at": FAR,
+                    "expected_result_ids": ["plan-1"],
+                    "result_ids": ["plan-1"] if done else [],
+                    "state": "completed" if done else "reconciliation_required",
+                    "receipt": {
+                        "operation_id": "op-9",
+                        "request_id": "execute-fixture",
+                        "scope": RUN_SCOPE,
+                        "status": "completed",
+                        "resource_id": "plan-1",
+                        "version": 2,
+                    }
+                    if done
+                    else None,
                 }
             )
         elif path.startswith("/api/v1/operations"):
@@ -366,7 +390,7 @@ def test_delete_needs_a_plan_that_names_the_record_and_an_explicit_confirmation(
     page.get_by_role("button", name="Подготовить удаление").click()
     panel = page.get_by_label("План последствий")
     expect(panel).to_contain_text("Будут удалены текст источника")
-    expect(panel).to_contain_text("Связанных записей: 1")
+    expect(panel).not_to_contain_text("Связанных записей:")
     execute = panel.get_by_role("button", name="Удалить", exact=True)
     expect(execute).to_be_disabled()
     panel.get_by_label("Я понимаю, что удалённое восстановить нельзя").check()
@@ -375,7 +399,7 @@ def test_delete_needs_a_plan_that_names_the_record_and_an_explicit_confirmation(
     assert posted[0]["arguments"]["data"] == {"source_ids": ["s-1"]}
     execute.click()
     status = page.get_by_label("Ход выполнения")
-    expect(status).to_contain_text("чистим индекс")
+    expect(status).to_contain_text("Результат требует сверки")
     expect(status).to_contain_text("Ожидает: Удаление")
     assert [body["type"] for body in posted] == ["memory.delete.preview", "memory.delete.execute"]
     run = posted[1]
@@ -511,6 +535,7 @@ def test_narrow_window_keeps_stop_and_has_no_horizontal_scroll(page, live_panel)
         live_panel,
         sources=[source("s-1", "Очень длинная запись " * 40, 2)],
         claims=[claim("c-1", "Длинное утверждение " * 30, 6)],
+        run_state="ACTIVE",
     )
     page.set_viewport_size({"width": 390, "height": 844})
     expect(page.get_by_role("button", name=STOP_BUTTON)).to_be_in_viewport()
