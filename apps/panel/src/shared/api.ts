@@ -6,7 +6,7 @@ import type { OwnerOperation, LaboratoryRuns,
   SourcePage, StopCommand, StopReceipt, UtterancePage,
 } from './contracts.ts';
 import {
-  recall, memoryCycles, privateApiStatus, ownerOperation,  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
+  apiLimits, recall, memoryCycles, privateApiStatus, ownerOperation,  laboratoryRuns,  settingsTransferPreview, settingsTransferStatus, settingsTransfers,
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
@@ -38,7 +38,7 @@ export class ApiFailure extends Error {
 export const failureMessage = (error: unknown) =>
   error instanceof ApiFailure ? error.message : 'Не удалось получить данные. Обновите состояние.';
 type Fetcher = typeof fetch;
-type ReadResource = 'memory-cycles' | 'private-api-status' | 'owner-operations' | 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
+type ReadResource = 'api-limits' | 'memory-cycles' | 'private-api-status' | 'owner-operations' | 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
   'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises';
 
@@ -175,6 +175,9 @@ export class PanelApi {
   }
   async memoryCycles(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').MemoryCyclePage> {
     return memoryCycles(await this.#read('memory-cycles', scope, signal), scope);
+  }
+  async apiLimits(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').ApiLimits> {
+    return apiLimits(await this.#read('api-limits', scope, signal), scope);
   }
   async privateApiStatus(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').PrivateApiStatus> {
     return privateApiStatus(await this.#read('private-api-status', scope, signal), scope);

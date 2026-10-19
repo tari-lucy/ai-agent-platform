@@ -478,6 +478,15 @@ export function ownerOperation(value: unknown, selected: Scope, operationId: str
 }
 
 
+export function apiLimits(value: unknown, selected: Scope): import('./contracts.ts').ApiLimits {
+  demand(object(value) && value.id === 'api-limits' && isScope(value.scope) && samePartition(value.scope, selected) &&
+    version(value.version) && ['lifetime', 'utc_day'].includes(String(value.period)) &&
+    Number.isSafeInteger(value.minimum_limit) && Number(value.minimum_limit) >= 1 &&
+    Number.isSafeInteger(value.attempt_limit) && Number(value.attempt_limit) >= Number(value.minimum_limit) &&
+    Number(value.attempt_limit) <= 1_000_000);
+  return value as import('./contracts.ts').ApiLimits;
+}
+
 export function privateApiStatus(value: unknown, selected: Scope): import('./contracts.ts').PrivateApiStatus {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
     typeof value.enabled === 'boolean' && date(value.checked_at) &&

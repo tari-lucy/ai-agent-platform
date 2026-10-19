@@ -182,10 +182,10 @@ export function validTariff(draft: TariffDraft, now: number): string | null {
   return null;
 }
 export const backdated = (draft: TariffDraft, now: number) => Number.isFinite(Date.parse(draft.effective)) && Date.parse(draft.effective) < now;
-// ASSUMPTION (owner decision pending): payload schema ids of tariffs and recalculation are not defined yet.
-export const LLM_SCHEMA = { tariff: 'tariff.create', recalculate: 'llm.recalculate' } as const;
-export function tariffCommand(scope: Scope, target: string, draft: TariffDraft, requestId: string): CreateCommand {
-  const data: Record<string, string | number> = { connection_id: draft.connection, model_id: draft.model, unit_tokens: Number(draft.unit), currency: draft.currency, effective_at: new Date(draft.effective).toISOString() };
+// Historical repricing has no connected owner route yet.
+export const LLM_SCHEMA = { tariff: 'tariff.create-args', recalculate: 'llm.recalculate' } as const;
+export function tariffCommand(scope: Scope, target: string, draft: TariffDraft, requestId: string, previousVersion = 0): CreateCommand {
+  const data: Record<string, string | number> = { previous_version: previousVersion, connection_id: draft.connection, model_id: draft.model, unit_tokens: Number(draft.unit), currency: draft.currency, effective_at: new Date(draft.effective).toISOString() };
   if (draft.input !== '') data.input_rate = draft.input;
   if (draft.output !== '') data.output_rate = draft.output;
   if (draft.cached !== '') data.cached_input_rate = draft.cached;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PanelApi, ApiFailure } from '../src/shared/api.ts';
-import { costCalculations, llmAssignments, llmAttempts, tariffs } from '../src/shared/validation.ts';
+import { apiLimits, costCalculations, llmAssignments, llmAttempts, tariffs } from '../src/shared/validation.ts';
 import { addMoney, compareMoney, isMoney } from '../src/ui/llm/money.ts';
 import {
   backdated, connectionResolver, costPerDay, emptyDraft, gaps, groupTariffs, historyRows, noFilters, perDay, rateText, recalcExecute,
@@ -160,7 +160,7 @@ test('a tariff command sends only the rates that were set', () => {
   const command = tariffCommand(runScope, 'session-1', draft, 'req-t');
   assert.equal(command.type, 'tariff.create');
   const data = command.arguments.data as Record<string, unknown>;
-  assert.deepEqual(Object.keys(data).sort(), ['cached_input_rate', 'connection_id', 'currency', 'effective_at', 'input_rate', 'model_id', 'unit_tokens']);
+  assert.deepEqual(Object.keys(data).sort(), ['cached_input_rate', 'connection_id', 'currency', 'effective_at', 'input_rate', 'model_id', 'previous_version', 'unit_tokens']);
   assert.equal(data.unit_tokens, 1000000);
   assert.match(String(data.effective_at), /Z$/);
 });
@@ -251,7 +251,17 @@ test('a tariff command carries each rate that was set and none that was not', ()
   const data = tariffCommand(runScope, 'session-1', full, 'r').arguments.data as Record<string, unknown>;
   assert.deepEqual([data.input_rate, data.output_rate, data.cached_input_rate, data.reasoning_output_rate], ['2', '6', '0.5', '8']);
   const sparse = tariffCommand(runScope, 'session-1', { ...full, input: '', cached: '', reasoning: '' }, 'r').arguments.data as Record<string, unknown>;
-  assert.deepEqual(Object.keys(sparse).sort(), ['connection_id', 'currency', 'effective_at', 'model_id', 'output_rate', 'unit_tokens']);
+  assert.deepEqual(Object.keys(sparse).sort(), ['connection_id', 'currency', 'effective_at', 'model_id', 'output_rate', 'previous_version', 'unit_tokens']);
   const onlyReasoning = tariffCommand(runScope, 'session-1', { ...full, input: '2', output: '', cached: '', reasoning: '8' }, 'r').arguments.data as Record<string, unknown>;
   assert.deepEqual([onlyReasoning.reasoning_output_rate, 'cached_input_rate' in onlyReasoning, 'output_rate' in onlyReasoning], ['8', false, false]);
+});
+
+test('API cap rejects foreign scope and invalid reserve and carries a version', () => {
+  const value = { id: 'api-limits', scope, version: 2, attempt_limit: 300, minimum_limit: 9, period: 'utc_day' };
+  assert.equal(apiLimits(value, scope).version, 2);
+  for (const patch of [{ version: 0 }, { attempt_limit: 8 }, { attempt_limit: true }, { period: 'local_day' }, { scope: { ...scope, persona_id: 'foreign' } }]) assert.throws(() => apiLimits({ ...value, ...patch }, scope));
+  const draft = { ...emptyDraft, connection: 'conn-1', model: 'model-x', currency: 'USD', input: '0.2', effective: '2026-10-14T10:00' };
+  const command = tariffCommand(scope, draft.connection, draft, 'cas', 3);
+  assert.equal(command.arguments.schema_id, 'tariff.create-args');
+  assert.equal((command.arguments.data as Record<string, unknown>).previous_version, 3);
 });

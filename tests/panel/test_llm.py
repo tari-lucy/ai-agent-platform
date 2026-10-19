@@ -2,7 +2,6 @@
 
 from urllib.parse import parse_qs, urlsplit
 
-import pytest
 from playwright.sync_api import expect
 
 WORK = {
@@ -449,50 +448,24 @@ def test_prices_show_versions_empty_is_not_zero_and_the_new_version_is_a_command
     page.locator("#tariff-effective").fill("2020-01-01T00:00")
     expect(form).to_contain_text("прежние расчёты не изменятся")
     form.get_by_role("button", name="Сохранить тариф").click()
-    expect(form.get_by_text("Тариф принят.")).to_be_visible()
+    expect(form.get_by_role("status")).to_contain_text("Версия тарифа сохранена.")
     command = next(body for body in posted if body["type"] == "tariff.create")
     data = command["arguments"]["data"]
     assert data["input_rate"] == "2.5" and "output_rate" not in data
     assert data["currency"] == "USD" and data["unit_tokens"] == 1000000
-    assert data["effective_at"].endswith("Z") and command["scope"] == RUN_SCOPE
+    assert data["effective_at"].endswith("Z") and command["scope"] == WORK
+    assert data["previous_version"] == 2 and command["target"] == "conn-1"
+    assert command["arguments"]["schema_id"] == "tariff.create-args"
 
 
-def test_repricing_is_a_separate_explicit_plan_bound_to_the_tariff(page, live_panel):
-    posted, _ = open_llm(
-        page, live_panel, assignments=[assignment()], tariffs=[tariff()], plan=plan_row()
-    )
+def test_unconnected_repricing_has_no_action_button(page, live_panel):
+    posted, _ = open_llm(page, live_panel, assignments=[assignment()], tariffs=[tariff()])
     tab(page, "Цены")
-    page.get_by_text("Пересчёт по действующей версии").click()
-    page.get_by_role("button", name="Подготовить пересчёт по этому тарифу").click()
-    panel = page.get_by_label("План последствий")
-    expect(panel).to_contain_text("Будут пересчитаны 12 расчётов")
-    expect(panel).to_contain_text("не стирая прежние")
-    assert [body["type"] for body in posted] == ["llm.recalculate.preview"]
-    panel.get_by_role("button", name="Выполнить пересчёт").click()
-    expect(page.get_by_label("Ход выполнения")).to_contain_text("пересчитываем")
-    assert posted[1]["type"] == "llm.recalculate.execute"
-    assert posted[1]["arguments"] == {"plan_id": "plan-1", "plan_version": 1}
-    assert posted[0]["arguments"]["data"] == {"tariff_id": "t1", "tariff_version": 1}
-
-
-@pytest.mark.parametrize(
-    ("reason", "plan"),
-    [
-        (
-            "не содержит выбранный тариф",
-            plan_row(dependencies=[{"resource_id": "other", "version": 1}]),
-        ),
-        ("Срок плана истёк", plan_row(expires_at="2020-01-01T00:00:00Z")),
-    ],
-)
-def test_a_repricing_plan_for_another_tariff_or_expired_cannot_run(page, live_panel, reason, plan):
-    open_llm(page, live_panel, assignments=[assignment()], tariffs=[tariff()], plan=plan)
-    tab(page, "Цены")
-    page.get_by_text("Пересчёт по действующей версии").click()
-    page.get_by_role("button", name="Подготовить пересчёт по этому тарифу").click()
-    panel = page.get_by_label("План последствий")
-    expect(panel.get_by_role("alert")).to_contain_text(reason)
-    expect(panel.get_by_role("button", name="Выполнить пересчёт")).to_be_disabled()
+    expect(
+        page.get_by_text("Исторический пересчёт пока не подключён.", exact=False)
+    ).to_be_visible()
+    expect(page.get_by_role("button", name="Подготовить пересчёт по этому тарифу")).to_have_count(0)
+    assert not posted
 
 
 def test_analytics_give_a_chart_and_the_same_numbers_as_a_table(page, live_panel):

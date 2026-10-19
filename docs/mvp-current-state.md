@@ -12,7 +12,7 @@
 | Профиль | Редактор существующего Markdown-профиля с проверкой/применением | Удобная подготовка новых разрешённых persona scopes; остальные операции людей |
 | Лаборатория | Mock-сценарии, fresh TEST pool, наблюдения/отмена, отчёты и скачивание, TEST→WORK настройки | Платный режим лаборатории не включён |
 | Восстановление | Retention/ledger, ежедневные копии, guarded offline restore; selective report purge | Кнопки backup/restore в панели; полная аварийная приёмка потери host |
-| Модели и расходы | Usage/unknown, попытки, общий суточный лимит (на рабочем host 300), GM/память в том же бюджете | Запись тарифов/пересчёт и удобные настройки из панели |
+| Модели и расходы | Usage/unknown, попытки, общий суточный лимит (на рабочем host 300), GM/память в том же бюджете; изменение лимита и запись версий тарифов из панели | Исторический пересчёт, редактирование назначений моделей; сверка со счётом провайдера |
 
 Следующая работа координатора: оставшиеся нужные для эксплуатации настройки
 M4-07/08 и короткая итоговая операторская приёмка.
@@ -31,4 +31,5 @@ production gate и дополнительные интеграции (игра/�
 [поиск](implementation-reports/Integration-panel-memory-search.md),
 [исправление](implementation-reports/Integration-panel-memory-correction.md),
 [удаление и экспорт](implementation-reports/Integration-panel-memory-lifecycle.md),
-[восстановление](implementation-reports/Integration-recovery-review.md).
+[восстановление](implementation-reports/Integration-recovery-review.md),
+[лимит и тарифы](implementation-reports/Integration-panel-llm-settings.md).

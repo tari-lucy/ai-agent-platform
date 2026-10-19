@@ -2,13 +2,14 @@ import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { RunSession, RunSessionPage, Scope, Tariff } from '../../shared/contracts.ts';
+import type { RunSessionPage, Scope, Tariff } from '../../shared/contracts.ts';
 import { failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
-import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
+import { ApiLimitEditor } from './ApiLimitEditor.tsx';
+import { useSettingCommand } from './useSettingCommand.ts';
 import {
-  backdated, connectionResolver, costPerDay, emptyDraft, gaps, groupTariffs, historyRows, noFilters, perDay, rateText, recalcExecute,
-  recalcPreview, recalcProblem, retries, roleRows, select, shares, summarise, tariffCommand, validTariff, type Filters, type TariffDraft,
+  backdated, connectionResolver, costPerDay, emptyDraft, gaps, groupTariffs, historyRows, noFilters, perDay, rateText,
+  retries, roleRows, select, shares, summarise, tariffCommand, validTariff, type Filters, type TariffDraft,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'medium');
@@ -43,23 +44,22 @@ function Bars({ title, rows, unit }: { title: string; rows: { label: string; val
   </figure>;
 }
 
-function TariffEditor({ api, run, connections, onSaved }: { api: PanelApi; run: RunSession | undefined; connections: { value: string; label: string }[]; onSaved: () => void }) {
+function TariffEditor({ api, scope, connections, tariffs, ready, onSaved }: { api: PanelApi; scope: Scope; connections: { value: string; label: string }[]; tariffs: Tariff[]; ready: boolean; onSaved: () => void }) {
   const [draft, setDraft] = useState<TariffDraft>(emptyDraft);
   const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [now] = useState(() => Date.now());
+  const action = useSettingCommand(api, onSaved);
   const set = (patch: Partial<TariffDraft>) => setDraft({ ...draft, ...patch });
+  const previousVersion = Math.max(0, ...tariffs.filter((t) => t.connection_id === draft.connection && t.model_id === draft.model).map((t) => t.version));
   async function save() {
+    if (action.pending) { await action.send(action.pending); return; }
     const invalid = validTariff(draft, Date.now());
-    if (invalid || !run) { setProblem(invalid ?? 'Нет подтверждённого запуска в этой области.'); return; }
-    setBusy(true); setProblem(null); setSaved(false);
-    try { await api.command(tariffCommand(run.scope, run.session_id, draft, crypto.randomUUID())); setSaved(true); setDraft(emptyDraft); onSaved(); }
-    catch (error) { setProblem(failureMessage(error)); }
-    finally { setBusy(false); }
+    if (invalid || !ready) { setProblem(invalid ?? 'Сначала загрузите все тарифы.'); return; }
+    setProblem(null);
+    if (await action.send(tariffCommand(scope, draft.connection, draft, crypto.randomUUID(), previousVersion))) setDraft(emptyDraft);
   }
   return <Paper withBorder p="md" radius="lg" aria-label="Новая версия тарифа"><Title order={3} size="h5" mb="xs">Новая версия тарифа</Title>
-    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+    <fieldset disabled={action.busy || !!action.pending} style={{ border: 0, padding: 0, margin: 0 }}><SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
       <Select label="Подключение" data={connections} value={draft.connection || null} onChange={(v) => set({ connection: v ?? '' })} />
       <TextInput label="ID модели" value={draft.model} onChange={(e) => set({ model: e.currentTarget.value.trim() })} />
       <TextInput label="Единица (токенов)" inputMode="numeric" value={draft.unit} onChange={(e) => set({ unit: e.currentTarget.value.trim() })} />
@@ -70,25 +70,14 @@ function TariffEditor({ api, run, connections, onSaved }: { api: PanelApi; run: 
       <TextInput label="Reasoning output (необязательно)" inputMode="decimal" value={draft.reasoning} onChange={(e) => set({ reasoning: e.currentTarget.value.trim() })} />
     </SimpleGrid>
     <div style={{ marginTop: 8 }}><label htmlFor="tariff-effective"><Text size="sm" fw={500}>Действует с (ваше время)</Text></label>
-      <input id="tariff-effective" type="datetime-local" value={draft.effective} onChange={(e) => set({ effective: e.currentTarget.value })} /></div>
-    <Text size="xs" c="dimmed" mt="xs">Пустая ставка означает «не задана», а не ноль. Изменение цены — новая версия; прошлые расчёты не переписываются.</Text>
-    {backdated(draft, now) && <Alert color="orange" mt="xs">Дата в прошлом: прежние расчёты не изменятся, пока вы не выполните отдельный пересчёт.</Alert>}
-    <Group justify="flex-end" mt="xs"><Button onClick={() => void save()} disabled={busy}>Сохранить тариф</Button></Group>
-    {problem && <Alert color="orange" mt="xs" role="alert">{problem}</Alert>}
-    {saved && <Alert color="teal" mt="xs" role="status">Тариф принят. Он применяется к будущим вызовам.</Alert>}
+      <input id="tariff-effective" type="datetime-local" value={draft.effective} onChange={(e) => set({ effective: e.currentTarget.value })} /></div></fieldset>
+    <Text size="xs" c="dimmed" mt="xs">Пустая ставка означает «не задана», а не ноль. Дата новой версии не раньше предыдущей. Изменение цены — новая версия; прошлые расчёты не переписываются.</Text>
+    {backdated(draft, now) && <Alert color="orange" mt="xs">Дата в прошлом: прежние расчёты не изменятся. Исторический пересчёт пока не подключён.</Alert>}
+    <Group justify="flex-end" mt="xs"><Button onClick={() => void save()} disabled={action.busy || (!action.pending && !ready)}>{action.pending ? 'Проверить сохранение тарифа' : 'Сохранить тариф'}</Button></Group>
+    {(problem || action.problem) && <Alert color="orange" mt="xs" role="alert">{problem ?? action.problem}</Alert>}
+    {action.saved && <Alert color="teal" mt="xs" role="status">Версия тарифа сохранена. Начало действия — по указанной дате; прошлые расчёты сохранены.</Alert>}
+    {!ready && <Text size="sm" c="orange.8">Сначала загрузите все тарифы, чтобы проверить текущую версию.</Text>}
   </Paper>;
-}
-
-function Recalc({ api, scope, run, tariff }: { api: PanelApi; scope: Scope; run: RunSession; tariff: Tariff }) {
-  const spec: PlanSpec = {
-    label: 'Пересчёт', previewLabel: 'Подготовить пересчёт по этому тарифу', executeLabel: 'Выполнить пересчёт', danger: false,
-    note: 'Пересчёт — отдельная явная операция: он показывает область и происхождение оценки и создаёт новые версии расчётов, не стирая прежние.',
-    preview: (requestId) => recalcPreview(run.scope, run.session_id, tariff, requestId),
-    execute: (plan, requestId) => recalcExecute(run.scope, run.session_id, plan, requestId),
-    problem: (plan, now) => recalcProblem(plan, tariff, now), related: (plan) => plan.dependencies.filter((dep) => dep.resource_id !== tariff.id).length,
-    refresh: ['cost-calculations', 'tariffs'],
-  };
-  return <PlanFlow key={tariff.id} api={api} scope={scope} spec={spec} />;
 }
 
 export function LlmScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
@@ -97,7 +86,8 @@ export function LlmScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
   const attemptsQuery = usePaged(scope, 'llm-attempts', (cursor, signal) => api.llmAttempts(scope, signal, cursor));
   const costsQuery = usePaged(scope, 'cost-calculations', (cursor, signal) => api.costCalculations(scope, signal, cursor));
-  const tariffsQuery = useQuery({ queryKey: projectionKey('tariffs', scope), queryFn: ({ signal }) => api.tariffs(scope, signal) });
+  const tariffsQuery = usePaged(scope, 'tariffs', (cursor, signal) => api.tariffs(scope, signal, cursor));
+  const tariffRows = tariffsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const assignmentsQuery = useQuery({ queryKey: projectionKey('llm-assignments', scope), queryFn: ({ signal }) => api.llmAssignments(scope, signal) });
   const connectionsQuery = useQuery({ queryKey: projectionKey('connections', scope), queryFn: ({ signal }) => api.connections(scope, signal) });
   const [filters, setFilters] = useState<Filters>(noFilters);
@@ -117,7 +107,7 @@ export function LlmScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
   const models = [...new Set(attempts.map((item) => item.reported_model_id ?? item.requested_model_id))].sort();
   const connectionIds = [...new Set(attempts.map(connectionOf))].sort();
   const failed = [attemptsQuery, costsQuery, tariffsQuery, assignmentsQuery].filter((query) => query.isError);
-  const groups = groupTariffs(tariffsQuery.data?.items ?? [], now);
+  const groups = groupTariffs(tariffRows, now);
   const rows = historyRows(chosen, calculations, connectionOf);
   const days = perDay(chosen);
   const perCurrency = costPerDay(chosen, calculations);
@@ -144,6 +134,7 @@ export function LlmScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
       <Tabs.Tab value="overview">Обзор</Tabs.Tab><Tabs.Tab value="roles">Модели и роли</Tabs.Tab><Tabs.Tab value="prices">Цены</Tabs.Tab>
       <Tabs.Tab value="history">История</Tabs.Tab><Tabs.Tab value="analytics">Аналитика</Tabs.Tab></Tabs.List>
       <Tabs.Panel value="overview" pt="md"><Stack gap="md">
+        <ApiLimitEditor api={api} scope={scope} run={run} />
         <SimpleGrid cols={{ base: 2, sm: 4 }}>
           <Paper withBorder p="sm"><Text size="xs" c="dimmed">Запросы / попытки</Text><Text fw={700} size="xl">{summary.totals.operations} / {summary.totals.attempts}</Text></Paper>
           <Paper withBorder p="sm"><Text size="xs" c="dimmed">Повторы</Text><Text fw={700} size="xl">{retries(summary.totals)}</Text></Paper>
@@ -168,17 +159,18 @@ export function LlmScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
               <Table.Td>{row.fallback ? `${row.fallback.model_id} · ${connectionName(row.fallback.connection_id)}` : '—'}</Table.Td><Table.Td>{row.attempts}</Table.Td></Table.Tr>)}</Table.Tbody></Table>}
         <Text size="xs" c="dimmed" mt="xs">Назначения показаны только для чтения. Модератор должен быть на другой модели, чем персонаж. Изменение назначений — отдельная операция владельца.</Text></Paper></Tabs.Panel>
       <Tabs.Panel value="prices" pt="md"><Stack gap="md">
-        <Paper withBorder p="md" radius="lg"><Title order={3} size="h5" mb="xs">Тарифы</Title>
+        <Paper withBorder p="md" radius="lg"><Title order={3} size="h5" mb="xs">Тарифы</Title><Text size="xs" c="dimmed" mb="xs">Показаны последние сохранённые версии. Закреплённый тариф старого вызова смотрите в «Истории».</Text>
           {!groups.length ? <Text size="sm" c="dimmed">Тарифов нет: стоимость неизвестна, а не нулевая.</Text> : groups.map((group) => <Paper key={group.key} withBorder p="sm" mb="xs">
             <Text fw={600}>{connectionName(group.connection)} · {group.model}</Text>
-            {!group.current && <Text size="sm" c="orange.8">Действующей версии нет (все версии начинаются в будущем).</Text>}
+            {!group.current && <Text size="sm" c="orange.8">Загруженная версия начнёт действовать позже. Предыдущий тариф, если был, остаётся в силе.</Text>}
             {group.versions.map((tariff) => <Group key={tariff.id + tariff.version} justify="space-between" mt={4}>
               <Text size="sm">v{tariff.version} · с {when(tariff.effective_at)} · вход {rateText(tariff.input_rate, tariff)} · выход {rateText(tariff.output_rate, tariff)}
                 {tariff.cached_input_rate != null && ` · cached ${rateText(tariff.cached_input_rate, tariff)}`}{tariff.reasoning_output_rate != null && ` · reasoning ${rateText(tariff.reasoning_output_rate, tariff)}`}</Text>
               <Group gap="xs">{group.current?.id === tariff.id && group.current.version === tariff.version && <Badge color="teal" variant="light">действует</Badge>}</Group></Group>)}
-            {run && group.current && <details><summary>Пересчёт по действующей версии</summary><Recalc api={api} scope={scope} run={run} tariff={group.current} /></details>}
-          </Paper>)}</Paper>
-        <TariffEditor api={api} run={run} connections={(connectionsQuery.data?.items ?? []).map((item) => ({ value: item.id, label: item.name }))}
+            <Text size="xs" c="dimmed" mt="xs">Исторический пересчёт пока не подключён. Новая цена не меняет прошлые оценки.</Text>
+          </Paper>)}
+          {tariffsQuery.hasNextPage && <Button variant="light" disabled={tariffsQuery.isFetching} onClick={() => void tariffsQuery.fetchNextPage()}>Загрузить ещё тарифы</Button>}</Paper>
+        <TariffEditor api={api} scope={scope} tariffs={tariffRows} ready={tariffsQuery.isSuccess && !tariffsQuery.isFetching && !tariffsQuery.hasNextPage} connections={(connectionsQuery.data?.items ?? []).map((item) => ({ value: item.id, label: item.name }))}
           onSaved={() => void cache.invalidateQueries({ queryKey: projectionKey('tariffs', scope) })} />
       </Stack></Tabs.Panel>
       <Tabs.Panel value="history" pt="md"><Paper withBorder p="md" radius="lg" style={{ overflowX: 'auto' }}>
