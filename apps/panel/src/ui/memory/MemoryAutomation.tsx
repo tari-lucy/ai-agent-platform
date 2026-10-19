@@ -45,7 +45,7 @@ export function MemoryAutomation({ api, scope, run, runUnavailable, records }: {
       <Alert color={condition.color} title={condition.title}><Text size="sm">{condition.message}</Text></Alert>
       {enabled && <>
         <Text size="sm">После 00:00 UTC (03:00 по Москве) агент обрабатывает подтверждённые разговоры прошлых суток: выделяет утверждения, делает сводку и проводит рефлексию.
-          Чтобы ответ вошёл в опыт, он должен быть показан и подтверждён в диалоге. Точное время запуска зависит от занятости и лимитов.</Text>
+          Чтобы ответ вошёл в опыт, он должен быть показан и подтверждён в диалоге. Если агент был остановлен при смене суток, после START в автономном режиме он подхватит необработанный опыт прошлых дней. Пустая смена суток не создаёт опыт. Точное время запуска зависит от занятости и лимитов.</Text>
         {budget.isError ? <Alert color="orange">Не удалось обновить настройки: {failureMessage(budget.error)}</Alert> : budget.data && <Text size="sm" c="dimmed">
           Проверено: {formatTime(budget.data.checked_at)}.
           {budget.data.memory_processing && <> Вызовов памяти сегодня: {budget.data.memory_calls_used} из {budget.data.memory_daily_calls}; резерв входит в общий лимит API.
