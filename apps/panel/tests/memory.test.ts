@@ -138,11 +138,13 @@ test('corrections need a reason, only lower certainty and never touch other kind
 });
 test('correction carries the version the operator saw', () => {
   const card = claimCard(claim({ version: 4 }));
-  const cmd = correctCommand(runScope, 'session-1', card, { content: 'Иван живёт у реки', confidence: '0.3', reason: ' причина ' }, 'req-1');
+  const cmd = correctCommand(runScope, card, { content: 'Иван живёт у реки', confidence: '0.3', reason: ' причина ' }, 'req-1');
   assert.equal(cmd.type, 'memory.correct');
   assert.equal(cmd.expected_version, 4);
+  assert.equal(cmd.target, card.id);
+  assert.equal(cmd.arguments.schema_id, 'memory.correct-args');
   assert.deepEqual(cmd.arguments.data, { kind: 'claim', record_id: 'c1', reason: 'причина', content: 'Иван живёт у реки', confidence: 0.3 });
-  const only = correctCommand(runScope, 'session-1', card, { content: card.text!, confidence: '', reason: 'r' }, 'req-2');
+  const only = correctCommand(runScope, card, { content: card.text!, confidence: '', reason: 'r' }, 'req-2');
   assert.deepEqual(only.arguments.data, { kind: 'claim', record_id: 'c1', reason: 'r' });
 });
 test('plans name the chosen record, expire, and execution is bound to the plan version', () => {

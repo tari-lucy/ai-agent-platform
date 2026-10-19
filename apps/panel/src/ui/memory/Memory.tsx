@@ -2,7 +2,7 @@ import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import type { EditCommand, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import { PeopleTab } from '../people/PeopleTab.tsx';
 import { MemorySearch } from './MemorySearch.tsx';
@@ -35,30 +35,56 @@ function Correct({ api, run, card, onDone }: { api: PanelApi; run: RunSession; c
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [base, setBase] = useState(card);
+  const [pending, setPending] = useState<EditCommand | null>(null);
+  const [stale, setStale] = useState(false);
+  const stopped = run.state === 'STOPPED';
   async function submit() {
-    const invalid = validCorrection(card, form);
+    const invalid = pending ? null : validCorrection(base, form);
     if (invalid) { setProblem(invalid); return; }
     setBusy(true); setProblem(null); setSaved(false);
+    const command = pending ?? correctCommand(run.scope, base, form, crypto.randomUUID());
     try {
-      await api.command(correctCommand(run.scope, run.session_id, card, form, crypto.randomUUID()));
-      setSaved(true); onDone();
+      const result = await api.command(command);
+      if (result.status !== 'completed' || result.resource_id !== base.id || result.version !== base.version! + 1) {
+        throw new ApiFailure('OUTCOME_UNKNOWN');
+      }
+      setPending(null); setSaved(true); onDone();
     } catch (error) {
+      const code = error instanceof ApiFailure ? error.code : 'NETWORK';
+      if (['NETWORK', 'OUTCOME_UNKNOWN'].includes(code) ||
+          (code === 'STALE_CONTEXT' && (!(error instanceof ApiFailure) || error.status === 0))) {
+        setPending(command);
+        setProblem('Результат неизвестен. Проверка повторит ту же команду без второго исправления. Не закрывайте форму до проверки.');
+        return;
+      }
+      setPending(null); setStale(true);
       // A stale version asks for a fresh look; the edit is never replayed over a newer one.
       setProblem(error instanceof ApiFailure && error.code === 'VERSION_CONFLICT' ?
         'Запись уже изменена. Обновите её и пересмотрите правку; чужая правка не будет затёрта.' : failureMessage(error));
       onDone();
     } finally { setBusy(false); }
   }
+  function review() {
+    setBase(card); setForm({ content: card.text ?? '', confidence: '', reason: '' });
+    setProblem(null); setSaved(false); setStale(false);
+  }
+  const locked = busy || pending !== null || saved || stale || !stopped;
   return <Stack gap="xs" mt="sm">
-    <Textarea label="Исправленный текст" autosize minRows={2} maxRows={8} maxLength={4000} value={form.content}
+    <Text size="sm">Для исправления сначала остановите агента кнопкой STOP. Затем проверьте запись и укажите основание. Новые ответы используют исправленную версию; другие записи автоматически не переписываются.</Text>
+    {!stopped && <Alert color="orange">Агент ещё не остановлен. Исправление доступно в состоянии «Остановлен».</Alert>}
+    <Textarea label="Исправленный текст" disabled={locked} autosize minRows={2} maxRows={8} maxLength={4000} value={form.content}
       onChange={(event) => setForm({ ...form, content: event.currentTarget.value })} />
-    {card.kind === 'claim' && <TextInput label="Новая уверенность (0–1, только ниже текущей)" inputMode="decimal" value={form.confidence}
-      description={`Сейчас: ${card.confidence}`} onChange={(event) => setForm({ ...form, confidence: event.currentTarget.value })} />}
-    <Textarea label="Основание исправления" autosize minRows={2} maxLength={1000} value={form.reason}
+    {card.kind === 'claim' && <TextInput label="Новая уверенность (0–1, только ниже текущей)" disabled={locked} inputMode="decimal" value={form.confidence}
+      description={`Сейчас: ${base.confidence}`} onChange={(event) => setForm({ ...form, confidence: event.currentTarget.value })} />}
+    <Textarea label="Основание исправления" disabled={locked} autosize minRows={2} maxLength={1000} value={form.reason}
       onChange={(event) => setForm({ ...form, reason: event.currentTarget.value })} />
-    <Group justify="flex-end"><Button onClick={() => void submit()} disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить исправление'}</Button></Group>
+    <Group justify="flex-end">{pending ?
+      <Button onClick={() => void submit()} disabled={busy || !stopped}>Проверить исход</Button> :
+      <Button onClick={() => void submit()} disabled={locked}>{busy ? 'Сохраняем…' : 'Сохранить исправление'}</Button>}
+      {(saved || stale) && <Button variant="light" onClick={review}>Пересмотреть актуальную запись</Button>}</Group>
     {problem && <Alert color="orange" role="alert">{problem}</Alert>}
-    {saved && <Alert color="teal" role="status">Исправление принято. Прежние версии остаются в истории.</Alert>}
+    {saved && <Alert color="teal" role="status">Исправление принято. Прежние версии сохранены до удаления по политике хранения. Для продолжения разговора нажмите START.</Alert>}
   </Stack>;
 }
 
@@ -101,6 +127,9 @@ function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
         <Text size="sm">{rightsText(card.source).join(' · ')}</Text>
         <Text size="xs" c="dimmed">Адаптер: {card.source.adapter_id} · внешний ID: {card.source.external_id ?? '—'}</Text></>}
       {card.version !== null && <Text size="xs" c="dimmed">Версия {card.version} · {formatTime(card.at, 'short')}</Text>}
+      {card.correction && card.availability === 'available' && <Alert color="blue" title="Исправлено оператором">
+        Основание: {card.correction.reason}. Предыдущая версия: {card.correction.previous_version}.
+      </Alert>}
     </Stack>
     {!!card.conflicts.length && <Alert color="orange" mt="sm" title="Есть противоречие">
       Обе позиции сохранены. {conflicts.length < card.conflicts.length ? 'Не все связанные утверждения загружены.' : ''}
@@ -113,7 +142,7 @@ function Detail({ api, scope, run, card, all, onSelect, onChanged }: {
         <Button size="compact-sm" color="red" variant={mode === 'delete' ? 'filled' : 'light'} onClick={() => setMode(mode === 'delete' ? null : 'delete')}>Удалить</Button></>}
     </Group>
     {mode && !run && <Alert color="orange" mt="sm">Нет подтверждённого запуска в этой области: команды недоступны.</Alert>}
-    {mode === 'correct' && run && <Correct key={card.key + card.version} api={api} run={run} card={card} onDone={onChanged} />}
+    {mode === 'correct' && run && <Correct key={card.key} api={api} run={run} card={card} onDone={onChanged} />}
     {(mode === 'delete' || mode === 'export') && run && <PlanPanel key={card.key + mode} api={api} scope={scope} run={run} card={card} operation={mode} />}
   </Paper>;
 }

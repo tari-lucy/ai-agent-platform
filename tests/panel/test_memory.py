@@ -120,6 +120,7 @@ def mock_memory(
     plan=None,
     operation_status="RUNNING",
     command=None,
+    run_state="ACTIVE",
 ):
     posted, reads = [], []
 
@@ -140,7 +141,7 @@ def mock_memory(
                 }
             )
         elif path == "/api/v1/sessions":
-            request.fulfill(json=page_of([run_row()] if selected == "alpha" else []))
+            request.fulfill(json=page_of([run_row(run_state)] if selected == "alpha" else []))
         elif path == "/api/v1/sources":
             if selected != "alpha":
                 request.fulfill(json=page_of([]))
@@ -337,17 +338,18 @@ def test_correction_lowers_certainty_with_the_seen_version_and_never_overwrites_
         sources=[source("s-1", "Исходное сообщение", 2)],
         claims=[claim("c-1", "Иван живёт у озера", 6, confidence=0.6, version=4)],
         command=command,
+        run_state="STOPPED",
     )
     page.get_by_role("button").filter(has_text="Утверждение").first.click()
     page.get_by_role("button", name="Исправить", exact=True).click()
     page.get_by_label("Основание исправления").fill("Он сам уточнил")
     page.get_by_label("Новая уверенность", exact=False).fill("0.9")
     page.get_by_role("button", name="Сохранить исправление").click()
-    expect(page.get_by_role("alert")).to_contain_text("только снизить")
+    expect(page.get_by_role("alert").filter(has_text="только снизить")).to_be_visible()
     assert posted == []
     page.get_by_label("Новая уверенность", exact=False).fill("0.3")
     page.get_by_role("button", name="Сохранить исправление").click()
-    expect(page.get_by_role("alert")).to_contain_text("уже изменена")
+    expect(page.get_by_role("alert").filter(has_text="уже изменена")).to_be_visible()
     assert len(posted) == 1
     body = posted[0]
     assert body["type"] == "memory.correct" and body["expected_version"] == 4

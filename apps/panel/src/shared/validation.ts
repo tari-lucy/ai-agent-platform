@@ -154,16 +154,20 @@ export function episodes(value: unknown, selected: Scope): EpisodePage {
     Array.isArray(row.participant_ids) && row.participant_ids.every(id) && ['observation', 'simulation'].includes(String(row.provenance))));
   return value as EpisodePage;
 }
+function correction(value: unknown): boolean {
+  return value == null || (object(value) && id(value.operator_id) && id(value.request_id) &&
+    version(value.previous_version) && text(value.reason, 1000) && (value.reason as string).trim().length > 0);
+}
 export function claims(value: unknown, selected: Scope): ClaimPage {
   page(value, selected);
   demand(value.items.every((row) => id(row.subject_id) && text(row.content) && knowledge.has(String(row.knowledge_type)) &&
-    refs(row.sources) && typeof row.confidence === 'number' && row.confidence >= 0 && row.confidence <= 1 &&
+    refs(row.sources) && correction(row.correction) && typeof row.confidence === 'number' && row.confidence >= 0 && row.confidence <= 1 &&
     (row.conflict_ids === undefined || (Array.isArray(row.conflict_ids) && row.conflict_ids.every(id)))));
   return value as ClaimPage;
 }
 export function summaries(value: unknown, selected: Scope): SummaryPage {
   page(value, selected);
-  demand(value.items.every((row) => text(row.content) && refs(row.sources) && date(row.period_start) && date(row.period_end) &&
+  demand(value.items.every((row) => text(row.content) && correction(row.correction) && refs(row.sources) && date(row.period_start) && date(row.period_end) &&
     Array.isArray(row.episode_ids) && row.episode_ids.every(id)));
   return value as SummaryPage;
 }

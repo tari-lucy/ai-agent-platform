@@ -8,7 +8,7 @@
 | Приватный разговор | Local host/панель, login, START/STOP, история по времени, точный ACK, состояние связи; реальные ответы API Token | Обычная операторская проверка качества при использовании |
 | Автономная память | Суточные extract/consolidate/reflection, последние 8 реплик и производная память в контексте, диагностика циклов | Качество долгой биографии на реальном использовании |
 | Сюжет и развитие | Управление GM, предложения/решения, версия/основания, ручные development controls, rollback | Живой цикл принятия/отказа персонажа; создание предложения проверено API |
-| Просмотр памяти | Источники/утверждения/сводки/эпизоды, происхождение/сроки; поиск источников по серверному индексу | Исправление claim/summary, delete preview/execute и экспорт через настоящий backend |
+| Просмотр и исправление памяти | Источники/утверждения/сводки/эпизоды, происхождение/сроки; серверный поиск источников; исправление claim/summary после STOP, версия/основание/защита от повтора | Delete preview/execute и экспорт через настоящий backend; просмотр всей истории версий |
 | Профиль | Редактор существующего Markdown-профиля с проверкой/применением | Удобная подготовка новых разрешённых persona scopes; остальные операции людей |
 | Лаборатория | Mock-сценарии, fresh TEST pool, наблюдения/отмена, отчёты и скачивание, TEST→WORK настройки | Платный режим лаборатории не включён |
 | Восстановление | Retention/ledger, ежедневные копии, guarded offline restore; selective report purge | Кнопки backup/restore в панели; полная аварийная приёмка потери host |
@@ -29,4 +29,5 @@ production gate и дополнительные интеграции (игра/�
 [память](implementation-reports/Integration-private-memory-review.md),
 [GM](implementation-reports/Integration-private-gm-live.md),
 [поиск](implementation-reports/Integration-panel-memory-search.md),
+[исправление](implementation-reports/Integration-panel-memory-correction.md),
 [восстановление](implementation-reports/Integration-recovery-review.md).

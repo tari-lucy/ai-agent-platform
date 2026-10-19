@@ -22,6 +22,7 @@ export type Card = {
   text: string | null; category: Category; confidence: number | null; conflicts: string[];
   basis: SourceRef[]; people: string[]; availability: Availability;
   source: Source | null;
+  correction?: Claim['correction'];
 };
 
 const provenanceCategory = (provenance: string): Category =>
@@ -68,6 +69,7 @@ export function claimCard(claim: Claim): Card {
     title: claim.subject_id, text: claim.content, category: knowledgeCategory(claim.knowledge_type), confidence: claim.confidence,
     conflicts: claim.conflict_ids ?? [], basis: claim.sources, people: [claim.subject_id],
     availability: basisAvailability(claim.sources), source: null,
+    correction: claim.correction,
   };
 }
 export function summaryCard(summary: Summary): Card {
@@ -75,6 +77,7 @@ export function summaryCard(summary: Summary): Card {
     key: 'summary:' + summary.id, kind: 'summary', id: summary.id, version: summary.version, at: summary.period_end,
     title: 'Сводка периода', text: summary.content, category: 'interpretation', confidence: null, conflicts: [],
     basis: summary.sources, people: [], availability: basisAvailability(summary.sources), source: null,
+    correction: summary.correction,
   };
 }
 export const buildCards = (input: { sources: Source[]; episodes: Episode[]; claims: Claim[]; summaries: Summary[] }): Card[] =>
@@ -123,9 +126,9 @@ export function conflictsOf(card: Card, all: Card[]): Card[] {
 }
 
 // ---- corrections ----------------------------------------------------------------------------
-// ASSUMPTION (owner decision pending): wire schema ids of memory payloads are not defined yet.
+// Correction is canonical; delete/export payloads await their owner routes.
 export const MEMORY_SCHEMA = {
-  correct: 'memory.correct', delete: 'memory.delete', export: 'memory.export',
+  correct: 'memory.correct-args', delete: 'memory.delete', export: 'memory.export',
 } as const;
 export type Correction = { content: string; confidence: string; reason: string };
 export function validCorrection(card: Card, input: Correction): string | null {
@@ -146,11 +149,11 @@ export function validCorrection(card: Card, input: Correction): string | null {
   }
   return null;
 }
-export function correctCommand(scope: Scope, target: string, card: Card, input: Correction, requestId: string): EditCommand {
+export function correctCommand(scope: Scope, card: Card, input: Correction, requestId: string): EditCommand {
   const data: Record<string, string | number> = { kind: card.kind, record_id: card.id, reason: input.reason.trim() };
   if (input.content.trim() !== '' && input.content !== (card.text ?? '')) data.content = input.content;
   if (input.confidence !== '') data.confidence = Number(input.confidence);
-  return { type: 'memory.correct', request_id: requestId, scope, target, expected_version: card.version!,
+  return { type: 'memory.correct', request_id: requestId, scope, target: card.id, expected_version: card.version!,
     arguments: { schema_id: MEMORY_SCHEMA.correct, data } };
 }
 
