@@ -72,6 +72,8 @@ def experience_groups(episodes: Sequence[Episode]) -> dict[str, str]:
     for episode in episodes:
         anchor = "episode:" + episode.id
         for ref in episode.sources:
+            if episode.experience_source_ids and ref.source_id not in episode.experience_source_ids:
+                continue
             left, right = find(anchor), find("source:" + ref.source_id)
             parent[max(left, right)] = min(left, right)
     return {

@@ -290,6 +290,7 @@ class DevelopmentController:
             if episode.provenance != expected:
                 return 0, [], "EPISODE_PROVENANCE"
             independent = False
+            primary = set(episode.experience_source_ids) or {r.source_id for r in episode.sources}
             for ref in episode.sources:
                 source = await self.evidence.source(scope, ref.source_id)
                 if (
@@ -300,12 +301,17 @@ class DevelopmentController:
                     return 0, [], "SOURCE_UNAVAILABLE"
                 verdict = classify(source, scope)
                 independent = independent or bool(
-                    verdict and verdict.independent and verdict.reject is None
+                    ref.source_id in primary
+                    and verdict
+                    and verdict.independent
+                    and verdict.reject is None
                 )
                 evidence[ref.source_id] = ref
-            fresh = all(r.source_id not in spent_sources for r in episode.sources)
+            fresh = primary.isdisjoint(spent_sources)
             if independent and fresh:
-                group = groups.get(episode.sources[0].source_id, episode.id)
+                group = groups.get(
+                    next(r.source_id for r in episode.sources if r.source_id in primary), episode.id
+                )
                 if group not in spent_groups:
                     counted.add(group)
         return len(counted), list(evidence.values()), None

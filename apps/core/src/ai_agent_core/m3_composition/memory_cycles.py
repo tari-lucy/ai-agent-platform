@@ -12,6 +12,7 @@ from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.dialogue.context import data
 from ai_agent_application.llm import ChatMessage, GenerationRequest
 from ai_agent_application.memory.service import derived_id
+from ai_agent_application.persona.schemas import DevelopmentBounds
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
 from ai_agent_contracts.api import ProcessMemoryCommand, Receipt
@@ -19,7 +20,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import ExecutionCommand, Utterance
 from ai_agent_contracts.memory import Episode, MemoryCycle, Source
-from ai_agent_contracts.persona import ReflectionCheckpoint
+from ai_agent_contracts.persona import Profile, ReflectionCheckpoint
 from ai_agent_contracts.states import ErrorCode, OperationState
 
 from .history import PrivateHistory
@@ -251,9 +252,26 @@ class DailyMemory:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         now = rt.supervisor.clock.utc()
         attempts = await UsageLedger(rt.store, PRINCIPALS[Owner.LLM], rt.registry).attempts(scope)
+        profile = await rt.store.repository(Profile, PRINCIPALS[Owner.PERSONA], scope).get(
+            scope.persona_id
+        )
+        if profile is None:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        # Extract + consolidate + reflect, with room for validation and application
+        # story screens when this profile admits autonomous changes. Do not start
+        # another batch with only three calls left and strand its reflection.
+        bounds = rt.registry.validate(
+            profile.development_bounds.schema_id,
+            profile.development_bounds.schema_version,
+            profile.development_bounds.data,
+        )
+        if not isinstance(bounds, DevelopmentBounds):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        mutable = any(item.autonomous for item in bounds.bounds)
+        required = 5 if mutable else 3
         if (
-            budget.memory_daily_calls - budget.memory_used(attempts, now) < 3
-            or budget.max_attempts - budget.used(attempts, now) < 3
+            budget.memory_daily_calls - budget.memory_used(attempts, now) < required
+            or budget.max_attempts - budget.used(attempts, now) < required
         ):
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         latest = await rt.store.repository(

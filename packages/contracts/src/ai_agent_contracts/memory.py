@@ -61,6 +61,9 @@ class Source(VersionedRecord):
 
 class Episode(Record):
     sources: list[SourceRef] = Field(min_length=1, max_length=200)
+    # Sources of this event, as distinct from contextual dependencies. Legacy
+    # records without this owner-supplied subset retain conservative grouping.
+    experience_source_ids: list[Id] = Field(default_factory=list, max_length=200)
     participant_ids: list[Id] = Field(max_length=200)
     choice: Text
     actual_outcome: Text
@@ -68,6 +71,15 @@ class Episode(Record):
     operation_id: Id
     provenance: Literal["observation", "simulation"]
     outcome_confirmed: TrueFlag
+
+    @model_validator(mode="after")
+    def experience_is_part_of_sources(self) -> Self:
+        selected = set(self.experience_source_ids)
+        if len(selected) != len(self.experience_source_ids) or not selected.issubset(
+            {ref.source_id for ref in self.sources}
+        ):
+            raise ValueError("EXPERIENCE_SOURCE_SUBSET")
+        return self
 
 
 class MemoryCorrection(Contract):

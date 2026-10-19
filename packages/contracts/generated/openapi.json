@@ -1972,6 +1972,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "experience_source_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Experience Source Ids",
+            "type": "array"
+          },
           "id": {
             "maxLength": 128,
             "minLength": 1,

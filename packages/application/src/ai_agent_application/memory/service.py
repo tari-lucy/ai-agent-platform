@@ -78,6 +78,7 @@ class EpisodeDraft:
     operation_id: Id
     provenance: str
     interpretation: str | None = None
+    experience_source_ids: tuple[Id, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -457,6 +458,7 @@ class MemoryService:
                 "scope": scope.model_dump(mode="json"),
                 "created_at": self.clock().isoformat(),
                 "sources": [ref.model_dump(mode="json") for ref in draft.sources],
+                "experience_source_ids": list(draft.experience_source_ids),
                 "participant_ids": list(draft.participant_ids),
                 "choice": draft.choice,
                 "actual_outcome": draft.actual_outcome,
@@ -487,7 +489,9 @@ class MemoryService:
         if self.index is not None:
             try:
                 await self.index.set_group(
-                    scope, [ref.source_id for ref in draft.sources], "episode:" + episode_id
+                    scope,
+                    list(draft.experience_source_ids) or [ref.source_id for ref in draft.sources],
+                    "episode:" + episode_id,
                 )
             except Exception:
                 for ref in draft.sources:
@@ -589,6 +593,11 @@ class MemoryService:
         groups: dict[str, str] = {}
         for episode in await self._all(Episode, scope):
             for ref in episode.sources:
+                if (
+                    episode.experience_source_ids
+                    and ref.source_id not in episode.experience_source_ids
+                ):
+                    continue
                 key = "episode:" + episode.id
                 groups[ref.source_id] = min(groups.get(ref.source_id, key), key)
         chunk_sets = [chunk_text(s.content or "", self.max_chunk_chars) for s in sources]

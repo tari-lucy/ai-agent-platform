@@ -39,7 +39,7 @@ from ai_agent_contracts.states import DeliveryState, ErrorCode, Provenance
 
 from .gm_cycle import ShownOffer, apply_decision, offer_for_context, resolve_accepted
 from .history import PrivateHistory, PrivateRecall
-from .schemas import TaskInput
+from .schemas import JobArguments, TaskInput
 from .service import DOMAIN_OWNERS, Execution, Runtime
 from .state import PRINCIPALS, command, put
 
@@ -457,6 +457,11 @@ async def acknowledge(
     )
     if original is None:
         raise ContractError(ErrorCode.STALE_CONTEXT)
+    job_args = rt.registry.validate(
+        original.arguments.schema_id, original.arguments.schema_version, original.arguments.data
+    )
+    if not isinstance(job_args, JobArguments) or job_args.request.kind != "dialogue":
+        raise ContractError(ErrorCode.ACCESS_DENIED)
     admission = rt.supervisor.admit("dialogue")
     pinned = original.model_copy(
         update={
@@ -519,6 +524,9 @@ async def acknowledge(
                 command(scope, "episode-" + utterance.id),
                 EpisodeDraft(
                     sources=(*utterance.sources, own),
+                    experience_source_ids=tuple(
+                        dict.fromkeys((*job_args.request.source_ids, own.source_id))
+                    ),
                     participant_ids=(),
                     choice="Ответил оператору.",
                     actual_outcome="Приватная панель подтвердила получение редакции.",
