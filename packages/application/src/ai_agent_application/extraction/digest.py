@@ -155,7 +155,7 @@ class Digester:
                     for r in refs
                 ],
                 "content": PREFIX + result.content,
-                "analysis_id": generation.operation_id,
+                "analysis_id": (DIGEST_ANALYSIS + generation.operation_id)[:128],
             }
         )
         command = MessageCommand(

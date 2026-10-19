@@ -516,6 +516,10 @@ class Runtime:
             or not (
                 request.kind == "post_session"
                 and budget.memory_processing
+                # the knowledge digest is autonomous memory processing under the same admission
+                or request.kind == "consolidate"
+                and bool(request.digest_of)
+                and budget.memory_processing
                 or request.kind == "gm"
                 and budget.gm_enabled
                 and not run.gm_paused
