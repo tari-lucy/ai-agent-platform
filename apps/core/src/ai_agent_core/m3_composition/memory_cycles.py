@@ -353,6 +353,7 @@ class DailyMemory:
             period_end=max(s.occurred_at for s in sources),
             resume_stage=start,
             resume_ids=list(resume.record_ids) if resume is not None and start != "extract" else [],
+            resumed=resume is not None,
         )
         token = rt.supervisor.admit("reflection")
         try:

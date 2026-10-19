@@ -34,6 +34,7 @@ class TaskInput(Contract):
     # carries the records that earlier stages already produced; nothing is paid twice.
     resume_stage: Literal["extract", "consolidate", "reflect"] = "extract"
     resume_ids: list[Id] = Field(default_factory=list, max_length=100)
+    resumed: bool = Field(default=False, strict=True)  # new generations for unsaved stages
 
     @model_validator(mode="after")
     def inputs(self) -> Self:

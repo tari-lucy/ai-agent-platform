@@ -895,7 +895,10 @@ class Runtime:
         start = request.resume_stage if request.kind == "post_session" else "extract"
         if request.kind == "extract" or (request.kind == "post_session" and start == "extract"):
             report = await Extractor(memory, execution, admitted=execution.allowed).extract(
-                scope, request.source_ids, cancel=execution.cancel
+                scope,
+                request.source_ids,
+                cancel=execution.cancel,
+                operation_id=f"extr-{request.trigger_id}"[:120] if request.resumed else None,
             )
             if report.status not in ("completed", "nothing"):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
@@ -916,6 +919,7 @@ class Runtime:
                 request.period_start,
                 request.period_end,
                 execution.cancel,
+                operation_id=f"cons-{request.trigger_id}"[:120] if request.resumed else None,
             )
             if summary is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

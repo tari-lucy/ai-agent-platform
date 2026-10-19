@@ -61,8 +61,13 @@ class Consolidator:
         period_start: datetime,
         period_end: datetime,
         cancel: asyncio.Event | None = None,
+        operation_id: str | None = None,
     ) -> Summary | None:
-        """The stored summary; None if nothing may be summarised or the answer is unusable."""
+        """The stored summary; None if nothing may be summarised or the answer is unusable.
+
+        ``operation_id`` names a new generation after a proven failure of the same batch; by
+        default the batch itself names it, so a replay never pays twice.
+        """
         if not self.admitted() or period_end < period_start:
             return self._refused("NOT_ADMITTED" if not self.admitted() else "PERIOD_INVALID")
         sources = []
@@ -96,7 +101,7 @@ class Consolidator:
         self.memory.storage.check_fence()
         generation = await self.generator.generate(
             GenerationRequest(
-                operation_id=f"cons-{key[:40]}",
+                operation_id=operation_id or f"cons-{key[:40]}",
                 role_id=self.role_id,
                 messages=(
                     ChatMessage(
