@@ -890,6 +890,7 @@ class Runtime:
             self.store,
             PRINCIPALS[Owner.MEMORY],
             self.registry,
+            index=self.dialogue_index,  # claim links/conflicts for recall; failures only lag
             clock=self.supervisor.clock.utc,
             reader_access=self.readers,
         )
