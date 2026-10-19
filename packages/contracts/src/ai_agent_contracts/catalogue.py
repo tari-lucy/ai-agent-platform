@@ -18,6 +18,7 @@ MODELS = (
     panel.ApiLimitChange,
     panel.TariffCreateArguments,
     panel.MemoryCorrectArguments,
+    panel.PromiseCloseArguments,
     panel.MemorySelectionArguments,
     panel.MemorySourceExport,
     panel.MemoryPlanProof,

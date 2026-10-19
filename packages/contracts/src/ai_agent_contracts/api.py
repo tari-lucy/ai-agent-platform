@@ -132,6 +132,7 @@ class EditCommand(CommandBase):
         "briefing.edit",
         "briefing.cancel",
         "memory.correct",
+        "promise.close",
         "person.link",
         "person.unlink",
         "gm.configure",

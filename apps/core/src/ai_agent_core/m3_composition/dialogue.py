@@ -233,7 +233,11 @@ async def perform(ex: Execution) -> list[str]:
         return [old.id]  # a saved final is never regenerated after an executor retry
     mem = memory(rt)
     social = SocialService(
-        rt.store, PRINCIPALS[Owner.SOCIAL], rt.registry, clock=rt.supervisor.clock.utc
+        rt.store,
+        PRINCIPALS[Owner.SOCIAL],
+        rt.registry,
+        clock=rt.supervisor.clock.utc,
+        reader_access=rt.readers,  # the operator reviews people and promises in the panel
     )
     stream = Stream(ex, identifier)
     recorder = Recorder(ex)
@@ -593,7 +597,11 @@ async def promised(rt: Runtime, scope: Scope, utterance_id: str, delivery_id: st
     person_id, promise, evidence = pending
     now = rt.supervisor.clock.utc()
     social = SocialService(
-        rt.store, PRINCIPALS[Owner.SOCIAL], rt.registry, clock=rt.supervisor.clock.utc
+        rt.store,
+        PRINCIPALS[Owner.SOCIAL],
+        rt.registry,
+        clock=rt.supervisor.clock.utc,
+        reader_access=rt.readers,
     )
     await social.record_promise(
         command(scope, derived_id("panel-promise", scope, utterance_id)),

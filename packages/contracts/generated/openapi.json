@@ -1866,6 +1866,7 @@
               "briefing.edit",
               "briefing.cancel",
               "memory.correct",
+              "promise.close",
               "person.link",
               "person.unlink",
               "gm.configure",
@@ -6974,6 +6975,7 @@
             "persona.create": "#/components/schemas/CreateCommand",
             "persona.edit": "#/components/schemas/EditCommand",
             "persona.validate": "#/components/schemas/EditCommand",
+            "promise.close": "#/components/schemas/EditCommand",
             "session.create": "#/components/schemas/CreateCommand",
             "session.end": "#/components/schemas/ControlCommand",
             "session.process-memory": "#/components/schemas/ProcessMemoryCommand",
@@ -8222,6 +8224,48 @@
           "status"
         ],
         "title": "Promise",
+        "type": "object"
+      },
+      "PromiseCloseArguments": {
+        "additionalProperties": false,
+        "description": "The operator closes an exact promise; the history keeps every earlier version.\n\n`fulfilled` is grounded by the operator's own stated result (a new operator source), never\nby the character's reply; `withdrawn` needs a reason; `unknown` keeps it owed.",
+        "properties": {
+          "closure_result": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Closure Result"
+          },
+          "outcome": {
+            "enum": [
+              "fulfilled",
+              "withdrawn",
+              "unknown"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "promise_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Promise Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "promise_id",
+          "outcome"
+        ],
+        "title": "PromiseCloseArguments",
         "type": "object"
       },
       "Provenance": {

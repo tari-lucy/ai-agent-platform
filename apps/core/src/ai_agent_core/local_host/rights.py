@@ -10,7 +10,8 @@ the same flow still passed without them; JOBS->BEHAVIOR and BEHAVIOR/JOBS/GATEWA
 each shown necessary by a failing run. SOCIAL (operator-authorised 2026-10-19 with its own
 acceptance, tests/memory_quality/test_private_social_continuity.py) writes the private
 interlocutor's Person/Encounter/Promise, reads MEMORY sources as evidence and CHANNEL deliveries
-for promises; it never gets API transfer or operator access. Paths this host does not run yet
+for promises; it never gets API transfer. The operator reads people/promises in the panel and
+closes a promise only through the social owner (`promise.close`). Paths this host does not run yet
 (extract, consolidate, gm and other jobs, which the mock leaves unanswered) get their reads only
 with their own acceptance: until then they are denied, not widened.
 
@@ -42,8 +43,10 @@ WRITERS = (
 )
 # Only these owners' records may be handed on over the loopback JSON transfer.
 TRANSFER_OWNERS = (Owner.MEMORY, Owner.PERSONA, Owner.GM)
-# Operator reads over HTTP (private dialogue, jobs, usage), with explicit api_transfer.
+# Operator reads over HTTP (private dialogue, jobs, usage, people/promises), with explicit
+# api_transfer for the panel.
 OPERATOR_OWNERS = (
+    Owner.SOCIAL,
     Owner.PERSONA,
     Owner.MEMORY,
     Owner.GATEWAY,

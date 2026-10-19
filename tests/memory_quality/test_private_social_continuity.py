@@ -7,6 +7,7 @@ text. What the model SAW is asserted from its request body; scripted answers pro
 
 import asyncio
 import re
+from types import SimpleNamespace
 
 from ai_agent_application.social import SocialService
 from ai_agent_application.social.keys import person_id_for
@@ -63,6 +64,24 @@ async def promised(host, request_id, text, reply, promise):
     return await host.say(request_id, text, reply, promise=promise)
 
 
+async def close_command(host, request_id, promise, outcome, result):
+    """The panel's promise.close owner command over HTTP."""
+    data = {"promise_id": promise.id, "outcome": outcome}
+    if result is not None:
+        data["closure_result"] = result
+    return await post(
+        host.env,
+        dict(
+            type="promise.close",
+            request_id=request_id,
+            target=promise.id,
+            scope=host.scope.model_dump(mode="json"),
+            expected_version=promise.version,
+            arguments=dict(schema_id="promise.close-args", data=data),
+        ),
+    )
+
+
 def social(rt):
     return SocialService(rt.store, PRINCIPALS[Owner.SOCIAL], rt.registry)
 
@@ -113,13 +132,15 @@ def test_same_person_after_restart_exact_promises_and_their_history(tmp_path, mo
             out["meetings"] = len(await records(rt, scope, Encounter))
             # withdrawal is a new version; the old one stays in history
             books = next(p for p in await records(rt, scope, Promise))
-            closed = await social(rt).close_promise(
-                command(scope, "withdraw-books"),
-                books.id,
-                books.version,
-                "withdrawn",
-                "Оператор отменил просьбу.",
+            out["panel_sees"] = [p["id"] for p in await host.get("promises")]
+            bad = await close_command(host, "bad-close", books, "fulfilled", None)
+            out["bad_close"] = bad.status_code
+            done = await close_command(
+                host, "withdraw-books", books, "withdrawn", "Оператор отменил просьбу."
             )
+            assert done.status_code == 200, done.text
+            closed = await social(rt).obligations(scope)  # nothing owed any more
+            closed = SimpleNamespace(version=done.json()["version"], owed=closed)
             await host.say("withdrawn", "Что ты мне обещала?", "Пока ничего.")
             out["after_withdraw"] = seen(model.last("character"))
             repo = rt.store.repository(Promise, PRINCIPALS[Owner.SOCIAL], scope)
@@ -163,6 +184,8 @@ def test_same_person_after_restart_exact_promises_and_their_history(tmp_path, mo
     assert out["meetings"] >= 2  # one per session of the same person
     assert out["after_withdraw"]["obligations"] == []
     assert out["history"] == ["open", "withdrawn"]  # the change kept its history
+    assert out["bad_close"] >= 400  # "fulfilled" without the operator's stated result
+    assert len(out["panel_sees"]) == 1  # the operator reviews the promise in the panel
     assert out["tea_utterance"] and out["after_revoke"]["obligations"] == []
     assert out["lab"] == []  # TEST memory has no work promises
 
@@ -224,3 +247,39 @@ def test_an_older_host_stays_anonymous_until_social_is_enabled_offline(tmp_path,
     assert out["before"] == (0, 0)  # the reply still worked, anonymously, without new rights
     operator = person_id_for(out["scope"], PANEL_PLATFORM, PANEL_ACCOUNT)
     assert out["after"] == ([operator], ["open"])
+
+
+def test_the_operator_marks_a_promise_fulfilled_with_their_own_stated_result(tmp_path, monkeypatch):
+    from ai_agent_contracts.memory import Source
+
+    async def scenario():
+        model = Model()
+        host = await prepared_host(tmp_path, model, monkeypatch)
+        async with host.open():
+            await host.start()
+            await promised(host, "m1", "Пришлёшь список книг?", "Пришлю список.", BOOKS)
+            rt, scope = host.runtime, host.scope
+            books = (await records(rt, scope, Promise))[0]
+            done = await close_command(
+                host, "books-done", books, "fulfilled", "Список книг получен в чате."
+            )
+            assert done.status_code == 200, done.text
+            again = await close_command(host, "books-again", books, "withdrawn", "Повтор.")
+            closed = (await records(rt, scope, Promise))[0]
+            proof = await rt.store.repository(Source, PRINCIPALS[Owner.MEMORY], scope).get(
+                closed.sources[-1].source_id
+            )
+            await host.say("after", "Что ты мне обещала?", "Ничего не осталось.")
+            return dict(
+                status=closed.status,
+                result=closed.closure_result,
+                proof=(proof.source_type, proof.provenance.value, proof.content),
+                again=again.status_code,
+                owed=seen(model.last("character"))["obligations"],
+            )
+
+    out = asyncio.run(scenario())
+    assert out["status"] == "fulfilled" and out["result"] == "Список книг получен в чате."
+    assert out["proof"][0] == "promise-closure" and out["proof"][2] == out["result"]
+    assert out["again"] >= 400  # a stale version cannot reopen or rewrite it
+    assert out["owed"] == []
