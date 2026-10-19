@@ -1,7 +1,7 @@
 """Core-only SQLite adapter. No startup migration, live env, model or network access."""
 
 import builtins
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -16,7 +16,20 @@ from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.persona import Opportunity
 from ai_agent_contracts.states import ErrorCode
 from pydantic import BaseModel, TypeAdapter
-from sqlalchemy import URL, and_, case, delete, event, func, insert, literal, or_, select, text
+from sqlalchemy import (
+    URL,
+    and_,
+    case,
+    delete,
+    event,
+    exists,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.sql.elements import ColumnElement
@@ -264,6 +277,7 @@ class Repository[T: Record]:
         before_id: str | None = None,
         chronology: bool = False,
         utterance_id: str | None = None,
+        cites: Sequence[str] | None = None,
     ) -> list[T]:
         check_principal(self.principal)
         if type(limit) is not int or not 1 <= limit <= 200:
@@ -316,6 +330,22 @@ class Repository[T: Record]:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
             query = query.where(
                 func.json_extract(revision.c.payload, "$.utterance_id") == utterance_id
+            )
+        if cites is not None:
+            # Bounded exact lookup over the authoritative links of the current revision.
+            if self.model.__name__ == "Source" or not 1 <= len(cites) <= 200:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            link = db.links.alias()
+            query = query.where(
+                exists(
+                    select(1).where(
+                        link.c.scope_id == db.records.c.scope_id,
+                        link.c.kind == db.records.c.kind,
+                        link.c.id == db.records.c.id,
+                        link.c.version == revision.c.version,
+                        link.c.source_id.in_(list(cites)),
+                    )
+                )
             )
         moment: ColumnElement[str] = db.records.c.created_at
         if chronology and self.model.__name__ == "Source":
@@ -441,6 +471,7 @@ class Repository[T: Record]:
         before_id: str | None = None,
         chronology: bool = False,
         utterance_id: str | None = None,
+        cites: Sequence[str] | None = None,
         purpose: ReadPurpose = "private",
     ) -> builtins.list[T]:
         return await self._rows(
@@ -451,6 +482,7 @@ class Repository[T: Record]:
             before_id=before_id,
             chronology=chronology,
             utterance_id=utterance_id,
+            cites=cites,
         )
 
     async def get_for_lifecycle(self, record_id: str) -> T | None:

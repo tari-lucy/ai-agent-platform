@@ -1134,3 +1134,65 @@ def test_recent_creation_order_keeps_authoritative_filters_and_cutoff(tmp_path):
             await store.close()
 
     asyncio.run(scenario())
+
+
+def test_recent_cites_follows_current_links_and_read_policy(tmp_path):
+    def ref(source_id):
+        return SourceRef(source_id=source_id, version=1, scope=SCOPE, availability="available")
+
+    def claim(record_id, second, *source_ids, version=1):
+        at = NOW + timedelta(seconds=second)
+        return Claim(
+            id=record_id,
+            scope=SCOPE,
+            created_at=at,
+            updated_at=at + timedelta(seconds=version),
+            version=version,
+            subject_id="synthetic-subject",
+            content="Вымышленное утверждение.",
+            knowledge_type="reported",
+            sources=[ref(s) for s in source_ids],
+            confidence=0.6,
+        )
+
+    async def scenario():
+        store = await new_store(tmp_path)
+        access = (RecordAccess(OPERATOR.id, api_transfer=True),)
+        try:
+            await save(store, source("s-a"), request_id="s-a", access=access)
+            await save(store, source("s-b"), request_id="s-b", access=access)
+            await save(
+                store, source("s-c", api_transfer_allowed=False), request_id="s-c", access=access
+            )
+            rows = (
+                claim("c-old", 0, "s-a"),
+                claim("c-other", 1, "s-b"),
+                claim("c-closed", 2, "s-a", "s-c"),
+                claim("c-moved", 3, "s-a"),
+                claim("c-new", 4, "s-a", "s-b"),
+            )
+            for row in rows:
+                await save(store, row, request_id="save-" + row.id, access=access)
+            moved = claim("c-moved", 3, "s-b", version=2)
+            await save(store, moved, request_id="move", expected_version=1, access=access)
+            repo = store.repository(Claim, OPERATOR, SCOPE)
+
+            async def ids(**kwargs):
+                found = await repo.recent(purpose="api_transfer", **kwargs)
+                return [r.id for r in found]
+
+            # current revision only, newest first, a closed source closes the whole record
+            assert await ids(cites=["s-a"]) == ["c-new", "c-old"]
+            assert await ids(cites=["s-a", "s-b"], limit=2) == ["c-new", "c-moved"]
+            older = dict(before=NOW + timedelta(seconds=4), before_id="c-new")
+            assert await ids(cites=["s-a"], **older) == ["c-old"]
+            assert await ids(cites=["s-missing"]) == []
+            for bad in ([], [f"s-{n}" for n in range(201)]):
+                with pytest.raises(ContractError):
+                    await repo.recent(cites=bad)
+            with pytest.raises(ContractError):
+                await store.repository(Source, OPERATOR, SCOPE).recent(cites=["s-a"])
+        finally:
+            await store.close()
+
+    run(scenario())

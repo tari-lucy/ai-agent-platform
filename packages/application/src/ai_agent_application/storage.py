@@ -1,7 +1,7 @@
 """Owner-facing ports; trusted core composition establishes identities and grants."""
 
 import builtins
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
@@ -90,11 +90,13 @@ class RecordRepository[T: Record](Protocol):
         before_id: str | None = None,
         chronology: bool = False,
         utterance_id: str | None = None,
+        cites: Sequence[str] | None = None,
         purpose: ReadPurpose = "private",
     ) -> builtins.list[T]:
         """Newest first, strict time/id boundary; chronology uses Source.occurred_at.
 
-        utterance_id is supported for Delivery only. All get/list read policies apply.
+        utterance_id is supported for Delivery only. cites (1..200 source ids, not for Source)
+        keeps records whose current revision links one of them. All get/list read policies apply.
         Omitting before_id preserves the inclusive historical before cutoff.
         """
         ...
