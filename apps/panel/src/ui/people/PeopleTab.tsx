@@ -1,13 +1,14 @@
 import { formatTime } from '../time.ts';
-import { Alert, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Paper, SegmentedControl, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { AccountLink, Person, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import type { AccountLink, Person, PromiseRecord, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import {
-  collisionsOf, confirmationLabels, confirmedAccounts, emptyLink, encountersOf, groundsSummary, involves, label, linkCommand, linkProblem, orderPromises,
-  otherAccounts, overdue, promiseLabels, relationshipOf, sharedNames, topicLabels, unlinkCommand, unlinkProblem, type Link,
+  closable, closeCommand, closureLabels, closureProblem, collisionsOf, confirmationLabels, confirmedAccounts, emptyClosure, emptyLink, encountersOf,
+  groundsSummary, involves, label, linkCommand, linkProblem, orderPromises, otherAccounts, overdue, promiseLabels, relationshipOf, sharedNames,
+  topicLabels, unlinkCommand, unlinkProblem, type Closure, type Link,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -20,6 +21,35 @@ function usePaged<T extends { items: unknown[]; complete: boolean; next_cursor: 
     queryFn: ({ pageParam, signal }) => read(pageParam, signal),
     getNextPageParam: (last) => (last.complete || !last.next_cursor ? undefined : last.next_cursor),
   });
+}
+
+// Closing changes what the character owes: an explicit outcome, a stated result and the seen version.
+function CloseForm({ api, scope, promise }: { api: PanelApi; scope: Scope; promise: PromiseRecord }) {
+  const cache = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [closure, setClosure] = useState<Closure>(emptyClosure);
+  const [problem, setProblem] = useState<string | null>(null);
+  async function submit() {
+    const issue = closureProblem(promise, closure);
+    if (issue) { setProblem(issue); return; }
+    setProblem(null);
+    try { await api.command(closeCommand(scope, promise, closure, crypto.randomUUID())); setOpen(false); setClosure(emptyClosure); }
+    catch (error) {
+      setProblem(error instanceof ApiFailure && error.code === 'VERSION_CONFLICT' ? 'Обещание уже изменено. Обновите список; чужое изменение не затирается.' : failureMessage(error) + ' Ничего не изменено.');
+    } finally { void cache.invalidateQueries({ queryKey: projectionKey('promises', scope) }); }
+  }
+  if (!closable(promise)) return null;
+  if (!open) return <Button mt={4} size="compact-xs" variant="subtle" onClick={() => setOpen(true)}>Закрыть обещание…</Button>;
+  return <Stack gap={4} mt={4} aria-label="Закрытие обещания">
+    <SegmentedControl size="xs" value={closure.outcome} onChange={(value) => setClosure({ ...closure, outcome: value as Closure['outcome'] })}
+      data={(['withdrawn', 'fulfilled', 'unknown'] as const).map((value) => ({ value, label: closureLabels[value] }))} />
+    <Textarea size="xs" autosize minRows={1} maxLength={1000} value={closure.result} onChange={(e) => setClosure({ ...closure, result: e.currentTarget.value })}
+      label={closure.outcome === 'fulfilled' ? 'Чем подтверждается выполнение (ваши слова — основание)' : closure.outcome === 'withdrawn' ? 'Причина снятия' : 'Комментарий (необязательно)'} />
+    <Group gap="xs"><Button size="compact-xs" variant="light" onClick={() => void submit()}>Сохранить</Button>
+      <Button size="compact-xs" variant="subtle" color="gray" onClick={() => { setOpen(false); setProblem(null); }}>Отмена</Button></Group>
+    {problem && <Alert color="orange" role="alert">{problem}</Alert>}
+    <Text size="xs" c="dimmed">Прежняя версия обещания сохраняется в истории.</Text>
+  </Stack>;
 }
 
 // A link or unlink changes who a person is: it needs a reason, an explicit tick, and the seen version.
@@ -119,7 +149,8 @@ export function PeopleTab({ api, scope }: { api: PanelApi; scope: Scope }) {
                 {overdue(promise, now) && <Badge size="xs" color="orange">просрочено</Badge>}</Group>
               <Text size="sm" className="plain-text">{promise.content}</Text><Text size="xs" c="dimmed" className="plain-text">Критерий: {promise.completion_criterion}</Text>
               {promise.closure_result != null && <Text size="xs" className="plain-text">Итог: {promise.closure_result}</Text>}
-              {promise.status === 'unknown' && <Text size="xs" c="orange.8">Исход неизвестен: удаление разговора не означает выполнения.</Text>}</Paper>)}</div>
+              {promise.status === 'unknown' && <Text size="xs" c="orange.8">Исход неизвестен: удаление разговора не означает выполнения.</Text>}
+              <CloseForm api={api} scope={scope} promise={promise} /></Paper>)}</div>
         </Stack></Paper> : <Alert color="gray">Выберите человека, чтобы увидеть аккаунты, встречи, тему и обещания.</Alert>}</div>
     </Group>
   </Stack>;
