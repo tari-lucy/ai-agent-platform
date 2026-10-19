@@ -86,6 +86,10 @@ class Views(Protocol):
 
 
 class Downloads(Protocol):
+    async def memory(
+        self, principal_id: str, scope: Scope, operation_id: str
+    ) -> tuple[ArtifactRef, bytes]: ...
+
     async def read(
         self, principal_id: str, scope: Scope, report_id: str
     ) -> tuple[ArtifactRef, bytes]: ...
@@ -439,7 +443,9 @@ class Surface:
 
     async def read(self, path: str, asgi: ASGIScope, authority: SessionAuthority) -> Response:
         download = re.fullmatch(
-            r"/api/v1/laboratory-reports/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})/content", path
+            r"/api/v1/(laboratory-reports|memory/exports)/"
+            r"([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})/content",
+            path,
         )
         if download is not None:
             if self.ports.downloads is None:
@@ -452,13 +458,15 @@ class Surface:
             except ValueError:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
             self.sessions.check_scope(authority, selected)
-            reference, body = await self.ports.downloads.read(
-                authority.control.principal_id, selected, download.group(1)
+            memory_export = download.group(1) == "memory/exports"
+            read = self.ports.downloads.memory if memory_export else self.ports.downloads.read
+            reference, body = await read(
+                authority.control.principal_id, selected, download.group(2)
             )
             self.sessions.check_scope(authority, selected)
             if (
                 reference.scope.partition != selected.partition
-                or selected.memory_mode != "test"
+                or (not memory_export and selected.memory_mode != "test")
                 or reference.media_type != "application/json"
                 or not 0 < len(body) <= 2_000_000
                 or len(body) != reference.size_bytes
@@ -472,7 +480,9 @@ class Surface:
                 headers={
                     "Cache-Control": "no-store",
                     "X-Content-Type-Options": "nosniff",
-                    "Content-Disposition": 'attachment; filename="laboratory-report.json"',
+                    "Content-Disposition": 'attachment; filename="memory-source.json"'
+                    if memory_export
+                    else 'attachment; filename="laboratory-report.json"',
                     "ETag": '"' + reference.checksum + '"',
                 },
             )

@@ -8,7 +8,7 @@ A failure after (1) leaves the source blocked and pending: it is never served an
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -72,7 +72,13 @@ class RetentionService:
         digest = _digest(scope, ids, erased, detached, indexed)
         return DeletionPreview(ids, erased, detached, indexed, digest)
 
-    async def delete(self, scope: Scope, preview: DeletionPreview) -> DeletionReport:
+    async def delete(
+        self,
+        scope: Scope,
+        preview: DeletionPreview,
+        *,
+        before_block: Callable[[], Awaitable[None]] | None = None,
+    ) -> DeletionReport:
         """Operator-confirmed. A changed area is a new decision, never silently widened."""
         if await self.preview_delete(scope, preview.source_ids) != preview:
             raise ContractError(ErrorCode.VERSION_CONFLICT)
@@ -80,12 +86,21 @@ class RetentionService:
         for source_id in preview.source_ids:
             stub = await self.physical.source(scope, source_id)
             assert stub is not None
+            if before_block is not None:
+                await before_block()
             await self.ledger.block(scope, source_id, stub.version, "operator_delete", now)
         return await self._purge(scope, preview.source_ids, "deleted", preview.erased_with)
 
-    async def resume(self, scope: Scope) -> DeletionReport:
+    async def resume(
+        self, scope: Scope, *, source_ids: Sequence[str] | None = None
+    ) -> DeletionReport:
         """Finish removals whose ledger line has no purge time (crash, failed step)."""
-        pending = [e for e in await self.ledger.entries(scope) if e.purged_at is None]
+        selected = None if source_ids is None else frozenset(source_ids)
+        pending = [
+            e
+            for e in await self.ledger.entries(scope)
+            if e.purged_at is None and (selected is None or e.source_id in selected)
+        ]
         if not pending:
             return DeletionReport((), (), True)
         erased, _ = await self.physical.dependents(scope, [e.source_id for e in pending])

@@ -13,6 +13,13 @@ class Downloads:
     def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
 
+    async def memory(
+        self, principal_id: str, scope: Scope, operation_id: str
+    ) -> tuple[ArtifactRef, bytes]:
+        from .memory_lifecycle import download
+
+        return await download(self.runtime, principal_id, scope, operation_id)
+
     async def read(
         self, principal_id: str, scope: Scope, report_id: str
     ) -> tuple[ArtifactRef, bytes]:

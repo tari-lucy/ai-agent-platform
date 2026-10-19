@@ -303,6 +303,9 @@ class Runtime:
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
         self._opened = False
         self.maintenance: Maintenance | None = None
+        from ai_agent_application.retention import RetentionService
+
+        self.retention: RetentionService | None = None
         from .lab_control import LabControl
 
         self.lab_control = LabControl(self)

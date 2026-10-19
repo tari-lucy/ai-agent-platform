@@ -89,6 +89,7 @@ class HostMaintenance:
             index=rt.dialogue_index,
             purgers=(purger,),
         )
+        rt.retention = self.retention
         for scope in rt.scopes:
             result = await self.retention.apply_ledger(scope)
             self.pending += len(result.pending)
@@ -105,10 +106,12 @@ class HostMaintenance:
     async def once(self, now: datetime) -> None:
         assert self.retention is not None
         pending = 0
-        for scope in self.runtime.scopes:
-            resumed = await self.retention.resume(scope)
-            swept = await self.retention.sweep(scope)
-            pending += sum(o.state != "purged" for o in resumed.outcomes) + len(swept.pending)
+        # The panel's preview/execute uses the same lock and the same retention owner.
+        async with self.runtime._lock:
+            for scope in self.runtime.scopes:
+                resumed = await self.retention.resume(scope)
+                swept = await self.retention.sweep(scope)
+                pending += sum(o.state != "purged" for o in resumed.outcomes) + len(swept.pending)
         self.pending = pending
         day = now.astimezone(UTC).date().isoformat()
         if self.attempted_day != day:

@@ -48,6 +48,10 @@ class Mutations:
             "opportunity.cancel",
             "arc.pause",
             "memory.correct",
+            "memory.delete.preview",
+            "memory.delete.execute",
+            "memory.export.preview",
+            "memory.export.execute",
         }
         if request.scope.partition != runtime.supervisor.snapshot.scope.partition and (
             not isinstance(request, (CreateCommand, EditCommand, PlanCommand, ExecutePlanCommand))
@@ -73,6 +77,20 @@ class Mutations:
             from .memory_cycles import manual
 
             return await manual(runtime, authority, request)
+        if isinstance(request, (PlanCommand, ExecutePlanCommand)) and request.type in (
+            "memory.delete.preview",
+            "memory.delete.execute",
+            "memory.export.preview",
+            "memory.export.execute",
+        ):
+            from .memory_lifecycle import execute, preview
+
+            async with runtime._lock:
+                return await (
+                    preview(runtime, authority, request)
+                    if isinstance(request, PlanCommand)
+                    else execute(runtime, authority, request)
+                )
         if isinstance(request, EditCommand) and request.type == "memory.correct":
             from .memory_controls import correct
 

@@ -47,10 +47,11 @@ class OwnerOperations:
         authority: ControlAuthority,
         request: CommandBase,
         owner: Literal["persona", "gm", "memory", "llm", "workspace"],
-        perform: Callable[[str], Awaitable[list[VersionedRecord]]],
+        perform: Callable[[str], Awaitable[list[VersionedRecord] | None]],
         recover: Callable[[str], Awaitable[list[VersionedRecord] | None]],
         *,
         expected_result_ids: list[str] | None = None,
+        pending_steps: Callable[[], tuple[list[str], list[str]]] | None = None,
     ) -> Receipt:
         rt = self.rt
         known = await self.known(authority, request)
@@ -59,6 +60,8 @@ class OwnerOperations:
                 return known.receipt
             results = await recover(known.id)
             if results is None:
+                if known.pending_steps:
+                    return self.pending_receipt(known, request)
                 raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
             return await self.complete(known, request, results)
         now = rt.supervisor.clock.utc()
@@ -96,6 +99,23 @@ class OwnerOperations:
             )
         try:
             results = await perform(row.id)
+            if results is None:
+                if pending_steps is None:
+                    raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
+                done, pending = pending_steps()
+                if not pending:
+                    raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
+                updated = row.model_copy(
+                    update={
+                        "version": row.version + 1,
+                        "updated_at": max(rt.supervisor.clock.utc(), row.updated_at),
+                        "state": "reconciliation_required",
+                        "completed_steps": done,
+                        "pending_steps": pending,
+                    }
+                )
+                await self.save(updated, row.version)
+                return self.pending_receipt(updated, request)
             return await self.complete(row, request, results)
         except BaseException as error:
             unknown = row.model_copy(
@@ -114,6 +134,17 @@ class OwnerOperations:
             if isinstance(error, asyncio.CancelledError):
                 raise
             raise ContractError(ErrorCode.OUTCOME_UNKNOWN) from None
+
+    @staticmethod
+    def pending_receipt(row: OwnerOperation, request: CommandBase) -> Receipt:
+        return Receipt(
+            request_id=request.request_id,
+            scope=request.scope,
+            status="waiting",
+            operation_id=row.id,
+            resource_id=row.id,
+            version=row.version,
+        )
 
     async def save(self, row: OwnerOperation, previous: int) -> None:
         await put(
@@ -147,6 +178,7 @@ class OwnerOperations:
                 "state": "completed",
                 "result_ids": [r.id for r in results],
                 "receipt": receipt,
+                "pending_steps": [],
             }
         )
         await self.save(updated, row.version)
