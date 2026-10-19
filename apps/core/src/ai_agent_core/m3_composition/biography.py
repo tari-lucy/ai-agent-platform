@@ -60,12 +60,12 @@ async def deliverable(
 
 
 def value(raw: object) -> str:
-    return f"{raw:g}" if isinstance(raw, float) else data(str(raw))
+    return f"{raw:g}" if isinstance(raw, float) else str(raw)
 
 
-async def candidates(rt: Runtime, scope: Scope) -> list[tuple[str, str, list[SourceRef]]]:
-    """(label, fragment body, grounds) newest first: changes, then events, then a kept state."""
-    found: list[tuple[str, str, list[SourceRef]]] = []
+async def candidates(rt: Runtime, scope: Scope) -> list[tuple[str, str, str, list[SourceRef]]]:
+    """(label, date, text, grounds): changes newest first, then events, then a kept state."""
+    found: list[tuple[str, str, str, list[SourceRef]]] = []
     changes = await rt.store.repository(StateChange, OPERATOR, scope).recent(
         limit=CHANGE_WINDOW, purpose="api_transfer"
     )
@@ -90,17 +90,14 @@ async def candidates(rt: Runtime, scope: Scope) -> list[tuple[str, str, list[Sou
         if patch is None or change.status is not ChangeState.APPLIED or change.id in undone:
             continue
         when = change.updated_at.date().isoformat()
-        head = f'at="{when}" property="{data(patch.property)}"'
-        head += f' from="{value(patch.before)}" to="{value(patch.after)}"'
+        moved = f"{patch.property}: {value(patch.before)} → {value(patch.after)}"
         if patch.kind == "rollback":
             reason = change.operator_reason or "Изменение отменено оператором."
-            found.append(("откат-изменения", f"{head}|{reason}", list(change.evidence)))
+            found.append(("откат-изменения", when, f"{moved}. {reason}", list(change.evidence)))
         else:
-            certainty = f"{1 - change.uncertainty:.2g}"
-            head += f' certainty="{certainty}"'
-            found.append(
-                ("изменение-характера", f"{head}|{change.interpretation}", list(change.evidence))
-            )
+            # The reflection's own uncertainty travels with the reason; never a settled fact.
+            text = f"{moved} (уверенность {1 - change.uncertainty:.2g}). {change.interpretation}"
+            found.append(("изменение-характера", when, text, list(change.evidence)))
         shown += 1
         if shown == MAX_CHANGES:
             break
@@ -115,7 +112,7 @@ async def candidates(rt: Runtime, scope: Scope) -> list[tuple[str, str, list[Sou
         if episode.interpretation:
             text += f" | интерпретация персонажа: {episode.interpretation}"
         when = episode.created_at.date().isoformat()
-        found.append(("событие", f'at="{when}"|{text}', list(episode.sources)))
+        found.append(("событие", when, text, list(episode.sources)))
         events += 1
         if events == MAX_EVENTS:
             break
@@ -132,8 +129,8 @@ async def candidates(rt: Runtime, scope: Scope) -> list[tuple[str, str, list[Sou
         )
         if isinstance(result, ReflectionResult) and result.keep_state_reason and not result.changes:
             when = checkpoint.updated_at.date().isoformat()
-            body = f'at="{when}"|{result.keep_state_reason}'
-            found.append(("вывод-рефлексии-оставить", body, list(checkpoint.sources)))
+            reason = result.keep_state_reason
+            found.append(("вывод-рефлексии-оставить", when, reason, list(checkpoint.sources)))
         break  # only the latest reflection speaks for the current state
     return found
 
@@ -156,15 +153,14 @@ async def include_biography(
     stale = over = 0
     truncated = False
     found = await candidates(rt, scope)
-    for label, body, refs in found:
+    for label, when, text, refs in found:
         grounds = await deliverable(rt, scope, history, refs)
         if grounds is None:
             stale += 1  # a deleted, revoked or newer ground removes the whole item
             continue
-        attributes, text = body.split("|", 1)
         content, cut = clip(data(text), ITEM_TOKENS)
         partial = ' partial="true"' if cut else ""
-        line = f'<memory by="{label}" {attributes}{partial}>{content}</memory>'
+        line = f'<memory by="{label}" at="{when}"{partial}>{content}</memory>'
         cost = estimate_tokens("\n" + line)
         if cost > remaining - used or not history.remember(grounds):
             over += 1
