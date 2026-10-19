@@ -129,7 +129,15 @@ def plan_row(**over):
 
 
 def mock_development(
-    page, *, arcs=(), opportunities=(), changes=(), plan=None, command=None, gm_paused=True
+    page,
+    *,
+    arcs=(),
+    opportunities=(),
+    changes=(),
+    episodes=(),
+    plan=None,
+    command=None,
+    gm_paused=True,
 ):
     posted = []
 
@@ -143,6 +151,7 @@ def mock_development(
             "/api/v1/arcs": arcs,
             "/api/v1/opportunities": opportunities,
             "/api/v1/changes": changes,
+            "/api/v1/episodes": episodes,
             "/api/v1/gm-settings": [
                 {
                     **base("gm-runtime", version=12),
@@ -393,7 +402,7 @@ def test_change_card_compares_values_and_keeps_expectation_apart_from_fact(page,
     expect(card).to_contain_text("Стало: 0.5")
     expect(card).to_contain_text("Интерпретация (это не факт)")
     expect(card).to_contain_text("Ожидаемое проявление (ещё не подтверждено)")
-    expect(card).to_contain_text("Наблюдённые позднее проявления: связанных записей нет.")
+    expect(card).to_contain_text("После изменения подходящий опыт ещё не наблюдался.")
     expect(card).to_contain_text("v3 → v4")
     expect(card).to_contain_text("Применено")
 
@@ -598,3 +607,31 @@ def test_empty_state_test_memory_and_narrow_window(page, live_panel):
     page.set_viewport_size({"width": 390, "height": 844})
     expect(page.get_by_role("button", name=STOP_BUTTON)).to_be_in_viewport()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+def episode(name, minute, choice):
+    return {
+        **base(name, minute),
+        "sources": [ref()],
+        "experience_source_ids": [],
+        "participant_ids": [],
+        "choice": choice,
+        "actual_outcome": "Доставлено.",
+        "operation_id": "op-" + name,
+        "provenance": "observation",
+        "outcome_confirmed": True,
+    }
+
+
+def test_change_card_shows_the_experience_lived_after_it_without_scoring(page, live_panel):
+    lived = [episode("e-0", 1, "До изменения."), episode("e-1", 30, "Пошла к маяку.")]
+    open_development(
+        page, live_panel, changes=[change("c-1", "APPLIED", version=5)], episodes=lived
+    )
+    tab(page, "Изменения")
+    page.get_by_role("button").filter(has_text="trust: 0.4 → 0.5").click()
+    later = page.get_by_label("Последующий опыт")
+    expect(later).to_contain_text("После изменения прожито эпизодов: 1.")
+    expect(later).to_contain_text("Проявление не оценивалось автоматически")
+    expect(later).to_contain_text("Пошла к маяку. → Доставлено.")
+    expect(later).not_to_contain_text("До изменения.")
