@@ -11,6 +11,7 @@ from .common import (
     Contract,
     Digest,
     Id,
+    Money,
     Scope,
     ShortText,
     Version,
@@ -40,6 +41,48 @@ class PersonaApplyArguments(Contract):
 class PersonaCopyArguments(Contract):
     source_scope: Scope
     source_version: Version
+
+
+class ApiLimits(Contract):
+    id: Literal["api-limits"] = "api-limits"
+    scope: Scope
+    version: Version
+    attempt_limit: int = Field(strict=True, ge=1, le=1_000_000)
+    minimum_limit: int = Field(strict=True, ge=1)
+    period: Literal["lifetime", "utc_day"]
+
+
+class ApiLimitArguments(Contract):
+    attempt_limit: int = Field(strict=True, ge=1, le=1_000_000)
+
+
+class ApiLimitChange(VersionedRecord):
+    operator_id: Id
+    request_id: Id
+    fingerprint: Digest
+    attempt_limit: int = Field(strict=True, ge=1, le=1_000_000)
+    period: Literal["lifetime", "utc_day"]
+    budget_version: Version
+    expires_at: UTC
+
+
+class TariffCreateArguments(Contract):
+    connection_id: Id
+    model_id: Id
+    previous_version: int = Field(strict=True, ge=0)
+    unit_tokens: int = Field(strict=True, ge=1, le=1_000_000_000)
+    currency: str = Field(strict=True, pattern=r"^[A-Z]{3}$")
+    effective_at: UTC
+    input_rate: Money | None = None
+    output_rate: Money | None = None
+    cached_input_rate: Money | None = None
+    reasoning_output_rate: Money | None = None
+
+    @model_validator(mode="after")
+    def has_rate(self) -> Self:
+        if self.input_rate is None and self.output_rate is None:
+            raise ValueError("RATE_REQUIRED")
+        return self
 
 
 class MemoryCorrectArguments(Contract):
@@ -179,6 +222,8 @@ class ProfileValidation(Contract):
 
 
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
+    registry.register("llm.limits-args", ApiLimitArguments)
+    registry.register("tariff.create-args", TariffCreateArguments)
     registry.register("memory.correct-args", MemoryCorrectArguments)
     registry.register("memory.delete-args", MemorySelectionArguments)
     registry.register("memory.export-args", MemorySelectionArguments)

@@ -340,6 +340,164 @@
         "title": "ApiError",
         "type": "object"
       },
+      "ApiLimitArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_limit": {
+            "maximum": 1000000,
+            "minimum": 1,
+            "title": "Attempt Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempt_limit"
+        ],
+        "title": "ApiLimitArguments",
+        "type": "object"
+      },
+      "ApiLimitChange": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_limit": {
+            "maximum": 1000000,
+            "minimum": 1,
+            "title": "Attempt Limit",
+            "type": "integer"
+          },
+          "budget_version": {
+            "minimum": 1,
+            "title": "Budget Version",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "period": {
+            "enum": [
+              "lifetime",
+              "utc_day"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "operator_id",
+          "request_id",
+          "fingerprint",
+          "attempt_limit",
+          "period",
+          "budget_version",
+          "expires_at"
+        ],
+        "title": "ApiLimitChange",
+        "type": "object"
+      },
+      "ApiLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_limit": {
+            "maximum": 1000000,
+            "minimum": 1,
+            "title": "Attempt Limit",
+            "type": "integer"
+          },
+          "id": {
+            "const": "api-limits",
+            "default": "api-limits",
+            "title": "Id",
+            "type": "string"
+          },
+          "minimum_limit": {
+            "minimum": 1,
+            "title": "Minimum Limit",
+            "type": "integer"
+          },
+          "period": {
+            "enum": [
+              "lifetime",
+              "utc_day"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "version",
+          "attempt_limit",
+          "minimum_limit",
+          "period"
+        ],
+        "title": "ApiLimits",
+        "type": "object"
+      },
       "Artifact": {
         "additionalProperties": false,
         "properties": {
@@ -10882,6 +11040,112 @@
         "title": "Tariff",
         "type": "object"
       },
+      "TariffCreateArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "cached_input_rate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cached Input Rate"
+          },
+          "connection_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "effective_at": {
+            "format": "date-time",
+            "title": "Effective At",
+            "type": "string"
+          },
+          "input_rate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Rate"
+          },
+          "model_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_rate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Rate"
+          },
+          "previous_version": {
+            "minimum": 0,
+            "title": "Previous Version",
+            "type": "integer"
+          },
+          "reasoning_output_rate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reasoning Output Rate"
+          },
+          "unit_tokens": {
+            "maximum": 1000000000,
+            "minimum": 1,
+            "title": "Unit Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection_id",
+          "model_id",
+          "previous_version",
+          "unit_tokens",
+          "currency",
+          "effective_at"
+        ],
+        "title": "TariffCreateArguments",
+        "type": "object"
+      },
       "TokenUsage": {
         "additionalProperties": false,
         "properties": {
@@ -11501,6 +11765,66 @@
           "current_admission",
           "idempotency",
           "versions"
+        ]
+      }
+    },
+    "/api/v1/api-limits": {
+      "get": {
+        "operationId": "read_ApiLimits",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiLimits"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
         ]
       }
     },
