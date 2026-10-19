@@ -49,6 +49,7 @@ SPECS = {
     "GmRuntimeState": Spec(persona.GmRuntimeState, Owner.GM),
     "ReflectionCheckpoint": Spec(persona.ReflectionCheckpoint, Owner.PERSONA),
     "OwnerOperation": Spec(panel.OwnerOperation, Owner.WORKSPACE),
+    "MemoryPlanProof": Spec(panel.MemoryPlanProof, Owner.WORKSPACE),
     "RollbackProof": Spec(panel.RollbackProof, Owner.WORKSPACE),
     "SettingsTransferPreview": Spec(panel.SettingsTransferPreview, Owner.WORKSPACE),
     "SettingsTransferOperation": Spec(persona.SettingsTransferOperation, Owner.WORKSPACE),

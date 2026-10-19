@@ -3595,6 +3595,234 @@
         "title": "MemoryCycle",
         "type": "object"
       },
+      "MemoryPlanProof": {
+        "additionalProperties": false,
+        "description": "Text-free owner proof; it must remain readable while the source is being purged.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dependency_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Dependency Digest",
+            "type": "string"
+          },
+          "detached": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 200,
+            "title": "Detached",
+            "type": "array"
+          },
+          "digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Digest",
+            "type": "string"
+          },
+          "erased": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 200,
+            "title": "Erased",
+            "type": "array"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Execution Id"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "indexed": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 1,
+            "title": "Indexed",
+            "type": "array"
+          },
+          "operation_type": {
+            "enum": [
+              "memory.delete",
+              "memory.export"
+            ],
+            "title": "Operation Type",
+            "type": "string"
+          },
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "plan_expires_at": {
+            "format": "date-time",
+            "title": "Plan Expires At",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "source_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_version": {
+            "minimum": 1,
+            "title": "Source Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "operator_id",
+          "operation_type",
+          "source_id",
+          "source_version",
+          "digest",
+          "dependency_digest",
+          "plan_expires_at",
+          "expires_at"
+        ],
+        "title": "MemoryPlanProof",
+        "type": "object"
+      },
+      "MemorySelectionArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "source_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_ids"
+        ],
+        "title": "MemorySelectionArguments",
+        "type": "object"
+      },
+      "MemorySourceExport": {
+        "additionalProperties": false,
+        "properties": {
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "schema_id": {
+            "const": "memory.source-export",
+            "default": "memory.source-export",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        },
+        "required": [
+          "exported_at",
+          "source"
+        ],
+        "title": "MemorySourceExport",
+        "type": "object"
+      },
       "MessageArguments": {
         "additionalProperties": false,
         "properties": {
@@ -4478,6 +4706,15 @@
             "title": "Command Type",
             "type": "string"
           },
+          "completed_steps": {
+            "items": {
+              "maxLength": 512,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Completed Steps",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4517,6 +4754,15 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
             "title": "Operator Id",
             "type": "string"
+          },
+          "pending_steps": {
+            "items": {
+              "maxLength": 512,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Pending Steps",
+            "type": "array"
           },
           "receipt": {
             "anyOf": [
@@ -14457,6 +14703,92 @@
             "OperatorSession": []
           }
         ]
+      }
+    },
+    "/api/v1/memory/exports/{resource_id}/content": {
+      "get": {
+        "operationId": "download_selected_memory_source",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemorySourceExport"
+                }
+              }
+            },
+            "description": "Selected source JSON after a confirmed export plan; current source ACL/API rights, version and TTL checked on every download. No server-side export archive.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "Fixed attachment filename",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Quoted SHA-256 of response bytes",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ],
+        "x-max-response-bytes": 2000000,
+        "x-no-store": true
       }
     },
     "/api/v1/memory/recall": {

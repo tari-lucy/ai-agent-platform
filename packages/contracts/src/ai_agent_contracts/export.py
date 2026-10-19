@@ -201,6 +201,22 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         }
     }
 
+    memory_download = json.loads(
+        json.dumps(paths["/api/v1/laboratory-reports/{resource_id}/content"])
+    )
+    memory_download["get"]["operationId"] = "download_selected_memory_source"
+    memory_download["get"]["responses"]["200"]["description"] = (
+        "Selected source JSON after a confirmed export plan; current source ACL/API rights, "
+        "version and TTL checked on every download. No server-side export archive."
+    )
+    memory_download["get"]["responses"]["200"]["content"]["application/json"]["schema"] = {
+        "$ref": "#/components/schemas/MemorySourceExport"
+    }
+    memory_download["get"]["responses"]["200"]["headers"]["ETag"]["description"] = (
+        "Quoted SHA-256 of response bytes"
+    )
+    paths["/api/v1/memory/exports/{resource_id}/content"] = memory_download
+
     def command(path: str, name: str, identity: str, security: list[Schema]) -> None:
         receipt_type = {
             "StopCommand": "StopReceipt",

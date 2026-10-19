@@ -17,6 +17,7 @@ from .common import (
     VersionedRecord,
 )
 from .extensions import ExtensionRegistry
+from .memory import Source
 from .persona import SettingsTransferOperation
 from .states import OperationState
 
@@ -57,6 +58,35 @@ class MemoryCorrectArguments(Contract):
         if self.kind == "summary" and self.confidence is not None:
             raise ValueError("CLAIM_CONFIDENCE_ONLY")
         return self
+
+
+class MemorySelectionArguments(Contract):
+    # The panel currently operates on one explicitly selected source, never a hidden archive.
+    source_ids: list[Id] = Field(min_length=1, max_length=1)
+
+
+class MemorySourceExport(Contract):
+    schema_id: Literal["memory.source-export"] = "memory.source-export"
+    schema_version: Literal["1.0"] = "1.0"
+    exported_at: UTC
+    source: Source
+
+
+class MemoryPlanProof(VersionedRecord):
+    """Text-free owner proof; it must remain readable while the source is being purged."""
+
+    operator_id: Id
+    operation_type: Literal["memory.delete", "memory.export"]
+    source_id: Id
+    source_version: Version
+    digest: Digest
+    dependency_digest: Digest
+    erased: list[tuple[Id, Id]] = Field(default_factory=list, max_length=200)
+    detached: list[tuple[Id, Id]] = Field(default_factory=list, max_length=200)
+    indexed: list[Id] = Field(default_factory=list, max_length=1)
+    plan_expires_at: UTC
+    expires_at: UTC
+    execution_id: Id | None = None
 
 
 class RuleData(Contract):
@@ -150,6 +180,8 @@ class ProfileValidation(Contract):
 
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("memory.correct-args", MemoryCorrectArguments)
+    registry.register("memory.delete-args", MemorySelectionArguments)
+    registry.register("memory.export-args", MemorySelectionArguments)
     registry.register("gm.configure-args", ConfigureGM)
     registry.register("change.decision-args", ChangeDecisionArguments)
     registry.register("change.interpretation-args", ChangeInterpretationArguments)
@@ -310,6 +342,8 @@ class OwnerOperation(VersionedRecord):
     expected_result_ids: list[Id] = Field(default_factory=list, max_length=200)
     result_ids: list[Id] = Field(default_factory=list, max_length=200)
     receipt: Receipt | None = None
+    completed_steps: list[ShortText] = Field(default_factory=list, max_length=20)
+    pending_steps: list[ShortText] = Field(default_factory=list, max_length=20)
     expires_at: UTC
 
     @model_validator(mode="after")
