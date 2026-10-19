@@ -47,6 +47,7 @@ class Mutations:
             "change.rollback.execute",
             "opportunity.cancel",
             "arc.pause",
+            "memory.correct",
         }
         if request.scope.partition != runtime.supervisor.snapshot.scope.partition and (
             not isinstance(request, (CreateCommand, EditCommand, PlanCommand, ExecutePlanCommand))
@@ -72,6 +73,11 @@ class Mutations:
             from .memory_cycles import manual
 
             return await manual(runtime, authority, request)
+        if isinstance(request, EditCommand) and request.type == "memory.correct":
+            from .memory_controls import correct
+
+            async with runtime._lock:
+                return await correct(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

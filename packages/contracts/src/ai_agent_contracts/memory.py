@@ -17,6 +17,7 @@ from ai_agent_contracts.common import (
     SourceRef,
     Text,
     TrueFlag,
+    Version,
     VersionedRecord,
 )
 from ai_agent_contracts.states import ErrorCode, Provenance
@@ -69,6 +70,15 @@ class Episode(Record):
     outcome_confirmed: TrueFlag
 
 
+class MemoryCorrection(Contract):
+    """Operator annotation; inherits the record's source rights and retention dependencies."""
+
+    operator_id: Id
+    request_id: Id
+    previous_version: Version
+    reason: str = Field(strict=True, min_length=1, max_length=1000)
+
+
 class Claim(VersionedRecord):
     subject_id: Id
     content: Text
@@ -76,6 +86,7 @@ class Claim(VersionedRecord):
     sources: list[SourceRef] = Field(min_length=1, max_length=200)
     confidence: Confidence
     conflict_ids: list[Id] = Field(default_factory=list, max_length=200)
+    correction: MemoryCorrection | None = None
 
 
 class Summary(VersionedRecord):
@@ -85,6 +96,7 @@ class Summary(VersionedRecord):
     sources: list[SourceRef] = Field(min_length=1, max_length=200)
     content: Text
     analysis_id: Id
+    correction: MemoryCorrection | None = None
 
 
 class AccountLink(Contract):

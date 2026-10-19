@@ -863,6 +863,17 @@
             "title": "Content",
             "type": "string"
           },
+          "correction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -3343,6 +3354,106 @@
           "expires_at"
         ],
         "title": "Lease",
+        "type": "object"
+      },
+      "MemoryCorrectArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confidence"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content"
+          },
+          "kind": {
+            "enum": [
+              "claim",
+              "summary"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "record_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Record Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "record_id",
+          "reason"
+        ],
+        "title": "MemoryCorrectArguments",
+        "type": "object"
+      },
+      "MemoryCorrection": {
+        "additionalProperties": false,
+        "description": "Operator annotation; inherits the record's source rights and retention dependencies.",
+        "properties": {
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "previous_version": {
+            "minimum": 1,
+            "title": "Previous Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator_id",
+          "request_id",
+          "previous_version",
+          "reason"
+        ],
+        "title": "MemoryCorrection",
         "type": "object"
       },
       "MemoryCycle": {
@@ -10300,6 +10411,17 @@
             "maxLength": 16000,
             "title": "Content",
             "type": "string"
+          },
+          "correction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "created_at": {
             "format": "date-time",

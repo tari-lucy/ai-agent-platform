@@ -14,11 +14,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from ai_agent_contracts.api import CommandBase, Receipt
+from ai_agent_contracts.api import CommandBase, EditCommand, Receipt
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
 from ai_agent_contracts.common import Id, Scope, SourceRef
 from ai_agent_contracts.extensions import ExtensionRegistry
-from ai_agent_contracts.memory import Claim, Episode, Source
+from ai_agent_contracts.memory import Claim, Episode, MemoryCorrection, Source, Summary
+from ai_agent_contracts.panel import MemoryCorrectArguments
 from ai_agent_contracts.states import ErrorCode, Provenance
 from pydantic import TypeAdapter
 
@@ -370,6 +371,77 @@ class MemoryService:
         )
 
     # ---- episodes and claims --------------------------------------------------------------
+
+    async def correct(self, command: EditCommand, operator_id: str) -> Receipt:
+        """One owner transaction includes the new revision, audit and durable replay receipt.
+
+        The trusted composition must check the operator's record access and STOPPED fence.
+        No source is edited, no certainty raised, and no retention or disclosure right extended.
+        """
+        args = self.extensions.validate(
+            command.arguments.schema_id, command.arguments.schema_version, command.arguments.data
+        )
+        if (
+            command.type != "memory.correct"
+            or command.arguments.schema_id != "memory.correct-args"
+            or not isinstance(args, MemoryCorrectArguments)
+            or args.record_id != command.target
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        model: type[Claim] | type[Summary] = Claim if args.kind == "claim" else Summary
+        row = await self.storage.repository(model, self.principal, command.scope).get(
+            command.target
+        )
+        if row is None:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        # Operator namespacing prevents one operator from claiming another's receipt.
+        internal = command.model_copy(
+            update={
+                "request_id": derived_id(
+                    "memory-edit", command.scope, operator_id, command.request_id
+                )
+            }
+        )
+        async with self.storage.transaction(self.principal, command.scope, internal) as unit:
+            if unit.replay is not None:
+                return unit.replay.model_copy(update={"request_id": command.request_id})
+            if row.version != command.expected_version:
+                raise ContractError(ErrorCode.VERSION_CONFLICT, command.request_id, row.version)
+            if args.confidence is not None and (
+                not isinstance(row, Claim) or args.confidence >= row.confidence
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            if args.content in (None, row.content) and args.confidence is None:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            changes: dict[str, Any] = dict(
+                version=row.version + 1,
+                updated_at=max(self.clock(), row.updated_at).isoformat(),
+                scope=command.scope.model_dump(mode="json"),
+                correction=MemoryCorrection(
+                    operator_id=operator_id,
+                    request_id=command.request_id,
+                    previous_version=row.version,
+                    reason=args.reason.strip(),
+                ).model_dump(mode="json"),
+            )
+            if args.content is not None:
+                changes["content"] = args.content
+                if isinstance(row, Claim) and args.content != row.content:
+                    # An operator rewrite is explicitly an interpretation, not a new observation.
+                    changes["knowledge_type"] = "interpretation"
+            if args.confidence is not None:
+                changes["confidence"] = args.confidence
+            updated = self._revised(row, **changes)
+            await unit.put(updated, expected_version=row.version)
+            receipt = Receipt(
+                request_id=internal.request_id,
+                scope=command.scope,
+                status="completed",
+                resource_id=row.id,
+                version=updated.version,
+            )
+            await unit.complete(receipt)
+        return receipt.model_copy(update={"request_id": command.request_id})
 
     async def record_episode(self, command: CommandBase, draft: EpisodeDraft) -> tuple[str, bool]:
         """Returns (episode_id, duplicate). One confirmed operation yields one episode."""

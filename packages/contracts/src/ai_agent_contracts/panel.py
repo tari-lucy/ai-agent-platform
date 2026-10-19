@@ -5,7 +5,17 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, JsonValue, model_validator
 
 from .api import Receipt
-from .common import UTC, Contract, Digest, Id, Scope, ShortText, Version, VersionedRecord
+from .common import (
+    UTC,
+    Confidence,
+    Contract,
+    Digest,
+    Id,
+    Scope,
+    ShortText,
+    Version,
+    VersionedRecord,
+)
 from .extensions import ExtensionRegistry
 from .persona import SettingsTransferOperation
 from .states import OperationState
@@ -29,6 +39,24 @@ class PersonaApplyArguments(Contract):
 class PersonaCopyArguments(Contract):
     source_scope: Scope
     source_version: Version
+
+
+class MemoryCorrectArguments(Contract):
+    kind: Literal["claim", "summary"]
+    record_id: Id
+    reason: str = Field(strict=True, min_length=1, max_length=1000)
+    content: str | None = Field(default=None, strict=True, min_length=1, max_length=4000)
+    confidence: Confidence | None = None
+
+    @model_validator(mode="after")
+    def meaningful(self) -> Self:
+        if not self.reason.strip() or (self.content is not None and not self.content.strip()):
+            raise ValueError("EMPTY_CORRECTION")
+        if self.content is None and self.confidence is None:
+            raise ValueError("EMPTY_CORRECTION")
+        if self.kind == "summary" and self.confidence is not None:
+            raise ValueError("CLAIM_CONFIDENCE_ONLY")
+        return self
 
 
 class RuleData(Contract):
@@ -121,6 +149,7 @@ class ProfileValidation(Contract):
 
 
 def register_panel_extensions(registry: ExtensionRegistry) -> None:
+    registry.register("memory.correct-args", MemoryCorrectArguments)
     registry.register("gm.configure-args", ConfigureGM)
     registry.register("change.decision-args", ChangeDecisionArguments)
     registry.register("change.interpretation-args", ChangeInterpretationArguments)

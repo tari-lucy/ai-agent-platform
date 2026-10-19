@@ -25,7 +25,7 @@ from ai_agent_contracts.api import (
 )
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import VersionedRecord
-from ai_agent_contracts.memory import Source
+from ai_agent_contracts.memory import Claim, Source, Summary
 from ai_agent_contracts.panel import (
     ChangeDecisionArguments,
     ChangeInterpretationArguments,
@@ -52,10 +52,15 @@ if TYPE_CHECKING:
 
 MODELS: dict[str, type[VersionedRecord]] = {
     m.__name__: m
-    for m in (Source, StateChange, CharacterState, Profile, GmRuntimeState, StoryArc, Opportunity)
+    for m in (
+        Source, Claim, Summary, StateChange, CharacterState, Profile,
+        GmRuntimeState, StoryArc, Opportunity,
+    )
 }
 OWNERS = {
     "Source": Owner.MEMORY,
+    "Claim": Owner.MEMORY,
+    "Summary": Owner.MEMORY,
     "StateChange": Owner.PERSONA,
     "CharacterState": Owner.PERSONA,
     "Profile": Owner.PERSONA,

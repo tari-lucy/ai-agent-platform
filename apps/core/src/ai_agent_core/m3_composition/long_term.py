@@ -150,6 +150,11 @@ async def include_memory(
         else:
             label = "утверждение-" + record.knowledge_type
             when, ceiling = record.created_at.date(), 200
+        if record.correction is not None:
+            label += "-исправлено-оператором"
+            if isinstance(record, Claim):
+                label += f"-уверенность-{record.confidence:g}"
+            when = record.updated_at.date()
         # Flagged only while the other side is itself deliverable: a revoked claim leaves no trace.
         disputed = ""
         if isinstance(record, Claim):
