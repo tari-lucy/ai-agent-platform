@@ -413,11 +413,16 @@ def test_conflict_ids_follow_the_readers_access_to_the_claims(tmp_path):
         second = await world.add(A, "Другой сказал иное про мост.", external_id="k-2")
         s1 = await world.memory.get_source(A, first.source_id)
         s2 = await world.memory.get_source(A, second.source_id)
-        await world.memory.record_claim(
+        # The memory owner gives claims the same reader ACL as sources (since e8b6714), so the
+        # claims here are written by an owner without the operator's ACL: they stay private.
+        claims = MemoryService(
+            world.store, MEMORY, world.memory.extensions, index=world.index, clock=world.clock
+        )
+        await claims.record_claim(
             command(A),
             ClaimDraft("claim-1", "subject-1", "Версия один", "reported", (ref(s1),), 0.4),
         )
-        await world.memory.record_claim(
+        await claims.record_claim(
             command(A),
             ClaimDraft(
                 "claim-2", "subject-1", "Версия два", "reported", (ref(s2),), 0.4, ("claim-1",)
