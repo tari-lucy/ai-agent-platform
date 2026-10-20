@@ -35,6 +35,8 @@ class TaskInput(Contract):
     resume_stage: Literal["extract", "consolidate", "reflect"] = "extract"
     resume_ids: list[Id] = Field(default_factory=list, max_length=100)
     resumed: bool = Field(default=False, strict=True)  # new generations for unsaved stages
+    # A consolidate job over stored summaries instead of raw sources (knowledge digest).
+    digest_of: list[Id] = Field(default_factory=list, max_length=31)
 
     @model_validator(mode="after")
     def inputs(self) -> Self:

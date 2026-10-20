@@ -523,6 +523,10 @@ class Runtime:
             or not (
                 request.kind == "post_session"
                 and budget.memory_processing
+                # the knowledge digest is autonomous memory processing under the same admission
+                or request.kind == "consolidate"
+                and bool(request.digest_of)
+                and budget.memory_processing
                 or request.kind == "gm"
                 and budget.gm_enabled
                 and not run.gm_paused
@@ -915,6 +919,15 @@ class Runtime:
             from .memory_cycles import CycleJournal
 
             await CycleJournal(execution).save("consolidate", ids)
+        if request.kind == "consolidate" and request.digest_of:
+            from ai_agent_application.extraction.digest import Digester
+
+            digest = await Digester(
+                memory, execution, admitted=execution.allowed, clock=self.supervisor.clock.utc
+            ).digest(scope, request.digest_of, execution.cancel)
+            if digest is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            return [digest.id]
         if request.kind == "consolidate" or (
             request.kind == "post_session" and start in ("extract", "consolidate")
         ):
