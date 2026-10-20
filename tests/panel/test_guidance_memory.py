@@ -148,7 +148,9 @@ def test_guidance_memory_outcomes_and_read_failure(page, live_panel):
     expect(panel.get_by_text("Цикл не завершён", exact=True)).not_to_be_visible()
     panel.locator("summary").click()
     expect(panel).to_contain_text("CAPABILITY_UNAVAILABLE")
-    expect(panel).to_contain_text("Кнопки «повторить» нет: продолжение решает ядро по сохранённому исходу")
+    expect(panel).to_contain_text(
+        "Кнопки «повторить» нет: продолжение решает ядро по сохранённому исходу"
+    )
     guide.get_by_role("button", name="Свернуть подсказки", exact=True).click()
     screenshot = Path(__file__).resolve().parents[2] / "runtime/panel-memory-status.png"
     screenshot.parent.mkdir(exist_ok=True)
