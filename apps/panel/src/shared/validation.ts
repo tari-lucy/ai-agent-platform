@@ -74,7 +74,7 @@ export function stopReceipt(value: unknown, selected: Scope, requestId: string):
 const eventTypes = new Set([
   'run.changed', 'job.changed', 'utterance.changed', 'delivery.changed', 'memory.changed',
   'relationship.changed', 'arc.changed', 'change.changed', 'check.changed', 'connection.changed', 'usage.changed',
-  'ticket.changed',
+  'ticket.changed', 'work.changed',
 ]);
 export function event(value: unknown): PanelEvent {
   demand(object(value) && isScope(value.scope) && id(value.id) && id(value.event_id) &&

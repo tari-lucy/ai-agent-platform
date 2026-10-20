@@ -103,4 +103,5 @@ export const affectedResources: Record<PanelEvent['type'], readonly string[]> = 
   'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities', 'permissions', 'capability-bindings', 'capability-manifests'],
   'usage.changed': ['llm-attempts', 'cost-calculations', 'private-api-status'],
   'ticket.changed': ['tickets', 'ticket-messages'],
+  'work.changed': ['work-tasks', 'work-attempts'],
 };

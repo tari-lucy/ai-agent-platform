@@ -24,10 +24,15 @@ writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separ
 metadata-only TEST scope has no execution grants. Serve never provisions either mode.
 """
 
+from typing import TYPE_CHECKING
+
 from ai_agent_application.laboratory import lab_grants
 from ai_agent_application.storage import Grant, Owner, RecordAccess
 
 from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
+
+if TYPE_CHECKING:
+    from .layout import HostConfig
 
 # Owners whose own records the m3 runtime, dialogue and lab paths write.
 WRITERS = (
@@ -64,7 +69,11 @@ OPERATOR_LAB_OWNERS = (Owner.MEMORY, Owner.CATALOGUE, Owner.LABORATORY)
 
 
 def core_grants(
-    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+    *,
+    preparing: bool = False,
+    operator_controls: bool = False,
+    tickets: bool = False,
+    activity: bool = False,
 ) -> tuple[Grant, ...]:
     """Default WORKSPACE is read-only; explicit controls mode also stores plans/receipts.
 
@@ -99,26 +108,45 @@ def core_grants(
             Grant(PRINCIPALS[Owner.TICKETS], Owner.TICKETS, read=True, write=True),
             Grant(PRINCIPALS[Owner.TICKETS], Owner.MEMORY, read=True),
         ]
+    if activity:
+        # The activity owner writes only tasks/attempts; executions read its tasks as jobs.
+        grants += [Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True)]
     return tuple(grants)
 
 
-def operator_grants(*, operator_controls: bool = False, tickets: bool = False) -> tuple[Grant, ...]:
+def operator_grants(
+    *, operator_controls: bool = False, tickets: bool = False, activity: bool = False
+) -> tuple[Grant, ...]:
     return tuple(
         Grant(OPERATOR, o, read=True, api_transfer=True)
         for o in (
             *OPERATOR_OWNERS,
             *((Owner.WORKSPACE,) if operator_controls else ()),
             *((Owner.TICKETS,) if tickets else ()),
+            *((Owner.ACTIVITY,) if activity else ()),
         )
     )
 
 
 def work_grants(
-    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+    *,
+    preparing: bool = False,
+    operator_controls: bool = False,
+    tickets: bool = False,
+    activity: bool = False,
 ) -> tuple[Grant, ...]:
     return core_grants(
-        preparing=preparing, operator_controls=operator_controls, tickets=tickets
-    ) + operator_grants(operator_controls=operator_controls, tickets=tickets)
+        preparing=preparing, operator_controls=operator_controls, tickets=tickets, activity=activity
+    ) + operator_grants(operator_controls=operator_controls, tickets=tickets, activity=activity)
+
+
+def host_grants(config: HostConfig) -> tuple[Grant, ...]:
+    """The current work-scope matrix of a prepared host, from its explicit offline flags."""
+    return work_grants(
+        operator_controls=config.operator_controls,
+        tickets=config.workplace_tickets,
+        activity=config.live is not None and config.live.activity.enabled,
+    )
 
 
 def ticket_readers() -> tuple[RecordAccess, ...]:

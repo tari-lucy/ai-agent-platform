@@ -120,6 +120,7 @@ class CreateCommand(CommandBase):
         "laboratory.create",
         "tariff.create",
         "persona.copy",
+        "work.assign",
     ]
     arguments: ExtensionPayload
 
@@ -260,6 +261,7 @@ class PanelEvent(Record):
         "connection.changed",
         "usage.changed",
         "ticket.changed",
+        "work.changed",
     ]
     resource_id: Id
     resource_version: Version | None

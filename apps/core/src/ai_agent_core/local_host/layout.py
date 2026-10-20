@@ -47,6 +47,18 @@ class GmConfig(BaseModel):
     line_boundaries: str = Field(default="", max_length=1000)
 
 
+class ActivityConfig(BaseModel):
+    """Workplace activity (AW-05). Off unless explicitly enabled offline; same daily limit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    enabled: bool = Field(default=False, strict=True)
+    daily_calls: int = Field(default=20, strict=True, ge=1, le=1000)
+    cooldown_minutes: int = Field(default=10, strict=True, ge=1, le=1440)
+    own_goals: bool = Field(default=False, strict=True)
+    own_goal_daily: int = Field(default=2, strict=True, ge=0, le=24)
+    max_open_tasks: int = Field(default=20, strict=True, ge=1, le=200)
+
+
 class LiveConfig(BaseModel):
     """Explicit private-dialogue pilot. Contains no credentials or endpoint values."""
 
@@ -62,6 +74,7 @@ class LiveConfig(BaseModel):
     max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)
     timeout_seconds: float = Field(default=60.0, gt=0, le=120)
     gm: GmConfig = Field(default_factory=GmConfig)
+    activity: ActivityConfig = Field(default_factory=ActivityConfig)
 
     @model_validator(mode="after")
     def memory_budget(self) -> Self:
@@ -81,6 +94,13 @@ class LiveConfig(BaseModel):
             or reserved + self.gm.daily_calls + self.gm.dialogue_floor > self.attempt_limit
         ):
             raise ValueError("DAILY_GM_BUDGET_REQUIRED")
+        gm = self.gm.daily_calls if self.gm.enabled else 0
+        if self.activity.enabled and (
+            self.attempt_period != "utc_day"
+            or reserved + gm + self.activity.daily_calls + self.gm.dialogue_floor
+            > self.attempt_limit
+        ):
+            raise ValueError("DAILY_ACTIVITY_BUDGET_REQUIRED")
         return self
 
 
@@ -95,6 +115,8 @@ def live_roles(live: LiveConfig | None) -> frozenset[str]:
         roles |= MEMORY_ROLES
     if live.gm.enabled:
         roles |= set(ROLES["gm"])
+    if live.activity.enabled:
+        roles |= set(ROLES["activity"])
     return frozenset(roles)
 
 

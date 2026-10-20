@@ -26,6 +26,7 @@ from pydantic import SecretStr, TypeAdapter, ValidationError
 from ai_agent_core.access import password_hash
 from ai_agent_core.m3_composition import new_registry
 from ai_agent_core.m3_composition.state import (
+    OPT_IN_KINDS,
     PRINCIPALS,
     ROLES,
     extension,
@@ -307,6 +308,8 @@ async def _prepare_records(
             )
         )
     for kind in ROLES:
+        if kind in OPT_IN_KINDS:
+            continue
         records.append(
             (
                 Owner.WORKSPACE,

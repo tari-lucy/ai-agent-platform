@@ -1875,7 +1875,8 @@
               "briefing.create",
               "laboratory.create",
               "tariff.create",
-              "persona.copy"
+              "persona.copy",
+              "work.assign"
             ],
             "title": "Type",
             "type": "string"
@@ -7697,6 +7698,118 @@
         "title": "Page[Utterance]",
         "type": "object"
       },
+      "Page_WorkAttempt_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkAttempt"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[WorkAttempt]",
+        "type": "object"
+      },
+      "Page_WorkTask_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkTask"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[WorkTask]",
+        "type": "object"
+      },
       "Page_Workspace_": {
         "additionalProperties": false,
         "properties": {
@@ -7806,6 +7919,7 @@
             "tariff.create": "#/components/schemas/CreateCommand",
             "ticket.read": "#/components/schemas/EditCommand",
             "ticket.reply": "#/components/schemas/EditCommand",
+            "work.assign": "#/components/schemas/CreateCommand",
             "workspace.backup.execute": "#/components/schemas/ExecutePlanCommand",
             "workspace.backup.preview": "#/components/schemas/PlanCommand",
             "workspace.restore.execute": "#/components/schemas/ExecutePlanCommand",
@@ -7942,7 +8056,8 @@
               "check.changed",
               "connection.changed",
               "usage.changed",
-              "ticket.changed"
+              "ticket.changed",
+              "work.changed"
             ],
             "title": "Type",
             "type": "string"
@@ -12066,7 +12181,8 @@
             "run.changed": "#/components/schemas/PanelEvent",
             "ticket.changed": "#/components/schemas/PanelEvent",
             "usage.changed": "#/components/schemas/PanelEvent",
-            "utterance.changed": "#/components/schemas/PanelEvent"
+            "utterance.changed": "#/components/schemas/PanelEvent",
+            "work.changed": "#/components/schemas/PanelEvent"
           },
           "propertyName": "type"
         },
@@ -13277,6 +13393,29 @@
           "updated_at"
         ],
         "title": "VersionedRecord",
+        "type": "object"
+      },
+      "WorkAssignArguments": {
+        "additionalProperties": false,
+        "description": "An operator's assignment; it is stored as a task and runs only after an explicit START.",
+        "properties": {
+          "goal": {
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 16000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal"
+        ],
+        "title": "WorkAssignArguments",
         "type": "object"
       },
       "WorkAttempt": {
@@ -20644,6 +20783,322 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Utterance"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/work-attempts": {
+      "get": {
+        "operationId": "list_work_attempts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WorkAttempt_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/work-attempts/{resource_id}": {
+      "get": {
+        "operationId": "read_work_attempts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkAttempt"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/work-tasks": {
+      "get": {
+        "operationId": "list_work_tasks",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WorkTask_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/work-tasks/{resource_id}": {
+      "get": {
+        "operationId": "read_work_tasks",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkTask"
                 }
               }
             },

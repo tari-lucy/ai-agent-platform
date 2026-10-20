@@ -448,3 +448,19 @@ class PermissionDecisionProof(VersionedRecord):
     plan_expires_at: UTC
     expires_at: UTC
     executed_by: Id | None = None
+
+
+# --- Operator assignment (AW-05) -------------------------------------------------------------
+
+
+class WorkAssignArguments(Contract):
+    """An operator's assignment; it is stored as a task and runs only after an explicit START."""
+
+    goal: Text = Field(min_length=1, max_length=4000)
+    reason: Text = Field(default="", max_length=4000)
+
+    @model_validator(mode="after")
+    def not_blank(self) -> Self:
+        if not self.goal.strip():
+            raise ValueError("EMPTY_GOAL")
+        return self

@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from ai_agent_adapters.configuration import ConfigurationError, load_configuration
 from ai_agent_adapters.llm import ADAPTER_ID, OpenAICompatibleProvider, checked_endpoint
+from ai_agent_application.agent_activity.model import GoalProposal, StepDecision
 from ai_agent_application.development.schemas import ReflectionResult
 from ai_agent_application.dialogue.model import DialogueDecision
 from ai_agent_application.extraction.model import ExtractionResult, SummaryResult
@@ -53,6 +54,8 @@ ROLE_MODELS: dict[str, type[BaseModel]] = {
     "reflection": ReflectionResult,
     "story-screen": StoryVerdict,
     "game-master": Draft,
+    "activity": StepDecision,
+    "activity-goal": GoalProposal,
 }
 
 

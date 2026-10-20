@@ -143,6 +143,8 @@ def _build(
             gm_daily_offers=config.live.gm.daily_offers,
             gm_interval_seconds=config.live.gm.interval_minutes * 60.0,
             gm_dialogue_floor=config.live.gm.dialogue_floor,
+            activity_enabled=config.live.activity.enabled,
+            activity_daily_calls=config.live.activity.daily_calls,
         ),
         scopes=scopes,
         reader_access=rights.record_readers(),
@@ -161,6 +163,18 @@ def _build(
             runtime.supervisor.clock.utc,
             readers=rights.ticket_readers(),
             principal=PRINCIPALS[Owner.TICKETS],
+        )
+    if config.live is not None and config.live.activity.enabled:
+        if not config.workplace_tickets:
+            raise HostError("TICKETS_REQUIRED")
+        from ai_agent_application.agent_activity.model import ActivitySettings
+
+        activity = config.live.activity
+        runtime.activity = ActivitySettings(
+            cooldown_seconds=activity.cooldown_minutes * 60.0,
+            own_goals=activity.own_goals,
+            own_goal_daily=activity.own_goal_daily,
+            max_open_tasks=activity.max_open_tasks,
         )
     if config.workplace_permissions is not None:
         from ai_agent_core.m3_composition.permission_decisions import Ceiling

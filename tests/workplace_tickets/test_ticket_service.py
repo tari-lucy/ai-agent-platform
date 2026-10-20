@@ -160,9 +160,7 @@ def test_conversation_turns_dedup_reopen_and_replay(tmp_path):
             await service.reply("operator", stale, reply("Нет.", "close", ticket.id))
         assert conflict.value.error.code is ErrorCode.VERSION_CONFLICT
 
-        # The agent records recovery only with evidence; then a repeat reopens the ticket.
-        with pytest.raises(ContractError):
-            await service.agent_update("r-6", SCOPE, "agent-01", ticket.id, "Готово.", "resolve")
+        # Recovery evidence must exist; then a repeat reopens the ticket.
         evidence = SourceRef(
             source_id="source-01", version=1, scope=SCOPE, availability="available"
         )
@@ -235,6 +233,9 @@ def test_scope_isolation_and_capability_text_grants_nothing(tmp_path):
         )
         with pytest.raises(ContractError):
             await service.reply("operator", foreign, reply("Да.", "answer", ticket.id))
+        # A capability request is never closed by the agent without proof of readiness.
+        with pytest.raises(ContractError):
+            await service.agent_update("c-x", SCOPE, "agent-01", ticket.id, "Есть.", "resolve")
         # Approving in words only moves the conversation; no permission record is written.
         ok = edit(
             "ticket.reply",

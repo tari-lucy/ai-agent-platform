@@ -47,6 +47,15 @@ class LiveBudget:
                     + live.gm.daily_calls
                     + live.gm.dialogue_floor,
                 )
+            if live.activity.enabled:
+                gm = live.gm.daily_calls if live.gm.enabled else 0
+                minimum = max(
+                    minimum,
+                    (live.memory_daily_calls if live.memory_processing else 0)
+                    + gm
+                    + live.activity.daily_calls
+                    + live.gm.dialogue_floor,
+                )
             return ApiLimits(
                 scope=scope,
                 version=live.budget_version,

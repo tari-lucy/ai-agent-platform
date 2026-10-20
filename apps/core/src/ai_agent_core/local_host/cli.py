@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from ai_agent_core.local_artifacts import ArtifactsError
 
+from .activity import configure_activity
 from .budget import configure_budget
 from .finish_restore import finish_restore
 from .gm import configure_gm
@@ -100,6 +101,20 @@ def parser() -> argparse.ArgumentParser:
     gm.add_argument("--dialogue-floor", type=int)
     gm.add_argument("--line-direction-file", type=Path, help="UTF-8 text of the story line")
     gm.add_argument("--line-boundaries-file", type=Path, help="UTF-8 text of its boundaries")
+    activity = commands.add_parser(
+        "configure-activity", help="explicit offline workplace activity switch and limits"
+    )
+    activity.add_argument("--root", type=Path, required=True)
+    toggle = activity.add_mutually_exclusive_group()
+    toggle.add_argument("--enable", action="store_true")
+    toggle.add_argument("--disable", action="store_true")
+    goals = activity.add_mutually_exclusive_group()
+    goals.add_argument("--own-goals", action="store_true")
+    goals.add_argument("--no-own-goals", action="store_true")
+    activity.add_argument("--daily-calls", type=int)
+    activity.add_argument("--cooldown-minutes", type=int)
+    activity.add_argument("--own-goal-daily", type=int)
+    activity.add_argument("--max-open-tasks", type=int)
     recovery = commands.add_parser(
         "enable-recovery", help="offline independent ledger and daily copies"
     )
@@ -184,6 +199,22 @@ def main(argv: list[str] | None = None) -> int:
                 f" daily_offers={settings.daily_offers} daily_calls={settings.daily_calls}"
                 f" interval_minutes={settings.interval_minutes}"
                 f" line={'set' if settings.line_direction else 'none'}; agent stays STOPPED"
+            )
+            return 0
+        if arguments.command == "configure-activity":
+            changes = {}
+            if arguments.enable or arguments.disable:
+                changes["enabled"] = bool(arguments.enable)
+            if arguments.own_goals or arguments.no_own_goals:
+                changes["own_goals"] = bool(arguments.own_goals)
+            for name in ("daily_calls", "cooldown_minutes", "own_goal_daily", "max_open_tasks"):
+                if getattr(arguments, name) is not None:
+                    changes[name] = getattr(arguments, name)
+            current = asyncio.run(configure_activity(arguments.root, **changes))
+            print(
+                f"activity enabled={str(current.enabled).lower()}"
+                f" daily_calls={current.daily_calls} cooldown_minutes={current.cooldown_minutes}"
+                f" own_goals={str(current.own_goals).lower()}; agent stays STOPPED"
             )
             return 0
         if arguments.command == "enable-memory":

@@ -46,6 +46,7 @@ HELPERS = (
     "tests/evaluation",
     "tests/workplace_contracts",
     "tests/workplace_tickets",
+    "tests/workplace_activity",
 )
 TESTS = (
     "tests/operations",

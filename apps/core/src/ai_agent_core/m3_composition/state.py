@@ -34,7 +34,11 @@ ROLES = {
     "post_session": ("extractor", "consolidator", "reflection", "story-screen"),
     "gm": ("game-master", "story-screen"),
     "laboratory": (),
+    "activity": ("activity", "activity-goal"),
 }
+# Kinds whose capability/permission are not seeded by init: an explicit offline command
+# (configure-activity) creates them, so an upgrade never starts a new kind of work by itself.
+OPT_IN_KINDS = frozenset({"activity"})
 MEMORY_ROLES = frozenset({"extractor", "consolidator", "reflection", "story-screen"})
 CAPABILITIES = tuple("m3." + kind for kind in ROLES)
 

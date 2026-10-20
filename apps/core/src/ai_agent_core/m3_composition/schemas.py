@@ -17,7 +17,14 @@ class Empty(Contract):
 
 class TaskInput(Contract):
     kind: Literal[
-        "extract", "consolidate", "reflect", "post_session", "gm", "laboratory", "dialogue"
+        "extract",
+        "consolidate",
+        "reflect",
+        "post_session",
+        "gm",
+        "laboratory",
+        "dialogue",
+        "activity",
     ]
     trigger_id: Id
     source_ids: list[Id] = Field(default_factory=list, max_length=200)

@@ -90,6 +90,10 @@ DOMAIN_OWNERS = frozenset(
         Owner.SOCIAL,
         Owner.GATEWAY,
         Owner.CHANNEL,
+        # Workplace owners: a STOP/epoch change or a revoked pin stops their late writes too.
+        Owner.ACTIVITY,
+        Owner.TICKETS,
+        Owner.SKILLS,
     }
 )
 
@@ -132,6 +136,10 @@ class PrivateAPIBudget:
     gm_daily_offers: int = 2
     gm_interval_seconds: float = 3600.0
     gm_dialogue_floor: int = 10
+    # Workplace activity (AW-05): its own daily share of the same limit, off by default.
+    # It never takes the memory reserve or the dialogue floor; harness calls count here too.
+    activity_enabled: bool = False
+    activity_daily_calls: int = 20
 
     def __post_init__(self) -> None:
         if self.period not in ("lifetime", "utc_day"):
@@ -161,12 +169,23 @@ class PrivateAPIBudget:
             or reserved + self.gm_daily_calls + self.gm_dialogue_floor > self.max_attempts
         ):
             raise ValueError("PRIVATE_GM_BUDGET")
+        if type(self.activity_enabled) is not bool or not 1 <= self.activity_daily_calls <= 1000:
+            raise ValueError("PRIVATE_ACTIVITY_BUDGET")
+        gm = self.gm_daily_calls if self.gm_enabled else 0
+        if self.activity_enabled and (
+            self.period != "utc_day"
+            or reserved + gm + self.activity_daily_calls + self.gm_dialogue_floor
+            > self.max_attempts
+        ):
+            raise ValueError("PRIVATE_ACTIVITY_BUDGET")
 
     def allows(self, role: str, kind: str | None = None) -> bool:
         if role == "character":
             return True
         if kind == "gm":
             return self.gm_enabled and role in ROLES["gm"]
+        if kind == "activity":
+            return self.activity_enabled and role in ROLES["activity"]
         return self.memory_processing and role in MEMORY_ROLES
 
     @staticmethod
@@ -208,6 +227,21 @@ class PrivateAPIBudget:
             0,
             min(
                 self.gm_daily_calls - self.gm_used(attempts, now),
+                self.dialogue_remaining(attempts, now) - self.gm_dialogue_floor,
+            ),
+        )
+
+    def activity_used(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        return sum(row.role_id in ROLES["activity"] and self._today(row, now) for row in attempts)
+
+    def activity_room(self, attempts: Sequence[LLMAttempt], now: datetime) -> int:
+        """Activity calls allowed now: its own cap, never the memory reserve or the floor."""
+        if not self.activity_enabled:
+            return 0
+        return max(
+            0,
+            min(
+                self.activity_daily_calls - self.activity_used(attempts, now),
                 self.dialogue_remaining(attempts, now) - self.gm_dialogue_floor,
             ),
         )
@@ -276,6 +310,15 @@ class Runtime:
         from .permission_decisions import Ceiling
 
         self.permission_ceiling: dict[str, Ceiling] | None = None
+        # Activity contour (AW-05); None keeps it off. Tool executors are trusted adapters.
+        from ai_agent_application.agent_activity.model import ActivitySettings
+        from ai_agent_application.agent_activity.step import ToolExecutor
+
+        self.activity: ActivitySettings | None = None
+        self.tool_executors: dict[str, ToolExecutor] = {}
+        from .activity import AutonomousActivity
+
+        self.autonomous_activity = AutonomousActivity(self)
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory
@@ -508,6 +551,7 @@ class Runtime:
             self._active = None
         await self.daily_memory.tick()
         await self.autonomous_gm.tick()
+        await self.autonomous_activity.tick()
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:
             if (
@@ -539,6 +583,10 @@ class Runtime:
                 or request.kind == "gm"
                 and budget.gm_enabled
                 and not run.gm_paused
+                and scope.memory_mode == "work"
+                or request.kind == "activity"
+                and budget.activity_enabled
+                and self.activity is not None
                 and scope.memory_mode == "work"
             )
             or scope != run.scope
@@ -909,6 +957,10 @@ class Runtime:
             reader_access=self.readers,
         )
         ids: list[str] = list(request.resume_ids)
+        if request.kind == "activity":
+            from .activity import perform as perform_activity
+
+            return await perform_activity(execution)
         if request.kind == "dialogue":
             from .dialogue import perform
 
@@ -1203,6 +1255,9 @@ class Execution:
             if self.args.request.kind == "gm":
                 # Attributed to the actual GM operation, including its story-screen call.
                 if budget.gm_room(attempts, now) < 1:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+            elif self.args.request.kind == "activity":
+                if budget.activity_room(attempts, now) < 1:
                     raise ContractError(ErrorCode.RESOURCE_BUSY)
             elif budget.memory_processing and (
                 report.role_id in MEMORY_ROLES

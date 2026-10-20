@@ -251,13 +251,21 @@ class TicketService:
         outcome: Literal["message", "resolve"],
         evidence: Sequence[SourceRef] = (),
     ) -> Receipt:
-        """The agent answers or records a recovery; resolving needs evidence, not confidence."""
+        """The agent answers or records a recovery; resolve needs evidence or an operator answer."""
         scope = area(scope)
         current = await self.get(scope, identifier)
         if current is None:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS, request_id)
         if outcome == "resolve" and not evidence:
-            raise ContractError(ErrorCode.INVALID_ARGUMENTS, request_id)
+            # Without evidence only an answered question may be closed: the operator's own
+            # last message is its basis. A capability request needs proof of readiness.
+            messages = await self.messages(scope, identifier)
+            if (
+                current.kind == "capability_request"
+                or not messages
+                or messages[-1].author != "operator"
+            ):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, request_id)
         command = MessageCommand(
             request_id=request_id,
             scope=scope,

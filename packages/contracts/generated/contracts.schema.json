@@ -1815,7 +1815,8 @@
             "briefing.create",
             "laboratory.create",
             "tariff.create",
-            "persona.copy"
+            "persona.copy",
+            "work.assign"
           ],
           "title": "Type",
           "type": "string"
@@ -7637,6 +7638,118 @@
       "title": "Page[Utterance]",
       "type": "object"
     },
+    "Page_WorkAttempt_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/WorkAttempt"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[WorkAttempt]",
+      "type": "object"
+    },
+    "Page_WorkTask_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/WorkTask"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[WorkTask]",
+      "type": "object"
+    },
     "Page_Workspace_": {
       "additionalProperties": false,
       "properties": {
@@ -7746,6 +7859,7 @@
           "tariff.create": "#/$defs/CreateCommand",
           "ticket.read": "#/$defs/EditCommand",
           "ticket.reply": "#/$defs/EditCommand",
+          "work.assign": "#/$defs/CreateCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
           "workspace.restore.execute": "#/$defs/ExecutePlanCommand",
@@ -7882,7 +7996,8 @@
             "check.changed",
             "connection.changed",
             "usage.changed",
-            "ticket.changed"
+            "ticket.changed",
+            "work.changed"
           ],
           "title": "Type",
           "type": "string"
@@ -12006,7 +12121,8 @@
           "run.changed": "#/$defs/PanelEvent",
           "ticket.changed": "#/$defs/PanelEvent",
           "usage.changed": "#/$defs/PanelEvent",
-          "utterance.changed": "#/$defs/PanelEvent"
+          "utterance.changed": "#/$defs/PanelEvent",
+          "work.changed": "#/$defs/PanelEvent"
         },
         "propertyName": "type"
       },
@@ -13219,6 +13335,29 @@
       "title": "VersionedRecord",
       "type": "object"
     },
+    "WorkAssignArguments": {
+      "additionalProperties": false,
+      "description": "An operator's assignment; it is stored as a task and runs only after an explicit START.",
+      "properties": {
+        "goal": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 16000,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal"
+      ],
+      "title": "WorkAssignArguments",
+      "type": "object"
+    },
     "WorkAttempt": {
       "additionalProperties": false,
       "description": "One try at a task step, bound to exactly one job operation.\n\n``inputs``/``input_files`` are recorded by the trusted context service when the attempt is\nprepared; result dependencies are derived from them and cannot be removed by the executor.\n``state`` reconciles from the job's ExecutionResult; ``unknown`` needs reconciliation\nbefore any retry with an external effect.",
@@ -14151,11 +14290,20 @@
     "VersionedRecord": {
       "$ref": "#/$defs/VersionedRecord"
     },
+    "WorkAssignArguments": {
+      "$ref": "#/$defs/WorkAssignArguments"
+    },
     "WorkAttempt": {
       "$ref": "#/$defs/WorkAttempt"
     },
+    "WorkAttemptPage": {
+      "$ref": "#/$defs/Page_WorkAttempt_"
+    },
     "WorkTask": {
       "$ref": "#/$defs/WorkTask"
+    },
+    "WorkTaskPage": {
+      "$ref": "#/$defs/Page_WorkTask_"
     },
     "Workspace": {
       "$ref": "#/$defs/Workspace"

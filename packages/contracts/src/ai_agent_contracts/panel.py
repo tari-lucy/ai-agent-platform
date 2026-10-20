@@ -265,10 +265,12 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
         PermissionLimits,
         TicketReadArguments,
         TicketReplyArguments,
+        WorkAssignArguments,
     )
 
     registry.register("ticket.reply-args", TicketReplyArguments)
     registry.register("ticket.read-args", TicketReadArguments)
+    registry.register("work.assign-args", WorkAssignArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
     registry.register("workplace.permission-conditions", PermissionConditions)
     registry.register("workplace.permission-limits", PermissionLimits)

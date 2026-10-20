@@ -20,6 +20,7 @@ from ai_agent_contracts.agent_workplace import (
 )
 from ai_agent_contracts.common import ArtifactRef, Scope, SourceRef
 from ai_agent_contracts.control import Freshness
+from pydantic import BaseModel
 
 from ai_agent_application.llm.model import ChatMessage
 
@@ -106,11 +107,17 @@ class TicketDesk(Protocol):
 
 @dataclass(frozen=True)
 class ModelRequest:
-    """One model call of the activity contour or a harness, under a WorkAdmission."""
+    """One model call of the activity contour or a harness, under a WorkAdmission.
+
+    ``call_id`` is stable per logical call, so a replayed step does not count twice;
+    ``result_model`` asks for one strict JSON document of that closed schema.
+    """
 
     role_id: str
     messages: tuple[ChatMessage, ...]
     max_output_tokens: int
+    call_id: str = "call"
+    result_model: type[BaseModel] | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +125,7 @@ class ModelReply:
     status: Literal["completed", "failed", "cancelled", "incomplete", "unknown", "not_admitted"]
     text: str
     attempt_id: str
+    parsed: BaseModel | None = None
 
 
 class ModelGateway(Protocol):
