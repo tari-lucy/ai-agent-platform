@@ -554,6 +554,17 @@
       "title": "ArtifactRef",
       "type": "object"
     },
+    "AttemptState": {
+      "enum": [
+        "prepared",
+        "submitted",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "Briefing": {
       "additionalProperties": false,
       "properties": {
@@ -792,6 +803,282 @@
         "setting_references"
       ],
       "title": "Capability",
+      "type": "object"
+    },
+    "CapabilityBinding": {
+      "additionalProperties": false,
+      "description": "Concrete adapter connection of a capability (owner: workspace).\n\nAn approved ticket does not make a binding ready: ``ready`` needs a verification time.",
+      "properties": {
+        "adapter_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "adapter_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "capability_version": {
+          "minimum": 1,
+          "title": "Capability Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "ready",
+            "disabled",
+            "revoked"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified At"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "binding_id",
+        "capability_id",
+        "capability_version",
+        "adapter_id",
+        "adapter_version",
+        "state"
+      ],
+      "title": "CapabilityBinding",
+      "type": "object"
+    },
+    "CapabilityManifest": {
+      "additionalProperties": false,
+      "description": "Discoverable description of an existing workspace.Capability (owner: workspace).\n\n``instructions`` is data for the agent's choice of method, never an operator command.",
+      "properties": {
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "capability_version": {
+          "minimum": 1,
+          "title": "Capability Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "none",
+            "local_write",
+            "external_effect",
+            "public_output"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_schema_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Input Schema Id",
+          "type": "string"
+        },
+        "instructions": {
+          "maxLength": 16000,
+          "title": "Instructions",
+          "type": "string"
+        },
+        "network": {
+          "enum": [
+            "none",
+            "gateway"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "output_schema_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Output Schema Id",
+          "type": "string"
+        },
+        "runner_required": {
+          "title": "Runner Required",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "summary": {
+          "maxLength": 512,
+          "title": "Summary",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "capability_id",
+        "capability_version",
+        "summary",
+        "instructions",
+        "input_schema_id",
+        "output_schema_id",
+        "effect",
+        "areas",
+        "network",
+        "runner_required"
+      ],
+      "title": "CapabilityManifest",
+      "type": "object"
+    },
+    "CapabilityRequest": {
+      "additionalProperties": false,
+      "description": "What a capability ticket asks for; text and approval never grant it by themselves.",
+      "properties": {
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "constraints": {
+          "maxLength": 16000,
+          "title": "Constraints",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
+        }
+      },
+      "required": [
+        "capability_id",
+        "constraints"
+      ],
+      "title": "CapabilityRequest",
       "type": "object"
     },
     "ChangeDecisionArguments": {
@@ -2425,6 +2712,168 @@
       "title": "ExtensionPayload",
       "type": "object"
     },
+    "FileAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "api_transfer": {
+          "title": "Api Transfer",
+          "type": "boolean"
+        },
+        "public_disclosure": {
+          "title": "Public Disclosure",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "api_transfer",
+        "public_disclosure"
+      ],
+      "title": "FileAccess",
+      "type": "object"
+    },
+    "FileKind": {
+      "enum": [
+        "material",
+        "note",
+        "hypothesis",
+        "method",
+        "script",
+        "plan",
+        "draft",
+        "result"
+      ],
+      "type": "string"
+    },
+    "FileProvenance": {
+      "enum": [
+        "read",
+        "generated",
+        "assumption",
+        "verified"
+      ],
+      "type": "string"
+    },
+    "FileWrite": {
+      "additionalProperties": false,
+      "description": "Request to the file owner. Content bytes travel beside it, checked by digest/size.\n\n``expected_version`` None creates; otherwise it is the CAS precondition.\n``declared_sources`` can only add dependencies to those of the attempt.",
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/WorkplaceArea"
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempt Id"
+        },
+        "change_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Reason"
+        },
+        "checksum": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Checksum",
+          "type": "string"
+        },
+        "declared_sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Declared Sources",
+          "type": "array"
+        },
+        "expected_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Version"
+        },
+        "file_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "File Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "media_type": {
+          "maxLength": 512,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "generated",
+            "assumption"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "file_id",
+        "expected_version",
+        "area",
+        "path",
+        "title",
+        "kind",
+        "provenance",
+        "media_type",
+        "checksum",
+        "size_bytes"
+      ],
+      "title": "FileWrite",
+      "type": "object"
+    },
     "Freshness": {
       "additionalProperties": false,
       "properties": {
@@ -3464,6 +3913,151 @@
         "expires_at"
       ],
       "title": "Lease",
+      "type": "object"
+    },
+    "ManagedFile": {
+      "additionalProperties": false,
+      "description": "Catalogue entry of one version of a workplace file; content is addressed by reference.\n\n``dependencies`` is the complete, conservative source set assigned by the trusted file or\ncontext service. Expired/deleted/unavailable sources block the file, they are not dropped.",
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/FileAccess"
+        },
+        "area": {
+          "$ref": "#/$defs/WorkplaceArea"
+        },
+        "change_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Reason"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "derived_from": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 200,
+          "title": "Derived From",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "produced_by_attempt": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By Attempt"
+        },
+        "provenance": {
+          "$ref": "#/$defs/FileProvenance"
+        },
+        "reference": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "blocked",
+            "deleted"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "reference",
+        "area",
+        "path",
+        "title",
+        "kind",
+        "provenance",
+        "dependencies",
+        "access",
+        "state"
+      ],
+      "title": "ManagedFile",
       "type": "object"
     },
     "MemoryCorrectArguments": {
@@ -9851,6 +10445,125 @@
       "title": "SettingsTransferStatus",
       "type": "object"
     },
+    "SkillVersion": {
+      "additionalProperties": false,
+      "description": "A method of using existing capabilities; it never adds tools, rights or schedules.\n\n``uses_capabilities`` is descriptive; execution is still checked against permissions.\n``verified`` needs evidence of a confirmed result, not the model's confidence.",
+      "properties": {
+        "applicability": {
+          "maxLength": 16000,
+          "title": "Applicability",
+          "type": "string"
+        },
+        "change_reason": {
+          "maxLength": 512,
+          "title": "Change Reason",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "helper_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 20,
+          "title": "Helper Files",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "limitations": {
+          "maxLength": 16000,
+          "title": "Limitations",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "skill_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "experimental",
+            "verified",
+            "retired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "uses_capabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Uses Capabilities",
+          "type": "array"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "skill_id",
+        "title",
+        "applicability",
+        "limitations",
+        "method",
+        "status",
+        "change_reason"
+      ],
+      "title": "SkillVersion",
+      "type": "object"
+    },
     "Source": {
       "additionalProperties": false,
       "properties": {
@@ -11141,6 +11854,292 @@
       "title": "TariffCreateArguments",
       "type": "object"
     },
+    "Ticket": {
+      "additionalProperties": false,
+      "description": "Durable conversation about one question; not a Job, ResourceTicket or person.",
+      "properties": {
+        "agent_priority": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Agent Priority",
+          "type": "integer"
+        },
+        "attempted": {
+          "maxLength": 16000,
+          "title": "Attempted",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "decision_needed": {
+          "maxLength": 16000,
+          "title": "Decision Needed",
+          "type": "string"
+        },
+        "duplicate_key": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Duplicate Key",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/TicketKind"
+        },
+        "materials": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 50,
+          "title": "Materials",
+          "type": "array"
+        },
+        "message_count": {
+          "minimum": 0,
+          "title": "Message Count",
+          "type": "integer"
+        },
+        "next_turn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TicketParty"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "occurrences": {
+          "default": 1,
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Occurrences",
+          "type": "integer"
+        },
+        "operator_read_version": {
+          "minimum": 0,
+          "title": "Operator Read Version",
+          "type": "integer"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 50,
+          "title": "Sources",
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/$defs/TicketState"
+        },
+        "summary": {
+          "maxLength": 16000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "technical_refusal": {
+          "default": false,
+          "title": "Technical Refusal",
+          "type": "boolean"
+        },
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "ticket_id",
+        "kind",
+        "title",
+        "summary",
+        "attempted",
+        "decision_needed",
+        "state",
+        "next_turn",
+        "agent_priority",
+        "duplicate_key",
+        "message_count",
+        "operator_read_version"
+      ],
+      "title": "Ticket",
+      "type": "object"
+    },
+    "TicketKind": {
+      "enum": [
+        "problem",
+        "question",
+        "idea",
+        "capability_request"
+      ],
+      "type": "string"
+    },
+    "TicketMessage": {
+      "additionalProperties": false,
+      "description": "Immutable message; ``ticket_version`` is the ticket revision it produced.",
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/TicketParty"
+        },
+        "author_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "sequence": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        },
+        "ticket_version": {
+          "minimum": 1,
+          "title": "Ticket Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "ticket_id",
+        "sequence",
+        "author",
+        "author_id",
+        "body",
+        "ticket_version"
+      ],
+      "title": "TicketMessage",
+      "type": "object"
+    },
+    "TicketParty": {
+      "enum": [
+        "operator",
+        "agent",
+        "service"
+      ],
+      "type": "string"
+    },
+    "TicketState": {
+      "enum": [
+        "waiting_reply",
+        "in_progress",
+        "resolved",
+        "closed_unfulfilled"
+      ],
+      "type": "string"
+    },
     "TokenUsage": {
       "additionalProperties": false,
       "properties": {
@@ -11560,6 +12559,290 @@
       "title": "VersionedRecord",
       "type": "object"
     },
+    "WorkAttempt": {
+      "additionalProperties": false,
+      "description": "One try at a task step, bound to exactly one job operation.\n\n``inputs``/``input_files`` are recorded by the trusted context service when the attempt is\nprepared; result dependencies are derived from them and cannot be removed by the executor.\n``state`` reconciles from the job's ExecutionResult; ``unknown`` needs reconciliation\nbefore any retry with an external effect.",
+      "properties": {
+        "attempt_no": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Attempt No",
+          "type": "integer"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "capability_version": {
+          "minimum": 1,
+          "title": "Capability Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 200,
+          "title": "Input Files",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "operation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "result_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 200,
+          "title": "Result Files",
+          "type": "array"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Id"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "$ref": "#/$defs/AttemptState"
+        },
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "task_id",
+        "attempt_no",
+        "operation_id",
+        "capability_id",
+        "capability_version",
+        "freshness",
+        "state"
+      ],
+      "title": "WorkAttempt",
+      "type": "object"
+    },
+    "WorkOrigin": {
+      "enum": [
+        "assignment",
+        "own_goal",
+        "commitment",
+        "ticket_followup"
+      ],
+      "type": "string"
+    },
+    "WorkTask": {
+      "additionalProperties": false,
+      "description": "Semantic goal, separate from any execution attempt. Never runs on its own.",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/WorkOrigin"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "parent_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Task Id"
+        },
+        "reason": {
+          "maxLength": 16000,
+          "title": "Reason",
+          "type": "string"
+        },
+        "result_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 200,
+          "title": "Result Files",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "$ref": "#/$defs/WorkTaskState"
+        },
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "waiting_ticket_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Waiting Ticket Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "task_id",
+        "origin",
+        "goal",
+        "reason",
+        "state"
+      ],
+      "title": "WorkTask",
+      "type": "object"
+    },
+    "WorkTaskState": {
+      "enum": [
+        "open",
+        "active",
+        "waiting",
+        "done",
+        "abandoned"
+      ],
+      "type": "string"
+    },
+    "WorkplaceArea": {
+      "enum": [
+        "inbox",
+        "knowledge",
+        "skills",
+        "projects",
+        "scratch",
+        "exports",
+        "reference",
+        "guide"
+      ],
+      "type": "string"
+    },
     "Workspace": {
       "additionalProperties": false,
       "properties": {
@@ -11701,8 +12984,17 @@
     "Capability": {
       "$ref": "#/$defs/Capability"
     },
+    "CapabilityBinding": {
+      "$ref": "#/$defs/CapabilityBinding"
+    },
+    "CapabilityManifest": {
+      "$ref": "#/$defs/CapabilityManifest"
+    },
     "CapabilityPage": {
       "$ref": "#/$defs/Page_Capability_"
+    },
+    "CapabilityRequest": {
+      "$ref": "#/$defs/CapabilityRequest"
     },
     "ChangeDecisionArguments": {
       "$ref": "#/$defs/ChangeDecisionArguments"
@@ -11794,6 +13086,12 @@
     "ExtensionPayload": {
       "$ref": "#/$defs/ExtensionPayload"
     },
+    "FileAccess": {
+      "$ref": "#/$defs/FileAccess"
+    },
+    "FileWrite": {
+      "$ref": "#/$defs/FileWrite"
+    },
     "Freshness": {
       "$ref": "#/$defs/Freshness"
     },
@@ -11853,6 +13151,9 @@
     },
     "Lease": {
       "$ref": "#/$defs/Lease"
+    },
+    "ManagedFile": {
+      "$ref": "#/$defs/ManagedFile"
     },
     "MemoryCorrectArguments": {
       "$ref": "#/$defs/MemoryCorrectArguments"
@@ -12079,6 +13380,9 @@
     "SettingsTransferStatus": {
       "$ref": "#/$defs/SettingsTransferStatus"
     },
+    "SkillVersion": {
+      "$ref": "#/$defs/SkillVersion"
+    },
     "Source": {
       "$ref": "#/$defs/Source"
     },
@@ -12133,6 +13437,12 @@
     "TariffPage": {
       "$ref": "#/$defs/Page_Tariff_"
     },
+    "Ticket": {
+      "$ref": "#/$defs/Ticket"
+    },
+    "TicketMessage": {
+      "$ref": "#/$defs/TicketMessage"
+    },
     "TokenUsage": {
       "$ref": "#/$defs/TokenUsage"
     },
@@ -12150,6 +13460,12 @@
     },
     "VersionedRecord": {
       "$ref": "#/$defs/VersionedRecord"
+    },
+    "WorkAttempt": {
+      "$ref": "#/$defs/WorkAttempt"
+    },
+    "WorkTask": {
+      "$ref": "#/$defs/WorkTask"
     },
     "Workspace": {
       "$ref": "#/$defs/Workspace"
