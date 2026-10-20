@@ -10,6 +10,7 @@ stream, drops the result and leaves no reservation, proposal, promise or memory 
 
 import asyncio
 import hashlib
+import logging
 from collections import Counter, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from ai_agent_contracts.api import MessageArguments, MessageCommand
+from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
 from ai_agent_contracts.control import ActionProposal
 from ai_agent_contracts.states import ActivityState, DeliveryState, Provenance, RunState
@@ -144,13 +146,22 @@ class DialogueController:
         if not initiative:
             ref = await self._register(signal, self._command(f"src-{event}"))
             if signal.platform_id and signal.account_id:
-                found = await self.social.observe_account(
-                    self._command(f"acct-{event}"),
-                    signal.platform_id,
-                    signal.account_id,
-                    signal.display_name or signal.account_id,
-                    ref,
-                )
+                regrounded = {"reground": True} if signal.account_evidence is not None else {}
+                try:
+                    found = await self.social.observe_account(
+                        self._command(f"acct-{event}"),
+                        signal.platform_id,
+                        signal.account_id,
+                        signal.display_name or signal.account_id,
+                        signal.account_evidence or ref,
+                        **regrounded,
+                    )
+                except ContractError as error:
+                    # Identity is optional for a reply: without it the turn stays anonymous.
+                    logging.getLogger(__name__).warning(
+                        "Sender identity unavailable: %s", error.error.code.value
+                    )
+                    found = None
                 if found is not None:
                     person_id = found.person.id
                     self.limiter.answered(person_id)

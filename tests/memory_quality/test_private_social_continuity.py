@@ -283,3 +283,36 @@ def test_the_operator_marks_a_promise_fulfilled_with_their_own_stated_result(tmp
     assert out["proof"][0] == "promise-closure" and out["proof"][2] == out["result"]
     assert out["again"] >= 400  # a stale version cannot reopen or rewrite it
     assert out["owed"] == []
+
+
+def test_deleting_the_first_message_keeps_the_interlocutor_and_the_dialogue(tmp_path, monkeypatch):
+    from ai_agent_contracts.memory import Source
+
+    async def scenario():
+        model = Model()
+        host = await prepared_host(tmp_path, model, monkeypatch)
+        async with host.open():
+            await host.start()
+            rt, scope = host.runtime, host.scope
+            await host.say("m1", "Первое вымышленное сообщение.", "Ответ.")
+            await host.say("m2", "Второе сообщение.", "Ответ.")
+            first = next(
+                s
+                for s in await rt.store.repository(Source, PRINCIPALS[Owner.MEMORY], scope).list(
+                    limit=200
+                )
+                if s.content == "Первое вымышленное сообщение."
+            )
+            await memory(rt).delete_source(
+                command(first.scope, "delete-first"), first.id, first.version
+            )
+            await host.say("m3", "Ты меня помнишь?", "Да.")  # used to fail: hidden person
+            people = await records(rt, scope, Person)
+            return seen(model.last("character")), [p.id for p in people], scope
+
+    view, people, scope = asyncio.run(scenario())
+    operator = person_id_for(scope, PANEL_PLATFORM, PANEL_ACCOUNT)
+    assert people == [operator]  # one person, grounded by the login, not by a message
+    # still the identified interlocutor; the meeting grounded by the deleted message is
+    # forgotten with it, as deletion requires
+    assert [row[0] for row in view["person"]] == ["оператор"]

@@ -52,6 +52,8 @@ class SocialPort(Protocol):
         account_id: str,
         display_name: str,
         evidence: SourceRef,
+        *,
+        reground: bool = False,
     ) -> Any: ...
 
     async def context_for(self, scope: Scope, person_id: str) -> Any: ...

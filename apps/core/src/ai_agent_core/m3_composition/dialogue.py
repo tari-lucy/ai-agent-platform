@@ -268,6 +268,7 @@ async def perform(ex: Execution) -> list[str]:
         raise ContractError(ErrorCode.ACCESS_DENIED)
     if rt.private_api_budget is not None and rt.private_api_budget.gm_enabled:
         await resolve_accepted(ex, incoming)
+    identity = await panel_identity(rt, scope) if rt.private_social else None
     controller.submit(
         Signal(
             event_id=derived_id("msg", scope, request.trigger_id),
@@ -280,6 +281,7 @@ async def perform(ex: Execution) -> list[str]:
             platform_id=PANEL_PLATFORM if rt.private_social else None,
             account_id=PANEL_ACCOUNT if rt.private_social else None,
             display_name=PANEL_NAME if rt.private_social else None,
+            account_evidence=identity,
         )
     )
     try:
@@ -587,6 +589,39 @@ async def acknowledge(
             return receipt
     finally:
         rt.supervisor.retire(admission)
+
+
+async def panel_identity(rt: Runtime, scope: Scope) -> SourceRef | None:
+    """The ground of the panel interlocutor: the authenticated login, not a conversation.
+
+    A protected, non-dialogue source registered once; deleting messages never removes the
+    person's identity, and it is not a turn, a claim or experience. If the operator deleted it,
+    it is not re-created: the conversation continues anonymously.
+    """
+    try:
+        made = await memory(rt).register_source(
+            command(scope, derived_id("panel-identity", scope, PANEL_ACCOUNT)),
+            SourceDraft(
+                provenance=Provenance.SIMULATION
+                if scope.memory_mode == "test"
+                else Provenance.OPERATOR_INPUT,
+                source_type="account-link",
+                adapter_id=PANEL_PLATFORM,
+                adapter_version="1",
+                occurred_at=rt.supervisor.clock.utc(),
+                content="Аутентифицированный вход оператора в приватную панель.",
+                read_allowed=True,
+                api_transfer_allowed=True,
+                public_disclosure_allowed=False,
+                external_id=PANEL_ACCOUNT,
+                protected=True,
+            ),
+        )
+    except ContractError:
+        return None
+    return SourceRef(
+        source_id=made.source_id, version=made.version, scope=scope, availability="available"
+    )
 
 
 async def promised(rt: Runtime, scope: Scope, utterance_id: str, delivery_id: str) -> None:

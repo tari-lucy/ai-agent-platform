@@ -45,6 +45,8 @@ class Signal:
     promise_id: Id | None = None
     person_id: Id | None = None
     attempts: int = 0
+    # The ground of the sender's identity when it is not the message itself (a login source).
+    account_evidence: SourceRef | None = None
 
     @property
     def key(self) -> str:
