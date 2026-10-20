@@ -8,6 +8,12 @@
 
 ## 1. Граница API
 
+Планируемые workplace/task/file/skill/ticket операции описаны на уровне
+семантики в [doc28](28-agent-workplace-concept.md). Это не существующие routes
+или OpenAPI schemas; их contract-first реализация — AW-00 и владельцы
+сквозных пакетов [doc29](29-agent-workplace-implementation-plan.md).
+Existing auth/command/CAS/idempotency/STOP не дублируются и не ослабляются.
+
 Панель читает разрешённые проекции и отправляет команды соответствующим
 владельцам. Внутренний API служит адаптерам/worker с отдельными полномочиями.
 Рабочие сообщения игроков/зрителей — входные данные, не административные команды.
