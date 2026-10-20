@@ -44,6 +44,8 @@ HELPERS = (
     "tests/backup",
     "tests/e2e",
     "tests/evaluation",
+    "tests/workplace_contracts",
+    "tests/workplace_tickets",
 )
 TESTS = (
     "tests/operations",

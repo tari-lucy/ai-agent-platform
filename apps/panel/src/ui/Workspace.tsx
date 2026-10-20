@@ -15,6 +15,7 @@ import { LlmScreen } from './llm/LlmScreen.tsx';
 import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
 import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 import { PersonaScreen } from './persona/PersonaScreen.tsx';
+import { TicketsScreen } from './tickets/TicketsScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 
@@ -26,6 +27,7 @@ const screens = [
   { path: 'laboratory', label: 'Лаборатория', mark: '05', title: 'Проверить в безопасной среде', detail: 'Сценарии будут выполняться в отдельной тестовой памяти. Открытие этого экрана не запускает тест.', task: 'M4-06' },
   { path: 'workspace', label: 'Рабочее пространство', mark: '06', title: 'Состояние рабочего пространства', detail: 'Текущее состояние получено от ядра. Настройка прав, подключений и восстановления появится отдельно.', task: 'M4-07' },
   { path: 'llm', label: 'LLM и расходы', mark: '07', title: 'Понятный учёт', detail: 'Модели, токены и расходы появятся после подключения учёта. Отсутствие данных не означает нулевой расход.', task: 'M4-08' },
+  { path: 'tickets', label: 'Обращения', mark: '08', title: 'Обращения агента', detail: 'Вопросы и запросы агента к оператору.', task: 'AW-01' },
 ] as const;
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
 const connectionLabels: Record<ConnectionState, string> = {
@@ -73,7 +75,7 @@ type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Sco
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
-  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen,
+  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen,
 };
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();
