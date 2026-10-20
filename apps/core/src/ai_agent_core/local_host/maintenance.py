@@ -78,7 +78,12 @@ class HostMaintenance:
             ),
         )
         memory = MemoryService(
-            rt.store, PRINCIPALS[Owner.MEMORY], rt.registry, index=rt.dialogue_index
+            rt.store,
+            PRINCIPALS[Owner.MEMORY],
+            rt.registry,
+            index=rt.dialogue_index,
+            clock=rt.supervisor.clock.utc,
+            reader_access=rt.readers,  # retained excerpts are read like any other source
         )
         self.retention = RetentionService(
             rt.store,

@@ -9,6 +9,7 @@ external source identity (or an explicit episode) says two records are the same 
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -31,9 +32,21 @@ from .ports import ClaimLink, Embedder, IndexedChunk, IndexedSource, RecallIndex
 
 DEFAULT_TTL = timedelta(days=30)
 POLICY_ID = "conversation-30d"
+# Verbatim significant fragments kept when the full conversation expires (doc18 §6).
+EXCERPT_TYPE = "retained-excerpt"
+EXCERPT_ADAPTER = "retention"
+EXCERPT_POLICY = "retained-excerpt"
+EXCERPT_CHARS = 600
+EXCERPT_FALLBACK_CHARS = 300
+SENTENCE = re.compile(r"(?<=[.!?…])\s+")
 FUTURE_SKEW = timedelta(minutes=5)
 EMBED_BATCH = 4
 LIST_PAGE = 200
+
+
+def _with_request(command: CommandBase, request_id: str) -> CommandBase:
+    """The same authority and scope under a derived idempotency key."""
+    return command.model_copy(update={"request_id": request_id})
 
 
 def derived_id(prefix: str, scope: Scope, *parts: str) -> str:
@@ -58,6 +71,9 @@ class SourceDraft:
     author_id: Id | None = None
     identity_confidence: float | None = None
     protected: bool = False
+    # A retained excerpt carries its own policy and term; ordinary sources use the service TTL.
+    policy_id: str | None = None
+    term: timedelta | None = None
 
 
 @dataclass(frozen=True)
@@ -198,7 +214,7 @@ class MemoryService:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
         if draft.occurred_at > now + FUTURE_SKEW:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS, command.request_id)
-        expires = None if draft.protected else draft.occurred_at + self.ttl
+        expires = None if draft.protected else draft.occurred_at + (draft.term or self.ttl)
         if expires is not None and expires <= now:
             raise ContractError(ErrorCode.EXPIRED, command.request_id)
         if draft.external_id is not None:
@@ -233,7 +249,7 @@ class MemoryService:
                 "identity_confidence": draft.identity_confidence,
                 "content": draft.content,
                 "retention": {
-                    "policy_id": POLICY_ID,
+                    "policy_id": draft.policy_id or POLICY_ID,
                     "expires_at": expires.isoformat() if expires else None,
                     "protected": draft.protected,
                 },
@@ -336,17 +352,16 @@ class MemoryService:
         api_transfer_allowed: bool,
         public_disclosure_allowed: bool,
     ) -> Receipt:
-        return await self._transition(
-            command,
-            source_id,
-            expected_version,
-            {
-                "read_allowed": read_allowed,
-                "api_transfer_allowed": api_transfer_allowed,
-                "public_disclosure_allowed": public_disclosure_allowed,
-            },
-            remove_from_index=False,
+        changes = {
+            "read_allowed": read_allowed,
+            "api_transfer_allowed": api_transfer_allowed,
+            "public_disclosure_allowed": public_disclosure_allowed,
+        }
+        receipt = await self._transition(
+            command, source_id, expected_version, changes, remove_from_index=False
         )
+        await self._follow_excerpt(command, source_id, changes, remove_from_index=False)
+        return receipt
 
     async def expire_source(
         self, command: CommandBase, source_id: str, expected_version: int
@@ -364,12 +379,31 @@ class MemoryService:
         self, command: CommandBase, source_id: str, expected_version: int
     ) -> Receipt:
         """Logical deletion; the identity cannot be re-imported. Physical purge is M5."""
-        return await self._transition(
-            command,
-            source_id,
-            expected_version,
-            {"availability": "deleted", "content": None, "artifact": None},
-            remove_from_index=True,
+        changes: dict[str, Any] = {"availability": "deleted", "content": None, "artifact": None}
+        receipt = await self._transition(
+            command, source_id, expected_version, changes, remove_from_index=True
+        )
+        await self._follow_excerpt(command, source_id, changes, remove_from_index=True)
+        return receipt
+
+    async def _follow_excerpt(
+        self,
+        command: CommandBase,
+        source_id: str,
+        changes: dict[str, Any],
+        *,
+        remove_from_index: bool,
+    ) -> None:
+        """A retained excerpt follows its conversation's rights and deletion while both exist."""
+        excerpt = await self.get_source(command.scope, self.excerpt_id(command.scope, source_id))
+        if excerpt is None:
+            return
+        await self._transition(
+            _with_request(command, derived_id("excerpt-follow", command.scope, command.request_id)),
+            excerpt.id,
+            excerpt.version,
+            changes,
+            remove_from_index=remove_from_index,
         )
 
     # ---- episodes and claims --------------------------------------------------------------
@@ -573,6 +607,134 @@ class MemoryService:
             except Exception:
                 for ref in claim.sources:
                     self.health.mark(scope, ref.source_id)
+
+    # ---- retained excerpts ------------------------------------------------------------------
+
+    def excerpt_id(self, scope: Scope, source_id: str) -> str:
+        return derived_id("src", scope, "external", EXCERPT_TYPE, EXCERPT_ADAPTER, source_id)
+
+    async def retain(
+        self,
+        command: CommandBase,
+        source_id: str,
+        dependents: Sequence[tuple[str, str]],
+        *,
+        term: timedelta,
+    ) -> str | None:
+        """Keep a verbatim excerpt of an expiring source and move its claims/summaries onto it.
+
+        The excerpt holds only the sentences that the durable records are about (bounded), with
+        the original author, provenance, time and current rights, and its own term counted from
+        the original occurrence. Claims/summaries get a new version citing the excerpt instead
+        of the raw text, so they stay grounded after the full conversation expires. Nothing is
+        kept for a source without durable records, and an excerpt is never excerpted again.
+        Returns the excerpt id, or None when nothing was retained. Idempotent.
+        """
+        from ai_agent_application.extraction.relevance import score, words
+
+        scope = command.scope
+        raw = await self.get_source(scope, source_id)
+        if (
+            raw is None
+            or raw.content is None
+            or raw.availability != "available"
+            or raw.source_type == EXCERPT_TYPE
+        ):
+            return None
+        records: list[Claim | Summary] = []
+        for kind, record_id in dependents:
+            model: type[Claim] | type[Summary]
+            if kind == "Claim":
+                model = Claim
+            elif kind == "Summary":
+                model = Summary
+            else:
+                continue  # people, topics and promises survive the raw text on their own
+            row = await self.storage.repository(model, self.principal, scope).get(record_id)
+            if row is not None and any(
+                ref.source_id == raw.id and ref.version == raw.version for ref in row.sources
+            ):
+                records.append(row)
+        if not records:  # nothing (left) to move: an earlier call may already have kept it
+            existing = await self.get_source(scope, self.excerpt_id(scope, raw.id))
+            return existing.id if existing is not None else None
+        sentences = [part for part in SENTENCE.split(raw.content) if part.strip()]
+        asked = [words(record.content) for record in records]
+        kept: list[str] = []
+        size = 0
+        for sentence in sentences:
+            if any(score(sentence, query) for query in asked):
+                if size + len(sentence) + 1 > EXCERPT_CHARS:
+                    break
+                kept.append(sentence.strip())
+                size += len(sentence) + 1
+        text = " ".join(kept) or raw.content[:EXCERPT_FALLBACK_CHARS].strip()
+        existing = await self.get_source(scope, self.excerpt_id(scope, raw.id))
+        if existing is not None:  # kept earlier; later records join the same excerpt
+            source_ref = (existing.id, existing.version)
+        else:
+            made = await self.register_source(
+                _with_request(command, derived_id("excerpt", scope, raw.id, str(raw.version))),
+                SourceDraft(
+                    provenance=raw.provenance,
+                    source_type=EXCERPT_TYPE,
+                    adapter_id=EXCERPT_ADAPTER,
+                    adapter_version="1",
+                    occurred_at=raw.occurred_at,
+                    content=text,
+                    read_allowed=raw.read_allowed,
+                    api_transfer_allowed=raw.api_transfer_allowed,
+                    public_disclosure_allowed=raw.public_disclosure_allowed,
+                    external_id=raw.id,
+                    author_id=raw.author_id,
+                    identity_confidence=raw.identity_confidence,
+                    policy_id=EXCERPT_POLICY,
+                    term=term,
+                ),
+            )
+            source_ref = (made.source_id, made.version)
+        excerpt = SourceRef(
+            source_id=source_ref[0], version=source_ref[1], scope=scope, availability="available"
+        )
+        relink = _with_request(
+            command,
+            derived_id("relink", scope, raw.id, str(raw.version), *sorted(r.id for r in records)),
+        )
+        now = self.clock()
+        touched: list[Claim] = []
+        async with self.storage.transaction(self.principal, scope, relink) as unit:
+            if unit.replay is None:
+                for record in records:
+                    revised = self._revised(
+                        record,
+                        version=record.version + 1,
+                        updated_at=max(now, record.updated_at).isoformat(),
+                        scope=scope.model_dump(mode="json"),
+                        sources=[
+                            excerpt.model_dump(mode="json")
+                            if ref.source_id == raw.id
+                            else ref.model_dump(mode="json")
+                            for ref in record.sources
+                        ],
+                    )
+                    await unit.put(
+                        revised,
+                        expected_version=record.version,
+                        access=self.reader_access or None,
+                    )
+                    if isinstance(revised, Claim):
+                        touched.append(revised)
+                await unit.complete(
+                    Receipt(
+                        request_id=relink.request_id,
+                        scope=scope,
+                        status="completed",
+                        resource_id=records[0].id,
+                        version=records[0].version + 1,
+                    )
+                )
+        await self._link_claims(scope, touched)
+        return excerpt.source_id
 
     # ---- derived index maintenance --------------------------------------------------------
 
