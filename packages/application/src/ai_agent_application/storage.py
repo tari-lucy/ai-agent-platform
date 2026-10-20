@@ -27,6 +27,9 @@ class Owner(StrEnum):
     LLM = "llm"
     CATALOGUE = "catalogue"
     LABORATORY = "laboratory"
+    ACTIVITY = "activity"
+    SKILLS = "skills"
+    TICKETS = "tickets"
 
 
 type ReadPurpose = Literal["private", "api_transfer", "public_disclosure"]

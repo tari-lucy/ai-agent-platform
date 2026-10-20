@@ -5,7 +5,16 @@ import json
 from dataclasses import dataclass
 
 from ai_agent_application.storage import Owner
-from ai_agent_contracts import api, control, llm, memory, panel, persona, workspace
+from ai_agent_contracts import (
+    agent_workplace,
+    api,
+    control,
+    llm,
+    memory,
+    panel,
+    persona,
+    workspace,
+)
 from ai_agent_contracts.common import Record
 
 
@@ -63,6 +72,14 @@ SPECS = {
     "LaboratoryReport": Spec(workspace.LaboratoryReport, Owner.LABORATORY),
     "LaboratoryScopeReservation": Spec(workspace.LaboratoryScopeReservation, Owner.LABORATORY),
     "ConsequencePlan": Spec(api.ConsequencePlan, None),
+    "CapabilityManifest": Spec(agent_workplace.CapabilityManifest, Owner.WORKSPACE),
+    "CapabilityBinding": Spec(agent_workplace.CapabilityBinding, Owner.WORKSPACE),
+    "WorkTask": Spec(agent_workplace.WorkTask, Owner.ACTIVITY),
+    "WorkAttempt": Spec(agent_workplace.WorkAttempt, Owner.ACTIVITY),
+    "ManagedFile": Spec(agent_workplace.ManagedFile, Owner.CATALOGUE),
+    "SkillVersion": Spec(agent_workplace.SkillVersion, Owner.SKILLS),
+    "Ticket": Spec(agent_workplace.Ticket, Owner.TICKETS),
+    "TicketMessage": Spec(agent_workplace.TicketMessage, Owner.TICKETS),
 }
 
 
@@ -97,6 +114,15 @@ def semantic_keys(record: Record) -> list[tuple[str, str]]:
         values.append(("delivery-attempt", [record.channel_id, record.attempt_id]))
     if isinstance(record, persona.CharacterState):
         values.append(("character-state", record.persona_id))
+    if isinstance(record, agent_workplace.WorkAttempt):
+        values.append(("work-attempt", [record.task_id, record.attempt_no]))
+    if isinstance(record, agent_workplace.ManagedFile):
+        # One catalogue name per area; keys follow the current revision (rename frees a path).
+        values.append(("managed-file-path", [record.area, record.path]))
+    if isinstance(record, agent_workplace.Ticket):
+        values.append(("ticket-duplicate", record.duplicate_key))
+    if isinstance(record, agent_workplace.TicketMessage):
+        values.append(("ticket-message", [record.ticket_id, record.sequence]))
     if isinstance(record, control.RunSession):
         values.append(("session", record.session_id))
     return [

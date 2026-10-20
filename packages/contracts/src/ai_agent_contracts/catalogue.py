@@ -4,7 +4,18 @@ from typing import Annotated, Any, cast
 
 from pydantic import Field, TypeAdapter
 
-from ai_agent_contracts import access, api, common, control, llm, memory, panel, persona, workspace
+from ai_agent_contracts import (
+    access,
+    agent_workplace,
+    api,
+    common,
+    control,
+    llm,
+    memory,
+    panel,
+    persona,
+    workspace,
+)
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
@@ -137,6 +148,17 @@ MODELS = (
     api.ServiceLeaseCommand,
     api.ServiceResultCommand,
     api.Permission,
+    agent_workplace.CapabilityManifest,
+    agent_workplace.CapabilityBinding,
+    agent_workplace.WorkTask,
+    agent_workplace.WorkAttempt,
+    agent_workplace.FileAccess,
+    agent_workplace.ManagedFile,
+    agent_workplace.FileWrite,
+    agent_workplace.SkillVersion,
+    agent_workplace.CapabilityRequest,
+    agent_workplace.Ticket,
+    agent_workplace.TicketMessage,
 )
 
 ADAPTERS: dict[str, TypeAdapter[Any]] = {model.__name__: TypeAdapter(model) for model in MODELS}
