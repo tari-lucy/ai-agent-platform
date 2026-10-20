@@ -64,6 +64,10 @@ class RetentionService:
         for source_id in ids:
             if await self.physical.source(scope, source_id) is None:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        # Deleting a conversation also deletes the excerpt kept from it (shown in the preview).
+        kept = [self.memory.excerpt_id(scope, source_id) for source_id in ids]
+        extra = [i for i in kept if i not in ids and await self.physical.source(scope, i)]
+        ids = tuple(sorted({*ids, *extra}))
         erased, detached = await self.physical.dependents(scope, ids)
         indexed: tuple[str, ...] = ()
         if self.index is not None:
@@ -213,6 +217,8 @@ class RetentionService:
         """Retire raw text past its term. The term is never extended; gaps are reported."""
         now = self.clock()
         cutoff = now - self.policy.test_source if scope.memory_mode == "test" else None
+        if scope.memory_mode == "work":
+            await self._retain(scope, now)
         due = await self.physical.due_sources(scope, now=now, test_cutoff=cutoff)
         expired: list[str] = []
         lost: list[str] = []
@@ -220,7 +226,10 @@ class RetentionService:
         for stub in due[:MAX_BATCH]:
             if stub.protected:
                 continue
-            if await self.physical.durable_derivatives(scope, stub.source_id) == 0:
+            kept = await self.memory.get_source(
+                scope, self.memory.excerpt_id(scope, stub.source_id)
+            )
+            if kept is None and await self.physical.durable_derivatives(scope, stub.source_id) == 0:
                 lost.append(stub.source_id)
             await self.ledger.block(scope, stub.source_id, stub.version, "expired", now)
         ids = [s.source_id for s in due[:MAX_BATCH] if not s.protected]
@@ -235,6 +244,35 @@ class RetentionService:
             now=now,
         )
         return SweepReport(tuple(expired), tuple(lost), tuple(pending), metadata)
+
+    async def _retain(self, scope: Scope, now: datetime) -> None:
+        """Before the full text expires, keep verbatim excerpts its claims/summaries rely on.
+
+        Bounded per sweep; a failure leaves the source to expire as before (reported as
+        unconsolidated), never extends the conversation term.
+        """
+        upcoming = await self.physical.due_sources(
+            scope, now=now + self.policy.retain_lead, test_cutoff=None
+        )
+        for stub in upcoming[:MAX_BATCH]:
+            if stub.protected or not stub.has_content:
+                continue
+            sole, shared = await self.physical.dependents(scope, [stub.source_id])
+            if not sole and not shared:
+                continue
+            retain = MessageCommand(
+                request_id=derived_id("retain", scope, stub.source_id, str(stub.version)),
+                scope=scope,
+                target="retention",
+                type="dialogue.message",
+                arguments=MessageArguments(text="retain"),
+            )
+            try:
+                await self.memory.retain(
+                    retain, stub.source_id, (*sole, *shared), term=self.policy.excerpt
+                )
+            except ContractError:
+                continue
 
     # ---- restore gate ---------------------------------------------------------------------
 
