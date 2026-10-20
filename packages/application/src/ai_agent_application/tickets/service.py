@@ -285,6 +285,24 @@ class TicketService:
 
         return await self._commit(command, identifier, build)
 
+    async def note(self, request_id: str, scope: Scope, identifier: str, body: str) -> Receipt:
+        """A platform-service record on a ticket (e.g. a decision receipt); turn is unchanged."""
+        command = MessageCommand(
+            request_id=request_id,
+            scope=area(scope),
+            target=identifier,
+            type="dialogue.message",
+            arguments=MessageArguments(text=hashlib.sha256(body.encode()).hexdigest()),
+        )
+
+        def build(current: Ticket | None) -> tuple[Ticket, TicketMessage | None]:
+            if current is None:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS, request_id)
+            ticket = _revise(current, self.clock(), message_count=current.message_count + 1)
+            return ticket, self._message(ticket, "service", "platform", body)
+
+        return await self._commit(command, identifier, build)
+
     async def reply(
         self, operator_id: str, request: EditCommand, args: TicketReplyArguments
     ) -> Receipt:

@@ -1,4 +1,4 @@
-import type { EditCommand, Scope, Ticket, TicketMessage } from '../../shared/contracts.ts';
+import type { CapabilityBinding, EditCommand, ExecutePlanCommand, Permission, PermissionDecisionArguments, PlanCommand, Scope, Ticket, TicketMessage } from '../../shared/contracts.ts';
 
 // Pure ticket logic: grouping, labels, turns and the two operator commands. No I/O.
 // A ticket is a conversation; an answer in words never grants a right or starts the agent.
@@ -52,3 +52,40 @@ export const readCommand = (scope: Scope, ticket: Ticket, requestId: string): Ed
   type: 'ticket.read', request_id: requestId, scope: area(scope), target: ticket.id, expected_version: ticket.version,
   arguments: { schema_id: 'ticket.read-args', data: { ticket_id: ticket.id } },
 });
+
+// ---- structured permission decision (preview → execute, workspace owner) -------------------------------
+// The form names an exact ticket version, capability, binding, level, duration and areas; the server
+// checks the host ceiling. Words in the conversation are never parsed into a grant.
+export type Level = 'prepare_only' | 'operator_decision' | 'automatic';
+export const levelLabels: Record<Level, string> = {
+  prepare_only: 'Только подготовка', operator_decision: 'С решением оператора', automatic: 'Автоматически',
+};
+export type Decision = { bindingId: string; level: Level; days: number; areas: string[]; constraints: string };
+export function decisionProblem(decision: Decision, bindings: CapabilityBinding[]): string | null {
+  if (!bindings.some((row) => row.binding_id === decision.bindingId)) return 'Выберите подключение.';
+  if (!Number.isInteger(decision.days) || decision.days < 1 || decision.days > 365) return 'Срок — от 1 до 365 дней.';
+  if (decision.constraints.length > 4000) return 'Ограничения длиннее 4000 символов.';
+  return null;
+}
+export const grantPreview = (scope: Scope, ticket: Ticket, decision: Decision, requestId: string): PlanCommand => {
+  const data: PermissionDecisionArguments = {
+    action: 'grant', capability_id: ticket.request!.capability_id, binding_id: decision.bindingId, ticket_id: ticket.id,
+    ticket_version: ticket.version, level: decision.level, duration_seconds: decision.days * 86400, areas: decision.areas as PermissionDecisionArguments['areas'],
+    constraints: decision.constraints.trim(),
+  };
+  return { type: 'permission.decision.preview', request_id: requestId, scope: area(scope), target: data.capability_id,
+    expected_version: ticket.version, arguments: { schema_id: 'permission.decision-args', data } };
+};
+export const revokePreview = (scope: Scope, permission: Permission, requestId: string): PlanCommand => ({
+  type: 'permission.decision.preview', request_id: requestId, scope: area(scope), target: permission.capability_id,
+  expected_version: permission.version, arguments: { schema_id: 'permission.decision-args', data: {
+    action: 'revoke', capability_id: permission.capability_id, binding_id: permission.binding_id,
+    permission_id: permission.id, permission_version: permission.version,
+  } },
+});
+export const executeDecision = (scope: Scope, capabilityId: string, planId: string, requestId: string): ExecutePlanCommand => ({
+  type: 'permission.decision.execute', request_id: requestId, scope: area(scope), target: capabilityId, expected_version: 1,
+  arguments: { plan_id: planId, plan_version: 1 },
+});
+export const activeGrants = (rows: Permission[], capabilityId: string, now: number) =>
+  rows.filter((row) => row.capability_id === capabilityId && row.revoked_at == null && Date.parse(row.expires_at) > now);

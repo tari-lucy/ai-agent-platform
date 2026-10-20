@@ -1,13 +1,14 @@
-import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, Badge, Button, Checkbox, Group, NumberInput, Paper, SegmentedControl, Select, Stack, Text, Textarea, Title } from '@mantine/core';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { RunSession, Scope, Ticket, TicketMessage } from '../../shared/contracts.ts';
+import type { ConsequencePlan, Permission, RunSession, Scope, Ticket, TicketMessage } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import {
   conversation, groups, kindLabels, MAX_REPLY, outcomeLabels, partyLabels, priorityLabels, readCommand, replyCommand, replyProblem,
   stateLabels, terminal, turnLabel, unread, type Outcome,
+  activeGrants, decisionProblem, executeDecision, grantPreview, levelLabels, revokePreview, type Decision, type Level,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -72,6 +73,98 @@ function Reply({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticke
   </Stack>;
 }
 
+// Preview first: the owner states the consequences of this exact decision, then the operator confirms.
+function usePlan(api: PanelApi, scope: Scope) {
+  const cache = useQueryClient();
+  const [plan, setPlan] = useState<ConsequencePlan | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const executing = useRef<string | null>(null);
+  const explain = (error: unknown) => error instanceof ApiFailure && error.code === 'ACCESS_DENIED' ?
+    'Решение выше разрешённого потолка host, вне областей возможности или без доступа.' :
+    error instanceof ApiFailure && error.code === 'VERSION_CONFLICT' ? 'Обращение или право изменилось. Обновите и проверьте заново.' :
+    failureMessage(error);
+  async function preview(command: Parameters<PanelApi['command']>[0]) {
+    setProblem(null); setDone(null); setBusy(true); executing.current = null;
+    try {
+      const receipt = await api.command(command);
+      if (!receipt.resource_id) throw new ApiFailure('NETWORK');
+      setPlan(await api.plan(scope, receipt.resource_id));
+    } catch (error) { setPlan(null); setProblem(explain(error)); } finally { setBusy(false); }
+  }
+  async function confirm(capabilityId: string, message: string) {
+    if (!plan) return;
+    setProblem(null); setBusy(true);
+    executing.current ??= crypto.randomUUID();
+    try {
+      await api.command(executeDecision(scope, capabilityId, plan.id, executing.current));
+      setPlan(null); executing.current = null; setDone(message);
+    } catch (error) { setProblem(explain(error) + ' Повтор использует тот же запрос.'); }
+    finally {
+      setBusy(false);
+      for (const resource of ['permissions', 'tickets', 'ticket-messages']) void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+    }
+  }
+  return { plan, problem, done, busy, preview, confirm, cancel: () => { setPlan(null); executing.current = null; } };
+}
+
+function PlanView({ state, capabilityId, message }: { state: ReturnType<typeof usePlan>; capabilityId: string; message: string }) {
+  return <>
+    {state.plan && <Paper withBorder p="sm" aria-label="Последствия решения"><Text size="sm" className="plain-text">{state.plan.consequences}</Text>
+      <Group mt="xs"><Button size="compact-sm" color="orange" loading={state.busy} onClick={() => void state.confirm(capabilityId, message)}>Подтвердить</Button>
+        <Button size="compact-sm" variant="subtle" color="gray" onClick={state.cancel}>Отмена</Button></Group></Paper>}
+    {state.problem && <Alert color="orange" role="alert">{state.problem}</Alert>}
+    {state.done && <Alert color="teal" role="status">{state.done}</Alert>}
+  </>;
+}
+
+function PermissionDecision({ api, scope, ticket }: { api: PanelApi; scope: Scope; ticket: Ticket }) {
+  const request = ticket.request!;
+  const manifests = useQuery({ queryKey: [...projectionKey('capability-manifests', scope), 'tickets'], queryFn: ({ signal }) => api.capabilityManifests(scope, signal) });
+  const bindings = useQuery({ queryKey: [...projectionKey('capability-bindings', scope), 'tickets'], queryFn: ({ signal }) => api.capabilityBindings(scope, signal) });
+  const permissions = useQuery({ queryKey: [...projectionKey('permissions', scope), 'tickets'], queryFn: ({ signal }) => api.permissions(scope, signal) });
+  const manifest = manifests.data?.items.find((row) => row.capability_id === request.capability_id);
+  const options = (bindings.data?.items ?? []).filter((row) => row.capability_id === request.capability_id && row.state !== 'revoked');
+  const [now] = useState(() => Date.now());
+  const grants = activeGrants(permissions.data?.items ?? [], request.capability_id, now);
+  const allowedAreas = (manifest?.areas ?? []) as string[];
+  const [decision, setDecision] = useState<Decision>({ bindingId: '', level: 'prepare_only', days: 7,
+    areas: (request.areas ?? []).filter((item) => allowedAreas.includes(item)), constraints: request.constraints });
+  const [problem, setProblem] = useState<string | null>(null);
+  const grant = usePlan(api, scope);
+  const revoke = usePlan(api, scope);
+  if (manifests.isPending || bindings.isPending) return <Text size="sm">Получаем описание возможности…</Text>;
+  if (!manifest) return <Text size="sm" c="dimmed">Возможность «{request.capability_id}» не зарегистрирована в рабочем месте или решения по правам выключены на этом host. Ответьте в переписке.</Text>;
+  function submit() {
+    const issue = decisionProblem(decision, options);
+    setProblem(issue);
+    if (!issue) void grant.preview(grantPreview(scope, ticket, decision, crypto.randomUUID()));
+  }
+  return <Paper withBorder p="sm" aria-label="Решение по праву">
+    <Text size="sm" fw={600}>Решение по праву: {request.capability_id}</Text>
+    <Text size="xs" c="dimmed">{manifest.summary} · эффект: {manifest.effect}</Text>
+    {grants.map((row: Permission) => <Group key={row.id} justify="space-between" mt={4}>
+      <Text size="sm">Выдано: {levelLabels[row.level as Level] ?? row.level} до {when(row.expires_at)}</Text>
+      <Button size="compact-xs" variant="subtle" color="red" onClick={() => void revoke.preview(revokePreview(scope, row, crypto.randomUUID()))}>Отозвать…</Button></Group>)}
+    <PlanView state={revoke} capabilityId={request.capability_id} message="Право отозвано." />
+    <Stack gap={6} mt="xs">
+      <Select label="Подключение" value={decision.bindingId || null} placeholder={options.length ? 'Выберите' : 'Нет подключений'}
+        data={options.map((row) => ({ value: row.binding_id, label: `${row.adapter_id} · ${row.state === 'ready' ? 'проверено' : 'не готово'}` }))}
+        onChange={(value) => setDecision({ ...decision, bindingId: value ?? '' })} />
+      <SegmentedControl size="xs" value={decision.level} onChange={(value) => setDecision({ ...decision, level: value as Level })}
+        data={(Object.keys(levelLabels) as Level[]).map((value) => ({ value, label: levelLabels[value] }))} />
+      <NumberInput label="Срок, дней" min={1} max={365} value={decision.days} onChange={(value) => setDecision({ ...decision, days: Number(value) })} />
+      {!!allowedAreas.length && <Group gap="xs">{allowedAreas.map((item) => <Checkbox key={item} label={item} checked={decision.areas.includes(item)}
+        onChange={(e) => setDecision({ ...decision, areas: e.currentTarget.checked ? [...decision.areas, item] : decision.areas.filter((x) => x !== item) })} />)}</Group>}
+      <Textarea label="Ограничения" autosize minRows={1} maxLength={4000} value={decision.constraints} onChange={(e) => setDecision({ ...decision, constraints: e.currentTarget.value })} />
+      <Group justify="flex-end"><Button size="compact-sm" variant="light" loading={grant.busy} onClick={submit}>Предпросмотр решения</Button></Group>
+      {problem && <Alert color="orange" role="alert">{problem}</Alert>}
+      <PlanView state={grant} capabilityId={request.capability_id} message="Право выдано. Подключение и запуск — отдельно." />
+    </Stack>
+  </Paper>;
+}
+
 function Card({ api, scope, ticket, messages, run }: { api: PanelApi; scope: Scope; ticket: Ticket; messages: TicketMessage[]; run?: RunSession }) {
   const cache = useQueryClient();
   const marked = useRef<string | null>(null);
@@ -102,6 +195,7 @@ function Card({ api, scope, ticket, messages, run }: { api: PanelApi; scope: Sco
         <Text size="xs" c="dimmed" mt={4}>Ответ текстом не выдаёт права и не подключает инструмент. Изменение прав — отдельное решение.</Text>
       </Paper>}
       {ticket.resolution != null && <Text size="sm" className="plain-text">Итог: {ticket.resolution}</Text>}
+      {request && !terminal(ticket) && <PermissionDecision api={api} scope={scope} ticket={ticket} />}
     </Stack>
     <Title order={3} size="h5" mt="md">Переписка ({messages.length})</Title>
     {messages.length < ticket.message_count && <Text size="xs" c="orange.8">Загружены не все сообщения.</Text>}

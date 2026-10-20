@@ -1,7 +1,7 @@
 import type {
   Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
-  TicketMessagePage, TicketPage,
+  TicketMessagePage, TicketPage, CapabilityManifestPage, CapabilityBindingPage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
 
@@ -572,4 +572,20 @@ export function ticketMessages(value: unknown, selected: Scope): TicketMessagePa
     id(row.ticket_id) && Number.isSafeInteger(row.sequence) && Number(row.sequence) >= 1 && parties.has(String(row.author)) &&
     id(row.author_id) && text(row.body) && version(row.ticket_version) && date(row.created_at)));
   return value as TicketMessagePage;
+}
+const areas = new Set(['inbox', 'knowledge', 'skills', 'projects', 'scratch', 'exports', 'reference', 'guide']);
+export function capabilityManifests(value: unknown, selected: Scope): CapabilityManifestPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.capability_id) && version(row.capability_version) && text(row.summary, 512) && text(row.instructions) &&
+    ['none', 'local_write', 'external_effect', 'public_output'].includes(String(row.effect)) &&
+    Array.isArray(row.areas) && row.areas.every((item: unknown) => areas.has(String(item)))));
+  return value as CapabilityManifestPage;
+}
+export function capabilityBindings(value: unknown, selected: Scope): CapabilityBindingPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.binding_id) && row.binding_id === row.id && id(row.capability_id) &&
+    ['pending', 'ready', 'disabled', 'revoked'].includes(String(row.state)) &&
+    // ready only with a verification time
+    ((row.state === 'ready') === (row.verified_at != null && date(row.verified_at)))));
+  return value as CapabilityBindingPage;
 }

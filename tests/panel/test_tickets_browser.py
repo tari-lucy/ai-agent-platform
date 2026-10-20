@@ -114,3 +114,92 @@ def test_operator_answers_a_ticket_in_the_panel_while_stopped(page, tmp_path):
     state, turn, count, capabilities = in_thread(owner(root, final))
     assert (state, turn, count) == ("in_progress", "agent", 2)
     assert "reference.read" not in capabilities
+
+
+async def seed_capability(service, store, scope):
+    from ai_agent_contracts.agent_workplace import CapabilityBinding, CapabilityManifest
+
+    from ai_agent_core.m3_composition.state import put
+
+    now = datetime.now(UTC)
+    base = dict(scope=scope, created_at=now, updated_at=now, version=1)
+    registry = new_registry()
+    readers = rights.record_readers()
+    manifest = CapabilityManifest(
+        id="manifest-reference",
+        capability_id="reference.read",
+        capability_version=1,
+        summary="Чтение общего справочника.",
+        instructions="Только чтение.",
+        input_schema_id="reference.query",
+        output_schema_id="reference.page",
+        effect="none",
+        areas=["reference"],
+        network="none",
+        runner_required=False,
+        **base,
+    )
+    binding = CapabilityBinding(
+        id="binding-reference",
+        binding_id="binding-reference",
+        capability_id="reference.read",
+        capability_version=1,
+        adapter_id="reference-files",
+        adapter_version="1",
+        state="pending",
+        **base,
+    )
+    await put(store, registry, Owner.WORKSPACE, scope, "m", manifest, None, readers)
+    await put(store, registry, Owner.WORKSPACE, scope, "b", binding, None, readers)
+    await seed(service, store, scope)
+
+
+def test_operator_grants_a_requested_capability_after_preview(page, tmp_path):
+    from ai_agent_core.local_host.layout import PermissionCeiling, save_config
+
+    root = tmp_path / "host"
+    assert init(root, "--operator-controls").returncode == 0
+    enabled = subprocess.run(
+        command("enable-tickets", "--root", str(root)), capture_output=True, text=True, timeout=120
+    )
+    assert enabled.returncode == 0, enabled.stderr
+    host = paths(root)
+    ceiling = {"reference.read": PermissionCeiling(level="prepare_only", max_days=30)}
+    save_config(host, load_config(host).model_copy(update={"workplace_permissions": ceiling}))
+    in_thread(owner(root, seed_capability))
+    with Server(
+        root, free_port(), tmp_path / "server.log", panel_dir=ROOT / "apps/panel/dist"
+    ) as server:
+        page.goto(server.origin + "/#/tickets")
+        page.get_by_label("Пароль", exact=True).fill(
+            (root / "secrets/operator-password.txt").read_text().strip()
+        )
+        page.get_by_role("button", name="Войти", exact=True).click()
+        page.get_by_role("list", name="Нужен мой ответ").get_by_role("button").first.click()
+        form = page.get_by_label("Решение по праву")
+        expect(form.get_by_text("Чтение общего справочника.", exact=False)).to_be_visible(
+            timeout=10000
+        )
+        # Above the host ceiling: the owner refuses, nothing is written.
+        form.get_by_label("Подключение").click()
+        page.get_by_role("option", name="reference-files · не готово").click()
+        form.get_by_text("Автоматически").click()
+        form.get_by_role("button", name="Предпросмотр решения").click()
+        expect(form.get_by_role("alert")).to_contain_text("потолка", timeout=10000)
+        form.get_by_text("Только подготовка").click()
+        form.get_by_role("button", name="Предпросмотр решения").click()
+        consequences = form.get_by_label("Последствия решения")
+        expect(consequences).to_contain_text("не запускает агента", timeout=10000)
+        expect(consequences).to_contain_text("подключение ещё не готово")
+        consequences.get_by_role("button", name="Подтвердить").click()
+        expect(form.get_by_role("status")).to_contain_text("Право выдано", timeout=10000)
+        card = page.get_by_label("Карточка обращения")
+        expect(card.get_by_text("Подключение ещё не готово.", exact=False)).to_be_visible(
+            timeout=10000
+        )
+
+    async def granted(service, store, scope):
+        rows = await store.repository(Permission, PRINCIPALS[Owner.WORKSPACE], scope).list()
+        return [(p.capability_id, p.level, p.revoked_at is None) for p in rows]
+
+    assert ("reference.read", "prepare_only", True) in in_thread(owner(root, granted))

@@ -272,6 +272,10 @@ class Runtime:
         from ai_agent_application.tickets import TicketService
 
         self.tickets: TicketService | None = None
+        # Host ceiling of grantable workplace capabilities; None keeps decisions unavailable.
+        from .permission_decisions import Ceiling
+
+        self.permission_ceiling: dict[str, Ceiling] | None = None
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory

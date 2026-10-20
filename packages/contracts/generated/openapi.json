@@ -2485,7 +2485,8 @@
               "change.rollback.execute",
               "workspace.backup.execute",
               "workspace.restore.execute",
-              "llm.recalculate.execute"
+              "llm.recalculate.execute",
+              "permission.decision.execute"
             ],
             "title": "Type",
             "type": "string"
@@ -5736,6 +5737,118 @@
         "title": "Page[Briefing]",
         "type": "object"
       },
+      "Page_CapabilityBinding_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityBinding"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[CapabilityBinding]",
+        "type": "object"
+      },
+      "Page_CapabilityManifest_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityManifest"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[CapabilityManifest]",
+        "type": "object"
+      },
       "Page_Capability_": {
         "additionalProperties": false,
         "properties": {
@@ -7675,6 +7788,8 @@
             "memory.export.preview": "#/components/schemas/PlanCommand",
             "operation.cancel": "#/components/schemas/EditCommand",
             "opportunity.cancel": "#/components/schemas/EditCommand",
+            "permission.decision.execute": "#/components/schemas/ExecutePlanCommand",
+            "permission.decision.preview": "#/components/schemas/PlanCommand",
             "permission.edit": "#/components/schemas/EditCommand",
             "person.link": "#/components/schemas/EditCommand",
             "person.unlink": "#/components/schemas/EditCommand",
@@ -7977,6 +8092,380 @@
         "title": "Permission",
         "type": "object"
       },
+      "PermissionConditions": {
+        "additionalProperties": false,
+        "description": "``workplace.permission-conditions`` of a workplace Permission: scope of the decision.",
+        "properties": {
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/WorkplaceArea"
+            },
+            "maxItems": 8,
+            "title": "Areas",
+            "type": "array"
+          },
+          "constraints": {
+            "maxLength": 16000,
+            "title": "Constraints",
+            "type": "string"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          },
+          "ticket_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Version"
+          }
+        },
+        "required": [
+          "areas",
+          "constraints",
+          "ticket_id",
+          "ticket_version"
+        ],
+        "title": "PermissionConditions",
+        "type": "object"
+      },
+      "PermissionDecisionArguments": {
+        "additionalProperties": false,
+        "description": "A structured operator decision on one capability right; never parsed from ticket text.\n\n``grant`` answers an exact ticket version and creates or replaces the right; ``revoke``\nnames the exact current permission version. Both go preview → execute.",
+        "properties": {
+          "action": {
+            "enum": [
+              "grant",
+              "revoke"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/WorkplaceArea"
+            },
+            "maxItems": 8,
+            "title": "Areas",
+            "type": "array"
+          },
+          "binding_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "constraints": {
+            "default": "",
+            "maxLength": 16000,
+            "title": "Constraints",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "maximum": 31536000,
+                "minimum": 60,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Seconds"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prepare_only",
+                  "operator_decision",
+                  "automatic"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Level"
+          },
+          "permission_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Permission Id"
+          },
+          "permission_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Permission Version"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ticket Id"
+          },
+          "ticket_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ticket Version"
+          }
+        },
+        "required": [
+          "action",
+          "capability_id",
+          "binding_id"
+        ],
+        "title": "PermissionDecisionArguments",
+        "type": "object"
+      },
+      "PermissionDecisionProof": {
+        "additionalProperties": false,
+        "description": "Workspace-owner proof of a previewed decision; execute rechecks every pinned version.",
+        "properties": {
+          "binding_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "binding_version": {
+            "minimum": 1,
+            "title": "Binding Version",
+            "type": "integer"
+          },
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/PermissionDecisionArguments"
+          },
+          "executed_by": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Executed By"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest_version": {
+            "minimum": 1,
+            "title": "Manifest Version",
+            "type": "integer"
+          },
+          "operator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Operator Id",
+            "type": "string"
+          },
+          "permission_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Permission Id",
+            "type": "string"
+          },
+          "permission_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Version"
+          },
+          "plan_expires_at": {
+            "format": "date-time",
+            "title": "Plan Expires At",
+            "type": "string"
+          },
+          "policy_version": {
+            "minimum": 1,
+            "title": "Policy Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          },
+          "ticket_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Version"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "created_at",
+          "version",
+          "updated_at",
+          "operator_id",
+          "decision",
+          "permission_id",
+          "permission_version",
+          "capability_id",
+          "manifest_version",
+          "binding_id",
+          "binding_version",
+          "ticket_id",
+          "ticket_version",
+          "policy_version",
+          "plan_expires_at",
+          "expires_at"
+        ],
+        "title": "PermissionDecisionProof",
+        "type": "object"
+      },
+      "PermissionLimits": {
+        "additionalProperties": false,
+        "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.",
+        "properties": {
+          "duration_seconds": {
+            "maximum": 31536000,
+            "minimum": 60,
+            "title": "Duration Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "duration_seconds"
+        ],
+        "title": "PermissionLimits",
+        "type": "object"
+      },
       "Person": {
         "additionalProperties": false,
         "properties": {
@@ -8153,7 +8642,8 @@
               "change.rollback.preview",
               "workspace.backup.preview",
               "workspace.restore.preview",
-              "llm.recalculate.preview"
+              "llm.recalculate.preview",
+              "permission.decision.preview"
             ],
             "title": "Type",
             "type": "string"
@@ -14062,6 +14552,322 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Capability"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/capability-bindings": {
+      "get": {
+        "operationId": "list_capability_bindings",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CapabilityBinding_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/capability-bindings/{resource_id}": {
+      "get": {
+        "operationId": "read_capability_bindings",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityBinding"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/capability-manifests": {
+      "get": {
+        "operationId": "list_capability_manifests",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CapabilityManifest_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/capability-manifests/{resource_id}": {
+      "get": {
+        "operationId": "read_capability_manifests",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityManifest"
                 }
               }
             },

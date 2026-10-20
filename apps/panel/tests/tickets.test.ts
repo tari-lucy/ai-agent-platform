@@ -67,3 +67,25 @@ test('ticket.changed refreshes tickets and their messages', () => {
     occurred_at: T(2), created_at: T(2), causal_id: null, operation_id: null });
   assert.equal(changed.type, 'ticket.changed');
 });
+
+test('a permission decision names exact versions and is previewed before execution', async () => {
+  const { grantPreview, revokePreview, executeDecision, decisionProblem, activeGrants } = await import('../src/ui/tickets/model.ts');
+  const row = ticket('t-cap', { kind: 'capability_request', version: 5, request: { capability_id: 'reference.read', areas: ['reference'], duration_seconds: null, constraints: 'Только чтение.' } });
+  const binding = { binding_id: 'b-1', capability_id: 'reference.read' } as never;
+  const decision = { bindingId: 'b-1', level: 'prepare_only' as const, days: 7, areas: ['reference'], constraints: ' Только чтение. ' };
+  assert.equal(decisionProblem({ ...decision, bindingId: '' }, [binding]), 'Выберите подключение.');
+  assert.equal(decisionProblem({ ...decision, days: 400 }, [binding]), 'Срок — от 1 до 365 дней.');
+  assert.equal(decisionProblem(decision, [binding]), null);
+  const preview = grantPreview(runScope, row, decision, 'p-1');
+  assert.equal(preview.type, 'permission.decision.preview');
+  assert.equal(preview.expected_version, 5);
+  assert.deepEqual(preview.scope, scope);
+  assert.deepEqual(preview.arguments.data, { action: 'grant', capability_id: 'reference.read', binding_id: 'b-1', ticket_id: 't-cap',
+    ticket_version: 5, level: 'prepare_only', duration_seconds: 7 * 86400, areas: ['reference'], constraints: 'Только чтение.' });
+  const execute = executeDecision(scope, 'reference.read', 'plan-1', 'x-1');
+  assert.deepEqual(execute.arguments, { plan_id: 'plan-1', plan_version: 1 });
+  const permission = { id: 'perm-1', version: 2, capability_id: 'reference.read', binding_id: 'b-1', revoked_at: null, expires_at: T(50) } as never;
+  assert.equal(revokePreview(scope, permission, 'r-1').expected_version, 2);
+  assert.equal(activeGrants([permission], 'reference.read', Date.parse(T(10))).length, 1);
+  assert.equal(activeGrants([permission], 'reference.read', Date.parse(T(55))).length, 0);
+});

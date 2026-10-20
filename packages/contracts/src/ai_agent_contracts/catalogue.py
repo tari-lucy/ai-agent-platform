@@ -161,6 +161,10 @@ MODELS = (
     agent_workplace.TicketMessage,
     agent_workplace.TicketReplyArguments,
     agent_workplace.TicketReadArguments,
+    agent_workplace.PermissionDecisionArguments,
+    agent_workplace.PermissionConditions,
+    agent_workplace.PermissionLimits,
+    agent_workplace.PermissionDecisionProof,
 )
 
 ADAPTERS: dict[str, TypeAdapter[Any]] = {model.__name__: TypeAdapter(model) for model in MODELS}
@@ -208,6 +212,8 @@ READ_MODELS = {
     "plans": api.ConsequencePlan,
     "tickets": agent_workplace.Ticket,
     "ticket-messages": agent_workplace.TicketMessage,
+    "capability-manifests": agent_workplace.CapabilityManifest,
+    "capability-bindings": agent_workplace.CapabilityBinding,
 }
 for model in READ_MODELS.values():
     ADAPTERS[model.__name__ + "Page"] = TypeAdapter(api.Page[model])  # type: ignore[valid-type]

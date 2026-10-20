@@ -162,6 +162,13 @@ def _build(
             readers=rights.ticket_readers(),
             principal=PRINCIPALS[Owner.TICKETS],
         )
+    if config.workplace_permissions is not None:
+        from ai_agent_core.m3_composition.permission_decisions import Ceiling
+
+        runtime.permission_ceiling = {
+            key: Ceiling(value.level, value.max_days * 86400)
+            for key, value in config.workplace_permissions.items()
+        }
     if config.live is not None and config.live.gm.enabled:
         # Explicitly enabled offline: the private family and the operator's own line only.
         runtime.families = PRIVATE_FAMILIES
