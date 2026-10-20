@@ -110,6 +110,10 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
                 MemoryCycle, PRINCIPALS[Owner.MEMORY], host.scope
             ).list()
             out["cycle"] = [(r.stage, r.status) for r in rows]
+            linked = host.runtime.dialogue_index._db.execute(
+                "SELECT COUNT(DISTINCT claim_id) FROM claim_sources"
+            ).fetchone()[0]
+            out["indexed_claims"] = linked
             out["state_same"] = (
                 state_before
                 == await host.runtime.store.repository(
@@ -148,6 +152,7 @@ def test_detail_beyond_the_window_reaches_the_next_reply_after_restart(
 
     # 1. accepted / rejected are distinguishable, and the rules were not loosened for a count
     assert out["paid_calls"] == (1, 1) and out["cycle"] == [("done", "completed")]
+    assert out["indexed_claims"] == 3  # recall's claim links are written by the memory job
     claims = out["claims"]
     assert len(claims) == 3, claims
     reported = {c: v for c, v in claims.items() if v[0] == "reported"}

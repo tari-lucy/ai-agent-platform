@@ -306,6 +306,7 @@ class MemoryService:
                 current,
                 version=current.version + 1,
                 updated_at=now.isoformat(),
+                scope=scope.model_dump(mode="json"),  # a later run revises it, as correct() does
                 **changes,
             )
             await unit.put(
@@ -543,6 +544,7 @@ class MemoryService:
                     version=other.version + 1,
                     updated_at=max(now, other.updated_at).isoformat(),
                     conflict_ids=[*other.conflict_ids, draft.claim_id],
+                    scope=command.scope.model_dump(mode="json"),  # may be from an earlier run
                 )
                 await unit.put(updated, expected_version=other.version)
                 touched.append(updated)

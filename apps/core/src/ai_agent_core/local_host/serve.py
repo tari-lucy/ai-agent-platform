@@ -152,6 +152,7 @@ def _build(
     )
 
     runtime = app.state.runtime
+    runtime.private_social = config.private_social
     if config.live is not None and config.live.gm.enabled:
         # Explicitly enabled offline: the private family and the operator's own line only.
         runtime.families = PRIVATE_FAMILIES

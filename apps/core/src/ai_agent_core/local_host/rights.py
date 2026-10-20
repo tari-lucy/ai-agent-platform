@@ -4,12 +4,16 @@ Each row names the owner read/write that needs it. MODERATION and public disclos
 no public output exists in this host, and nothing is granted "to everyone".
 
 The set is the smallest one that the covered flow passed with (see tests/local_host): login,
-private dialogue with acknowledgment, TEST laboratory and report. Rows for SOCIAL, PERSONA/GM
+private dialogue with acknowledgment, TEST laboratory and report. Rows for PERSONA/GM
 reading MEMORY, LLM reading WORKSPACE and CATALOGUE reading MEMORY (work scope) were removed after
 the same flow still passed without them; JOBS->BEHAVIOR and BEHAVIOR/JOBS/GATEWAY->MEMORY were
-each shown necessary by a failing run. Paths this host does not run yet (extract, consolidate, gm
-and other jobs, which the mock leaves unanswered) get their reads only with their own acceptance:
-until then they are denied, not widened.
+each shown necessary by a failing run. SOCIAL (operator-authorised 2026-10-19 with its own
+acceptance, tests/memory_quality/test_private_social_continuity.py) writes the private
+interlocutor's Person/Encounter/Promise, reads MEMORY sources as evidence and CHANNEL deliveries
+for promises; it never gets API transfer. The operator reads people/promises in the panel and
+closes a promise only through the social owner (`promise.close`). Paths this host does not run yet
+(extract, consolidate, gm and other jobs, which the mock leaves unanswered) get their reads only
+with their own acceptance: until then they are denied, not widened.
 
 Explicit --operator-controls is a separately accepted matrix: WORKSPACE plan/receipt
 writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separate
@@ -35,11 +39,14 @@ WRITERS = (
     Owner.LLM,  # assignments, attempts, usage
     Owner.CATALOGUE,  # report Artifact
     Owner.LABORATORY,  # report, scope reservation
+    Owner.SOCIAL,  # private interlocutor Person/Encounter, confirmed Promise
 )
 # Only these owners' records may be handed on over the loopback JSON transfer.
 TRANSFER_OWNERS = (Owner.MEMORY, Owner.PERSONA, Owner.GM)
-# Operator reads over HTTP (private dialogue, jobs, usage), with explicit api_transfer.
+# Operator reads over HTTP (private dialogue, jobs, usage, people/promises), with explicit
+# api_transfer for the panel.
 OPERATOR_OWNERS = (
+    Owner.SOCIAL,
     Owner.PERSONA,
     Owner.MEMORY,
     Owner.GATEWAY,
@@ -75,6 +82,8 @@ def core_grants(*, preparing: bool = False, operator_controls: bool = False) -> 
         Grant(PRINCIPALS[Owner.GATEWAY], Owner.MEMORY, read=True),
         Grant(PRINCIPALS[Owner.BEHAVIOR], Owner.MEMORY, read=True),
         Grant(PRINCIPALS[Owner.JOBS], Owner.MEMORY, read=True),
+        Grant(PRINCIPALS[Owner.SOCIAL], Owner.MEMORY, read=True),  # evidence of a person/promise
+        Grant(PRINCIPALS[Owner.SOCIAL], Owner.CHANNEL, read=True),  # a promise needs DELIVERED
     ]
     if operator_controls:
         grants += [Grant(PRINCIPALS[o], Owner.MEMORY, read=True) for o in (Owner.PERSONA, Owner.GM)]
@@ -116,9 +125,20 @@ def lab_scope_grants() -> tuple[Grant, ...]:
 
 def record_readers() -> tuple[RecordAccess, ...]:
     """Record ACL for profile/state/GM/permission/source records created by trusted owners."""
-    return (RecordAccess(OPERATOR.id, api_transfer=True),) + tuple(
-        RecordAccess(PRINCIPALS[o].id, api_transfer=o in TRANSFER_OWNERS)
-        for o in (Owner.GM, Owner.PERSONA, Owner.MEMORY, Owner.JOBS, Owner.BEHAVIOR, Owner.GATEWAY)
+    return (
+        (RecordAccess(OPERATOR.id, api_transfer=True),)
+        + tuple(
+            RecordAccess(PRINCIPALS[o].id, api_transfer=o in TRANSFER_OWNERS)
+            for o in (
+                Owner.GM,
+                Owner.PERSONA,
+                Owner.MEMORY,
+                Owner.JOBS,
+                Owner.BEHAVIOR,
+                Owner.GATEWAY,
+            )
+        )
+        + (RecordAccess(PRINCIPALS[Owner.SOCIAL].id),)  # read only, never API transfer
     )
 
 

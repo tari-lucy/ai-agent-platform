@@ -155,6 +155,8 @@ class HostConfig(BaseModel):
     live: LiveConfig | None = None
     recovery: RecoveryConfig | None = None
     settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
+    # The panel login is a stable social interlocutor only after its rights were provisioned.
+    private_social: bool = False
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:

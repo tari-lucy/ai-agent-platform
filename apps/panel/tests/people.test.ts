@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { PanelApi, ApiFailure } from '../src/shared/api.ts';
 import { encounters, people, promises, relationships, topics } from '../src/shared/validation.ts';
 import {
-  collisionsOf, confirmedAccounts, emptyLink, encountersOf, groundsSummary, involves, label, linkCommand, linkProblem, orderPromises, otherAccounts, overdue,
-  ownerOf, relationshipOf, sharedNames, unlinkCommand, unlinkProblem,
+  closable, closeCommand, closureProblem, collisionsOf, confirmedAccounts, emptyLink, encountersOf, groundsSummary, involves, label, linkCommand, linkProblem,
+  orderPromises, otherAccounts, overdue, ownerOf, relationshipOf, sharedNames, unlinkCommand, unlinkProblem,
 } from '../src/ui/people/model.ts';
 import type { AccountLink, Encounter, Person, PromiseRecord, Relationship, RunSession, Scope, SourceRef } from '../src/shared/contracts.ts';
 
@@ -136,4 +136,20 @@ test('a person id that is not an id is rejected even when the row id is fine', (
   const bad = { ...person('p1', []), person_id: 'bad id' };
   assert.throws(() => people(page([bad]), scope));
   assert.equal(people(page([person('p1', [])]), scope).items.length, 1);
+});
+
+test('closing a promise sends the seen version, an explicit outcome and a stated result', () => {
+  const open = promise('pr-1', 'open', { version: 3 });
+  assert.equal(closureProblem(open, { outcome: 'fulfilled', result: '  ' }), 'Опишите, чем подтверждается выполнение.');
+  assert.equal(closureProblem(open, { outcome: 'withdrawn', result: '' }), 'Укажите причину снятия.');
+  assert.equal(closureProblem(open, { outcome: 'unknown', result: '' }), null);
+  assert.equal(closureProblem(promise('pr-2', 'fulfilled'), { outcome: 'withdrawn', result: 'x' }), 'Обещание уже закрыто; закрытое не переписывается.');
+  assert.ok(closable(promise('pr-3', 'unknown')) && !closable(promise('pr-4', 'withdrawn')));
+  const command = closeCommand(scope, open, { outcome: 'fulfilled', result: ' Список получен. ' }, 'req-1');
+  assert.deepEqual(command, {
+    type: 'promise.close', request_id: 'req-1', scope, target: 'pr-1', expected_version: 3,
+    arguments: { schema_id: 'promise.close-args', data: { promise_id: 'pr-1', outcome: 'fulfilled', closure_result: 'Список получен.' } },
+  });
+  const unknown = closeCommand(scope, open, { outcome: 'unknown', result: '' }, 'req-2');
+  assert.deepEqual(unknown.arguments.data, { promise_id: 'pr-1', outcome: 'unknown' });
 });

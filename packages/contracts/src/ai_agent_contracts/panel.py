@@ -85,6 +85,26 @@ class TariffCreateArguments(Contract):
         return self
 
 
+class PromiseCloseArguments(Contract):
+    """The operator closes an exact promise; the history keeps every earlier version.
+
+    `fulfilled` is grounded by the operator's own stated result (a new operator source), never
+    by the character's reply; `withdrawn` needs a reason; `unknown` keeps it owed.
+    """
+
+    promise_id: Id
+    outcome: Literal["fulfilled", "withdrawn", "unknown"]
+    closure_result: str | None = Field(default=None, strict=True, min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def explained(self) -> Self:
+        if self.closure_result is not None and not self.closure_result.strip():
+            raise ValueError("EMPTY_CLOSURE")
+        if self.outcome != "unknown" and self.closure_result is None:
+            raise ValueError("CLOSURE_REQUIRED")
+        return self
+
+
 class MemoryCorrectArguments(Contract):
     kind: Literal["claim", "summary"]
     record_id: Id
@@ -225,6 +245,7 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("llm.limits-args", ApiLimitArguments)
     registry.register("tariff.create-args", TariffCreateArguments)
     registry.register("memory.correct-args", MemoryCorrectArguments)
+    registry.register("promise.close-args", PromiseCloseArguments)
     registry.register("memory.delete-args", MemorySelectionArguments)
     registry.register("memory.export-args", MemorySelectionArguments)
     registry.register("gm.configure-args", ConfigureGM)
