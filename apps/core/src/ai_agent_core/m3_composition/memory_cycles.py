@@ -460,10 +460,12 @@ class DailyMemory:
             if await repo.get(identifier) is not None:
                 continue
             refs = list({r.source_id: r for s in group for r in s.sources})
+            if len(refs) > 200:
+                continue  # never submit a digest with only part of its grounds pinned
             args = TaskInput(
                 kind="consolidate",
                 trigger_id="digest-" + identifier.removeprefix("summary-")[:40],
-                source_ids=refs[:20],
+                source_ids=refs,
                 period_start=group[0].period_start,
                 period_end=max(s.period_end for s in group),
                 digest_of=ids,

@@ -527,6 +527,7 @@ class Runtime:
                 or request.kind == "consolidate"
                 and bool(request.digest_of)
                 and budget.memory_processing
+                and scope.memory_mode == "work"
                 or request.kind == "gm"
                 and budget.gm_enabled
                 and not run.gm_paused
@@ -924,7 +925,12 @@ class Runtime:
 
             digest = await Digester(
                 memory, execution, admitted=execution.allowed, clock=self.supervisor.clock.utc
-            ).digest(scope, request.digest_of, execution.cancel)
+            ).digest(
+                scope,
+                request.digest_of,
+                execution.cancel,
+                source_refs=execution.command.sources,
+            )
             if digest is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             return [digest.id]

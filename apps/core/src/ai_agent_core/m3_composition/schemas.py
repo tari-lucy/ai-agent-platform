@@ -20,7 +20,7 @@ class TaskInput(Contract):
         "extract", "consolidate", "reflect", "post_session", "gm", "laboratory", "dialogue"
     ]
     trigger_id: Id
-    source_ids: list[Id] = Field(default_factory=list, max_length=20)
+    source_ids: list[Id] = Field(default_factory=list, max_length=200)
     episode_ids: list[Id] = Field(default_factory=list, max_length=20)
     arc_id: Id | None = None
     direction: Annotated[str, Field(max_length=2000)] = ""
@@ -40,6 +40,8 @@ class TaskInput(Contract):
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
+        if len(self.source_ids) > 20 and not (self.kind == "consolidate" and self.digest_of):
+            raise ValueError("TOO_MANY_SOURCES")
         if self.kind == "dialogue" and len(self.source_ids) != 1:
             raise ValueError("MESSAGE_REQUIRED")
         if self.kind in ("extract", "consolidate", "post_session", "gm") and not self.source_ids:

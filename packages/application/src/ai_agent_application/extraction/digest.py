@@ -83,6 +83,8 @@ class Digester:
         scope: Scope,
         summary_ids: Sequence[str],
         cancel: asyncio.Event | None = None,
+        *,
+        source_refs: Sequence[SourceRef] | None = None,
     ) -> Summary | None:
         if not self.admitted():
             return self._refused("NOT_ADMITTED")
@@ -98,6 +100,10 @@ class Digester:
             if found is not None and not is_digest(found) and await self._usable(scope, found):
                 summaries.append(found)
         refs = list({r.source_id: r for s in summaries for r in s.sources}.values())
+        if source_refs is not None:
+            pinned = {r.source_id: r.version for r in source_refs}
+            if any(pinned.get(r.source_id) != r.version for r in refs):
+                return self._refused("SOURCE_SET_CHANGED")
         if len(summaries) < 2 or len(refs) > MAX_SOURCES:
             return self._refused("NOT_ENOUGH" if len(summaries) < 2 else "TOO_MANY_SOURCES")
         summaries.sort(key=lambda s: (s.period_start, s.id))
@@ -134,6 +140,14 @@ class Digester:
             return self._refused("GENERATION_" + failure.upper())
         if not self.admitted():
             return self._refused("NOT_ADMITTED")
+        for summary in summaries:
+            current = await repository.get(summary.id)
+            if (
+                current is None
+                or current.version != summary.version
+                or not await self._usable(scope, summary)
+            ):
+                return self._refused("STALE_SUMMARY")
         now = self.clock()
         record = Summary.model_validate(
             {
