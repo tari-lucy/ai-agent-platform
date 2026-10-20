@@ -1,6 +1,6 @@
 import { configureGM } from '../../shared/owner-commands.ts';
 import type {
-  GmRuntimeState, ChangeState, ConsequencePlan, EditCommand, ExecutePlanCommand, Opportunity, PlanCommand, RunSession, SourceRef, StateChange, StoryArc,
+  GmRuntimeState, ChangeState, ConsequencePlan, EditCommand, Episode, ExecutePlanCommand, Opportunity, PlanCommand, RunSession, SourceRef, StateChange, StoryArc,
 } from '../../shared/contracts.ts';
 
 // Pure development-tab logic: arcs, opportunities, change cards, attention queue, path and commands. No I/O.
@@ -104,6 +104,28 @@ export const pauseArcCommand = (run: OperatorContext, arc: StoryArc, requestId: 
 export type Decision = 'accept' | 'reject';
 export const decisionCommand = (run: OperatorContext, change: StateChange, decision: Decision, reason: string, requestId: string) =>
   edit('change.decision', run, change.version, change.id, DEV_SCHEMA.decision, { decision, reason: reason.trim() }, requestId);
+// ---- manifestation: an applied change next to the experience that followed it --------------------------------
+// Nothing here judges whether the change showed: no model, no score, no new evidence. The operator compares the
+// expected manifestation with what was actually lived afterwards; an empty list says "not observed yet".
+export type LaterExperience =
+  | { status: 'not-applied' }
+  | { status: 'none'; complete: boolean }
+  | { status: 'seen'; count: number; recent: Episode[]; complete: boolean };
+export function laterExperience(change: StateChange, episodes: Episode[], complete: boolean): LaterExperience {
+  if (change.status !== 'APPLIED' || patchOf(change)?.rollback) return { status: 'not-applied' };
+  const since = Date.parse(change.updated_at);
+  const later = episodes.filter((row) => Date.parse(row.created_at) > since)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || a.id.localeCompare(b.id));
+  if (!later.length) return { status: 'none', complete };
+  return { status: 'seen', count: later.length, recent: later.slice(0, 3), complete };
+}
+export function laterExperienceNote(view: LaterExperience): string {
+  if (view.status === 'not-applied') return 'Изменение не применено: проявления не ожидается.';
+  const partial = view.complete ? '' : ' Загружены не все эпизоды.';
+  if (view.status === 'none') return 'После изменения подходящий опыт ещё не наблюдался.' + partial;
+  return `После изменения прожито эпизодов: ${view.count}. Проявление не оценивалось автоматически — сравните с ожидаемым.` + partial;
+}
+
 export function validInterpretation(change: StateChange, text: string, reason: string): string | null {
   if (!canCorrect(change)) return 'Изменение в этом состоянии исправлять нельзя.';
   if (!text.trim()) return 'Введите исправленную интерпретацию.';
