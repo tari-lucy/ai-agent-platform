@@ -895,14 +895,18 @@ class Runtime:
             clock=self.supervisor.clock.utc,
             reader_access=self.readers,
         )
-        ids: list[str] = []
+        ids: list[str] = list(request.resume_ids)
         if request.kind == "dialogue":
             from .dialogue import perform
 
             return await perform(execution)
-        if request.kind in ("extract", "post_session"):
+        start = request.resume_stage if request.kind == "post_session" else "extract"
+        if request.kind == "extract" or (request.kind == "post_session" and start == "extract"):
             report = await Extractor(memory, execution, admitted=execution.allowed).extract(
-                scope, request.source_ids, cancel=execution.cancel
+                scope,
+                request.source_ids,
+                cancel=execution.cancel,
+                operation_id=f"extr-{request.trigger_id}"[:120] if request.resumed else None,
             )
             if report.status not in ("completed", "nothing"):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
@@ -911,7 +915,9 @@ class Runtime:
             from .memory_cycles import CycleJournal
 
             await CycleJournal(execution).save("consolidate", ids)
-        if request.kind in ("consolidate", "post_session"):
+        if request.kind == "consolidate" or (
+            request.kind == "post_session" and start in ("extract", "consolidate")
+        ):
             assert request.period_start is not None and request.period_end is not None
             summary = await Consolidator(
                 memory, execution, admitted=execution.allowed, clock=self.supervisor.clock.utc
@@ -921,6 +927,7 @@ class Runtime:
                 request.period_start,
                 request.period_end,
                 execution.cancel,
+                operation_id=f"cons-{request.trigger_id}"[:120] if request.resumed else None,
             )
             if summary is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

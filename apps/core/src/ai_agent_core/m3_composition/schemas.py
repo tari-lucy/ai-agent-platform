@@ -30,6 +30,11 @@ class TaskInput(Contract):
     scenario_id: Id | None = None
     lab_scope: Scope | None = None
     seed: Annotated[str, Field(min_length=1, max_length=128)] = "lab-seed"
+    # A resumed memory cycle starts at the first stage without a saved, proven outcome and
+    # carries the records that earlier stages already produced; nothing is paid twice.
+    resume_stage: Literal["extract", "consolidate", "reflect"] = "extract"
+    resume_ids: list[Id] = Field(default_factory=list, max_length=100)
+    resumed: bool = Field(default=False, strict=True)  # new generations for unsaved stages
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
