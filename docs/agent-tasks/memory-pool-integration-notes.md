@@ -9,12 +9,13 @@
 | # | Ветка | Голова | Суть | Зависит от |
 | --- | --- | --- | --- | --- |
 | 1 | `codex/long-term-memory-retention` | `851a2bc` | Старые релевантные claims/сводки за окнами 40/5 (FTS по источникам + `recent(cites=…)` по `source_links`) | — |
-| 2 | `codex/private-social-continuity` | `9d18ec3` | Собеседник = вход панели, обещания после ACK, `promise.close` из панели, права SOCIAL, `enable-social`; исправления: продление аренды, межзапусковый scope (social, memory), связи claim в индексе | — |
+| 2 | `codex/private-social-continuity` | `4ec4b28` | Собеседник = вход панели, обещания после ACK, `promise.close` из панели, права SOCIAL, `enable-social`; исправления: продление аренды, межзапусковый scope (social, memory), связи claim в индексе | — |
 | 3 | `codex/long-term-knowledge` | `e945b25` | Дословные выдержки за 7 дней до истечения 30-дневного текста; перелинковка claims/сводок | — |
 | 4 | `codex/grounded-character-biography` | `261c103` | Биография в промпте: причины изменений, откаты, события, «оставить характер» | — |
 | 5 | `codex/development-manifestation` | `bf339dd` | Карточка изменения: последующий опыт без оценки | — |
 | 6 | `codex/memory-backlog-recovery` | `8865e7e` | Продолжение сбойного цикла по доказанному исходу; backlog в панели | — |
 | 7 | `codex/knowledge-digest` | `966a82d` | Месячный дайджест старых сводок | **3** (построена на ней) |
+| — | `codex/fix-baseline-tests` | `7cee7ca` | Только тесты: три устаревших теста `main` (см. п. 9) | — (от `main`, можно вливать первой) |
 
 Пробное слияние в этом порядке: 1–6 чисто, 7 конфликтует с 6 (обе стороны вставили
 своё рядом). Готовый результат — **`codex/memory-pool-integration-preview`**. Это
@@ -32,6 +33,26 @@
   синтаксическая ошибка.
 - Этапы 2 и 3 одинаково правят `MemoryService._transition` (scope текущего запуска). Git
   сливает это чисто, проверьте, что строка не задвоилась.
+
+## Совместный прогон (ветка предпросмотра)
+
+Ядро двумя процессами pytest (одинаковые имена модулей нельзя собрать в одном):
+- memory_quality, integration_dialogue, social, dialogue, memory, retention, storage,
+  extraction, development, local_host, integration_gm: 359 passed, 5 failed;
+- m3_runtime и браузерные экраны (promise_close, development, guidance_memory,
+  memory_search, memory_correction): 107 passed, 2 failed;
+- панель: 183 node-теста, tsc/eslint чисто, сборка есть.
+
+Разбор падений:
+- **Реальный дефект этапа 2, найден только совместным прогоном и исправлен
+  (`798065c`).** Удаление первого сообщения оператора скрывало `Person` (основание связи
+  аккаунта) и роняло каждый следующий ответ. Теперь личность основана на защищённом
+  источнике входа, а недоступная личность даёт анонимный ответ, а не падение. После
+  исправления на предпросмотре проходят 6 тестов биографии и социальной памяти.
+- 3 падения `main` — п. 9 (исправлены отдельной веткой, в предпросмотр не влиты).
+- `test_guards::test_import_has_no_effects` — окружение (п. 10).
+- `test_gm_guards::test_screen_refusal…` и `test_panel::…smoke` — нагрузка: отдельно
+  проходят.
 
 ## Действия на рабочем host после интеграции
 
@@ -74,10 +95,17 @@
 8. **Индекс claim→source.** Фоновые задачи памяти теперь пишут связи в индекс (этап 2).
    На рабочем host старые claims в индексе связей не имеют до `reindex_scope`. Этап 1
    использует авторитетные `source_links` и от этого не зависит.
-9. **Шумные/базовые падения** (есть и на чистом `638162c`, проверено):
-   - `tests/memory/test_recall.py::test_conflict_ids_follow_the_readers_access_to_the_claims`;
-   - `tests/m3_runtime/test_http_laboratory.py::…[False]`;
-   - `tests/m3_runtime/test_workflows.py::test_post_session_uses_existing_extractor…`.
+9. **Три падения, которые есть и на чистом `638162c`** — не дефекты кода, а тесты,
+   устаревшие после коммитов координатора. Исправлены в `codex/fix-baseline-tests` (только
+   тесты, 22 passed):
+   - `test_recall::test_conflict_ids…`: с `e8b6714` claims получают ACL читателей.
+     **Утечки нет**, тест восстановлен и снова ловит её (мутация).
+   - `test_workflows::test_post_session…`: с `e8b6714` рефлексия — только по подтверждённому
+     диалоговому опыту. Тест теперь фиксирует это правило; полный путь покрыт в
+     `test_memory_cycles`.
+   - `test_http_laboratory…[False]`: с `d903e0c` чтение отчёта проверяет происхождение
+     источников для читателя. Тест читал служебным принципалом (хост так не читает) и
+     теперь читает как `downloads.py`.
 10. **Окружение Linux этой машины:** venv привязан editable-установкой к старому worktree
     `m4-02`, поэтому тесты шли с `PYTHONPATH` на src checkout. `test_guards::
     test_import_has_no_effects` (запускает `python -I`) здесь падает только из-за этого.
