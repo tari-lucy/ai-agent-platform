@@ -271,3 +271,45 @@ def test_rejected_registration_leaves_no_trace(tmp_path):
         await world.store.close()
 
     run(scenario())
+
+
+def test_a_later_run_revises_sources_and_contradicts_claims_of_an_earlier_run(tmp_path):
+    run_one = A.model_copy(update={"agent_id": "agent-a", "run_id": "run-1", "session_id": "s-1"})
+    run_two = A.model_copy(update={"agent_id": "agent-a", "run_id": "run-2", "session_id": "s-2"})
+
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        a = await world.add(run_one, "Он сказал, что замок построил он.", external_id="r-1")
+        sa = await world.memory.get_source(run_one, a.source_id)
+        await world.memory.record_claim(
+            command(run_one),
+            ClaimDraft("claim-a", "subject-1", "Замок построил он", "reported", (ref(sa),), 0.4),
+        )
+        b = await world.add(run_two, "Она сказала, что замок построила она.", external_id="r-2")
+        sb = await world.memory.get_source(run_two, b.source_id)
+        await world.memory.record_claim(  # the earlier claim gets the conflict link
+            command(run_two),
+            ClaimDraft(
+                "claim-b",
+                "subject-1",
+                "Замок построила она",
+                "reported",
+                (ref(sb, run_two),),
+                0.4,
+                ("claim-a",),
+            ),
+        )
+        old = await world.store.repository(Claim, MEMORY, run_two).get("claim-a")
+        assert old.conflict_ids == ["claim-b"] and old.scope == run_two
+        receipt = await world.memory.set_rights(
+            command(run_two),
+            a.source_id,
+            1,
+            read_allowed=True,
+            api_transfer_allowed=False,
+            public_disclosure_allowed=False,
+        )
+        assert receipt.version == 2
+        await world.store.close()
+
+    run(scenario())

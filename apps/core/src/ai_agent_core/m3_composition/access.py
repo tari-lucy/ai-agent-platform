@@ -108,6 +108,11 @@ class Mutations:
 
             async with runtime._lock:
                 return await correct(runtime, authority, request)
+        if isinstance(request, EditCommand) and request.type == "promise.close":
+            from .social_controls import close
+
+            async with runtime._lock:
+                return await close(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

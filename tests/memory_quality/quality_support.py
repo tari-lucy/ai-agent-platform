@@ -137,10 +137,10 @@ class Host:
         assert self.env is not None
         return await start(self.env)
 
-    async def say(self, request_id: str, text: str, reply: str) -> Utterance:
+    async def say(self, request_id: str, text: str, reply: str, **decision) -> Utterance:
         """A person message, the scripted character reply, and the person's confirmation."""
         assert self.env is not None
-        self.model.queues["character"].append(dict(reply=reply))
+        self.model.queues["character"].append(dict(reply=reply, **decision))
         run = self.runtime.supervisor.snapshot
         made = await post(
             self.env,

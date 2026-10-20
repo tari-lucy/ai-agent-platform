@@ -1,4 +1,4 @@
-import type { AccountLink, EditCommand, Encounter, Person, PromiseRecord, RunSession, Relationship, SourceRef, Topic } from '../../shared/contracts.ts';
+import type { AccountLink, EditCommand, Encounter, Person, PromiseRecord, RunSession, Relationship, Scope, SourceRef, Topic } from '../../shared/contracts.ts';
 
 // Pure people logic: identity, confirmed accounts, history, relationship grounds, topics, promises. No I/O.
 // A nickname never identifies a person; only a confirmed platform account does.
@@ -41,6 +41,24 @@ export function orderPromises(rows: PromiseRecord[]): PromiseRecord[] {
   return [...rows].sort((a, b) => rank(a) - rank(b) || (Date.parse(a.deadline ?? '9999') - Date.parse(b.deadline ?? '9999')) || a.id.localeCompare(b.id));
 }
 export const overdue = (row: PromiseRecord, now: number) => row.status === 'open' && !!row.deadline && Date.parse(row.deadline) < now;
+
+// ---- closing a promise (owner command promise.close) -----------------------------------------------------
+// The owner keeps every earlier version; "fulfilled" is grounded by the operator's own stated result.
+export type Closure = { outcome: 'fulfilled' | 'withdrawn' | 'unknown'; result: string };
+export const emptyClosure: Closure = { outcome: 'withdrawn', result: '' };
+export const closureLabels: Record<Closure['outcome'], string> = { fulfilled: 'Выполнено', withdrawn: 'Снять', unknown: 'Исход неизвестен' };
+export const closable = (row: PromiseRecord) => row.status === 'open' || row.status === 'unknown';
+export function closureProblem(row: PromiseRecord, closure: Closure): string | null {
+  if (!closable(row)) return 'Обещание уже закрыто; закрытое не переписывается.';
+  if (closure.result.length > 1000) return 'Итог длиннее 1000 символов.';
+  if (closure.outcome === 'fulfilled' && !closure.result.trim()) return 'Опишите, чем подтверждается выполнение.';
+  if (closure.outcome === 'withdrawn' && !closure.result.trim()) return 'Укажите причину снятия.';
+  return null;
+}
+export const closeCommand = (scope: Scope, row: PromiseRecord, closure: Closure, requestId: string): EditCommand => ({
+  type: 'promise.close', request_id: requestId, scope, target: row.id, expected_version: row.version,
+  arguments: { schema_id: 'promise.close-args', data: { promise_id: row.id, outcome: closure.outcome, ...(closure.result.trim() ? { closure_result: closure.result.trim() } : {}) } },
+});
 
 // ---- linking accounts ---------------------------------------------------------------------------------------
 // ASSUMPTION (owner decision pending): payload schema ids of person.link / person.unlink are not defined yet.

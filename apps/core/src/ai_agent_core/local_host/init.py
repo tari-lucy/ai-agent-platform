@@ -108,6 +108,7 @@ async def initialise(
             operator_controls=operator_controls,
             settings_space_id=settings_id,
             live=live,
+            private_social=True,  # init provisions the SOCIAL rows of the current matrix
         )
     except ValidationError:
         raise HostError("INVALID_OPTION") from None

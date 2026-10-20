@@ -21,6 +21,7 @@ from ai_agent_application.control.ports import Admission, ControlAuthority
 from ai_agent_application.development import DevelopmentController, MemoryEvidence, Reflector
 from ai_agent_application.dialogue import ControlSnapshot
 from ai_agent_application.dialogue.context import data
+from ai_agent_application.dialogue.model import PromiseIntent
 from ai_agent_application.extraction import Consolidator, Extractor
 from ai_agent_application.gamemaster import Classification, Dice, Family, GameMaster
 from ai_agent_application.gamemaster.clock import ActiveGMClock
@@ -93,6 +94,7 @@ DOMAIN_OWNERS = frozenset(
 )
 
 
+RENEW_ATTEMPTS = 3  # one renewal request, replayed only after a lapsed proof
 GM_SLOTS = 16  # bounded per-run-day GM job identifiers; see PrivateAPIBudget.gm_attempt
 
 
@@ -261,6 +263,11 @@ class Runtime:
         self.providers, self.scopes, self.families, self.lab = providers, scopes, families, lab
         self.readers = reader_access
         self.dialogue_index = dialogue_index
+        # Private promise drafts until the operator's receipt, like the controller's own pending
+        # drafts: process-local and bounded; a restart drops them, never records them.
+        self.pending_promises: dict[str, tuple[str, PromiseIntent, tuple[SourceRef, ...]]] = {}
+        # Only a host whose SOCIAL rights are provisioned links the panel login to a person.
+        self.private_social = False
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory
@@ -884,6 +891,7 @@ class Runtime:
             self.store,
             PRINCIPALS[Owner.MEMORY],
             self.registry,
+            index=self.dialogue_index,  # claim links/conflicts for recall; failures only lag
             clock=self.supervisor.clock.utc,
             reader_access=self.readers,
         )
@@ -1112,17 +1120,28 @@ class Execution:
                     continue
                 renew_at = self.runtime.supervisor.clock.elapsed() + 5
                 current = self.lease
-                self.lease = await self.runtime.jobs.renew(
-                    self.runtime.worker,
-                    ServiceLeaseCommand(
-                        request_id=uuid4().hex,
-                        type="job.renew",
-                        scope=current.scope,
-                        target=current.operation_id,
-                        operation_id=current.operation_id,
-                        lease=current,
-                    ),
+                request = ServiceLeaseCommand(
+                    request_id=uuid4().hex,
+                    type="job.renew",
+                    scope=current.scope,
+                    target=current.operation_id,
+                    operation_id=current.operation_id,
+                    lease=current,
                 )
+                for attempt in range(RENEW_ATTEMPTS):
+                    try:
+                        self.lease = await self.runtime.jobs.renew(self.runtime.worker, request)
+                        break
+                    except ContractError as error:
+                        # The 2 s policy proof can lapse during a slow write of the renewal
+                        # itself. The same request replays the stored lease with a fresh proof;
+                        # a real STOP/revocation fails again (and guard() checks every tick).
+                        if (
+                            error.error.code is not ErrorCode.STALE_CONTEXT
+                            or attempt == RENEW_ATTEMPTS - 1
+                        ):
+                            raise
+                        self.guard()
         except ContractError:
             self.cancel.set()
 

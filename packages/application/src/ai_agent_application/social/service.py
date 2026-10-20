@@ -164,6 +164,10 @@ class SocialService:
             if unit.replay is not None:
                 return unit.replay, True
             for record, expected in puts:
+                if record.scope.partition == command.scope.partition:
+                    # A revision in a later run belongs to the current run, as in the memory and
+                    # development owners; another partition is still refused by storage.
+                    record = record.model_copy(update={"scope": command.scope})
                 await unit.put(record, expected_version=expected, access=self.reader_access or None)
             receipt = Receipt(
                 request_id=command.request_id,
