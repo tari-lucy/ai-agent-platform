@@ -144,3 +144,53 @@ def test_a_long_conversation_keeps_only_a_bounded_excerpt(tmp_path):
     excerpt, filler = run(scenario())
     assert len(excerpt.content) <= EXCERPT_CHARS and excerpt.content.startswith("Фонарик")
     assert len(excerpt.content) < len(filler) / 3  # space is saved
+
+
+def test_a_fact_outside_the_bounded_excerpt_keeps_its_original_ground(tmp_path):
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        text = " ".join("Фонарик светит бирюзовым светом." for _ in range(30))
+        text += " Любимая птица — цапля."
+        raw = await world.add(A, text, external_id="bounded-ground")
+        for name, fact in (("lamp", "Бирюзовый фонарик."), ("bird", "Любимая птица — цапля.")):
+            await world.memory.record_claim(
+                command(A),
+                ClaimDraft("claim-" + name, "person-1", fact, "reported", (ref(raw),), 0.6),
+            )
+        kept = await world.memory.retain(
+            command(A), raw.source_id, (("Claim", "claim-lamp"), ("Claim", "claim-bird")), term=TERM
+        )
+        excerpt = await world.memory.get_source(A, kept)
+        bird = await world.store.repository(Claim, MEMORY, A).get("claim-bird")
+        lamp = await world.store.repository(Claim, MEMORY, A).get("claim-lamp")
+        await world.store.close()
+        return raw, excerpt, bird, lamp
+
+    raw, excerpt, bird, lamp = run(scenario())
+    assert "цапля" not in excerpt.content
+    assert bird.version == 1 and bird.sources[0].source_id == raw.source_id
+    assert lamp.version == 2 and lamp.sources[0].source_id == excerpt.id
+
+
+def test_a_later_claim_cannot_borrow_an_unrelated_existing_excerpt(tmp_path):
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        raw = await world.add(A, RAW, external_id="later-claim")
+        for name, fact in (("lamp", "Бирюзовый фонарик."), ("tea", "Чай с бергамотом.")):
+            await world.memory.record_claim(
+                command(A),
+                ClaimDraft("claim-" + name, "person-1", fact, "reported", (ref(raw),), 0.6),
+            )
+            made = await world.memory.retain(
+                command(A), raw.source_id, (("Claim", "claim-" + name),), term=TERM
+            )
+            if name == "lamp":
+                assert made is not None
+            else:
+                assert made is None
+        tea = await world.store.repository(Claim, MEMORY, A).get("claim-tea")
+        await world.store.close()
+        return raw, tea
+
+    raw, tea = run(scenario())
+    assert tea.version == 1 and tea.sources[0].source_id == raw.source_id

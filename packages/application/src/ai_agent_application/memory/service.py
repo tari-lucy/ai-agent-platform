@@ -670,6 +670,18 @@ class MemoryService:
                 size += len(sentence) + 1
         text = " ".join(kept) or raw.content[:EXCERPT_FALLBACK_CHARS].strip()
         existing = await self.get_source(scope, self.excerpt_id(scope, raw.id))
+        # A bounded excerpt can omit a later fact. Do not move that fact onto unrelated text,
+        # including when an earlier sweep already made an excerpt for other records.
+        # This is a conservative lexical guard, not a new assertion of semantic truth.
+        raw_words = words(raw.content)
+        kept_words = words(existing.content or "") if existing is not None else words(text)
+        records = [
+            record
+            for record in records
+            if (needed := words(record.content) & raw_words) and needed <= kept_words
+        ]
+        if not records:
+            return None
         if existing is not None:  # kept earlier; later records join the same excerpt
             source_ref = (existing.id, existing.version)
         else:
