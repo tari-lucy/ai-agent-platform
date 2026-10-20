@@ -347,3 +347,28 @@ class TicketMessage(Record):
     author_id: Id
     body: Text = Field(min_length=1)
     ticket_version: Version
+
+
+# --- Operator ticket commands (AW-01) -------------------------------------------------------
+
+
+class TicketReplyArguments(Contract):
+    """Operator message on an exact ticket version; ``answer`` hands the turn to the agent.
+
+    ``resolve``/``close`` end the ticket with this text as the resolution; a later answer or
+    agent recurrence reopens it. Nothing here grants a right: that is a separate decision.
+    """
+
+    ticket_id: Id
+    body: Text = Field(min_length=1, max_length=4000)
+    outcome: Literal["answer", "resolve", "close"]
+
+    @model_validator(mode="after")
+    def not_blank(self) -> Self:
+        if not self.body.strip():
+            raise ValueError("EMPTY_MESSAGE")
+        return self
+
+
+class TicketReadArguments(Contract):
+    ticket_id: Id

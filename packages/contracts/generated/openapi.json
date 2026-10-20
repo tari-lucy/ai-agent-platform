@@ -2169,7 +2169,9 @@
               "binding.edit",
               "operation.cancel",
               "llm.assignment",
-              "llm.limits"
+              "llm.limits",
+              "ticket.reply",
+              "ticket.read"
             ],
             "title": "Type",
             "type": "string"
@@ -7358,6 +7360,118 @@
         "title": "Page[Tariff]",
         "type": "object"
       },
+      "Page_TicketMessage_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketMessage"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[TicketMessage]",
+        "type": "object"
+      },
+      "Page_Ticket_": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Ticket"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "projection_lag_ms": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Projection Lag Ms"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "complete"
+        ],
+        "title": "Page[Ticket]",
+        "type": "object"
+      },
       "Page_Topic_": {
         "additionalProperties": false,
         "properties": {
@@ -7575,6 +7689,8 @@
             "session.process-memory": "#/components/schemas/ProcessMemoryCommand",
             "session.reflect": "#/components/schemas/ReflectCommand",
             "tariff.create": "#/components/schemas/CreateCommand",
+            "ticket.read": "#/components/schemas/EditCommand",
+            "ticket.reply": "#/components/schemas/EditCommand",
             "workspace.backup.execute": "#/components/schemas/ExecutePlanCommand",
             "workspace.backup.preview": "#/components/schemas/PlanCommand",
             "workspace.restore.execute": "#/components/schemas/ExecutePlanCommand",
@@ -7710,7 +7826,8 @@
               "change.changed",
               "check.changed",
               "connection.changed",
-              "usage.changed"
+              "usage.changed",
+              "ticket.changed"
             ],
             "title": "Type",
             "type": "string"
@@ -11457,6 +11574,7 @@
             "memory.changed": "#/components/schemas/PanelEvent",
             "relationship.changed": "#/components/schemas/PanelEvent",
             "run.changed": "#/components/schemas/PanelEvent",
+            "ticket.changed": "#/components/schemas/PanelEvent",
             "usage.changed": "#/components/schemas/PanelEvent",
             "utterance.changed": "#/components/schemas/PanelEvent"
           },
@@ -12190,6 +12308,58 @@
           "service"
         ],
         "type": "string"
+      },
+      "TicketReadArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ],
+        "title": "TicketReadArguments",
+        "type": "object"
+      },
+      "TicketReplyArguments": {
+        "additionalProperties": false,
+        "description": "Operator message on an exact ticket version; ``answer`` hands the turn to the agent.\n\n``resolve``/``close`` end the ticket with this text as the resolution; a later answer or\nagent recurrence reopens it. Nothing here grants a right: that is a separate decision.",
+        "properties": {
+          "body": {
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "answer",
+              "resolve",
+              "close"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "ticket_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "body",
+          "outcome"
+        ],
+        "title": "TicketReplyArguments",
+        "type": "object"
       },
       "TicketState": {
         "enum": [
@@ -19025,6 +19195,322 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Tariff"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ticket-messages": {
+      "get": {
+        "operationId": "list_ticket_messages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TicketMessage_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ticket-messages/{resource_id}": {
+      "get": {
+        "operationId": "read_ticket_messages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketMessage"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets": {
+      "get": {
+        "operationId": "list_tickets",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Ticket_"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{resource_id}": {
+      "get": {
+        "operationId": "read_tickets",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
                 }
               }
             },

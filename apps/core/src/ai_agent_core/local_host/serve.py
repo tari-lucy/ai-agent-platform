@@ -15,7 +15,7 @@ from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.laboratory import LabRunner
 from ai_agent_application.llm import ProviderFactory
 from ai_agent_application.memory.ports import RecallIndex
-from ai_agent_application.storage import RecordAccess
+from ai_agent_application.storage import Owner, RecordAccess
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode
@@ -27,7 +27,7 @@ from ai_agent_core.m3_composition.app import create_m3_app
 from ai_agent_core.m3_composition.artifacts import Reports
 from ai_agent_core.m3_composition.gm_cycle import PRIVATE_FAMILIES
 from ai_agent_core.m3_composition.service import PrivateAPIBudget
-from ai_agent_core.m3_composition.state import OPERATOR
+from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
 
 from . import rights
 from .init import test_scope, work_scope
@@ -153,6 +153,15 @@ def _build(
 
     runtime = app.state.runtime
     runtime.private_social = config.private_social
+    if config.workplace_tickets:
+        from ai_agent_application.tickets import TicketService
+
+        runtime.tickets = TicketService(
+            runtime.store,
+            runtime.supervisor.clock.utc,
+            readers=rights.ticket_readers(),
+            principal=PRINCIPALS[Owner.TICKETS],
+        )
     if config.live is not None and config.live.gm.enabled:
         # Explicitly enabled offline: the private family and the operator's own line only.
         runtime.families = PRIVATE_FAMILIES

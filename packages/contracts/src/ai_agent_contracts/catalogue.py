@@ -159,6 +159,8 @@ MODELS = (
     agent_workplace.CapabilityRequest,
     agent_workplace.Ticket,
     agent_workplace.TicketMessage,
+    agent_workplace.TicketReplyArguments,
+    agent_workplace.TicketReadArguments,
 )
 
 ADAPTERS: dict[str, TypeAdapter[Any]] = {model.__name__: TypeAdapter(model) for model in MODELS}
@@ -204,6 +206,8 @@ READ_MODELS = {
     "tariffs": llm.Tariff,
     "cost-calculations": llm.CostCalculation,
     "plans": api.ConsequencePlan,
+    "tickets": agent_workplace.Ticket,
+    "ticket-messages": agent_workplace.TicketMessage,
 }
 for model in READ_MODELS.values():
     ADAPTERS[model.__name__ + "Page"] = TypeAdapter(api.Page[model])  # type: ignore[valid-type]

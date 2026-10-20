@@ -157,6 +157,8 @@ class HostConfig(BaseModel):
     settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
     # The panel login is a stable social interlocutor only after its rights were provisioned.
     private_social: bool = False
+    # Operator tickets (AW-01) only after `enable-tickets` provisioned the TICKETS rows.
+    workplace_tickets: bool = False
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:

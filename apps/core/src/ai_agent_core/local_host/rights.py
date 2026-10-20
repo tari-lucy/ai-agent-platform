@@ -15,6 +15,10 @@ closes a promise only through the social owner (`promise.close`). Paths this hos
 (extract, consolidate, gm and other jobs, which the mock leaves unanswered) get their reads only
 with their own acceptance: until then they are denied, not widened.
 
+Operator tickets (AW-01) are off by default: the offline `enable-tickets` adds only the
+TICKETS owner rows (own records, MEMORY read for evidence) and the operator's TICKETS read.
+A ticket never grants a right; no agent/runner principal reaches the permission owner.
+
 Explicit --operator-controls is a separately accepted matrix: WORKSPACE plan/receipt
 writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separate
 metadata-only TEST scope has no execution grants. Serve never provisions either mode.
@@ -59,7 +63,9 @@ OPERATOR_OWNERS = (
 OPERATOR_LAB_OWNERS = (Owner.MEMORY, Owner.CATALOGUE, Owner.LABORATORY)
 
 
-def core_grants(*, preparing: bool = False, operator_controls: bool = False) -> tuple[Grant, ...]:
+def core_grants(
+    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+) -> tuple[Grant, ...]:
     """Default WORKSPACE is read-only; explicit controls mode also stores plans/receipts.
 
     Existing grants are owner-level (not per-kind). The trusted WORKSPACE owner
@@ -87,20 +93,37 @@ def core_grants(*, preparing: bool = False, operator_controls: bool = False) -> 
     ]
     if operator_controls:
         grants += [Grant(PRINCIPALS[o], Owner.MEMORY, read=True) for o in (Owner.PERSONA, Owner.GM)]
+    if tickets:
+        # The tickets owner writes only its own records; it reads a source to check evidence.
+        grants += [
+            Grant(PRINCIPALS[Owner.TICKETS], Owner.TICKETS, read=True, write=True),
+            Grant(PRINCIPALS[Owner.TICKETS], Owner.MEMORY, read=True),
+        ]
     return tuple(grants)
 
 
-def operator_grants(*, operator_controls: bool = False) -> tuple[Grant, ...]:
+def operator_grants(*, operator_controls: bool = False, tickets: bool = False) -> tuple[Grant, ...]:
     return tuple(
         Grant(OPERATOR, o, read=True, api_transfer=True)
-        for o in (*OPERATOR_OWNERS, *((Owner.WORKSPACE,) if operator_controls else ()))
+        for o in (
+            *OPERATOR_OWNERS,
+            *((Owner.WORKSPACE,) if operator_controls else ()),
+            *((Owner.TICKETS,) if tickets else ()),
+        )
     )
 
 
-def work_grants(*, preparing: bool = False, operator_controls: bool = False) -> tuple[Grant, ...]:
-    return core_grants(preparing=preparing, operator_controls=operator_controls) + operator_grants(
-        operator_controls=operator_controls
-    )
+def work_grants(
+    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+) -> tuple[Grant, ...]:
+    return core_grants(
+        preparing=preparing, operator_controls=operator_controls, tickets=tickets
+    ) + operator_grants(operator_controls=operator_controls, tickets=tickets)
+
+
+def ticket_readers() -> tuple[RecordAccess, ...]:
+    """Ticket/message ACL: the operator reads them in the panel; nothing else is shared."""
+    return (RecordAccess(OPERATOR.id, api_transfer=True),)
 
 
 def settings_grants() -> tuple[Grant, ...]:

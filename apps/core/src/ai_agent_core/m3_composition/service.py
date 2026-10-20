@@ -268,6 +268,10 @@ class Runtime:
         self.pending_promises: dict[str, tuple[str, PromiseIntent, tuple[SourceRef, ...]]] = {}
         # Only a host whose SOCIAL rights are provisioned links the panel login to a person.
         self.private_social = False
+        # Operator tickets owner; only a host with provisioned TICKETS rows opens it (AW-01).
+        from ai_agent_application.tickets import TicketService
+
+        self.tickets: TicketService | None = None
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory

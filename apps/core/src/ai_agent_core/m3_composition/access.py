@@ -113,6 +113,10 @@ class Mutations:
 
             async with runtime._lock:
                 return await close(runtime, authority, request)
+        if isinstance(request, EditCommand) and request.type in ("ticket.reply", "ticket.read"):
+            from .tickets import mutate as ticket_mutate
+
+            return await ticket_mutate(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

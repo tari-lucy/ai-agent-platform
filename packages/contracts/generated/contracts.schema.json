@@ -2109,7 +2109,9 @@
             "binding.edit",
             "operation.cancel",
             "llm.assignment",
-            "llm.limits"
+            "llm.limits",
+            "ticket.reply",
+            "ticket.read"
           ],
           "title": "Type",
           "type": "string"
@@ -7298,6 +7300,118 @@
       "title": "Page[Tariff]",
       "type": "object"
     },
+    "Page_TicketMessage_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TicketMessage"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[TicketMessage]",
+      "type": "object"
+    },
+    "Page_Ticket_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Ticket"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[Ticket]",
+      "type": "object"
+    },
     "Page_Topic_": {
       "additionalProperties": false,
       "properties": {
@@ -7515,6 +7629,8 @@
           "session.process-memory": "#/$defs/ProcessMemoryCommand",
           "session.reflect": "#/$defs/ReflectCommand",
           "tariff.create": "#/$defs/CreateCommand",
+          "ticket.read": "#/$defs/EditCommand",
+          "ticket.reply": "#/$defs/EditCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
           "workspace.restore.execute": "#/$defs/ExecutePlanCommand",
@@ -7650,7 +7766,8 @@
             "change.changed",
             "check.changed",
             "connection.changed",
-            "usage.changed"
+            "usage.changed",
+            "ticket.changed"
           ],
           "title": "Type",
           "type": "string"
@@ -11397,6 +11514,7 @@
           "memory.changed": "#/$defs/PanelEvent",
           "relationship.changed": "#/$defs/PanelEvent",
           "run.changed": "#/$defs/PanelEvent",
+          "ticket.changed": "#/$defs/PanelEvent",
           "usage.changed": "#/$defs/PanelEvent",
           "utterance.changed": "#/$defs/PanelEvent"
         },
@@ -12130,6 +12248,58 @@
         "service"
       ],
       "type": "string"
+    },
+    "TicketReadArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticket_id"
+      ],
+      "title": "TicketReadArguments",
+      "type": "object"
+    },
+    "TicketReplyArguments": {
+      "additionalProperties": false,
+      "description": "Operator message on an exact ticket version; ``answer`` hands the turn to the agent.\n\n``resolve``/``close`` end the ticket with this text as the resolution; a later answer or\nagent recurrence reopens it. Nothing here grants a right: that is a separate decision.",
+      "properties": {
+        "body": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "answer",
+            "resolve",
+            "close"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticket_id",
+        "body",
+        "outcome"
+      ],
+      "title": "TicketReplyArguments",
+      "type": "object"
     },
     "TicketState": {
       "enum": [
@@ -13442,6 +13612,18 @@
     },
     "TicketMessage": {
       "$ref": "#/$defs/TicketMessage"
+    },
+    "TicketMessagePage": {
+      "$ref": "#/$defs/Page_TicketMessage_"
+    },
+    "TicketPage": {
+      "$ref": "#/$defs/Page_Ticket_"
+    },
+    "TicketReadArguments": {
+      "$ref": "#/$defs/TicketReadArguments"
+    },
+    "TicketReplyArguments": {
+      "$ref": "#/$defs/TicketReplyArguments"
     },
     "TokenUsage": {
       "$ref": "#/$defs/TokenUsage"

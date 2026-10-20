@@ -149,6 +149,8 @@ class EditCommand(CommandBase):
         "operation.cancel",
         "llm.assignment",
         "llm.limits",
+        "ticket.reply",
+        "ticket.read",
     ]
     arguments: ExtensionPayload
     expected_version: Version
@@ -255,6 +257,7 @@ class PanelEvent(Record):
         "check.changed",
         "connection.changed",
         "usage.changed",
+        "ticket.changed",
     ]
     resource_id: Id
     resource_version: Version | None
