@@ -1,12 +1,12 @@
 import { Alert, Badge, Button, Checkbox, Group, NumberInput, Paper, SegmentedControl, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { ConsequencePlan, Permission, RunSession, Scope, Ticket, TicketMessage } from '../../shared/contracts.ts';
+import type { ConsequencePlan, Permission, RunSession, Scope, Ticket } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import {
-  conversation, groups, kindLabels, MAX_REPLY, outcomeLabels, partyLabels, priorityLabels, readCommand, replyCommand, replyProblem,
+  conversation, groups, kindLabels, nextConversationCursor, MAX_REPLY, outcomeLabels, partyLabels, priorityLabels, readCommand, replyCommand, replyProblem,
   stateLabels, terminal, turnLabel, unread, type Outcome,
   activeGrants, decisionProblem, executeDecision, grantPreview, levelLabels, revokePreview, type Decision, type Level,
 } from './model.ts';
@@ -165,8 +165,21 @@ function PermissionDecision({ api, scope, ticket }: { api: PanelApi; scope: Scop
   </Paper>;
 }
 
-function Card({ api, scope, ticket, messages, run }: { api: PanelApi; scope: Scope; ticket: Ticket; messages: TicketMessage[]; run?: RunSession }) {
+// One ticket's conversation, read from its own id onward; bounded to MAX_PAGES pages.
+function useConversation(api: PanelApi, scope: Scope, ticket: Ticket) {
+  const query = useInfiniteQuery({
+    queryKey: [...projectionKey('ticket-messages', scope), 'tickets', ticket.id], initialPageParam: ticket.id as string | undefined,
+    queryFn: ({ pageParam, signal }) => api.ticketMessages(scope, signal, pageParam),
+    getNextPageParam: (last, pages) => (pages.length >= MAX_PAGES ? undefined : nextConversationCursor(last, ticket.id)),
+  });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  return { messages: conversation(query.data?.pages.flatMap((page) => page.items) ?? [], ticket.id), failed: query.isError };
+}
+
+function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket: Ticket; run?: RunSession }) {
   const cache = useQueryClient();
+  const { messages, failed } = useConversation(api, scope, ticket);
   const marked = useRef<string | null>(null);
   useEffect(() => {
     // Opening an unread ticket records that this exact version was seen, once per version.
@@ -198,7 +211,7 @@ function Card({ api, scope, ticket, messages, run }: { api: PanelApi; scope: Sco
       {request && !terminal(ticket) && <PermissionDecision api={api} scope={scope} ticket={ticket} />}
     </Stack>
     <Title order={3} size="h5" mt="md">Переписка ({messages.length})</Title>
-    {messages.length < ticket.message_count && <Text size="xs" c="orange.8">Загружены не все сообщения.</Text>}
+    {(failed || messages.length < ticket.message_count) && <Text size="xs" c="orange.8">Загружены не все сообщения.</Text>}
     <ol className="memory-list" aria-label="Сообщения обращения">{messages.map((message) => <li key={message.id}>
       <Paper withBorder p="xs" mb={4}><Text size="xs" c="dimmed">{partyLabels[message.author]} · {message.author_id} · {when(message.created_at)}</Text>
         <Text size="sm" className="plain-text">{message.body}</Text></Paper></li>)}</ol>
@@ -219,13 +232,11 @@ function List({ title, rows, selected, onSelect, empty }: { title: string; rows:
 
 export function TicketsScreen({ api, scope, run }: { api: PanelApi; scope: Scope; run?: RunSession }) {
   const tickets = useAll(scope, 'tickets', (cursor, signal) => api.tickets(scope, signal, cursor));
-  const messages = useAll(scope, 'ticket-messages', (cursor, signal) => api.ticketMessages(scope, signal, cursor));
   const [selected, setSelected] = useState<string | null>(null);
   const rows = tickets.data?.pages.flatMap((page) => page.items) ?? [];
-  const all = messages.data?.pages.flatMap((page) => page.items) ?? [];
   const { mine, working, done } = groups(rows);
   const ticket = rows.find((row) => row.id === selected) ?? null;
-  const failed = [tickets, messages].find((query) => query.isError);
+  const failed = tickets.isError ? tickets : undefined;
   return <Stack gap="md">
     <div><Title order={1} size="h3">Обращения</Title>
       <Text size="sm" c="dimmed">Вопросы, проблемы, идеи и запросы возможностей от агента. Ответить можно и когда агент остановлен.</Text></div>
@@ -237,7 +248,7 @@ export function TicketsScreen({ api, scope, run }: { api: PanelApi; scope: Scope
         <List title="Завершённые" rows={done} selected={selected} onSelect={setSelected} empty="Завершённых нет." />
       </Stack>
       <div style={{ flex: '1 1 28rem' }}>{ticket ?
-        <Card key={ticket.id} api={api} scope={scope} ticket={ticket} messages={conversation(all, ticket.id)} run={run} /> :
+        <Card key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} /> :
         <Alert color="gray">Выберите обращение, чтобы увидеть переписку и ответить.</Alert>}</div>
     </Group>}
   </Stack>;

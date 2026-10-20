@@ -138,6 +138,11 @@ def test_ticket_conversation_over_http_without_autostart(tmp_path):
         assert foreign.status_code in (403, 404), foreign.text
         messages = http.get("/api/v1/ticket-messages", params=scope_query(base)).json()["items"]
         assert [(m["author"], m["sequence"]) for m in messages] == [("service", 1), ("operator", 2)]
+        # One ticket's conversation: list after its id (message ids are `<ticket>.mNNNNN`).
+        own = http.get(
+            "/api/v1/ticket-messages", params={**scope_query(base), "cursor": ticket_id}
+        ).json()["items"]
+        assert [m["ticket_id"] for m in own] == [ticket_id, ticket_id]
         [ticket] = tickets()
         assert (ticket["state"], ticket["next_turn"]) == ("in_progress", "agent")
         run = http.get("/api/v1/sessions", params=scope_query(base)).json()["items"][0]

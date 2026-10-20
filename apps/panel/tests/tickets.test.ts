@@ -89,3 +89,12 @@ test('a permission decision names exact versions and is previewed before executi
   assert.equal(activeGrants([permission], 'reference.read', Date.parse(T(10))).length, 1);
   assert.equal(activeGrants([permission], 'reference.read', Date.parse(T(55))).length, 0);
 });
+
+test('a conversation is read from its ticket id and stops at the first foreign message', async () => {
+  const { nextConversationCursor } = await import('../src/ui/tickets/model.ts');
+  const own = [message('t-1', 1), message('t-1', 2)];
+  assert.equal(nextConversationCursor({ items: own, complete: false, next_cursor: own[1].id }, 't-1'), own[1].id);
+  assert.equal(nextConversationCursor({ items: [...own, message('t-2', 1)], complete: false, next_cursor: 't-2.m00001' }, 't-1'), undefined);
+  assert.equal(nextConversationCursor({ items: own, complete: true, next_cursor: null }, 't-1'), undefined);
+  assert.equal(nextConversationCursor({ items: [], complete: false, next_cursor: 'x' }, 't-1'), undefined);
+});

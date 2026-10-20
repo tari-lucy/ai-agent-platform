@@ -33,6 +33,12 @@ export function groups(rows: Ticket[]): { mine: Ticket[]; working: Ticket[]; don
 export function conversation(rows: TicketMessage[], ticketId: string): TicketMessage[] {
   return rows.filter((row) => row.ticket_id === ticketId).sort((a, b) => a.sequence - b.sequence);
 }
+// Message ids are `<ticket id>.mNNNNN` and the owner lists by id, so a read that starts after the
+// ticket id returns exactly this ticket's messages first. Stop at the first foreign message.
+export function nextConversationCursor(page: { items: TicketMessage[]; complete: boolean; next_cursor: string | null }, ticketId: string): string | undefined {
+  if (page.complete || !page.next_cursor || !page.items.length) return undefined;
+  return page.items.every((row) => row.ticket_id === ticketId) ? page.next_cursor : undefined;
+}
 
 export const MAX_REPLY = 4000;
 export function replyProblem(body: string): string | null {
