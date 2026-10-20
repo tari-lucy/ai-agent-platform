@@ -236,17 +236,23 @@ class SocialService:
         account_id: str,
         display_name: str,
         evidence: SourceRef,
+        *,
+        reground: bool = False,
     ) -> Identified | None:
         """First sight creates the person; later sight returns the same one (name may change).
 
-        Returns None for anonymous senders: no account id means no person and no history.
+        Returns None for anonymous senders: no account id means no person and no history; also
+        when the person exists but its grounds were removed and it is hidden from this owner.
+        ``reground`` makes ``evidence`` the only ground of the confirmed link (an identity source
+        that deleting a conversation does not remove).
         """
         scope = command.scope
+        conflicted = False
         for _ in range(MAX_RETRIES):
             person = await self.identify(scope, platform_id, account_id)
             now = self.clock()
             if person is None:
-                if not account_id.strip():
+                if not account_id.strip() or conflicted:
                     return None
                 person_id = person_id_for(scope, platform_id, account_id)
                 created = self._record(
@@ -265,7 +271,9 @@ class SocialService:
                     await self._write(command, [(created, None)], person_id, 1)
                 except ContractError as error:
                     if error.error.code is ErrorCode.VERSION_CONFLICT:
+                        # A racing writer is found on retry; a hidden one stays anonymous.
                         self._accounts.pop(scope.partition, None)
+                        conflicted = True
                         continue
                     raise
                 self._accounts.setdefault(scope.partition, {})[platform_id, account_id] = person_id
@@ -276,7 +284,8 @@ class SocialService:
                 if (link.platform_id, link.account_id) == (platform_id, account_id)
                 and link.confirmation == "confirmed"
             )
-            if current.display_name == display_name:
+            grounded = [ref.source_id for ref in current.evidence] == [evidence.source_id]
+            if current.display_name == display_name and (grounded or not reground):
                 return Identified(person, False, False)
             links = [
                 self._link(platform_id, account_id, display_name, evidence)
