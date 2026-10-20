@@ -4,10 +4,11 @@ import { PanelApi, ApiFailure } from '../src/shared/api.ts';
 import { characterStates, opportunities, stateChanges, storyArcs } from '../src/shared/validation.ts';
 import {
   arcStateNote, attention, awaitingOperator, cancelOpportunityCommand, canCancelOpportunity, canCorrect, canPauseArc, canRollback, decisionCommand,
-  evidenceLost, evidenceSummary, gmIntensityCommand, gmPauseCommand, interpretationCommand, isLived, isPossibility, opportunitiesOf, patchOf, pathItems,
+  evidenceLost, evidenceSummary, gmIntensityCommand, gmPauseCommand, interpretationCommand, isLived, isPossibility, laterExperience, laterExperienceNote,
+  opportunitiesOf, patchOf, pathItems,
   pauseArcCommand, rollbackExecute, rollbackPreview, rollbackProblem, validInterpretation, versions,
 } from '../src/ui/development/model.ts';
-import type { GmRuntimeState, ConsequencePlan, Opportunity, RunSession, Scope, SourceRef, StateChange, StoryArc } from '../src/shared/contracts.ts';
+import type { GmRuntimeState, ConsequencePlan, Episode, Opportunity, RunSession, Scope, SourceRef, StateChange, StoryArc } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
 const runScope: Scope = { ...scope, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' };
@@ -156,4 +157,24 @@ test('development reads use the allowlisted resources, the partition and a valid
   assert.equal(new URL(paths[0], 'http://x').searchParams.get('cursor'), 'cur-1');
   await assert.rejects(api.changes(scope, undefined, 'a&b'), (error: unknown) => error instanceof ApiFailure && error.code === 'INVALID_ARGUMENTS');
   assert.equal(paths.length, 4);
+});
+
+test('an applied change is shown next to the experience lived after it, never scored', () => {
+  const applied = change('c1', 'APPLIED', { new_version: 4, updated_at: T(10) });
+  const episode = (name: string, minute: number, choice = 'Ответил оператору.'): Episode => ({ ...base, id: name, created_at: T(minute), sources: [ref()],
+    experience_source_ids: [], participant_ids: [], choice, actual_outcome: 'Доставлено.', operation_id: 'op-' + name, provenance: 'observation', outcome_confirmed: true } as unknown as Episode);
+  const before = [episode('e0', 5)];
+  assert.deepEqual(laterExperience(applied, before, true), { status: 'none', complete: true });
+  assert.equal(laterExperienceNote(laterExperience(applied, before, false)), 'После изменения подходящий опыт ещё не наблюдался. Загружены не все эпизоды.');
+  const after = [...before, episode('e1', 12), episode('e2', 20, 'Пошла к маяку.'), episode('e3', 15), episode('e4', 18)];
+  const seen = laterExperience(applied, after, true);
+  assert.equal(seen.status, 'seen');
+  if (seen.status === 'seen') {
+    assert.equal(seen.count, 4);
+    assert.deepEqual(seen.recent.map((row) => row.id), ['e2', 'e4', 'e3']);  // newest first, bounded
+  }
+  assert.match(laterExperienceNote(seen), /не оценивалось автоматически/);
+  assert.equal(laterExperience(change('c2', 'AWAITING_APPROVAL'), after, true).status, 'not-applied');
+  const rollback = change('c3', 'APPLIED', { new_version: 5, patch: patch({ kind: 'rollback' }) });
+  assert.equal(laterExperience(rollback, after, true).status, 'not-applied');
 });

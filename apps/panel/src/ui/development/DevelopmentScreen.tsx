@@ -9,7 +9,7 @@ import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import {
   arcLabels, arcStateNote, attention, awaitingOperator, cancelOpportunityCommand, canCancelOpportunity, canCorrect, canPauseArc, canRollback,
   changeLabels, decisionCommand, evidenceLost, evidenceSummary, gmIntensityCommand, gmPauseCommand, intensities, interpretationCommand, opportunitiesOf,
-  opportunityLabels, patchOf, pathItems, pauseArcCommand, rollbackExecute, rollbackPreview, rollbackProblem, validInterpretation, versions, type Decision, type Intensity,
+  laterExperience, laterExperienceNote, opportunityLabels, patchOf, pathItems, pauseArcCommand, rollbackExecute, rollbackPreview, rollbackProblem, validInterpretation, versions, type Decision, type Intensity, type LaterExperience,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -47,7 +47,7 @@ function useAction(api: PanelApi, scope: Scope, refresh: string[]) {
   return { run, busy: state.phase === 'sending' || state.phase === 'unknown', view };
 }
 
-function ChangeCard({ api, scope, change }: { api: PanelApi; scope: Scope; change: StateChange }) {
+function ChangeCard({ api, scope, change, later }: { api: PanelApi; scope: Scope; change: StateChange; later: LaterExperience }) {
   const patch = patchOf(change);
   const action = useAction(api, scope, ['changes', 'character-states']);
   const [reason, setReason] = useState('');
@@ -82,7 +82,9 @@ function ChangeCard({ api, scope, change }: { api: PanelApi; scope: Scope; chang
     {evidenceLost(change) && <Alert color="orange" mt="xs">Все основания недоступны: изменение нельзя считать подтверждённым опытом.</Alert>}
     {change.operator_reason && <Text size="sm">Основание оператора: {change.operator_reason}</Text>}
     <Text size="xs" c="dimmed">{versions(change)} · автор предложения {change.owner} · {when(change.updated_at)}{change.operator_decision_id ? ` · решение ${change.operator_decision_id}` : ''}</Text>
-    <Text size="xs" c="dimmed">Наблюдённые позднее проявления: связанных записей нет.</Text>
+    <Stack gap={2} mt="xs" aria-label="Последующий опыт"><Text size="sm" fw={600}>Последующий опыт</Text>
+      <Text size="sm" c={later.status === 'seen' ? undefined : 'dimmed'}>{laterExperienceNote(later)}</Text>
+      {later.status === 'seen' && later.recent.map((row) => <Text key={row.id} size="xs" className="plain-text">{when(row.created_at)} · {row.choice} → {row.actual_outcome}</Text>)}</Stack>
     {awaitingOperator(change) && <Stack gap="xs" mt="sm"><Textarea label="Основание решения" autosize minRows={1} maxLength={1000} value={reason} onChange={(event) => setReason(event.currentTarget.value)} />
       <Group><Button disabled={action.busy || !reason.trim()} onClick={() => decide('accept')}>Принять</Button><Button color="red" variant="light" disabled={action.busy || !reason.trim()} onClick={() => decide('reject')}>Отклонить</Button></Group>
       <Text size="xs" c="dimmed">Истечение ожидания не означает одобрения: изменение останется непринятым.</Text></Stack>}
@@ -135,6 +137,7 @@ export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelAp
   const arcs = usePaged(scope, 'arcs', (cursor, signal) => api.arcs(scope, signal, cursor));
   const opps = usePaged(scope, 'opportunities', (cursor, signal) => api.opportunities(scope, signal, cursor));
   const changes = usePaged(scope, 'changes', (cursor, signal) => api.changes(scope, signal, cursor));
+  const episodes = usePaged(scope, 'episodes', (cursor, signal) => api.episodes(scope, signal, cursor));
   const states = useQuery({ queryKey: projectionKey('character-states', scope), queryFn: ({ signal }) => api.characterStates(scope, signal) });
   const profiles = useQuery({ queryKey: projectionKey('personas', scope), queryFn: ({ signal }) => api.profiles(scope, signal) });
   const [selectedArc, setSelectedArc] = useState<string | null>(null);
@@ -191,7 +194,8 @@ export function DevelopmentScreen({ api, scope, run: activeRun }: { api: PanelAp
               <Group gap="xs"><Badge size="xs" variant="light" color={awaitingOperator(item) ? 'orange' : 'gray'}>{changeLabels[item.status]}</Badge></Group>
               <Text size="sm">{patch ? `${patch.property}: ${patch.before} → ${patch.after}` : 'Формат правки не распознан'}</Text></button></li>;
           })}</ul>}</Paper>
-        <div style={{ flex: '1 1 24rem' }}>{change ? <ChangeCard key={change.id + change.version} api={api} scope={scope} change={change} /> : <Alert color="gray">Выберите изменение, чтобы сравнить прежнее и новое значение, основания и интерпретацию.</Alert>}</div>
+        <div style={{ flex: '1 1 24rem' }}>{change ? <ChangeCard key={change.id + change.version} api={api} scope={scope} change={change}
+          later={laterExperience(change, episodes.data?.pages.flatMap((p) => p.items) ?? [], !episodes.hasNextPage)} /> : <Alert color="gray">Выберите изменение, чтобы сравнить прежнее и новое значение, основания и интерпретацию.</Alert>}</div>
       </Group></Tabs.Panel>
       <Tabs.Panel value="bounds" pt="md"><Stack gap="md">
         <Paper withBorder p="md" radius="lg" aria-label="Допустимые изменения"><Title order={3} size="h5" mb="xs">Допустимые изменения личности</Title>
