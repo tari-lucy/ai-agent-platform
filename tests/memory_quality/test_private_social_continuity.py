@@ -264,6 +264,12 @@ def test_the_operator_marks_a_promise_fulfilled_with_their_own_stated_result(tmp
                 host, "books-done", books, "fulfilled", "Список книг получен в чате."
             )
             assert done.status_code == 200, done.text
+            replay = await close_command(
+                host, "books-done", books, "fulfilled", "Список книг получен в чате."
+            )
+            assert replay.status_code == 200 and replay.json() == done.json()
+            changed = await close_command(host, "books-done", books, "withdrawn", "Подмена.")
+            assert changed.status_code == 409
             again = await close_command(host, "books-again", books, "withdrawn", "Повтор.")
             closed = (await records(rt, scope, Promise))[0]
             proof = await rt.store.repository(Source, PRINCIPALS[Owner.MEMORY], scope).get(

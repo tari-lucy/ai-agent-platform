@@ -33,7 +33,15 @@ async def close(rt: Runtime, authority: ControlAuthority, request: EditCommand) 
     pins = Pins(rt, authority, request, Owner.SOCIAL)
     promise = await pins.read(Promise, request.target)  # the operator must see it now
     if promise.version != request.expected_version:
-        raise ContractError(ErrorCode.VERSION_CONFLICT, request.request_id, promise.version)
+        # A lost HTTP response must reconcile the same command from the owner's receipt,
+        # before rejecting its now-old version. The transaction checks payload and authority.
+        with rt.store.fence(pins.fence, owner=Owner.SOCIAL):
+            async with rt.store.transaction(
+                PRINCIPALS[Owner.SOCIAL], request.scope, request
+            ) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                raise ContractError(ErrorCode.VERSION_CONFLICT, request.request_id, promise.version)
     if promise.status not in ("open", "unknown"):
         raise ContractError(ErrorCode.INVALID_ARGUMENTS, request.request_id)
     from .dialogue import memory
