@@ -98,7 +98,10 @@ class RecallIndex(Protocol):
         *,
         limit: int,
         now: datetime,
-    ) -> SearchOutcome: ...
+        prefix: bool = False,
+    ) -> SearchOutcome:
+        """``prefix`` matches word stems (Russian endings); still only candidates."""
+        ...
 
     async def inventory(self, scope: Scope) -> dict[str, int]: ...
 

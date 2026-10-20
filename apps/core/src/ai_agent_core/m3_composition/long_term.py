@@ -1,14 +1,17 @@
 """Bounded derived private memory, with current source and exact delivery checks.
 
-Selection only ranks what may be shown. Every shown fragment is still checked against current
-source rights/versions and delivery evidence, stays attributed, dated and bounded, and is data
-for the model, never an instruction.
+Selection only ranks what may be shown. Besides the recent windows, older claims/summaries are
+reached through the scope's lexical source index: it proposes source ids, and the records citing
+them are read from the owner's repository under the same policy. Every shown fragment is still
+checked against current source rights/versions and delivery evidence, stays attributed, dated and
+bounded, and is data for the model, never an instruction.
 """
 
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ai_agent_application.dialogue.context import (
     CHARS_PER_TOKEN,
@@ -33,6 +36,9 @@ if TYPE_CHECKING:
 SUMMARY_WINDOW = 5  # recent summaries considered, not only the latest
 CLAIM_WINDOW = 40  # recent claims considered, not only the last ten
 MAX_FRAGMENTS = 3
+ARCHIVE_SOURCES = 24  # lexical source hits that may lead to older claims/summaries
+ARCHIVE_CLAIMS = 20  # older claims citing those hits, newest first
+ARCHIVE_SUMMARIES = 5
 _SENTENCE = re.compile(r"(?<=[.!?…])\s+")
 
 
@@ -69,6 +75,59 @@ def partners(claim: Claim, pool: dict[str, Claim]) -> list[Claim]:
     return [*direct, *[c for c in reverse if c not in direct]]
 
 
+def older_than(window: Sequence[Summary | Claim], size: int) -> dict[str, Any]:
+    """Strictly before a full recent window, so the archive limit is not spent on its records."""
+    if len(window) < size:
+        return {}
+    return dict(before=window[-1].created_at, before_id=window[-1].id)
+
+
+async def archived(
+    rt: Runtime,
+    scope: Scope,
+    query: str,
+    summaries: Sequence[Summary],
+    claims: Sequence[Claim],
+) -> tuple[list[Summary], list[Claim]] | None:
+    """Older claims/summaries citing sources that match the question; None if unknown.
+
+    The derived index only proposes source ids (scope, TTL and stem match); the records come from
+    the authoritative links with the repository's read policy and are rechecked before showing.
+    """
+    index = rt.dialogue_index
+    if index is None:
+        return None
+    try:
+        found = await index.search(
+            scope,
+            query,
+            None,
+            None,
+            limit=ARCHIVE_SOURCES,
+            now=rt.supervisor.clock.utc(),
+            prefix=True,
+        )
+    except Exception:
+        return None
+    hits = list(dict.fromkeys(candidate.source_id for candidate in found.lexical))
+    if not hits:
+        return [], []
+    found_summaries = await rt.store.repository(Summary, OPERATOR, scope).recent(
+        limit=ARCHIVE_SUMMARIES,
+        cites=hits,
+        purpose="api_transfer",
+        **older_than(summaries, SUMMARY_WINDOW),
+    )
+    found_claims = await rt.store.repository(Claim, OPERATOR, scope).recent(
+        limit=ARCHIVE_CLAIMS, cites=hits, purpose="api_transfer", **older_than(claims, CLAIM_WINDOW)
+    )
+    seen = {record.id for record in (*summaries, *claims)}
+    return (
+        [s for s in found_summaries if s.id not in seen],
+        [c for c in found_claims if c.id not in seen],
+    )
+
+
 async def include_memory(
     rt: Runtime,
     scope: Scope,
@@ -90,11 +149,17 @@ async def include_memory(
         limit=CLAIM_WINDOW, purpose="api_transfer"
     )
     asked = words(query)
+    window = len(summaries)
+    older = await archived(rt, scope, query, summaries, claims) if asked else ([], [])
+    archive = "unavailable" if older is None else str(len(older[0]) + len(older[1]))
+    if older is not None:
+        # After the windows: the stable sort keeps newer records first at equal relevance.
+        summaries, claims = [*summaries, *older[0]], [*claims, *older[1]]
     pool = {claim.id: claim for claim in claims}
     ranked: list[tuple[int, Summary | Claim]] = []
     for index, summary in enumerate(summaries):
         found = score(summary.content, asked)
-        if index == 0 or found:  # the latest summary stays eligible; older ones must match
+        if (index == 0 < window) or found:  # the latest summary stays eligible; others must match
             ranked.append((found, summary))
     for claim in claims:
         found = score(claim.content, asked)
@@ -184,13 +249,14 @@ async def include_memory(
     # Counts only: no memory text, id or query reaches the log.
     logging.getLogger(__name__).info(
         "Private memory context: shown=%d partial=%d considered=%d stale_source=%d "
-        "over_budget=%d unrelated=%d",
+        "over_budget=%d unrelated=%d archive=%s",
         len(fragments),
         int(truncated),
         stats["considered"],
         stats["stale_source"],
         stats["over_budget"],
         stats["unrelated"],
+        archive,
     )
     if not fragments:
         return built

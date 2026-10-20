@@ -173,3 +173,32 @@ def test_fts_put_rebuild_and_search_work_without_optional_vector_package(tmp_pat
             index.close()
 
     run(scenario())
+
+
+def test_prefix_search_finds_other_russian_endings_and_stays_safe(tmp_path):
+    assert match_expression("зонтиками и маяком", prefix=True) == '"зонтик"* OR "маяк"*'
+    assert match_expression("кот у дома", prefix=True) == '"дома"*'  # short words are dropped
+    expression = match_expression('кошка" OR NEAR(1 2) AND * -x', prefix=True)
+    assert expression is not None and "NEAR" not in expression.replace('"near"*', "")
+    assert all(part.startswith('"') and part.endswith('"*') for part in expression.split(" OR "))
+
+    async def scenario():
+        index = SQLiteRecallIndex(tmp_path / "i.sqlite")
+        expires = NOW + timedelta(hours=1)
+        await index.put_source(A, await entry("Ника любит синие зонтики.", expires=expires), None)
+        await index.put_source(B, await entry("Ника любит синие зонтики."), None)
+
+        async def stem(scope, now=NOW):
+            found = await index.search(
+                scope, "зонтиками", None, None, limit=16, now=now, prefix=True
+            )
+            return [c.source_id for c in found.lexical]
+
+        assert (await find(index, A, "зонтиками")).lexical == ()  # exact words miss the ending
+        assert await stem(A) == ["s1"]
+        await index.remove_source(B, "s1")
+        assert await stem(B) == [] and await stem(A) == ["s1"]  # scopes stay apart
+        assert await stem(A, NOW + timedelta(hours=2)) == []  # past its TTL: never proposed
+        index.close()
+
+    run(scenario())

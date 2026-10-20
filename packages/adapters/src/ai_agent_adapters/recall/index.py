@@ -33,6 +33,7 @@ STOPWORDS = frozenset(
     "его ее ещё есть было был была сколько".split()
 )
 MAX_QUERY_TOKENS = 24
+MIN_STEM = 4
 BATCH = 500
 
 
@@ -41,13 +42,22 @@ def _sqlite_vec() -> Any:
     return importlib.import_module("sqlite_vec")
 
 
-def match_expression(query: str) -> str | None:
-    """Free text -> safe FTS5 expression: quoted word tokens joined by OR, no operators."""
+def match_expression(query: str, *, prefix: bool = False) -> str | None:
+    """Free text -> safe FTS5 expression: quoted word tokens joined by OR, no operators.
+
+    ``prefix`` matches a word stem instead (``"зонтик"*`` also finds «зонтики»), only for words
+    of at least MIN_STEM letters. It widens candidates; callers still rank and recheck them.
+    """
     tokens = list(dict.fromkeys(re.findall(r"\w+", query.lower())))
-    kept = [token for token in tokens if token not in STOPWORDS][:MAX_QUERY_TOKENS]
+    kept = [token for token in tokens if token not in STOPWORDS]
+    if prefix:
+        stems = (t[: max(MIN_STEM, -(-len(t) * 6 // 10))] for t in kept if len(t) >= MIN_STEM)
+        kept = list(dict.fromkeys(stems))
+    kept = kept[:MAX_QUERY_TOKENS]
     if not kept:
         return None
-    return " OR ".join('"' + token.replace('"', "") + '"' for token in kept)
+    star = "*" if prefix else ""
+    return " OR ".join('"' + token.replace('"', "") + '"' + star for token in kept)
 
 
 class SQLiteRecallIndex:
@@ -400,6 +410,7 @@ class SQLiteRecallIndex:
         *,
         limit: int,
         now: datetime,
+        prefix: bool = False,
     ) -> SearchOutcome:
         key, moment = scope_key(scope), stamp(now)
 
@@ -423,7 +434,7 @@ class SQLiteRecallIndex:
 
         def work() -> SearchOutcome:
             lexical: list[Candidate] = []
-            expression = match_expression(query)
+            expression = match_expression(query, prefix=prefix)
             if expression is not None:
                 rows = self._db.execute(
                     f"SELECT {columns} FROM lexical JOIN chunks c ON c.rowid=lexical.rowid {join} "
