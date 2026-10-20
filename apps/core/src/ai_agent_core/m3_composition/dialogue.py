@@ -107,6 +107,11 @@ class Context(ContextBuilder):
         built = await include_memory(
             self.execution.runtime, scope, built, self.history, signal.text, self.policy
         )
+        from .biography import include_biography
+
+        built = await include_biography(
+            self.execution.runtime, scope, built, self.history, self.policy
+        )
         built = await self._offer(scope, built)
         refs = {**self.history.sources, **{ref.source_id: ref for ref in built.manifest.sources}}
         if incoming is not None:
