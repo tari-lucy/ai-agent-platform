@@ -232,8 +232,13 @@ def test_laboratory_job_pins_fresh_test_scope_and_saves_full_mock_report(
         record = (await rt.store.repository(LaboratoryReport, LABORATORY, scope).list())[0]
         assert record.report_artifact is not None and record.status == "passed"
         raw = json.loads(
+            # read as the host's download does (d903e0c checks the report's source lineage for
+            # the reader; lab sources are shared with the operator, not the catalogue owner)
             await reports.read(
-                scope, record.report_artifact.artifact_id, PRINCIPALS[Owner.CATALOGUE]
+                scope,
+                record.report_artifact.artifact_id,
+                Principal("operator", "operator"),
+                purpose="api_transfer",
             )
         )
         assert raw["mock"] and raw["findings"] and raw["log"]

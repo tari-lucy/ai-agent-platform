@@ -14,7 +14,12 @@ from ai_agent_core.m3_composition.schemas import TaskInput
 from ai_agent_core.m3_composition.state import PRINCIPALS
 
 
-def test_post_session_uses_existing_extractor_consolidator_and_reflector(tmp_path):
+def test_post_session_reflects_only_confirmed_dialogue_experience(tmp_path):
+    """Extraction and summary run on any episode; reflection (since e8b6714) only on the
+    confirmed private-dialogue experience, so a synthetic episode closes before a model call.
+    The full path over a real dialogue episode: tests/integration_dialogue/test_memory_cycles.py.
+    """
+
     async def scenario():
         env = await setup(tmp_path)
         episode_id = await env.world.episode()
@@ -37,8 +42,8 @@ def test_post_session_uses_existing_extractor_consolidator_and_reflector(tmp_pat
             period_end=ep.created_at,
         )
         job = await env.runtime.submit(env.authority, "post-session", request)
-        assert (await env.runtime.execute(job)).status == OperationState.SUCCEEDED
-        assert len(env.world.provider.calls) == 3
+        assert (await env.runtime.execute(job)).status == OperationState.CANCELLED
+        assert len(env.world.provider.calls) == 2  # extract + summary; no reflection call
         summaries = await env.world.store.repository(
             Summary, PRINCIPALS[Owner.MEMORY], job.scope
         ).list()
