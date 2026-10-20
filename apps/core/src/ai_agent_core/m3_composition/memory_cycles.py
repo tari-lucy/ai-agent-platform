@@ -6,7 +6,7 @@ import logging
 from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.dialogue.context import data
@@ -19,6 +19,7 @@ from ai_agent_contracts.api import ProcessMemoryCommand, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.control import ExecutionCommand, Utterance
+from ai_agent_contracts.llm import LLMAttempt
 from ai_agent_contracts.memory import Episode, MemoryCycle, Source
 from ai_agent_contracts.persona import Profile, ReflectionCheckpoint
 from ai_agent_contracts.states import ErrorCode, OperationState
@@ -32,6 +33,53 @@ if TYPE_CHECKING:
 
 MAX_INPUT_CHARS = 8000
 MAX_EPISODES = 10
+MAX_CYCLE_ATTEMPTS = 3  # the original batch and at most two continuations of it
+# Calls still needed from a stage on: extract, consolidate, reflect (+2 story screens if mutable).
+REMAINING_CALLS = {"extract": 3, "consolidate": 2, "reflect": 1}
+
+
+def resume_key(scope: Scope, cycle: MemoryCycle) -> str:
+    return derived_id("cycle", scope, cycle.id, "resume")
+
+
+type Stage = Literal["extract", "consolidate", "reflect"]
+
+
+def resume_stage(cycle: MemoryCycle) -> Stage:
+    """The first stage without a saved outcome: earlier stages are never paid again."""
+    if cycle.stage == "consolidate":
+        return "consolidate"
+    return "reflect" if cycle.stage == "reflect" else "extract"
+
+
+def obstacle(
+    cycle: MemoryCycle,
+    cycles: list[MemoryCycle],
+    attempts: list[LLMAttempt],
+    resumed: bool,
+) -> str | None:
+    """Why a cycle may not continue, or None when its saved outcome makes it safe.
+
+    Only an in-process failure that the journal recorded continues. An unknown outcome, an
+    attempt of the model whose result is not known during the cycle, an earlier continuation
+    or too many attempts on the same batch stop it; nothing is guessed.
+    """
+    if cycle.status == "unknown":
+        return "OUTCOME_UNKNOWN"
+    if cycle.status != "failed":
+        return "NOT_FAILED"
+    if resumed:
+        return "ALREADY_RESUMED"
+    if sum(1 for c in cycles if c.episode_ids == cycle.episode_ids) >= MAX_CYCLE_ATTEMPTS:
+        return "RETRY_LIMIT"
+    if any(
+        a.status in ("unknown", "running") and cycle.created_at <= a.started_at <= cycle.updated_at
+        for a in attempts
+    ):
+        return "ATTEMPT_UNKNOWN"
+    return None
+
+
 TERMINAL = {
     OperationState.SUCCEEDED,
     OperationState.FAILED,
@@ -187,6 +235,8 @@ class DailyMemory:
         ids: list[str],
         authority: ControlAuthority | None = None,
         manual_request: ProcessMemoryCommand | None = None,
+        *,
+        resume: MemoryCycle | None = None,
     ) -> Receipt:
         rt, scope = self.rt, self.rt.supervisor.snapshot.scope
         budget = rt.private_api_budget
@@ -202,7 +252,11 @@ class DailyMemory:
         if authority is not None:
             rt.supervisor.authorize_operator(authority, scope)
         episodes, sources = await pairs(rt, scope, ids)
-        key = derived_id("cycle", scope, *sorted(e.id for e in episodes))
+        key = (
+            resume_key(scope, resume)
+            if resume is not None
+            else derived_id("cycle", scope, *sorted(e.id for e in episodes))
+        )
         repo = rt.store.repository(MemoryCycle, PRINCIPALS[Owner.MEMORY], scope)
         if authority is not None and manual_request is not None:
             # Pin the HTTP id/payload before submitting any paid job. The canonical batch id
@@ -246,8 +300,10 @@ class DailyMemory:
                 )
             if old.status != "queued" or old.scope != scope:
                 raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
-        if old is None and any(
-            set(ids).intersection(c.episode_ids) for c in await self.cycles(scope)
+        if (
+            resume is None
+            and old is None
+            and any(set(ids).intersection(c.episode_ids) for c in await self.cycles(scope))
         ):
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         now = rt.supervisor.clock.utc()
@@ -268,7 +324,8 @@ class DailyMemory:
         if not isinstance(bounds, DevelopmentBounds):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         mutable = any(item.autonomous for item in bounds.bounds)
-        required = 5 if mutable else 3
+        start: Stage = resume_stage(resume) if resume is not None else "extract"
+        required = REMAINING_CALLS[start] + (2 if mutable else 0)
         if (
             budget.memory_daily_calls - budget.memory_used(attempts, now) < required
             or budget.max_attempts - budget.used(attempts, now) < required
@@ -284,6 +341,9 @@ class DailyMemory:
         ).hexdigest()
         if old is not None and old.input_digest != digest:
             raise ContractError(ErrorCode.STALE_CONTEXT)
+        if resume is not None and resume.input_digest != digest:
+            # Changed sources: the saved claims were made from other versions; start afresh.
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         args = TaskInput(
             kind="post_session",
             trigger_id=key,
@@ -291,6 +351,9 @@ class DailyMemory:
             episode_ids=sorted(e.id for e in episodes),
             period_start=min(s.occurred_at for s in sources),
             period_end=max(s.occurred_at for s in sources),
+            resume_stage=start,
+            resume_ids=list(resume.record_ids) if resume is not None and start != "extract" else [],
+            resumed=resume is not None,
         )
         token = rt.supervisor.admit("reflection")
         try:
@@ -331,6 +394,28 @@ class DailyMemory:
             )
         finally:
             rt.supervisor.retire(token)
+
+    async def continue_failed(self, scope: Scope, cycles: list[MemoryCycle]) -> bool:
+        """Submit the newest safely continuable failed cycle; True when one was submitted."""
+        repo = self.rt.store.repository(MemoryCycle, PRINCIPALS[Owner.MEMORY], scope)
+        attempts = await UsageLedger(
+            self.rt.store, PRINCIPALS[Owner.LLM], self.rt.registry
+        ).attempts(scope)
+        failed = sorted(
+            (c for c in cycles if c.status == "failed"), key=lambda c: c.updated_at, reverse=True
+        )
+        for cycle in failed:
+            resumed = await repo.get(resume_key(scope, cycle)) is not None
+            reason = obstacle(cycle, cycles, attempts, resumed)
+            if reason is None:
+                await self.enqueue(cycle.episode_ids, resume=cycle)
+                logging.getLogger(__name__).info(
+                    "Daily memory continue: stage=%s records=%d",
+                    resume_stage(cycle),
+                    len(cycle.record_ids),
+                )
+                return True
+        return False
 
     async def tick(self) -> None:
         rt, run = self.rt, self.rt.supervisor.snapshot
@@ -388,6 +473,9 @@ class DailyMemory:
                         return
             finally:
                 rt.supervisor.retire(token)
+            # A failed batch continues from its saved stage before any new batch is selected.
+            if await self.continue_failed(run.scope, cycles):
+                return
             processed = {
                 identifier for c in cycles for identifier in c.episode_ids if c.status != "queued"
             }
