@@ -147,6 +147,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         session_version=session.version,
         state=session.state,
         title=session.title,
+        processed_sequence=session.processed_sequence,
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

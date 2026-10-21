@@ -20,14 +20,20 @@ export function titleProblem(title: string): string | null {
   if (title.length > 200) return 'Название длиннее 200 символов.';
   return null;
 }
-// Whose move: after the operator's last message the person answers, but only while it runs.
+// Messages the person's session has not taken yet: stored, waiting for execution.
+export const pending = (transcript: WorkSessionTranscript, sequence: number, speaker: string) =>
+  speaker === 'operator' && sequence > (transcript.processed_sequence ?? 0);
+// Whose move. A stored message is not an answer: no reply is promised before the session runs it.
 export function turn(transcript: WorkSessionTranscript, running: boolean): string {
   if (transcript.state === 'closed') return 'Разговор закрыт';
   if (transcript.state === 'invalidated') return 'Контекст сброшен: начните новый разговор';
   if (transcript.state === 'waiting') return 'Ждёт ответа на обращение';
+  if (transcript.entries.some((entry) => pending(transcript, entry.sequence, entry.speaker))) {
+    return running ? 'Сообщение сохранено и ожидает исполнения' : 'Сообщение сохранено; исполнение начнётся только после запуска';
+  }
   const last = transcript.entries[transcript.entries.length - 1];
   if (!last || last.speaker === 'character') return 'Ваш ход';
-  return running ? 'Ход агента' : 'Агент ответит после запуска';
+  return 'Сообщение учтено агентом';
 }
 export const writable = (transcript: WorkSessionTranscript) => transcript.state === 'open' || transcript.state === 'waiting';
 export const openCommand = (scope: Scope, title: string, requestId: string): CreateCommand => ({

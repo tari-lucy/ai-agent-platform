@@ -650,6 +650,7 @@ export function workSessions(value: unknown, selected: Scope): import('./contrac
 export function workSessionTranscript(value: unknown, selected: Scope, sessionId: string): import('./contracts.ts').WorkSessionTranscript {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.session_id === sessionId &&
     version(value.session_version) && sessionStates.has(String(value.state)) && text(value.title, 512) &&
+    (value.processed_sequence === undefined || (Number.isSafeInteger(value.processed_sequence) && Number(value.processed_sequence) >= 0)) &&
     typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
   let last = 0;
   demand(value.entries.every((entry: unknown) => {

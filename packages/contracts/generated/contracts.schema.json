@@ -14029,6 +14029,12 @@
           "title": "Entries",
           "type": "array"
         },
+        "processed_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Processed Sequence",
+          "type": "integer"
+        },
         "scope": {
           "$ref": "#/$defs/Scope"
         },

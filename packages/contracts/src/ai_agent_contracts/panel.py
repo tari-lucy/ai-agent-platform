@@ -547,6 +547,8 @@ class WorkSessionTranscript(Contract):
     session_version: Version
     state: Literal["open", "waiting", "closed", "invalidated"]
     title: ShortText
+    # Messages up to here were taken by the person's session; later ones are stored and wait.
+    processed_sequence: int = Field(default=0, strict=True, ge=0)
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC
