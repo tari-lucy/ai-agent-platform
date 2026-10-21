@@ -235,3 +235,20 @@ class BlobBundle:
             raise
         except Exception:
             raise LifecycleError("WORKPLACE_BUNDLE_RESTORE_FAILED") from None
+
+
+class WorkplaceSnapshotFiles:
+    """BackupService snapshot-extra port; no mutable shared output directory.
+
+    Explicit composition is required. This alone does not make a host restore
+    capable: staged blob cleanup and the guarded switch must also be wired.
+    """
+
+    def __init__(self, blobs: DirectoryBlobs, limits: BundleLimits) -> None:
+        self.blobs = blobs
+        self.bundle = BlobBundle(limits)
+
+    async def files_for_snapshot(self, database: Path) -> list[tuple[str, Path]]:
+        target = database.parent / BUNDLE_NAME
+        await self.bundle.create(database, self.blobs, target)
+        return [(BUNDLE_NAME, target)]

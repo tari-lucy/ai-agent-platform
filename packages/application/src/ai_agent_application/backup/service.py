@@ -36,6 +36,7 @@ from .ports import (
     BackupStore,
     ExtraFiles,
     LedgerView,
+    SnapshotExtraFiles,
     Snapshotter,
     StagingFactory,
     Switcher,
@@ -73,6 +74,7 @@ class BackupService:
         close_live: Callable[[], Awaitable[None]],
         ledger_dir: Path | None = None,
         extra: ExtraFiles | None = None,
+        snapshot_extra: SnapshotExtraFiles | None = None,
         upgrade_staged: Callable[[Path], Awaitable[None]] | None = None,
         restore_check: RestoreCheck | None = None,
         policy: BackupPolicy | None = None,
@@ -84,6 +86,7 @@ class BackupService:
         self.work_dir, self.current_head, self.close_live = work_dir, current_head, close_live
         self.ledger_dir, self.extra, self.upgrade_staged = ledger_dir, extra, upgrade_staged
         self.restore_check = restore_check
+        self.snapshot_extra = snapshot_extra
         self.policy, self.clock, self.software = policy or BackupPolicy(), clock, software
 
     # ---- creating copies ------------------------------------------------------------------
@@ -113,13 +116,14 @@ class BackupService:
             head = await self.snapshotter.head(database)
             ledger_id, ledger_seq = await self.ledger.identity()
             files: list[tuple[str, Path]] = [(DATABASE, database)]
-            for name, source in self.extra.files() if self.extra else []:
-                if (
-                    "/" in name
-                    or "\\" in name
-                    or name in {"", ".", "..", DATABASE, "manifest.json"}
-                ):
+            extras = self.extra.files() if self.extra else []
+            if self.snapshot_extra is not None:
+                extras = [*extras, *await self.snapshot_extra.files_for_snapshot(database)]
+            names = {DATABASE, "manifest.json"}
+            for name, source in extras:
+                if "/" in name or "\\" in name or name in {"", ".", ".."} or name in names:
                     raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                names.add(name)
                 files.append((name, source))
             entries = tuple(
                 FileEntry(name, sha256_file(path), path.stat().st_size) for name, path in files

@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ai_agent_adapters.workspace_files.lifecycle import KINDS as WORKPLACE_KINDS
 from ai_agent_application.backup import Issue, Manifest
 from ai_agent_application.backup.model import DATABASE
 from pydantic import ValidationError
@@ -101,6 +102,14 @@ def _summary(path: Path) -> dict[str, Any]:
             "attempts": int(attempts),
             "jobs": {(scope, identifier): status for scope, identifier, status in jobs},
             "retention": "retention_usage_aggregates" in tables,
+            # Include hidden/old revisions: disabling a feature does not erase its copies.
+            "workplace": connection.execute(
+                "SELECT 1 FROM record_revisions WHERE kind IN ("
+                + ",".join("?" for _ in WORKPLACE_KINDS)
+                + ") LIMIT 1",
+                tuple(WORKPLACE_KINDS),
+            ).fetchone()
+            is not None,
         }
     finally:
         connection.close()
@@ -150,6 +159,11 @@ class HostCompatibility:
         if not names <= ALLOWED_EXTRA | {DATABASE}:
             issues.append(Issue("FILE_NOT_ALLOWED"))
         copied = _read_config(copy_dir / HOST_CONFIG) if HOST_CONFIG in names else None
+        if any(
+            config is not None and (config.workplace_files is not None or config.workplace_tickets)
+            for config in (self.config, copied)
+        ):
+            issues.append(Issue("WORKPLACE_RESTORE_NOT_READY"))
         if copied is None:
             issues.append(Issue("HOST_CONFIG_MISSING"))
         elif any(getattr(copied, f) != getattr(self.config, f) for f in IDENTITY) or (
@@ -167,6 +181,10 @@ class HostCompatibility:
         except sqlite3.Error, OSError, ValueError, KeyError:
             issues.append(Issue("HOST_STATE_UNREADABLE"))
             return issues
+        if (theirs["workplace"] or ours["workplace"]) and not any(
+            issue.code == "WORKPLACE_RESTORE_NOT_READY" for issue in issues
+        ):
+            issues.append(Issue("WORKPLACE_RESTORE_NOT_READY"))
         if theirs["scopes"] != _expected_scopes(self.config):
             issues.append(Issue("SCOPES_INCOMPATIBLE"))
         if theirs["grants"] != ours["grants"]:

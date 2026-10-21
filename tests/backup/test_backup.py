@@ -147,8 +147,10 @@ def test_extra_files_cannot_escape_or_shadow_the_database(tmp_path):
     async def scenario():
         bw = await new_bworld(tmp_path, [A])
         outcomes = []
-        for name in ("../escape", "database.sqlite", "manifest.json", ""):
+        for name in ("../escape", "database.sqlite", "manifest.json", "", "same.txt"):
             bw.extra.items = [(name, tmp_path / "x")]
+            if name == "same.txt":
+                bw.extra.items.append((name, tmp_path / "x"))
             (tmp_path / "x").write_text("x")
             with pytest.raises(ContractError) as info:
                 await bw.service.create("manual")
@@ -156,7 +158,7 @@ def test_extra_files_cannot_escape_or_shadow_the_database(tmp_path):
         return outcomes, await bw.service.copies()
 
     outcomes, left = run(scenario())
-    assert outcomes == [ErrorCode.INVALID_ARGUMENTS] * 4 and left == []
+    assert outcomes == [ErrorCode.INVALID_ARGUMENTS] * 5 and left == []
 
 
 def test_quota_warns_at_eighty_and_ninety_percent_and_stops_when_full(tmp_path):
@@ -937,14 +939,55 @@ def test_the_live_store_is_closed_before_the_files_are_switched(tmp_path):
 def test_the_backup_directory_is_private_even_if_it_existed_with_open_rights(tmp_path):
     import os
     import stat
+    import subprocess
+    import sys
 
     from ai_agent_adapters.backup import DirectoryBackupStore
 
     root = tmp_path / "open-dir"
     root.mkdir()
+    if sys.platform == "win32":
+        opened = subprocess.run(
+            ["icacls", str(root), "/grant", "*S-1-1-0:(OI)(CI)R"],
+            capture_output=True,
+            timeout=10,
+        )
+        assert opened.returncode == 0
     os.chmod(root, 0o755)
     DirectoryBackupStore(root)
-    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    if sys.platform != "win32":
+        assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    else:
+        # Windows stat mode bits do not describe the DACL. Check native permissions,
+        # without exposing the local account name or SID in test output.
+        checked = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                r"""
+$ErrorActionPreference = 'Stop'
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl -LiteralPath $env:AW_TEST_ACL_TARGET
+$rules = @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if (-not $acl.AreAccessRulesProtected -or $rules.Count -ne 1) { exit 3 }
+if ($rules[0].IdentityReference -ne $me -or $rules[0].IsInherited) { exit 4 }
+$full = [Security.AccessControl.FileSystemRights]::FullControl
+if ($rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne $full) { exit 5 }
+exit 0
+""",
+            ],
+            env={
+                **{
+                    key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"
+                },
+                "AW_TEST_ACL_TARGET": str(root),
+            },
+            capture_output=True,
+            timeout=10,
+        )
+        assert checked.returncode == 0
 
 
 def test_extra_file_names_are_validated(tmp_path):
