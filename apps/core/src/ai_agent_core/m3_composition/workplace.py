@@ -22,7 +22,7 @@ from ai_agent_application.storage import Owner
 from ai_agent_application.workspace_files import FileLimits, FileReleaseGuard, ManagedFiles
 from ai_agent_application.workspace_files.guard import stable_scope
 from ai_agent_application.workspace_files.service import FileAuthorizer
-from ai_agent_contracts.agent_workplace import WorkAttempt, WorkplaceLibrary
+from ai_agent_contracts.agent_workplace import FileAccess, WorkAttempt, WorkplaceLibrary
 from ai_agent_contracts.api import Permission
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
@@ -108,6 +108,9 @@ def build(rt: Runtime, ledger: DeletionLedger, blob_dir: Path, limits: FileLimit
         limits,
         authorize=authorizer(rt, attempts),
         clock=clock,
+        # The person's own files are read back into its own model (api_transfer). The file
+        # owner grants it only when every input of the file allows it too; public stays off.
+        default_access=FileAccess(api_transfer=True, public_disclosure=False),
     )
     return Workplace(
         files=files,
