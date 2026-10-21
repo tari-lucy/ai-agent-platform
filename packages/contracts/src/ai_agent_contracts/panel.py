@@ -516,3 +516,37 @@ class PrivateApiStatus(Contract):
         ):
             raise ValueError("PRIVATE_MEMORY_DISABLED")
         return self
+
+
+class WorkSessionEntry(Contract):
+    """One message of a work conversation as the panel may show it (R3).
+
+    ``text`` comes from the memory Source owner through the release gate; ``withheld`` means
+    its source is revoked, expired, deleted or blocked, and no text is given.
+    """
+
+    sequence: int = Field(strict=True, ge=1)
+    speaker: Literal["operator", "character"]
+    text: str | None = Field(default=None, max_length=16000)
+    withheld: bool = Field(strict=True)
+    at: UTC
+    reply_to_sequence: int | None = Field(default=None, strict=True, ge=1)
+
+    @model_validator(mode="after")
+    def text_or_withheld(self) -> Self:
+        if self.withheld != (self.text is None):
+            raise ValueError("WITHHELD_TEXT")
+        return self
+
+
+class WorkSessionTranscript(Contract):
+    """A bounded tail of one work conversation; ``complete`` is false if older ones are cut."""
+
+    scope: Scope
+    session_id: Id
+    session_version: Version
+    state: Literal["open", "waiting", "closed", "invalidated"]
+    title: ShortText
+    entries: list[WorkSessionEntry] = Field(max_length=200)
+    complete: bool = Field(strict=True)
+    checked_at: UTC

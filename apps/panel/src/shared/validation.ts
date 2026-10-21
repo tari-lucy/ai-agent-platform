@@ -74,7 +74,7 @@ export function stopReceipt(value: unknown, selected: Scope, requestId: string):
 const eventTypes = new Set([
   'run.changed', 'job.changed', 'utterance.changed', 'delivery.changed', 'memory.changed',
   'relationship.changed', 'arc.changed', 'change.changed', 'check.changed', 'connection.changed', 'usage.changed',
-  'ticket.changed', 'work.changed',
+  'ticket.changed', 'work.changed', 'work-session.changed',
 ]);
 export function event(value: unknown): PanelEvent {
   demand(object(value) && isScope(value.scope) && id(value.id) && id(value.event_id) &&
@@ -634,4 +634,31 @@ export function workAttempts(value: unknown, selected: Scope): import('./contrac
   demand(value.items.every((row) => id(row.task_id) && id(row.operation_id) && id(row.capability_id) &&
     attemptStates.has(String(row.state)) && Number.isSafeInteger(row.attempt_no)));
   return value as import('./contracts.ts').WorkAttemptPage;
+}
+
+// Work conversation (R3): sessions are the activity owner's records; text comes only in the
+// released transcript, never in a session or message record.
+const sessionStates = new Set(['open', 'waiting', 'closed', 'invalidated']);
+const speakers = new Set(['operator', 'character']);
+export function workSessions(value: unknown, selected: Scope): import('./contracts.ts').WorkSessionPage {
+  page(value, selected);
+  demand(value.items.every((row) => text(row.title, 512) && sessionStates.has(String(row.state)) &&
+    Number.isSafeInteger(row.last_sequence) && Number(row.last_sequence) >= 0 &&
+    (row.state !== 'waiting' || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.length > 0))));
+  return value as import('./contracts.ts').WorkSessionPage;
+}
+export function workSessionTranscript(value: unknown, selected: Scope, sessionId: string): import('./contracts.ts').WorkSessionTranscript {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.session_id === sessionId &&
+    version(value.session_version) && sessionStates.has(String(value.state)) && text(value.title, 512) &&
+    typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
+  let last = 0;
+  demand(value.entries.every((entry: unknown) => {
+    const ok = object(entry) && Number.isSafeInteger(entry.sequence) && Number(entry.sequence) > last &&
+      speakers.has(String(entry.speaker)) && date(entry.at) && typeof entry.withheld === 'boolean' &&
+      // withheld means no text at all; otherwise the text is given
+      (entry.withheld ? entry.text === null || entry.text === undefined : text(entry.text, 16000));
+    if (ok) last = Number((entry as Record<string, unknown>).sequence);
+    return ok;
+  }));
+  return value as import('./contracts.ts').WorkSessionTranscript;
 }

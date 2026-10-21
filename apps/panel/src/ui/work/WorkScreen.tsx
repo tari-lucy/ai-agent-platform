@@ -5,6 +5,7 @@ import type { RunSession, Scope, WorkTask } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
+import { Conversation } from './Conversation.tsx';
 import {
   abandonCommand, assignCommand, attemptLabels, attemptsOf, experienceOf, finished, goalProblem, groups, MAX_GOAL,
   originLabels, spend, stateLabels, stepLabels, turn,
@@ -158,6 +159,7 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
       {!running && <Text size="sm" c="orange.8">Агент не работает: шаги начнутся только после явного запуска.</Text>}
     </div>
     {off ? <Paper withBorder p="md"><Text size="sm">Контур деятельности не включён на этом хосте (офлайн-команда configure-activity).</Text></Paper> : <>
+      <Conversation api={api} scope={scope} run={run} />
       <Assign api={api} scope={scope} />
       {partial && <Text size="sm" c="orange.8">Часть данных недоступна или не дочитана — список может быть неполным.</Text>}
       {tasks.query.isError && !off && <Alert color="orange" title="Задачи недоступны">{failureMessage(tasks.query.error)}</Alert>}

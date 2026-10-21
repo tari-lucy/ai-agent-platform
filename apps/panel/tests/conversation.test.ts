@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { event, workSessionTranscript, workSessions } from '../src/shared/validation.ts';
+import { affectedResources } from '../src/shared/events.ts';
+import { closeCommand, messageCommand, messageProblem, openCommand, turn, writable } from '../src/ui/work/conversation.ts';
+import type { Scope, WorkSessionTranscript } from '../src/shared/contracts.ts';
+
+const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
+const runScope: Scope = { ...scope, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' };
+const T = (minute: number) => `2026-10-21T00:${String(minute).padStart(2, '0')}:00Z`;
+const entry = (sequence: number, speaker: 'operator' | 'character', text: string | null = 'Текст ' + sequence) =>
+  ({ sequence, speaker, text, withheld: text === null, at: T(sequence) });
+const transcript = (over: Partial<WorkSessionTranscript> = {}): WorkSessionTranscript => ({
+  scope, session_id: 's-1', session_version: 3, state: 'open', title: 'Конспект', entries: [entry(1, 'operator')],
+  complete: true, checked_at: T(9), ...over,
+} as WorkSessionTranscript);
+
+test('the session event is accepted and refreshes the conversation reads', () => {
+  const value = { id: 'e1', event_id: 'e1', type: 'work-session.changed', scope, occurred_at: T(1), resource_id: 's-1', resource_version: 2 };
+  assert.equal(event(value).type, 'work-session.changed');
+  assert.deepEqual(affectedResources['work-session.changed'], ['work-sessions', 'work-session-messages', 'work-session-transcript']);
+});
+
+test('transcripts are accepted only ordered, in the partition and with text or withheld', () => {
+  assert.equal(workSessionTranscript(transcript(), scope, 's-1').entries.length, 1);
+  assert.throws(() => workSessionTranscript(transcript(), scope, 's-2'));
+  assert.throws(() => workSessionTranscript(transcript({ scope: { ...scope, memory_mode: 'test' } }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ entries: [entry(2, 'operator'), entry(1, 'character')] as never }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ entries: [{ ...entry(1, 'operator'), withheld: true }] as never }), scope, 's-1'));
+  assert.equal(workSessionTranscript(transcript({ entries: [entry(1, 'operator', null)] as never }), scope, 's-1').entries[0].withheld, true);
+  const page = { items: [{ id: 's-1', scope, version: 1, created_at: T(1), updated_at: T(1), title: 'Конспект', state: 'waiting', waiting_ticket_ids: [], last_sequence: 0 }], limit: 50, next_cursor: null, complete: true };
+  assert.throws(() => workSessions(page, scope));  // waiting needs a ticket
+});
+
+test('whose turn: the person answers the operator only while it runs', () => {
+  assert.equal(turn(transcript(), false), 'Агент ответит после запуска');
+  assert.equal(turn(transcript(), true), 'Ход агента');
+  assert.equal(turn(transcript({ entries: [entry(1, 'operator'), entry(2, 'character')] as never }), true), 'Ваш ход');
+  assert.equal(turn(transcript({ entries: [] }), false), 'Ваш ход');
+  assert.equal(turn(transcript({ state: 'closed' }), true), 'Разговор закрыт');
+  assert.equal(writable(transcript({ state: 'closed' })), false);
+  assert.equal(writable(transcript({ state: 'waiting' })), true);
+});
+
+test('commands use the stable area, the seen version and the exact text', () => {
+  assert.equal(messageProblem(' \n'), 'Напишите сообщение.');
+  const open = openCommand(runScope, ' Конспект ', 'req-1');
+  assert.deepEqual([open.type, open.scope, open.target, open.arguments.data], ['work.session.open', scope, 'work', { title: 'Конспект' }]);
+  const say = messageCommand(runScope, transcript(), ' Привет ', 'req-2');
+  assert.deepEqual([say.target, say.expected_version, say.arguments.data], ['s-1', 3, { session_id: 's-1', text: ' Привет ' }]);
+  const close = closeCommand(runScope, transcript(), 'req-3');
+  assert.deepEqual([close.type, close.expected_version], ['work.session.close', 3]);
+});

@@ -128,6 +128,10 @@ class Views:
                 resets_at=None if budget is None else budget.reset_at(now),
                 checked_at=now,
             )
+        if resource == "work-session-transcript" and identifier is not None:
+            from .work_sessions import transcript
+
+            return await transcript(self.runtime, scope, identifier)
         if resource == "workplace-library" and identifier is None:
             from .workplace import library
 

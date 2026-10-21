@@ -13804,6 +13804,68 @@
       "title": "WorkSessionCloseArguments",
       "type": "object"
     },
+    "WorkSessionEntry": {
+      "additionalProperties": false,
+      "description": "One message of a work conversation as the panel may show it (R3).\n\n``text`` comes from the memory Source owner through the release gate; ``withheld`` means\nits source is revoked, expired, deleted or blocked, and no text is given.",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "reply_to_sequence": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply To Sequence"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "speaker": {
+          "enum": [
+            "operator",
+            "character"
+          ],
+          "title": "Speaker",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "withheld": {
+          "title": "Withheld",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sequence",
+        "speaker",
+        "withheld",
+        "at"
+      ],
+      "title": "WorkSessionEntry",
+      "type": "object"
+    },
     "WorkSessionMessage": {
       "additionalProperties": false,
       "description": "One ordered reference to a Source, not another private text/history copy.",
@@ -13944,6 +14006,71 @@
         "title"
       ],
       "title": "WorkSessionOpenArguments",
+      "type": "object"
+    },
+    "WorkSessionTranscript": {
+      "additionalProperties": false,
+      "description": "A bounded tail of one work conversation; ``complete`` is false if older ones are cut.",
+      "properties": {
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/WorkSessionEntry"
+          },
+          "maxItems": 200,
+          "title": "Entries",
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "session_version": {
+          "minimum": 1,
+          "title": "Session Version",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "waiting",
+            "closed",
+            "invalidated"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "session_id",
+        "session_version",
+        "state",
+        "title",
+        "entries",
+        "complete",
+        "checked_at"
+      ],
+      "title": "WorkSessionTranscript",
       "type": "object"
     },
     "WorkStep": {
@@ -14880,6 +15007,9 @@
     "WorkSessionCloseArguments": {
       "$ref": "#/$defs/WorkSessionCloseArguments"
     },
+    "WorkSessionEntry": {
+      "$ref": "#/$defs/WorkSessionEntry"
+    },
     "WorkSessionMessage": {
       "$ref": "#/$defs/WorkSessionMessage"
     },
@@ -14894,6 +15024,9 @@
     },
     "WorkSessionPage": {
       "$ref": "#/$defs/Page_WorkSession_"
+    },
+    "WorkSessionTranscript": {
+      "$ref": "#/$defs/WorkSessionTranscript"
     },
     "WorkStep": {
       "$ref": "#/$defs/WorkStep"

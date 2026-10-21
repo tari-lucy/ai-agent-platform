@@ -133,6 +133,15 @@ class Mutations:
 
             async with runtime._lock:
                 return await assign(runtime, authority, request)
+        if isinstance(request, (CreateCommand, EditCommand)) and request.type in (
+            "work.session.open",
+            "work.session.message",
+            "work.session.close",
+        ):
+            from .work_sessions import mutate as session_mutate
+
+            async with runtime._lock:
+                return await session_mutate(runtime, authority, request)
         if isinstance(request, EditCommand) and request.type == "work.abandon":
             from .activity import abandon
 

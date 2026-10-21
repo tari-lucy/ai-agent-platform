@@ -26,6 +26,8 @@ MODELS = (
     agent_sessions.WorkSessionMessageArguments,
     agent_sessions.WorkSessionCloseArguments,
     panel.PrivateApiStatus,
+    panel.WorkSessionEntry,
+    panel.WorkSessionTranscript,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
     panel.PersonaApplyArguments,
