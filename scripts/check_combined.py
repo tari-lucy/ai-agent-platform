@@ -51,6 +51,7 @@ HELPERS = (
     "tests/workplace_skills",
     "tests/workplace_experience",
     "tests/workplace_conversation",
+    "tests/workplace_journey",
 )
 TESTS = (
     "tests/operations",
@@ -93,6 +94,7 @@ TESTS = (
     "tests/workplace_activity",
     "tests/workplace_experience",
     "tests/workplace_conversation",
+    "tests/workplace_journey",
 )
 
 

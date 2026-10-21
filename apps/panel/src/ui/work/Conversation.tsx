@@ -6,7 +6,7 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import {
-  closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, sessionStateLabels, titleProblem, turn, writable,
+  closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, pending as awaiting, sessionStateLabels, titleProblem, turn, writable,
 } from './conversation.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -82,7 +82,7 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
       {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker === 'operator' ? 'gray.0' : 'blue.0'}>
-        <Text size="xs" c="dimmed">{speakerLabels[entry.speaker]} · {when(entry.at)}</Text>
+        <Text size="xs" c="dimmed">{speakerLabels[entry.speaker]} · {when(entry.at)}{awaiting(transcript, entry.sequence, entry.speaker) ? ' · сохранено, ждёт исполнения' : ''}</Text>
         {entry.withheld ? <Text size="sm" c="dimmed">Скрыто: основание сообщения отозвано, истекло или удалено.</Text>
           : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{entry.text}</Text>}
       </Paper>)}
@@ -115,7 +115,7 @@ export function Conversation({ api, scope, run }: { api: PanelApi; scope: Scope;
   return <Stack gap="sm" aria-label="Разговор о работе">
     <Title order={2} size="h5">Разговор о работе</Title>
     <Text size="sm" c="dimmed">Обсудите поручение с самим агентом: уточните цель, передайте материалы, ответьте на вопросы.
-      Писать можно и когда агент остановлен — он прочитает после запуска.</Text>
+      Писать можно и когда агент остановлен: сообщение сохранится и будет ждать исполнения.</Text>
     {sessions.isError && <Alert color="orange" title="Разговоры недоступны">{failureMessage(sessions.error)}</Alert>}
     <Start api={api} scope={scope} onOpened={setSelected} />
     {rows.length > 0 && <Select label="Разговор" data={rows.map((row) => ({ value: row.id, label: `${row.title} — ${sessionStateLabels[row.state ?? 'open']}` }))}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { event, workSessionTranscript, workSessions } from '../src/shared/validation.ts';
 import { affectedResources } from '../src/shared/events.ts';
-import { closeCommand, messageCommand, messageProblem, openCommand, turn, writable } from '../src/ui/work/conversation.ts';
+import { closeCommand, messageCommand, messageProblem, openCommand, pending, turn, writable } from '../src/ui/work/conversation.ts';
 import type { Scope, WorkSessionTranscript } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
@@ -32,12 +32,16 @@ test('transcripts are accepted only ordered, in the partition and with text or w
   assert.throws(() => workSessions(page, scope));  // waiting needs a ticket
 });
 
-test('whose turn: the person answers the operator only while it runs', () => {
-  assert.equal(turn(transcript(), false), 'Агент ответит после запуска');
-  assert.equal(turn(transcript(), true), 'Ход агента');
-  assert.equal(turn(transcript({ entries: [entry(1, 'operator'), entry(2, 'character')] as never }), true), 'Ваш ход');
+test('whose turn: a stored message waits for execution; no reply is promised', () => {
+  assert.equal(turn(transcript(), false), 'Сообщение сохранено; исполнение начнётся только после запуска');
+  assert.equal(turn(transcript(), true), 'Сообщение сохранено и ожидает исполнения');
+  assert.equal(turn(transcript({ processed_sequence: 1 }), true), 'Сообщение учтено агентом');
+  assert.equal(turn(transcript({ processed_sequence: 1, entries: [entry(1, 'operator'), entry(2, 'character')] as never }), true), 'Ваш ход');
   assert.equal(turn(transcript({ entries: [] }), false), 'Ваш ход');
   assert.equal(turn(transcript({ state: 'closed' }), true), 'Разговор закрыт');
+  assert.equal(pending(transcript({ processed_sequence: 1 }), 2, 'operator'), true);
+  assert.equal(pending(transcript({ processed_sequence: 1 }), 1, 'operator'), false);
+  assert.equal(pending(transcript(), 2, 'character'), false);
   assert.equal(writable(transcript({ state: 'closed' })), false);
   assert.equal(writable(transcript({ state: 'waiting' })), true);
 });

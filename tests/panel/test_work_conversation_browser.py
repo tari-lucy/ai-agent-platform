@@ -51,7 +51,10 @@ def test_conversation_with_the_person_while_stopped(page, tmp_path, monkeypatch)
         expect(messages.get_by_text("Начни с оглавления, потом спорные места.")).to_be_visible(
             timeout=10000
         )
-        expect(thread.get_by_text("Агент ответит после запуска", exact=False)).to_be_visible()
+        expect(
+            thread.get_by_text("исполнение начнётся только после запуска", exact=False)
+        ).to_be_visible()
+        expect(thread.get_by_text("сохранено, ждёт исполнения", exact=False)).to_be_visible()
         # The new event type did not break the event stream.
         expect(page.get_by_text("События подключены", exact=False).first).to_be_visible()
 
