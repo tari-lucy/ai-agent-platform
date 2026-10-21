@@ -256,6 +256,7 @@ def test_offline_enable_operator_grant_view_and_revoke(tmp_path, monkeypatch):
                 FileWrite(
                     request_id="derived-1",
                     file_id="derived-note",
+                    expected_version=None,
                     area="skills",
                     path="outline-a-text/notes.md",
                     title="Заметка к навыку",
