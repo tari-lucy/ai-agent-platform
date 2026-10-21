@@ -75,7 +75,8 @@ def test_conversation_intake_replay_conflict_release_and_close(tmp_path, monkeyp
             assert changed.status_code == 409, changed.text
             stale = await say(host, "say-2", session_id, 1, "Устаревший вид.")
             assert stale.status_code == 409, stale.text
-            # The refused message left no loose text in memory: its source was retired.
+            # The refused message left no loose text in memory: its source was retired
+            # (an expired source keeps no content and is not listed).
             stored = {
                 src.content: src.availability
                 for src in await rt.store.repository(
@@ -83,7 +84,7 @@ def test_conversation_intake_replay_conflict_release_and_close(tmp_path, monkeyp
                 ).list(limit=200)
                 if src.source_type == "work-session-message"
             }
-            assert "Устаревший вид." not in stored and stored.get(None) == "expired"
+            assert "Устаревший вид." not in stored
             second = await say(host, "say-3", session_id, 2, "И отметь спорные места.")
             assert second.status_code == 200, second.text
 

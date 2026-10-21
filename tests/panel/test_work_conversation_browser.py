@@ -70,6 +70,28 @@ def test_conversation_with_the_person_while_stopped(page, tmp_path, monkeypatch)
         expect(thread.get_by_label("Сообщение агенту")).to_have_count(0)
 
 
+def card_task_id(host):
+    """The only task of this synthetic host, read from its owner."""
+
+    async def read():
+        from ai_agent_adapters.storage.database import SQLiteStore
+        from ai_agent_application.storage import Owner
+        from ai_agent_contracts.agent_workplace import WorkTask
+
+        from ai_agent_core.m3_composition import new_registry
+        from ai_agent_core.m3_composition.state import PRINCIPALS
+
+        store = SQLiteStore(paths(host.root).database, extensions=new_registry())
+        try:
+            [row] = await store.repository(WorkTask, PRINCIPALS[Owner.ACTIVITY], host.scope).list()
+            return row.id
+        finally:
+            await store.close()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(read())).result()
+
+
 def test_a_task_is_discussed_in_its_own_conversation(page, tmp_path, monkeypatch):
     with ThreadPoolExecutor(max_workers=1) as executor:
         host = executor.submit(
@@ -99,7 +121,12 @@ def test_a_task_is_discussed_in_its_own_conversation(page, tmp_path, monkeypatch
         expect(card.get_by_role("button", name="Открыть разговор")).to_be_visible(timeout=10000)
         card.get_by_role("button", name="Открыть разговор").click()
         expect(thread).to_be_visible()
-        talk = page.get_by_label("Разговор о работе")
-        expect(talk.get_by_role("textbox", name="Разговор")).to_have_value(
-            "Обсуждение: Разобрать заметки о маяках. — Открыт"
+        query = dict(
+            zip(
+                ("workspace_id", "persona_id", "memory_space_id", "memory_mode"),
+                host.scope.partition,
+                strict=True,
+            )
         )
+        listed = page.request.get(server.origin + "/api/v1/work-sessions", params=query)
+        assert [row["task_ids"] for row in listed.json()["items"]] == [[card_task_id(host)]]
