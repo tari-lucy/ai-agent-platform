@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 SOURCE_TYPE = "work-session-message"
 ADAPTER = "workplace-session"
 MAX_TRANSCRIPT = 200
+REFUSED = {
+    ErrorCode.VERSION_CONFLICT,
+    ErrorCode.ACCESS_DENIED,
+    ErrorCode.RESOURCE_BUSY,
+    ErrorCode.INVALID_ARGUMENTS,
+}
 
 
 def sessions(rt: Runtime, authority: ControlAuthority | None = None) -> SessionBook:
@@ -95,15 +101,22 @@ async def mutate(
                 author_id=authority.principal_id,
             ),
         )
-        receipt = await book.append(
-            request,
-            SourceRef(
-                source_id=made.source_id,
-                version=made.version,
-                scope=scope,
-                availability="available",
-            ),
+        ref = SourceRef(
+            source_id=made.source_id, version=made.version, scope=scope, availability="available"
         )
+        try:
+            receipt = await book.append(request, ref)
+        except ContractError as error:
+            # Refused (stale version, closed session, full): the text this request stored is
+            # retired by its owner, so it never stays as a loose memory without a message.
+            # A retry of a request that did append replays above and raises nothing.
+            if not made.duplicate and error.error.code in REFUSED:
+                await memory(rt).expire_source(
+                    command(scope, "work-message-refused-" + request.request_id),
+                    made.source_id,
+                    made.version,
+                )
+            raise
     elif isinstance(request, EditCommand) and request.type == "work.session.close":
         receipt = await book.close(request)
     else:
