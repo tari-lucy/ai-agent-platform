@@ -214,10 +214,12 @@ def record_readers() -> tuple[RecordAccess, ...]:
             )
         )
         + (RecordAccess(PRINCIPALS[Owner.SOCIAL].id),)  # read only, never API transfer
-        # Read only: the file release guard, skill evidence and attempt inputs check a source.
-        # Without the offline workplace-files grants this entry opens nothing.
+        # Read only: the file release guard, skill evidence, attempt inputs and ticket bases
+        # check a source exists.
+        # Without the matching offline grant (workplace files, activity, tickets) it opens nothing.
         + tuple(
-            RecordAccess(PRINCIPALS[o].id) for o in (Owner.CATALOGUE, Owner.SKILLS, Owner.ACTIVITY)
+            RecordAccess(PRINCIPALS[o].id)
+            for o in (Owner.CATALOGUE, Owner.SKILLS, Owner.ACTIVITY, Owner.TICKETS)
         )
     )
 

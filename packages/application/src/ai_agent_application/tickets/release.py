@@ -55,12 +55,18 @@ class TicketRelease:
     ) -> None:
         self.sources, self.ledger, self.files = sources, ledger, files
 
-    async def open(self, scope: Scope, ticket: Ticket, purpose: ReadPurpose) -> bool:
-        """Every basis of the ticket's text is still releasable for ``purpose``."""
+    async def bases_open(
+        self,
+        scope: Scope,
+        sources: Sequence[SourceRef],
+        materials: Sequence[ArtifactRef],
+        purpose: ReadPurpose,
+    ) -> bool:
+        """Every given basis is still releasable for ``purpose`` (also for session checkpoints)."""
         blocked: set[str] = set()
-        if self.ledger is not None and ticket.sources:
+        if self.ledger is not None and sources:
             blocked = {entry.source_id for entry in await self.ledger.entries(scope)}
-        for ref in ticket.sources:
+        for ref in sources:
             if ref.source_id in blocked or ref.scope.partition != scope.partition:
                 return False
             source = await self.sources.get_source(scope, ref.source_id)
@@ -73,16 +79,20 @@ class TicketRelease:
                 or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
             ):
                 return False
-        if ticket.materials:
+        if materials:
             if self.files is None:
                 return False  # a material that cannot be checked is not released
             try:
-                await self.files.check(scope, (), ticket.materials, purpose)
+                await self.files.check(scope, (), materials, purpose)
             except ContractError as error:
                 if error.error.code in CLOSED_FILE:
                     return False
                 raise
         return True
+
+    async def open(self, scope: Scope, ticket: Ticket, purpose: ReadPurpose) -> bool:
+        """Every basis of the ticket's text is still releasable for ``purpose``."""
+        return await self.bases_open(scope, ticket.sources, ticket.materials, purpose)
 
     async def ticket(self, scope: Scope, ticket: Ticket, purpose: ReadPurpose) -> Ticket:
         if await self.open(scope, ticket, purpose):
