@@ -127,7 +127,7 @@ def test_a_contradiction_is_shown_beside_the_old_claim_and_rights_close_each_sid
 def test_a_reply_that_used_derived_memory_is_not_saved_after_its_source_is_revoked(tmp_path):
     async def scenario():
         slow = answer(reply="Поздний ответ.")
-        slow.insert(1, Pause(0.4))
+        slow.insert(1, Pause(2.0))  # wide enough to revoke while generating, even under load
         async with prepared(tmp_path, [slow]) as env:
             await start(env)
             allow_memory(env)
@@ -145,10 +145,13 @@ def test_a_reply_that_used_derived_memory_is_not_saved_after_its_source_is_revok
                 ),
             )
             assert result.status_code == 200, result.text
-            for _ in range(300):
-                if env.world.provider.calls:
-                    break
+            # The job starts on a runtime tick; under load that can take seconds. Wait for the
+            # model call itself (the reply is paused in the middle), not for a fixed time.
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 30
+            while not env.world.provider.calls and loop.time() < deadline:
                 await asyncio.sleep(0.01)
+            assert env.world.provider.calls, "the reply job never reached the model"
             assert 'by="утверждение-reported"' in prompt(env)
             await memory(env.runtime).set_rights(
                 command(env.world.scope, "revoke-while-generating"),
