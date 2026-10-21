@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ai_agent_application.storage import Owner
 from ai_agent_contracts import (
+    agent_sessions,
     agent_workplace,
     api,
     control,
@@ -75,6 +76,8 @@ SPECS = {
     "CapabilityManifest": Spec(agent_workplace.CapabilityManifest, Owner.WORKSPACE),
     "CapabilityBinding": Spec(agent_workplace.CapabilityBinding, Owner.WORKSPACE),
     "WorkTask": Spec(agent_workplace.WorkTask, Owner.ACTIVITY),
+    "WorkSession": Spec(agent_sessions.WorkSession, Owner.ACTIVITY),
+    "WorkSessionMessage": Spec(agent_sessions.WorkSessionMessage, Owner.ACTIVITY),
     "WorkAttempt": Spec(agent_workplace.WorkAttempt, Owner.ACTIVITY),
     "ManagedFile": Spec(agent_workplace.ManagedFile, Owner.CATALOGUE),
     "SkillVersion": Spec(agent_workplace.SkillVersion, Owner.SKILLS),
@@ -87,6 +90,9 @@ SPECS = {
 def semantic_keys(record: Record) -> list[tuple[str, str]]:
     """Normalized exact uniqueness; nicknames and matching text never identify people."""
     values: list[tuple[str, object]] = []
+    if isinstance(record, agent_sessions.WorkSessionMessage):
+        values.append(("session-sequence", [record.session_id, record.sequence]))
+        values.append(("session-source", [record.session_id, record.source.source_id]))
     if isinstance(record, memory.Source) and record.external_id is not None:
         values.append(
             ("external-source", [record.source_type, record.adapter_id, record.external_id])

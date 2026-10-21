@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ai_agent_contracts.agent_sessions import WorkSession, WorkSessionMessage
 from ai_agent_contracts.agent_workplace import (
     CapabilityManifest,
     FileWrite,
@@ -211,3 +212,48 @@ class AgentHarness(Protocol):
     async def cancel(self, session_key: str) -> None: ...
 
     async def close(self, session_key: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class SessionContext:
+    """R2's released context of ONE logical session, not an authority or raw checkpoint.
+
+    Sources/files contain every basis actually exposed to the model, including
+    history and persona/experience. The caller checks generation and admission,
+    uses ReleaseGuard before/after IO, and records these as WorkAttempt inputs.
+    All context is transient and must be discarded on revoke/STOP/invalidation.
+    """
+
+    session_id: str
+    generation: int
+    through_sequence: int
+    messages: tuple[ChatMessage, ...]
+    sources: tuple[SourceRef, ...]
+    files: tuple[ArtifactRef, ...]
+
+
+class SessionContextProvider(Protocol):
+    """Persona/memory owner bridge (R2), with explicit caller-configured bounds.
+
+    Raises on an unusable basis; never substitutes a cached revoked body.
+    through_sequence is the last input represented, not a claim it was acted on.
+    """
+
+    async def build(
+        self,
+        admission: WorkAdmission,
+        session: WorkSession,
+        *,
+        max_messages: int,
+        max_chars: int,
+    ) -> SessionContext: ...
+
+
+class SessionHistory(Protocol):
+    """Ordered references read through the activity owner, content through Source owner."""
+
+    async def get(self, scope: Scope, session_id: str) -> WorkSession | None: ...
+
+    async def messages(
+        self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
+    ) -> list[WorkSessionMessage]: ...

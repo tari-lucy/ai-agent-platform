@@ -121,6 +121,7 @@ class CreateCommand(CommandBase):
         "tariff.create",
         "persona.copy",
         "work.assign",
+        "work.session.open",
     ]
     arguments: ExtensionPayload
 
@@ -153,6 +154,8 @@ class EditCommand(CommandBase):
         "ticket.reply",
         "ticket.read",
         "work.abandon",
+        "work.session.message",
+        "work.session.close",
     ]
     arguments: ExtensionPayload
     expected_version: Version
@@ -263,6 +266,7 @@ class PanelEvent(Record):
         "usage.changed",
         "ticket.changed",
         "work.changed",
+        "work-session.changed",
     ]
     resource_id: Id
     resource_version: Version | None

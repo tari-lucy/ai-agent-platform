@@ -272,6 +272,15 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("ticket.reply-args", TicketReplyArguments)
     registry.register("ticket.read-args", TicketReadArguments)
     registry.register("work.assign-args", WorkAssignArguments)
+    from ai_agent_contracts.agent_sessions import (
+        WorkSessionCloseArguments,
+        WorkSessionMessageArguments,
+        WorkSessionOpenArguments,
+    )
+
+    registry.register("work.session.open-args", WorkSessionOpenArguments)
+    registry.register("work.session.message-args", WorkSessionMessageArguments)
+    registry.register("work.session.close-args", WorkSessionCloseArguments)
     registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
     registry.register("workplace.permission-conditions", PermissionConditions)
