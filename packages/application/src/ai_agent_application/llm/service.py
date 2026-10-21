@@ -11,6 +11,7 @@ import contextlib
 import json
 import random
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -127,6 +128,17 @@ class LLMGateway:
         attempts: list[AttemptReport] = []
         preview = ""
         for position, assignment in enumerate(chain):
+            if request.max_output_tokens is not None:
+                assignment = replace(
+                    assignment,
+                    parameters=assignment.parameters.model_copy(
+                        update={
+                            "max_output_tokens": min(
+                                assignment.parameters.max_output_tokens, request.max_output_tokens
+                            ),
+                        }
+                    ),
+                )
             for number in range(self._max_attempts):
                 if self._stopped(cancel):
                     return self._cancelled(request, preview, attempts, position, assignment)

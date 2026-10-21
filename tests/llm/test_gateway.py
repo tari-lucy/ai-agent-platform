@@ -1,6 +1,7 @@
 """LLM gateway over a scripted provider (M2-04): streams, retry, fallback, cancel, results."""
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from ai_agent_adapters.llm import ScriptedProvider
@@ -38,6 +39,29 @@ FULL = [
     Finished("stop"),
     UsageReported(usage(12, 4, cached=5, reasoning=1)),
 ]
+
+
+def test_per_call_output_ceiling_lowers_each_fallback_and_never_raises_the_role_limit():
+    primary = resolved(
+        parameters={"max_output_tokens": 128},
+        fallback=resolved("fallback", parameters={"max_output_tokens": 96}),
+    )
+    provider = ScriptedProvider(
+        [
+            [ProviderError(Failure.AUTH)],
+            list(FULL),
+            list(FULL),
+        ]
+    )
+    small = run(gateway(provider, primary).generate(replace(request(), max_output_tokens=32)))
+    assert small.status == "completed" and small.used_fallback
+    assert [call.assignment.parameters.max_output_tokens for call in provider.calls] == [32, 32]
+    run(gateway(provider, primary).generate(replace(request("second"), max_output_tokens=512)))
+    assert provider.calls[-1].assignment.parameters.max_output_tokens == 128
+    assert primary.parameters.max_output_tokens == 128  # no persistent config change
+    for invalid in (True, 0, -1, 65537):
+        with pytest.raises(ValueError, match="OUTPUT_TOKEN_LIMIT"):
+            replace(request(), max_output_tokens=invalid)
 
 
 class Verdict(BaseModel):

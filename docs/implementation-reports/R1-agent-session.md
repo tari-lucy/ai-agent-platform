@@ -110,3 +110,77 @@ R3 делает его через owner и Source intake, не создаёт с
 не объявляется работающим разговором. Character output/ACK и harness driver
 остаются последующим стыком R1. Перед enable R2 обязателен также на старом
 `activity.context()`: titles/replies не передаются модели в обход release.
+
+## Следующая поставка: model admission/call identity/output ceiling
+
+После публикации session-стыка исправлены prerequisites существующего шлюза.
+Sandbox назначает каждому внутреннему вызову отдельный стабильный call_id
+(`sandbox-1`, `sandbox-2` в рамках данной попытки); Execution уже связывает
+его с operation/lease attempt. Два запроса больше не разделяют default `call`.
+ExecutionModelGateway дополнительно сверяет exact scope/freshness/operation/
+lease version, а не только предоставленный callback is_current.
+
+ModelRequest.max_output_tokens теперь проходит в GenerationRequest и реально
+ограничивает binding.parameters до отправки провайдеру. Используется минимум
+конфигурации роли и запроса, также для fallback; увеличить потолок роли этим
+аргументом нельзя. Настройка роли не меняется. Legacy callers без аргумента
+сохраняют прежний путь; bool/zero/out-of-range limits отвергаются.
+
+Один affected gate: прежние gateway tests + новые admission/ceiling + один
+реальный Docker loopback broker — **53 passed (4.47 с)**. Существующий local
+Linux image, сеть none, синтетический provider, никаких платных API.
+Проверены два разных call_id, лимиты fallback/role, чужой scope/epoch/operation/
+lease и прежний отказ лишнего вызова. Ruff и strict mypy 4 source modules —
+чистые. Это не full shared-journal/reserve gate и не поддержка tool calls.
+Docker engine Linux через Windows CLI доступен; OpenCode не установлен.
+На момент проверки после `749ac9e` R2 ещё не в main: исправление старого
+activity.context через R2 остаётся обязательным следующим стыком, не объявлено
+закрытым. До него новый session runtime на личных данных не включается.
+
+Дополнительно после изменения admission выполнен один прежний production-host
+journey assign → ticket → operator answer → completion → restart STOPPED:
+**1 passed (31.81 с)**. Для отдельного запуска явно добавлены только test-support
+каталоги (`pytest -o pythonpath=…`), source imports — из собственного frozen venv.
+Первый collection не нашёл dev_support; Windows absolute backslashes в override
+также не подошли, использованы относительные tests/* пути. Полные suites не повторялись.
+
+## R2 integrated: устранён прямой путь ticket → activity prompt
+
+Сведён main `0475221` с принятой R2. `activity.context()` больше не берёт
+raw title/body: использует TicketView из единого `session_context(rt)`.
+Refused capability IDs остаются структурными control-данными, не свободным
+текстом. Подготовка WorkAttempt теперь получает также точные ticket/material
+refs показанного контекста. Прежнее silent `[-200:]` для provenance убрано:
+overflow отказывает до вызова модели. Основания из предыдущих tool steps
+сохраняются. `extra_sources` участвуют также в existing Execution.verify.
+
+WorkContext.still_valid проверяется непосредственно до и после model call,
+включая goal-путь. Поздний отзыв закрывает текст/решение, оплаченная technical
+квитанция остаётся в общем journal. Политика release не дублируется в R1.
+
+Добавлен `ReleasedSessionContext`, реализация агрегирующего R1 порта поверх
+R2 SessionContextPort + SessionHistory + Source owner + existing ReleaseGuard.
+Контекст transient, bounded по сообщениям/символам, с полными SourceRef/
+ArtifactRef. Входы берутся по порядку: backlog не перескакивается ради newest.
+through_sequence учитывает только реально показанный prefix; source/close/
+generation/version/STOP проверяются до возврата. Checkpoint без повторной
+проверки не загружается; физическое хранение checkpoint/harness ещё не подключено.
+
+Affected bridge gate: sanitized title/replies, pre/post-model revoke, прежний
+production-host assignment/ticket/answer/restart и own-goal/quiet/disabled —
+**4 passed (55.07 с)**. Сборка с настоящими SessionBook/Source/ReleaseGuard,
+bounded pending prefix и STOP при чтении — **2 passed (1.48 с)**. Первая
+фикстура сборки использовала Source reader без API-transfer grant и получила
+правильный отказ; исправлена на существующий reader с явным тестовым grant,
+production права не менялись. Ruff и strict mypy — чистые.
+
+После этого Claude опубликовал `96c1ae2` с однострочным ReleasedReader wiring
+в своё выданное окно `service.py::access_ports()`. Оно принимается merge из main;
+R1 не переписывает его и не создаёт второй ticket reader. Регрессионный
+host journey выше выполнен до этой отдельной строки; её проверка — отчёт R2.
+
+Следующий незакрытый объём: полноценный tool-call/result protocol существующего
+LLMGateway → broker → OpenCode, настоящий harness внутри sandbox, bounded
+session driver/checkpoint/cancel и delivery/ACK. При renew аренды драйвер
+обновляет доверенный WorkAdmission для следующего RPC, а не принимает lease
+от клиента. Ни один из этих gates не закрывается текстовым broker-тестом.

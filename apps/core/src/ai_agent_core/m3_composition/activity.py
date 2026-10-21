@@ -9,7 +9,7 @@ by itself: the tick submits work only while the run is ACTIVE/OPEN/autonomous an
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -22,6 +22,8 @@ from ai_agent_application.agent_activity.step import (
     StepContext,
     Tool,
 )
+from ai_agent_application.agent_experience.session import ContextRefs
+from ai_agent_application.agent_experience.session import SessionContext as ReleasedContext
 from ai_agent_application.agent_workplace.ports import ModelReply, ModelRequest, WorkAdmission
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.llm.model import ChatMessage, Failure, GenerationRequest
@@ -45,7 +47,7 @@ from ai_agent_contracts.states import ErrorCode, OperationState
 from .permission_decisions import HOLDER
 from .schemas import TaskInput
 from .state import PRINCIPALS
-from .workplace_experience import persona, recorder
+from .workplace_experience import recorder, session_context
 
 if TYPE_CHECKING:
     from .service import Execution, Runtime
@@ -67,9 +69,19 @@ class ExecutionModelGateway:
 
     def __init__(self, execution: Execution) -> None:
         self.execution = execution
+        self.release: Callable[[], Awaitable[bool]] | None = None
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
-        if not admission.is_current():
+        command, lease = self.execution.command, self.execution.lease
+        if (
+            not admission.is_current()
+            or admission.scope != command.scope
+            or admission.freshness != command.freshness
+            or admission.operation_id != command.operation_id
+            or admission.lease_version != lease.lease_version
+        ):
+            return ModelReply("not_admitted", "", "")
+        if self.release is not None and not await self.release():
             return ModelReply("not_admitted", "", "")
         try:
             result = await self.execution.generate(
@@ -78,6 +90,7 @@ class ExecutionModelGateway:
                     role_id=request.role_id,
                     messages=request.messages,
                     result_model=request.result_model,
+                    max_output_tokens=request.max_output_tokens,
                 ),
                 self.execution.cancel,
             )
@@ -86,6 +99,8 @@ class ExecutionModelGateway:
                 return ModelReply("not_admitted", "", "")
             raise
         attempt = result.attempts[-1].attempt_id if result.attempts else ""
+        if self.release is not None and not await self.release():
+            return ModelReply("not_admitted", "", attempt)
         if result.failure is Failure.NOT_ADMITTED:
             return ModelReply("not_admitted", "", attempt)
         return ModelReply(result.status, result.text or "", attempt, result.parsed)
@@ -147,11 +162,16 @@ async def satisfied(rt: Runtime, scope: Scope, ticket: Ticket, usable: set[str])
     return ticket.next_turn == "agent" or ticket.state in ("resolved", "closed_unfulfilled")
 
 
-async def context(rt: Runtime, task: WorkTask) -> StepContext:
+async def context(
+    rt: Runtime, task: WorkTask, released: ReleasedContext | None = None
+) -> StepContext:
     assert rt.tickets is not None
     replies: list[tuple[str, str]] = []
     consumed: list[str] = []
     refused: list[str] = []
+    if released is None:
+        released = await session_context(rt).build(task.scope, task.goal, task.waiting_ticket_ids)
+    views = {view.ticket_id: view for view in released.tickets}
     for ticket_id in task.waiting_ticket_ids:
         ticket = await rt.tickets.get(task.scope, ticket_id)
         if ticket is None:
@@ -162,12 +182,17 @@ async def context(rt: Runtime, task: WorkTask) -> StepContext:
             continue
         if ticket.next_turn != "agent":
             continue
-        messages = await rt.tickets.messages(task.scope, ticket_id)
-        last_agent = max((m.sequence for m in messages if m.author == "agent"), default=0)
+        view = views.get(ticket_id)
+        if view is None:
+            continue
+        messages = view.messages
+        last_agent = max(
+            (i for i, (author, _) in enumerate(messages) if author == "agent"), default=-1
+        )
         replies += [
-            (ticket.title, m.body)
-            for m in messages
-            if m.author == "operator" and m.sequence > last_agent
+            (view.title, body)
+            for i, (author, body) in enumerate(messages)
+            if author == "operator" and i > last_agent
         ]
         if ticket.kind != "capability_request":
             consumed.append(ticket_id)
@@ -200,27 +225,36 @@ async def perform(execution: Execution) -> list[str]:
     # Everything earlier steps of this task read is an input of this attempt: a file written
     # now keeps that lineage at the file owner, and a revoked input closes the write.
     # The person's brief (AW-06) is shown to the model, so its sources are inputs as well.
-    brief = await persona(rt).build(task.scope, task.goal)
-    sources = {(r.source_id, r.version): r for r in brief.sources}
+    provider = session_context(rt)
+    brief = await provider.build(task.scope, task.goal, task.waiting_ticket_ids)
+    sources = {(r.source_id, r.version): r for r in brief.refs.sources}
     sources.update(
         {(r.source_id, r.version): r for step in task.progress for r in step.read_sources}
     )
-    files = {(r.artifact_id, r.version): r for step in task.progress for r in step.read_files}
+    files = {(r.artifact_id, r.version): r for r in brief.refs.files}
+    files.update({(r.artifact_id, r.version): r for step in task.progress for r in step.read_files})
+    if len(sources) > 200 or len(files) > 200:
+        raise ContractError(ErrorCode.RESOURCE_BUSY)  # never truncate provenance
+    refs = ContextRefs(tuple(sources.values()), tuple(files.values()))
+    gateway.release = lambda: provider.still_valid(task.scope, refs)
+    if not await gateway.release():
+        raise ContractError(ErrorCode.ACCESS_DENIED)
+    execution.extra_sources = refs.sources
     attempt = await owner.prepare(
         task,
         int(number),
         execution.command.operation_id,
         scope,
         execution.command.freshness,
-        list(sources.values())[-200:],
-        list(files.values())[-200:],
+        list(sources.values()),
+        list(files.values()),
     )
     # Owners look the attempt up by this id (file rights, lineage); it names the recorded attempt.
     gate = replace(gate, attempt_id=attempt.id)
     step = ActivityStep(
         owner, tickets, gateway, settings, rt.tool_executors, scope.agent_id or "agent"
     )
-    shown = replace(await context(rt, task), persona_brief=brief.text)
+    shown = replace(await context(rt, task, brief), persona_brief=brief.persona)
     outcome = await step.run(gate, task, await tools(rt, scope), shown)
     # Results return to the memory owner here, never from the executor (AW-06).
     experience = recorder(rt)
@@ -258,7 +292,10 @@ async def propose_goal(
         t.goal[:200] for t in sorted(await owner.tasks(gate.scope), key=lambda t: t.updated_at)
     ][-10:]
     # Character shapes the choice: interests, obligations and what it remembers.
-    brief = await persona(rt).build(area(gate.scope), "мои интересы, обязательства и занятия")
+    provider = session_context(rt)
+    brief = await provider.build(area(gate.scope), "мои интересы, обязательства и занятия")
+    gateway.release = lambda: provider.still_valid(gate.scope, brief.refs)
+    gateway.execution.extra_sources = brief.refs.sources
     reply = await gateway.generate(
         gate,
         ModelRequest(
@@ -275,7 +312,7 @@ async def propose_goal(
                     "user",
                     json.dumps(
                         {
-                            "persona": brief.text,
+                            "persona": brief.persona,
                             "recent_tasks": recent,
                             "capabilities": [
                                 t.manifest.capability_id + ": " + t.manifest.summary
