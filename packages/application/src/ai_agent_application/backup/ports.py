@@ -55,6 +55,16 @@ class ExtraFiles(Protocol):
     def files(self) -> list[tuple[str, Path]]: ...
 
 
+class SnapshotExtraFiles(Protocol):
+    """Build bounded extras from THIS database snapshot, never from the live head.
+
+    Outputs belong in the snapshot's private staging directory. Failure aborts
+    the whole copy; the caller removes staging after the store has copied it.
+    """
+
+    async def files_for_snapshot(self, database: Path) -> list[tuple[str, Path]]: ...
+
+
 class AgentGate(Protocol):
     async def run_state(self) -> str:
         """Authoritative run state of the active workspace; restore needs ``STOPPED``."""
