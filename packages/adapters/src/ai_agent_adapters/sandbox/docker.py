@@ -195,6 +195,7 @@ class DockerTaskRunner:
                                     ChatMessage(cast(Any, m["role"]), m["content"]) for m in entries
                                 ),
                                 tokens,
+                                call_id=f"sandbox-{calls}",
                             ),
                         )
                         await self._verify(admission, attempt)

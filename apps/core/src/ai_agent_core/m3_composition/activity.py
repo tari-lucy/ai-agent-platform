@@ -69,7 +69,14 @@ class ExecutionModelGateway:
         self.execution = execution
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
-        if not admission.is_current():
+        command, lease = self.execution.command, self.execution.lease
+        if (
+            not admission.is_current()
+            or admission.scope != command.scope
+            or admission.freshness != command.freshness
+            or admission.operation_id != command.operation_id
+            or admission.lease_version != lease.lease_version
+        ):
             return ModelReply("not_admitted", "", "")
         try:
             result = await self.execution.generate(
@@ -78,6 +85,7 @@ class ExecutionModelGateway:
                     role_id=request.role_id,
                     messages=request.messages,
                     result_model=request.result_model,
+                    max_output_tokens=request.max_output_tokens,
                 ),
                 self.execution.cancel,
             )

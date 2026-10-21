@@ -245,6 +245,7 @@ print('BROKER_BOUNDED')
         assert result.stdout_tail.strip() == "BROKER_BOUNDED"
         assert len(calls) == 2
         assert all(request.max_output_tokens == 32 for request in calls)
+        assert [request.call_id for request in calls] == ["sandbox-1", "sandbox-2"]
 
     asyncio.run(scenario())
 

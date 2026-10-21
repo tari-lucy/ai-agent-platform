@@ -122,8 +122,14 @@ class GenerationRequest:
     messages: tuple[ChatMessage, ...]
     # Optional closed schema: the final text must be one JSON document matching it.
     result_model: type[BaseModel] | None = None
+    # Optional per-call ceiling. May only lower the configured role assignment.
+    max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
+        if self.max_output_tokens is not None and (
+            type(self.max_output_tokens) is not int or not 1 <= self.max_output_tokens <= 65536
+        ):
+            raise ValueError("OUTPUT_TOKEN_LIMIT")
         if not 1 <= len(self.messages) <= MAX_MESSAGES:
             raise ValueError("MESSAGES_BOUNDS")
         if sum(len(item.content) for item in self.messages) > MAX_PROMPT_CHARS:
