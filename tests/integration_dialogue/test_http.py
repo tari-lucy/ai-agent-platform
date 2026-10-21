@@ -51,7 +51,10 @@ async def start(env):
 
 async def finish_job(env, operation_id, *, succeeded=True):
     # Observe the actual lifespan executor, never race it with a second manual claim.
-    for _ in range(200):
+    # Wait for the job itself, not a fixed 10 s: under load its tick can start much later.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 60
+    while loop.time() < deadline:
         stored = await env.runtime.jobs.store.load(
             operation_id, env.runtime.supervisor.snapshot.scope
         )
