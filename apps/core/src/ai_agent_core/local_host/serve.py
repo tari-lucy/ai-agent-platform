@@ -208,6 +208,10 @@ def _build(
                 files.max_file_bytes, files.max_scope_bytes, files.max_files, files.max_versions
             ),
         )
+        from ai_agent_core.m3_composition.workplace_tools import executors
+
+        # Callable by activity steps only with the agent's current right (checked per call).
+        runtime.tool_executors.update(executors(runtime, runtime.workplace))
 
     if config.live is not None and config.operator_controls:
         from .live_budget import LiveBudget

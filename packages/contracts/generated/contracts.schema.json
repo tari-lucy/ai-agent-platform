@@ -13497,6 +13497,78 @@
       ],
       "type": "string"
     },
+    "WorkStep": {
+      "additionalProperties": false,
+      "description": "One finished tool step of a task, as the activity owner recorded it.\n\n``read_*`` is what the step actually read: later attempts of the task carry it as inputs,\nso a file written from it keeps the lineage. ``written`` are the files it produced.",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "attempt_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "read_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 50,
+          "title": "Read Files",
+          "type": "array"
+        },
+        "read_sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 50,
+          "title": "Read Sources",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 16000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "written": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 20,
+          "title": "Written",
+          "type": "array"
+        }
+      },
+      "required": [
+        "at",
+        "attempt_id",
+        "capability_id",
+        "status",
+        "summary"
+      ],
+      "title": "WorkStep",
+      "type": "object"
+    },
     "WorkTask": {
       "additionalProperties": false,
       "description": "Semantic goal, separate from any execution attempt. Never runs on its own.",
@@ -13549,6 +13621,14 @@
           ],
           "default": null,
           "title": "Parent Task Id"
+        },
+        "progress": {
+          "items": {
+            "$ref": "#/$defs/WorkStep"
+          },
+          "maxItems": 20,
+          "title": "Progress",
+          "type": "array"
         },
         "reason": {
           "maxLength": 16000,
@@ -14341,6 +14421,9 @@
     },
     "WorkAttemptPage": {
       "$ref": "#/$defs/Page_WorkAttempt_"
+    },
+    "WorkStep": {
+      "$ref": "#/$defs/WorkStep"
     },
     "WorkTask": {
       "$ref": "#/$defs/WorkTask"

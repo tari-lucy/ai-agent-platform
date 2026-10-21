@@ -9,6 +9,7 @@ by itself: the tick submits work only while the run is ACTIVE/OPEN/autonomous an
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -193,15 +194,31 @@ async def perform(execution: Execution) -> list[str]:
     task = await owner.tasks_repo(scope).get(task_id)
     if task is None or not number.isdigit() or task.state in ("done", "abandoned"):
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+    # Everything earlier steps of this task read is an input of this attempt: a file written
+    # now keeps that lineage at the file owner, and a revoked input closes the write.
+    sources = {(r.source_id, r.version): r for step in task.progress for r in step.read_sources}
+    files = {(r.artifact_id, r.version): r for step in task.progress for r in step.read_files}
     attempt = await owner.prepare(
-        task, int(number), execution.command.operation_id, scope, execution.command.freshness, []
+        task,
+        int(number),
+        execution.command.operation_id,
+        scope,
+        execution.command.freshness,
+        list(sources.values())[-200:],
+        list(files.values())[-200:],
     )
+    # Owners look the attempt up by this id (file rights, lineage); it names the recorded attempt.
+    gate = replace(gate, attempt_id=attempt.id)
     step = ActivityStep(
         owner, tickets, gateway, settings, rt.tool_executors, scope.agent_id or "agent"
     )
     outcome = await step.run(gate, task, await tools(rt, scope), await context(rt, task))
+    state = state_of(outcome.kind)
+    if outcome.tool_status == "failed" or outcome.tool_status == "unknown":
+        state = outcome.tool_status
+    current = await owner.attempts_repo(scope).get(attempt.id)  # a tool step re-bound it
     settled = await owner.settle(
-        attempt, state_of(outcome.kind), derived_id("activity-result", scope, attempt.id)
+        current or attempt, state, derived_id("activity-result", scope, attempt.id)
     )
     rt.notify("work.changed", outcome.task.scope, outcome.task.id, outcome.task.version)
     for ticket_id in outcome.ticket_ids:

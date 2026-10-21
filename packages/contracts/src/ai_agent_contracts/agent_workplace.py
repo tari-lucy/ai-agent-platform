@@ -117,6 +117,23 @@ type WorkOrigin = Literal["assignment", "own_goal", "commitment", "ticket_follow
 type WorkTaskState = Literal["open", "active", "waiting", "done", "abandoned"]
 
 
+class WorkStep(Contract):
+    """One finished tool step of a task, as the activity owner recorded it.
+
+    ``read_*`` is what the step actually read: later attempts of the task carry it as inputs,
+    so a file written from it keeps the lineage. ``written`` are the files it produced.
+    """
+
+    at: UTC
+    attempt_id: Id
+    capability_id: Id
+    status: Literal["succeeded", "failed", "unknown"]
+    summary: Text = Field(max_length=4000)
+    read_sources: list[SourceRef] = Field(default_factory=list, max_length=50)
+    read_files: list[ArtifactRef] = Field(default_factory=list, max_length=50)
+    written: list[ArtifactRef] = Field(default_factory=list, max_length=20)
+
+
 class WorkTask(VersionedRecord):
     """Semantic goal, separate from any execution attempt. Never runs on its own."""
 
@@ -129,6 +146,7 @@ class WorkTask(VersionedRecord):
     waiting_ticket_ids: list[Id] = Field(default_factory=list, max_length=20)
     outcome: Text | None = None
     result_files: list[ArtifactRef] = Field(default_factory=list, max_length=MAX_DEPENDENCIES)
+    progress: list[WorkStep] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def coherent(self) -> Self:

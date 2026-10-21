@@ -15,9 +15,11 @@ from ai_agent_contracts.agent_workplace import (
     CapabilityManifest,
     CapabilityRequest,
     Ticket,
+    WorkStep,
     WorkTask,
 )
-from ai_agent_contracts.common import SourceRef
+from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.common import ArtifactRef, SourceRef
 
 from ai_agent_application.agent_workplace.ports import (
     ModelGateway,
@@ -37,9 +39,13 @@ MAX_OUTPUT_TOKENS = 700
 
 @dataclass(frozen=True)
 class ToolResult:
+    """What one call did. ``read_*`` is what it actually read (lineage for later writes)."""
+
     status: Literal["succeeded", "failed", "unknown"]
     summary: str
     sources: tuple[SourceRef, ...] = ()
+    read_files: tuple[ArtifactRef, ...] = ()
+    written: tuple[ArtifactRef, ...] = ()
 
 
 class ToolExecutor(Protocol):
@@ -75,6 +81,11 @@ class StepOutcome:
     ticket_ids: tuple[str, ...] = ()
     detail: str = ""
     sources: tuple[SourceRef, ...] = field(default_factory=tuple)
+    tool_status: Literal["succeeded", "failed", "unknown"] | None = None
+
+
+MAX_PROGRESS = 20
+PROMPT_STEPS = 6
 
 
 SYSTEM = (
@@ -112,6 +123,11 @@ def prompt(
         "persona": context.persona_brief[:2000],
         "operator_replies": [{"ticket": t, "message": m[:2000]} for t, m in context.replies],
         "refused_capabilities": list(context.refused_capabilities),
+        # Results of this task's earlier tool steps: data the agent produced or read.
+        "previous_steps": [
+            {"capability": step.capability_id, "status": step.status, "result": step.summary[:1500]}
+            for step in task.progress[-PROMPT_STEPS:]
+        ],
         "capabilities": json.loads(_manifests(tools, limit)) if tools else [],
     }
     return (
@@ -223,11 +239,41 @@ class ActivityStep:
                 decision.summary,
             )
             return await self._wait(key, task, ticket)
-        result = await executor.call(admission, decision.capability_id, decision.arguments)
-        active = await self.book.update_task(
-            "tool-" + key, task, state="active", waiting_ticket_ids=[]
+        attempt = await self.book.attempts_repo(admission.scope).get(admission.attempt_id)
+        if attempt is None:
+            return StepOutcome("failed", task, detail="NO_ATTEMPT")
+        # The chosen capability is recorded on the attempt before IO: rights are checked by it.
+        await self.book.bind(attempt, decision.capability_id, tool.manifest.capability_version)
+        try:
+            result = await executor.call(admission, decision.capability_id, decision.arguments)
+        except ContractError as error:
+            result = ToolResult("failed", "Отказ: " + error.error.code.value)
+        step = WorkStep(
+            at=self.book.clock(),
+            attempt_id=admission.attempt_id,
+            capability_id=decision.capability_id,
+            status=result.status,
+            summary=result.summary[:4000] or "-",
+            read_sources=list(result.sources[:50]),
+            read_files=list(result.read_files[:50]),
+            written=list(result.written[:20]),
         )
-        return StepOutcome("tool_result", active, detail=result.summary, sources=result.sources)
+        latest = {ref.artifact_id: ref for ref in [*task.result_files, *result.written]}
+        active = await self.book.update_task(
+            "tool-" + key,
+            task,
+            state="active",
+            waiting_ticket_ids=[],
+            progress=[*task.progress, step][-MAX_PROGRESS:],
+            result_files=list(latest.values())[-200:],
+        )
+        return StepOutcome(
+            "tool_result",
+            active,
+            detail=result.summary,
+            sources=result.sources,
+            tool_status=result.status,
+        )
 
     async def _ticket(self, key: str, task: WorkTask, draft: TicketDraft, body: str) -> Ticket:
         receipt = await self.tickets.raise_ticket(

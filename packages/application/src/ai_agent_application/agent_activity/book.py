@@ -13,7 +13,7 @@ from datetime import datetime
 from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.common import Record, Scope, SourceRef, VersionedRecord
+from ai_agent_contracts.common import ArtifactRef, Record, Scope, SourceRef, VersionedRecord
 from ai_agent_contracts.control import Freshness
 from ai_agent_contracts.states import ErrorCode
 
@@ -183,6 +183,7 @@ class ActivityBook:
         scope: Scope,
         freshness: Freshness,
         inputs: builtins.list[SourceRef],
+        input_files: builtins.list[ArtifactRef] | None = None,
     ) -> WorkAttempt:
         """The attempt before its job runs; the context service records its inputs here."""
         identifier = attempt_id(task.id, number)
@@ -205,9 +206,34 @@ class ActivityBook:
             freshness=freshness,
             state="submitted",
             inputs=inputs,
+            input_files=input_files or [],
         )
         await self._commit("prepare-" + identifier, scope, [(row, None)])
         stored = await repo.get(identifier)
+        assert stored is not None
+        return stored
+
+    async def bind(
+        self, attempt: WorkAttempt, capability_id: str, capability_version: int
+    ) -> WorkAttempt:
+        """Record the chosen capability before any IO: the file owner authorizes by it."""
+        if (attempt.capability_id, attempt.capability_version) == (
+            capability_id,
+            capability_version,
+        ):
+            return attempt
+        data = attempt.model_dump()
+        data.update(
+            version=attempt.version + 1,
+            updated_at=self.clock(),
+            capability_id=capability_id,
+            capability_version=capability_version,
+        )
+        revised = WorkAttempt.model_validate(data)
+        await self._commit(
+            f"bind-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
+        )
+        stored = await self.attempts_repo(attempt.scope).get(attempt.id)
         assert stored is not None
         return stored
 

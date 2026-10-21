@@ -150,6 +150,7 @@ MODELS = (
     api.Permission,
     agent_workplace.CapabilityManifest,
     agent_workplace.CapabilityBinding,
+    agent_workplace.WorkStep,
     agent_workplace.WorkTask,
     agent_workplace.WorkAttempt,
     agent_workplace.FileAccess,
