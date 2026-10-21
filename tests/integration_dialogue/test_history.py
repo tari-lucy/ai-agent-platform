@@ -212,7 +212,7 @@ def test_recent_window_is_bounded_and_isolated(tmp_path):
 def test_history_revoked_during_generation_cannot_save_late_reply(tmp_path):
     async def scenario():
         script = answer(reply="Поздний ответ.")
-        script.insert(1, Pause(0.4))
+        script.insert(1, Pause(2.0))  # wide enough to revoke while generating, even under load
         async with prepared(tmp_path, [answer(reply="Первый ответ."), script]) as env:
             await start(env)
             first = await send(env, "first", "Синтетическая история.")
@@ -229,11 +229,12 @@ def test_history_revoked_during_generation_cannot_save_late_reply(tmp_path):
                 ),
             )
             assert result.status_code == 200
-            for _ in range(300):
-                if len(env.world.provider.calls) == 2:
-                    break
+            # Wait for the second model call itself, not a fixed 3 s (its job starts on a tick).
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 30
+            while len(env.world.provider.calls) < 2 and loop.time() < deadline:
                 await asyncio.sleep(0.01)
-            assert len(env.world.provider.calls) == 2
+            assert len(env.world.provider.calls) == 2, "the late reply never reached the model"
             ref = first.sources[0]
             await memory(env.runtime).set_rights(
                 command(run.scope, "revoke-history"),
