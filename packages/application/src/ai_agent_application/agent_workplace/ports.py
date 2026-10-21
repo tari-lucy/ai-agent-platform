@@ -188,6 +188,8 @@ class TaskRunner(Protocol):
 
     async def staged(self, admission: WorkAdmission, output: RunnerOutput) -> bytes: ...
 
+    async def cancel(self, admission: WorkAdmission) -> None: ...
+
 
 @dataclass(frozen=True)
 class HarnessTurn:
@@ -204,6 +206,7 @@ class HarnessEvent:
     kind: Literal["progress", "permission_ask", "result", "failed", "cancelled", "unknown"]
     detail: str
     capability_id: str | None = None
+    files: tuple[RunnerOutput, ...] = ()
 
 
 class AgentHarness(Protocol):

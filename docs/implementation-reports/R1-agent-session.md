@@ -239,3 +239,45 @@ tests/workplace_lifecycle и tests/workplace_sandbox (Docker остаётся op
 production-host путь assignment → ticket → answer → completion → restart STOPPED:
 **1 passed (34.21 с)**. Полные suites не повторялись. Ruff и strict mypy изменённой
 композиции чистые.
+
+## Настоящий OpenCode в изолированном adapter gate
+
+Выбран exact pin **1.19.3, Linux x64 baseline**. Official archive SHA-256:
+`531cff2441129c30f0edd5878af494108ad07f5feb46d7ee29a2a5b830a5765d`;
+binary SHA-256: `179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9`.
+Проверены official CLI/server docs и exact source config/paths/npm/read/flags.
+Добавлены воспроизводимые scripts/build_opencode_sandbox.ps1, deploy/opencode,
+стандартный AgentHarness adapter и standalone image launcher. Binary не в Git;
+никакого запуска OpenCode или установщика на Windows-хосте.
+
+Первый --version без выделенного HOME получил правильный EROFS. С временными
+HOME/XDG в контейнере — 1.19.3. Первый model handshake выявил недостающие
+стандартные stream_options.include_usage, tool_choice=auto в facade; они добавлены
+с закрытой проверкой значений. Другие provider options не принимаются.
+Прямая read-проба выявила relative-worktree permission paths; доступ ограничен
+только inputs/outputs внутри sandbox. Выполнен фактический read manifest →
+tool result → final через существующий LLMGateway и scripted provider.
+
+Новый affected gate tests/workplace_harness: **4 passed (6.47 с)** на Windows
+Docker Desktop/Linux engine. Из них один настоящий OpenCode, ровно два model
+calls, оба под lowered ceiling 256, два technical reports с synthetic provider
+usage. Нет title/summary вызовов. Сырые ошибки и partial text не становятся
+ответом. Контейнер удалён; close очищает staged cache. Ruff, strict mypy
+четырёх source modules и import boundaries — чистые. Личный host и платные
+API не использовались. В check_combined добавлен новый набор; full suite не
+повторялся. Исходный synthetic probe в runtime/ не включён в Git.
+
+В exact source Npm.install проверяет writable перед любым install. Поэтому
+конфигурационный каталог image read-only; project config отключён, нет plugin/
+MCP/LSP/formatter, models-fetch/updates/compaction отключены. Контейнер network
+none, без mounts/secret/socket. Model token ceiling берётся из trusted template,
+не зашит в персонажа. Отдельная задача получения полного transitive notices
+upstream binary остаётся до распространяемой поставки (не заявлен release SBOM).
+
+Граница остаётся: это настоящий isolated OpenCode adapter, но ещё не единый
+production session driver. Он не подключён автоматически к private host;
+platform tools/тикеты/файлы через owner bridge, logical-session responses,
+delivery/ACK и staged restore остаются обязательными следующими стыками.
+Сырой OpenCode checkpoint не сохраняется: следующая среда должна получать
+контекст заново через R2/Source/File owners. Такая реконструкция безопаснее
+непроверенного export/import, но не объявляет полный resume gate пройденным.

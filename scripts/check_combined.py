@@ -54,6 +54,7 @@ HELPERS = (
     "tests/workplace_sessions",
     "tests/workplace_lifecycle",
     "tests/workplace_sandbox",
+    "tests/workplace_harness",
     "tests/workplace_journey",
 )
 TESTS = (
@@ -100,6 +101,7 @@ TESTS = (
     "tests/workplace_sessions",
     "tests/workplace_lifecycle",
     "tests/workplace_sandbox",
+    "tests/workplace_harness",
     "tests/workplace_journey",
 )
 
