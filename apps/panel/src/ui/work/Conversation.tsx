@@ -5,6 +5,7 @@ import type { RunSession, Scope, WorkSessionTranscript } from '../../shared/cont
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
+import { useWorkSessions } from './sessions.ts';
 import {
   closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, pending as awaiting, sessionStateLabels, titleProblem, turn, writable,
 } from './conversation.ts';
@@ -100,10 +101,14 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
   </Paper>;
 }
 
-export function Conversation({ api, scope, run }: { api: PanelApi; scope: Scope; run?: RunSession }) {
-  const sessions = useQuery({ queryKey: projectionKey('work-sessions', scope), queryFn: ({ signal }) => api.workSessions(scope, signal) });
+type ConversationProps = {
+  api: PanelApi; scope: Scope; run?: RunSession;
+  // Owned by the work screen, so a task card can open its conversation here.
+  chosen: string | null; onSelect: (id: string | null) => void;
+};
+export function Conversation({ api, scope, run, chosen, onSelect: setSelected }: ConversationProps) {
+  const sessions = useWorkSessions(api, scope);
   const rows = newestFirst(sessions.data?.items ?? []);
-  const [chosen, setSelected] = useState<string | null>(null);
   // The newest conversation is shown until the operator picks another one.
   const selected = chosen ?? rows[0]?.id ?? null;
   const transcript = useQuery({

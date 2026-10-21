@@ -1,11 +1,13 @@
 import { Alert, Anchor, Badge, Button, Group, Paper, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { RunSession, Scope, WorkTask } from '../../shared/contracts.ts';
+import type { RunSession, Scope, WorkSession, WorkTask } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { Conversation } from './Conversation.tsx';
+import { useWorkSessions } from './sessions.ts';
+import { discussTitle, openCommand, sessionFor } from './conversation.ts';
 import {
   abandonCommand, assignCommand, attemptLabels, attemptsOf, experienceOf, finished, goalProblem, groups, MAX_GOAL,
   originLabels, spend, stateLabels, stepLabels, turn,
@@ -101,8 +103,40 @@ function Abandon({ api, scope, task }: { api: PanelApi; scope: Scope; task: Work
   </Stack>;
 }
 
+function Discuss({ api, scope, task, sessions, onOpen }: {
+  api: PanelApi; scope: Scope; task: WorkTask; sessions: WorkSession[]; onOpen: (id: string) => void;
+}) {
+  const cache = useQueryClient();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pending = useRef<string | null>(null); // one request id per click until it succeeds
+  const linked = sessionFor(task.id, sessions);
+  async function discuss() {
+    if (linked) { onOpen(linked.id); return; }
+    setBusy(true); setProblem(null);
+    pending.current ??= crypto.randomUUID();
+    try {
+      const receipt = await api.command(openCommand(scope, discussTitle(task.goal), pending.current, task.id));
+      pending.current = null;
+      if ('resource_id' in receipt && receipt.resource_id) onOpen(receipt.resource_id);
+    } catch (error) {
+      setProblem(failureMessage(error) + ' Повтор использует тот же запрос.');
+    } finally {
+      setBusy(false);
+      void cache.invalidateQueries({ queryKey: projectionKey('work-sessions', scope) });
+    }
+  }
+  return <Stack gap={2}>
+    <Button variant="light" size="compact-sm" loading={busy} onClick={() => void discuss()}>
+      {linked ? 'Открыть разговор' : 'Обсудить с агентом'}
+    </Button>
+    {problem && <Text size="sm" c="red.8" role="alert">{problem}</Text>}
+  </Stack>;
+}
+
 type Lists = {
   tickets: Parameters<typeof turn>[1]; attempts: Parameters<typeof attemptsOf>[1]; episodes: Parameters<typeof experienceOf>[1]; running: boolean;
+  sessions: WorkSession[]; openSession: (id: string) => void;
 };
 function Task({ api, scope, task, lists }: { api: PanelApi; scope: Scope; task: WorkTask; lists: Lists }) {
   const tries = attemptsOf(task, lists.attempts);
@@ -127,7 +161,10 @@ function Task({ api, scope, task, lists }: { api: PanelApi; scope: Scope; task: 
     {(task.result_files ?? []).length > 0 && <Text size="sm">Результаты: {(task.result_files ?? []).map((ref) => `${ref.artifact_id} v${ref.version}`).join(', ')} — <Anchor href="#/library">в библиотеке</Anchor></Text>}
     {experience.length > 0 && <Text size="sm">Стало опытом: {experience.length} {experience.length === 1 ? 'эпизод' : 'эпиз.'} — <Anchor href="#/memory">в памяти</Anchor></Text>}
     {task.outcome && <Text size="sm" mt={4}>{task.outcome}</Text>}
-    {!finished(task) && <Group mt={4}><Abandon api={api} scope={scope} task={task} /></Group>}
+    {!finished(task) && <Group mt={4} align="flex-start">
+      <Discuss api={api} scope={scope} task={task} sessions={lists.sessions} onOpen={lists.openSession} />
+      <Abandon api={api} scope={scope} task={task} />
+    </Group>}
   </Paper>;
 }
 
@@ -147,7 +184,14 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
   const status = useQuery({ queryKey: projectionKey('private-api-status', scope), queryFn: ({ signal }) => api.privateApiStatus(scope, signal) });
   const off = tasks.query.error instanceof ApiFailure && tasks.query.error.code === 'ACCESS_DENIED';
   const running = run?.state === 'ACTIVE';
-  const lists: Lists = { tickets: tickets.rows, attempts: attempts.rows, episodes: episodes.rows, running };
+  const sessions = useWorkSessions(api, scope);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const talk = useRef<HTMLDivElement>(null);
+  const openSession = (id: string) => { setChosen(id); talk.current?.scrollIntoView({ block: 'start' }); };
+  const lists: Lists = {
+    tickets: tickets.rows, attempts: attempts.rows, episodes: episodes.rows, running,
+    sessions: sessions.data?.items ?? [], openSession,
+  };
   const { mine, working, done } = groups(tasks.rows, tickets.rows);
   const partial = [tasks, attempts, tickets, episodes].some((list) => list.query.isError || (list.query.data && !list.complete));
   const used = spend(status.data);
@@ -159,7 +203,7 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
       {!running && <Text size="sm" c="orange.8">Агент не работает: шаги начнутся только после явного запуска.</Text>}
     </div>
     {off ? <Paper withBorder p="md"><Text size="sm">Контур деятельности не включён на этом хосте (офлайн-команда configure-activity).</Text></Paper> : <>
-      <Conversation api={api} scope={scope} run={run} />
+      <div ref={talk}><Conversation api={api} scope={scope} run={run} chosen={chosen} onSelect={setChosen} /></div>
       <Assign api={api} scope={scope} />
       {partial && <Text size="sm" c="orange.8">Часть данных недоступна или не дочитана — список может быть неполным.</Text>}
       {tasks.query.isError && !off && <Alert color="orange" title="Задачи недоступны">{failureMessage(tasks.query.error)}</Alert>}

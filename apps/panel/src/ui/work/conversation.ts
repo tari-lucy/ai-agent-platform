@@ -36,10 +36,18 @@ export function turn(transcript: WorkSessionTranscript, running: boolean): strin
   return 'Сообщение учтено агентом';
 }
 export const writable = (transcript: WorkSessionTranscript) => transcript.state === 'open' || transcript.state === 'waiting';
-export const openCommand = (scope: Scope, title: string, requestId: string): CreateCommand => ({
+export const openCommand = (scope: Scope, title: string, requestId: string, taskId?: string): CreateCommand => ({
   type: 'work.session.open', request_id: requestId, scope: area(scope), target: 'work',
-  arguments: { schema_id: 'work.session.open-args', data: { title: title.trim() } },
+  arguments: { schema_id: 'work.session.open-args', data: taskId ? { title: title.trim(), task_id: taskId } : { title: title.trim() } },
 });
+// The conversation about one task: its newest still-open one, if any.
+export function sessionFor(taskId: string, rows: WorkSession[]): WorkSession | undefined {
+  return newestFirst(rows).find((row) => (row.task_ids ?? []).includes(taskId) && (row.state === 'open' || row.state === 'waiting'));
+}
+export const discussTitle = (goal: string) => {
+  const title = 'Обсуждение: ' + goal.trim();
+  return title.length > 200 ? title.slice(0, 199) + '…' : title;
+};
 export const messageCommand = (scope: Scope, transcript: WorkSessionTranscript, text: string, requestId: string): EditCommand => ({
   type: 'work.session.message', request_id: requestId, scope: area(scope), target: transcript.session_id,
   expected_version: transcript.session_version,

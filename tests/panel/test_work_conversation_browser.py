@@ -68,3 +68,38 @@ def test_conversation_with_the_person_while_stopped(page, tmp_path, monkeypatch)
         thread.get_by_role("button", name="Закрыть разговор").click()
         expect(thread.get_by_text("Разговор закрыт", exact=False)).to_be_visible(timeout=10000)
         expect(thread.get_by_label("Сообщение агенту")).to_have_count(0)
+
+
+def test_a_task_is_discussed_in_its_own_conversation(page, tmp_path, monkeypatch):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        host = executor.submit(
+            lambda: asyncio.run(prepared(tmp_path, monkeypatch, WorkModel()))
+        ).result()
+    with Server(
+        host.root,
+        free_port(),
+        tmp_path / "server.log",
+        provider="live",
+        panel_dir=ROOT / "apps/panel/dist",
+        env_file=binding(tmp_path / "serve.env"),
+    ) as server:
+        page.goto(server.origin + "/#/work")
+        page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
+        page.get_by_role("button", name="Войти", exact=True).click()
+        form = page.get_by_label("Новое поручение")
+        form.get_by_label("Поручение").fill("Разобрать заметки о маяках.")
+        form.get_by_role("button", name="Поручить").click()
+        card = page.get_by_role("list", name="В работе").get_by_role(
+            "listitem", name="Разобрать заметки о маяках."
+        )
+        card.get_by_role("button", name="Обсудить с агентом").click(timeout=10000)
+        thread = page.get_by_label("Разговор: Обсуждение: Разобрать заметки о маяках.")
+        expect(thread).to_be_visible(timeout=10000)
+        # The second click opens the same conversation; no second one is created.
+        expect(card.get_by_role("button", name="Открыть разговор")).to_be_visible(timeout=10000)
+        card.get_by_role("button", name="Открыть разговор").click()
+        expect(thread).to_be_visible()
+        talk = page.get_by_label("Разговор о работе")
+        expect(talk.get_by_role("textbox", name="Разговор")).to_have_value(
+            "Обсуждение: Разобрать заметки о маяках. — Открыт"
+        )
