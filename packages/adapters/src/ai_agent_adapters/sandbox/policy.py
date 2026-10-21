@@ -23,7 +23,7 @@ class RunnerTemplate:
 
     def __post_init__(self) -> None:
         if (
-            re.fullmatch(r"[a-z][a-z0-9-]{0,63}", self.id) is None
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", self.id) is None
             or re.fullmatch(r"sha256:[0-9a-f]{64}", self.image_id) is None
             or not self.executable_prefix
             or not self.executable_prefix[0].startswith("/")

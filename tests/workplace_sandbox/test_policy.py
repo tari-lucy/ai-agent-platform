@@ -39,3 +39,10 @@ def test_no_mount_socket_ports_or_secret_arguments():
     assert "size=1048576" in next(arg for arg in args if arg.startswith("/work:"))
     with pytest.raises(ValueError):
         replace(TEMPLATE, image_id="python:latest")
+
+
+def test_template_uses_the_existing_capability_id_namespace():
+    template = replace(TEMPLATE, id="workplace.python")
+    template.check(replace(TASK, template_id="workplace.python"))
+    with pytest.raises(ValueError):
+        replace(TEMPLATE, id="../other")
