@@ -7,6 +7,7 @@ workplace agent for that attempt's capability, granted through the operator's de
 """
 
 import asyncio
+import hashlib
 import stat
 from pathlib import Path
 
@@ -14,13 +15,15 @@ import pytest
 from ai_agent_application.agent_knowledge import NoteDraft
 from ai_agent_application.agent_skills import SkillDraft
 from ai_agent_application.agent_workplace.ports import WorkAdmission
+from ai_agent_application.memory import SourceDraft
 from ai_agent_application.storage import Grant, Owner, RecordAccess
 from ai_agent_application.tickets import TicketDraft
-from ai_agent_contracts.agent_workplace import CapabilityRequest, WorkAttempt
+from ai_agent_contracts.agent_workplace import CapabilityRequest, FileWrite, WorkAttempt
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Permission, Receipt
 from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.common import SourceRef
 from ai_agent_contracts.control import Freshness
-from ai_agent_contracts.states import ErrorCode
+from ai_agent_contracts.states import ErrorCode, Provenance
 from quality_support import Model, prepared_host
 from test_http import post, scope_params
 
@@ -29,7 +32,8 @@ from ai_agent_core.local_host.layout import HostError, load_config, paths
 from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.tickets import enable_tickets
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
-from ai_agent_core.m3_composition.state import PRINCIPALS
+from ai_agent_core.m3_composition.dialogue import memory
+from ai_agent_core.m3_composition.state import PRINCIPALS, command
 
 SKILLS = "workplace.skills"
 BINDING = "workplace-library." + SKILLS
@@ -42,7 +46,7 @@ DRAFT = SkillDraft(
 )
 
 
-async def attempt(rt, number: int, capability: str = SKILLS) -> WorkAdmission:
+async def attempt(rt, number: int, capability: str = SKILLS, inputs=()) -> WorkAdmission:
     """Stands in for the activity owner: the attempt is recorded before any IO."""
     run = rt.supervisor.snapshot.scope.model_copy(update={"agent_id": "agent", "run_id": "run"})
     fresh = Freshness(run_id="run", control_epoch=1, profile_version=1, policy_version=1)
@@ -61,6 +65,7 @@ async def attempt(rt, number: int, capability: str = SKILLS) -> WorkAdmission:
         capability_version=1,
         freshness=fresh,
         state="prepared",
+        inputs=list(inputs),
     )
     command = MessageCommand(
         request_id="attempt-" + identifier,
@@ -139,7 +144,10 @@ def test_offline_enable_operator_grant_view_and_revoke(tmp_path, monkeypatch):
             await rt.store.provision(
                 host.scope,
                 rights.host_grants(load_config(paths(host.root)))
-                + (Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True),),
+                + (
+                    Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True),
+                    Grant(PRINCIPALS[Owner.ACTIVITY], Owner.MEMORY, read=True),
+                ),
             )
             place = rt.workplace
             assert place is not None
@@ -208,6 +216,70 @@ def test_offline_enable_operator_grant_view_and_revoke(tmp_path, monkeypatch):
             [method_file] = body["files"]
             assert (method_file["area"], method_file["kind"]) == ("skills", "method")
             assert body["complete"] is True
+
+            # The operator opens a file's text in the panel, through the owner's guard.
+            opened = await host.env.client.get(
+                "/api/v1/workplace-file/" + saved.method.artifact_id,
+                params=scope_params(host.scope),
+            )
+            assert opened.status_code == 200, opened.text
+            assert opened.json()["text"] == "1. Read.\n2. Outline.\n"
+            assert opened.json()["withheld"] is False
+            unknown = await host.env.client.get(
+                "/api/v1/workplace-file/no-such-file", params=scope_params(host.scope)
+            )
+            assert unknown.status_code >= 400
+            # A file made from a source: once the source is blocked (ledger), no text is given.
+            made = await memory(rt).register_source(
+                command(host.scope, "src-basis"),
+                SourceDraft(
+                    provenance=Provenance.OPERATOR_INPUT,
+                    source_type="operator-message",
+                    adapter_id="dialogue",
+                    adapter_version="1",
+                    occurred_at=rt.supervisor.clock.utc(),
+                    content="Основание заметки.",
+                    read_allowed=True,
+                    api_transfer_allowed=True,
+                    public_disclosure_allowed=False,
+                ),
+            )
+            basis = SourceRef(
+                source_id=made.source_id,
+                version=made.version,
+                scope=host.scope,
+                availability="available",
+            )
+            data = "Из основания.".encode()
+            derived = await place.files.write(
+                await attempt(rt, 7, inputs=[basis]),
+                FileWrite(
+                    request_id="derived-1",
+                    file_id="derived-note",
+                    area="skills",
+                    path="outline-a-text/notes.md",
+                    title="Заметка к навыку",
+                    kind="note",
+                    provenance="generated",
+                    media_type="text/markdown",
+                    checksum=hashlib.sha256(data).hexdigest(),
+                    size_bytes=len(data),
+                ),
+                data,
+            )
+            url = "/api/v1/workplace-file/" + derived.id
+            shown = await host.env.client.get(url, params=scope_params(host.scope))
+            assert shown.json()["text"] == "Из основания."
+            await rt.maintenance.ledger.block(
+                host.scope,
+                basis.source_id,
+                basis.version,
+                "rights_revoked",
+                rt.supervisor.clock.utc(),
+            )
+            hidden = await host.env.client.get(url, params=scope_params(host.scope))
+            assert hidden.status_code == 200, hidden.text
+            assert hidden.json()["withheld"] is True and hidden.json()["text"] is None
 
             # Revoked: the next read is refused at the file owner.
             [right] = [

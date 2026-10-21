@@ -22,10 +22,16 @@ from ai_agent_application.storage import Owner
 from ai_agent_application.workspace_files import FileLimits, FileReleaseGuard, ManagedFiles
 from ai_agent_application.workspace_files.guard import stable_scope
 from ai_agent_application.workspace_files.service import FileAuthorizer
-from ai_agent_contracts.agent_workplace import FileAccess, WorkAttempt, WorkplaceLibrary
+from ai_agent_contracts.agent_workplace import (
+    FileAccess,
+    ManagedFile,
+    WorkAttempt,
+    WorkplaceLibrary,
+)
 from ai_agent_contracts.api import Permission
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
+from ai_agent_contracts.panel import WorkplaceFileContent
 from ai_agent_contracts.states import ErrorCode
 
 from .permission_decisions import HOLDER
@@ -146,5 +152,60 @@ async def library(rt: Runtime, scope: Scope) -> WorkplaceLibrary:
         skills=skills[:200],
         files=files,
         complete=complete,
+        checked_at=rt.supervisor.clock.utc(),
+    )
+
+
+MAX_SHOWN = 20000
+TEXT_TYPES = ("text/", "application/json")
+
+
+async def file_content(rt: Runtime, scope: Scope, file_id: str) -> WorkplaceFileContent:
+    """One file's current text for the operator's panel (purpose ``api_transfer``).
+
+    The same checks as the owner's own read: the release guard before and after reading the
+    bytes, exact size, and the store refuses a corrupted digest. A closed basis or a
+    non-text file gives no content. (Candidate for a public ManagedFiles operator read.)
+    """
+    place = rt.workplace
+    if place is None:
+        raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+    files = place.files
+    area = stable_scope(scope)
+    entry = await rt.store.repository(ManagedFile, PRINCIPALS[Owner.CATALOGUE], area).get(file_id)
+    if entry is None:
+        raise ContractError(ErrorCode.ACCESS_DENIED)
+    text: str | None = None
+    truncated = False
+    if entry.reference.media_type.startswith(TEXT_TYPES):
+        try:
+            await files.guard.check(area, (), (entry.reference,), "api_transfer")
+            data = await files.blobs.read(
+                area, entry.reference.checksum, files.limits.max_file_bytes
+            )
+            if len(data) != entry.reference.size_bytes:
+                raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
+            await files.guard.check(area, (), (entry.reference,), "api_transfer")
+        except ContractError as error:
+            if error.error.code not in HIDDEN:
+                raise
+        except OSError:
+            raise ContractError(ErrorCode.SERVICE_UNAVAILABLE) from None
+        else:
+            decoded = data.decode("utf-8", errors="replace")
+            truncated = len(decoded) > MAX_SHOWN
+            text = decoded[:MAX_SHOWN]
+    return WorkplaceFileContent(
+        scope=scope,
+        file_id=entry.id,
+        version=entry.version,
+        title=entry.title,
+        area=entry.area,
+        kind=entry.kind,
+        provenance=entry.provenance,
+        media_type=entry.reference.media_type,
+        text=text,
+        withheld=text is None,
+        truncated=truncated,
         checked_at=rt.supervisor.clock.utc(),
     )

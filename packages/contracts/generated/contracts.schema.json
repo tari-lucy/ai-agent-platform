@@ -14304,6 +14304,93 @@
       ],
       "type": "string"
     },
+    "WorkplaceFileContent": {
+      "additionalProperties": false,
+      "description": "The text of one catalogued file for the operator, through the file owner's guard.\n\n``withheld`` means a basis of the file is revoked, expired, deleted or blocked, or the file\nis not text: no content is given. Long text is cut and marked ``truncated``.",
+      "properties": {
+        "area": {
+          "maxLength": 32,
+          "title": "Area",
+          "type": "string"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "file_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "File Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 32,
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 128,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "provenance": {
+          "maxLength": 32,
+          "title": "Provenance",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "title": {
+          "maxLength": 512,
+          "title": "Title",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "withheld": {
+          "title": "Withheld",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "file_id",
+        "version",
+        "title",
+        "area",
+        "kind",
+        "provenance",
+        "media_type",
+        "withheld",
+        "truncated",
+        "checked_at"
+      ],
+      "title": "WorkplaceFileContent",
+      "type": "object"
+    },
     "WorkplaceLibrary": {
       "additionalProperties": false,
       "description": "Operator view of skills and catalogued files, read through the file owner's guard.\n\nA skill whose method is no longer releasable (revoked source, expired, hidden) is left out;\n``complete`` is false when a listing reached its bound.",
@@ -15042,6 +15129,9 @@
     },
     "WorkTaskPage": {
       "$ref": "#/$defs/Page_WorkTask_"
+    },
+    "WorkplaceFileContent": {
+      "$ref": "#/$defs/WorkplaceFileContent"
     },
     "WorkplaceLibrary": {
       "$ref": "#/$defs/WorkplaceLibrary"

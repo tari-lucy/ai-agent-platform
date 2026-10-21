@@ -303,6 +303,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         ("/api/v1/private-api-status", "PrivateApiStatus"),
         ("/api/v1/workplace-library", "WorkplaceLibrary"),
         ("/api/v1/work-session-transcript/{session_id}", "WorkSessionTranscript"),
+        ("/api/v1/workplace-file/{file_id}", "WorkplaceFileContent"),
         ("/api/v1/api-limits", "ApiLimits"),
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
         ("/api/v1/laboratory-runs", "LaboratoryRuns"),
@@ -314,6 +315,15 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             params.append(
                 {
                     "name": "persona_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            )
+        if "{file_id}" in route:
+            params.append(
+                {
+                    "name": "file_id",
                     "in": "path",
                     "required": True,
                     "schema": {"type": "string", "minLength": 1, "maxLength": 128},

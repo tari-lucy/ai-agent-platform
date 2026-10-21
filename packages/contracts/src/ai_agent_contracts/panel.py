@@ -552,3 +552,30 @@ class WorkSessionTranscript(Contract):
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC
+
+
+class WorkplaceFileContent(Contract):
+    """The text of one catalogued file for the operator, through the file owner's guard.
+
+    ``withheld`` means a basis of the file is revoked, expired, deleted or blocked, or the file
+    is not text: no content is given. Long text is cut and marked ``truncated``.
+    """
+
+    scope: Scope
+    file_id: Id
+    version: Version
+    title: ShortText
+    area: str = Field(max_length=32)
+    kind: str = Field(max_length=32)
+    provenance: str = Field(max_length=32)
+    media_type: str = Field(max_length=128)
+    text: str | None = Field(default=None, max_length=20000)
+    withheld: bool = Field(strict=True)
+    truncated: bool = Field(strict=True)
+    checked_at: UTC
+
+    @model_validator(mode="after")
+    def text_or_withheld(self) -> Self:
+        if self.withheld != (self.text is None) or (self.withheld and self.truncated):
+            raise ValueError("WITHHELD_TEXT")
+        return self
