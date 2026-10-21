@@ -30,7 +30,7 @@ from .model import (
     SweepReport,
 )
 from .policy import RetentionPolicy
-from .ports import DeletionLedger, DerivedPurger, PhysicalStore
+from .ports import DeletionLedger, DerivedPurger, LedgerPurger, PhysicalStore
 
 MAX_BATCH = 500
 
@@ -281,17 +281,31 @@ class RetentionService:
         reapplied: list[str] = []
         missing: list[str] = []
         pending: list[str] = []
+        skipped: list[str] = []
         for entry in await self.ledger.entries(scope):
             stub = await self.physical.source(scope, entry.source_id)
             if stub is None:
                 missing.append(entry.source_id)
+                skipped.append(entry.source_id)
                 continue
             clean = stub.availability != "available" and not stub.has_content
             if clean and entry.purged_at is not None:
+                skipped.append(entry.source_id)
                 continue
             availability = "expired" if entry.reason == "expired" else "deleted"
             report = await self._purge(scope, (entry.source_id,), availability, (), entry)
             (reapplied if report.complete else pending).append(entry.source_id)
+        for start in range(0, len(skipped), MAX_BATCH):
+            batch = skipped[start : start + MAX_BATCH]
+            extensions = [purger for purger in self.purgers if isinstance(purger, LedgerPurger)]
+            if not extensions:
+                break
+            try:
+                for purger in extensions:
+                    await purger.reapply_ledger(scope, batch)
+                await self.physical.finalize()
+            except Exception:
+                pending.extend(batch)
         return LedgerApplication(tuple(reapplied), tuple(missing), tuple(pending))
 
 
