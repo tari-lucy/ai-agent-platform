@@ -122,6 +122,10 @@ class Views:
                 resets_at=None if budget is None else budget.reset_at(now),
                 checked_at=now,
             )
+        if resource == "workplace-library" and identifier is None:
+            from .workplace import library
+
+            return await library(self.runtime, scope)
         if resource == "laboratory-runs" and identifier is None:
             return await self.runtime.lab_control.read(principal_id, scope, limit, cursor)
         if resource == "settings-transfer-status" and identifier is not None:

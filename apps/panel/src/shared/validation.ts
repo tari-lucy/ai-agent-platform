@@ -589,3 +589,25 @@ export function capabilityBindings(value: unknown, selected: Scope): CapabilityB
     ((row.state === 'ready') === (row.verified_at != null && date(row.verified_at)))));
   return value as CapabilityBindingPage;
 }
+
+// Library view (AW-03): read through the file owner's guard; at most the bounds the server uses.
+const skillStatuses = new Set(['experimental', 'verified', 'retired']);
+const fileAreas = new Set(['inbox', 'knowledge', 'skills', 'projects', 'scratch', 'exports', 'reference', 'guide']);
+const fileKinds = new Set(['material', 'note', 'hypothesis', 'method', 'script', 'plan', 'draft', 'result']);
+const fileProvenance = new Set(['read', 'generated', 'assumption', 'verified']);
+const artifactRef = (ref: unknown, selected: Scope) => object(ref) && id(ref.artifact_id) && version(ref.version) &&
+  isScope(ref.scope) && samePartition(selected, ref.scope) && typeof ref.checksum === 'string' && Number.isSafeInteger(ref.size_bytes);
+export function workplaceLibrary(value: unknown, selected: Scope): import('./contracts.ts').WorkplaceLibrary {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && typeof value.complete === 'boolean' &&
+    date(value.checked_at) && Array.isArray(value.skills) && value.skills.length <= 200 && Array.isArray(value.files) && value.files.length <= 800);
+  demand(value.skills.every((row: unknown) => object(row) && isScope(row.scope) && samePartition(selected, row.scope) &&
+    id(row.skill_id) && row.skill_id === row.id && version(row.version) && skillStatuses.has(String(row.status)) &&
+    text(row.title, 512) && text(row.applicability) && text(row.limitations) && artifactRef(row.method, selected) &&
+    (row.uses_capabilities === undefined || (Array.isArray(row.uses_capabilities) && row.uses_capabilities.every(id))) &&
+    (row.evidence === undefined ? row.status !== 'verified' : refs(row.evidence) && (row.status !== 'verified' || (row.evidence as unknown[]).length > 0))));
+  demand(value.files.every((row: unknown) => object(row) && isScope(row.scope) && samePartition(selected, row.scope) &&
+    id(row.id) && version(row.version) && fileAreas.has(String(row.area)) && fileKinds.has(String(row.kind)) &&
+    fileProvenance.has(String(row.provenance)) && text(row.title, 512) && text(row.path, 256) && row.state === 'active' &&
+    artifactRef(row.reference, selected) && refs(row.dependencies)));
+  return value as import('./contracts.ts').WorkplaceLibrary;
+}
