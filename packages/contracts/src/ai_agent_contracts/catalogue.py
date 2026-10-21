@@ -6,6 +6,7 @@ from pydantic import Field, TypeAdapter
 
 from ai_agent_contracts import (
     access,
+    agent_sessions,
     agent_workplace,
     api,
     common,
@@ -19,6 +20,11 @@ from ai_agent_contracts import (
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
+    agent_sessions.WorkSession,
+    agent_sessions.WorkSessionMessage,
+    agent_sessions.WorkSessionOpenArguments,
+    agent_sessions.WorkSessionMessageArguments,
+    agent_sessions.WorkSessionCloseArguments,
     panel.PrivateApiStatus,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
@@ -180,6 +186,8 @@ type StreamEvent = Annotated[
 ADAPTERS["StreamEvent"] = TypeAdapter(cast(Any, StreamEvent))
 
 READ_MODELS = {
+    "work-sessions": agent_sessions.WorkSession,
+    "work-session-messages": agent_sessions.WorkSessionMessage,
     "owner-operations": panel.OwnerOperation,
     "gm-settings": persona.GmRuntimeState,
     "settings-transfers": persona.SettingsTransferOperation,

@@ -1816,7 +1816,8 @@
             "laboratory.create",
             "tariff.create",
             "persona.copy",
-            "work.assign"
+            "work.assign",
+            "work.session.open"
           ],
           "title": "Type",
           "type": "string"
@@ -2113,7 +2114,9 @@
             "llm.limits",
             "ticket.reply",
             "ticket.read",
-            "work.abandon"
+            "work.abandon",
+            "work.session.message",
+            "work.session.close"
           ],
           "title": "Type",
           "type": "string"
@@ -7695,6 +7698,118 @@
       "title": "Page[WorkAttempt]",
       "type": "object"
     },
+    "Page_WorkSessionMessage_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/WorkSessionMessage"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[WorkSessionMessage]",
+      "type": "object"
+    },
+    "Page_WorkSession_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/WorkSession"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[WorkSession]",
+      "type": "object"
+    },
     "Page_WorkTask_": {
       "additionalProperties": false,
       "properties": {
@@ -7862,6 +7977,9 @@
           "ticket.reply": "#/$defs/EditCommand",
           "work.abandon": "#/$defs/EditCommand",
           "work.assign": "#/$defs/CreateCommand",
+          "work.session.close": "#/$defs/EditCommand",
+          "work.session.message": "#/$defs/EditCommand",
+          "work.session.open": "#/$defs/CreateCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
           "workspace.restore.execute": "#/$defs/ExecutePlanCommand",
@@ -7999,7 +8117,8 @@
             "connection.changed",
             "usage.changed",
             "ticket.changed",
-            "work.changed"
+            "work.changed",
+            "work-session.changed"
           ],
           "title": "Type",
           "type": "string"
@@ -12137,6 +12256,7 @@
           "ticket.changed": "#/$defs/PanelEvent",
           "usage.changed": "#/$defs/PanelEvent",
           "utterance.changed": "#/$defs/PanelEvent",
+          "work-session.changed": "#/$defs/PanelEvent",
           "work.changed": "#/$defs/PanelEvent"
         },
         "propertyName": "type"
@@ -13537,6 +13657,295 @@
       ],
       "type": "string"
     },
+    "WorkSession": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context_files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 200,
+          "title": "Context Files",
+          "type": "array"
+        },
+        "context_sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 200,
+          "title": "Context Sources",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "generation": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "last_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Last Sequence",
+          "type": "integer"
+        },
+        "processed_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Processed Sequence",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "state": {
+          "default": "open",
+          "enum": [
+            "open",
+            "waiting",
+            "closed",
+            "invalidated"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "waiting_ticket_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Waiting Ticket Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "title"
+      ],
+      "title": "WorkSession",
+      "type": "object"
+    },
+    "WorkSessionCloseArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "title": "WorkSessionCloseArguments",
+      "type": "object"
+    },
+    "WorkSessionMessage": {
+      "additionalProperties": false,
+      "description": "One ordered reference to a Source, not another private text/history copy.",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reply_to_sequence": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply To Sequence"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "speaker": {
+          "enum": [
+            "operator",
+            "character"
+          ],
+          "title": "Speaker",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "session_id",
+        "sequence",
+        "speaker",
+        "source"
+      ],
+      "title": "WorkSessionMessage",
+      "type": "object"
+    },
+    "WorkSessionMessageArguments": {
+      "additionalProperties": false,
+      "description": "Operator text only. Identity, source and sequence are assigned by trusted owners.",
+      "properties": {
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "text"
+      ],
+      "title": "WorkSessionMessageArguments",
+      "type": "object"
+    },
+    "WorkSessionOpenArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "WorkSessionOpenArguments",
+      "type": "object"
+    },
     "WorkStep": {
       "additionalProperties": false,
       "description": "One finished tool step of a task, as the activity owner recorded it.\n\n``read_*`` is what the step actually read: later attempts of the task carry it as inputs,\nso a file written from it keeps the lineage. ``written`` are the files it produced.",
@@ -14464,6 +14873,27 @@
     },
     "WorkAttemptPage": {
       "$ref": "#/$defs/Page_WorkAttempt_"
+    },
+    "WorkSession": {
+      "$ref": "#/$defs/WorkSession"
+    },
+    "WorkSessionCloseArguments": {
+      "$ref": "#/$defs/WorkSessionCloseArguments"
+    },
+    "WorkSessionMessage": {
+      "$ref": "#/$defs/WorkSessionMessage"
+    },
+    "WorkSessionMessageArguments": {
+      "$ref": "#/$defs/WorkSessionMessageArguments"
+    },
+    "WorkSessionMessagePage": {
+      "$ref": "#/$defs/Page_WorkSessionMessage_"
+    },
+    "WorkSessionOpenArguments": {
+      "$ref": "#/$defs/WorkSessionOpenArguments"
+    },
+    "WorkSessionPage": {
+      "$ref": "#/$defs/Page_WorkSession_"
     },
     "WorkStep": {
       "$ref": "#/$defs/WorkStep"

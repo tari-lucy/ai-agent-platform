@@ -20,7 +20,16 @@ from ai_agent_adapters.storage import schema as db
 from ai_agent_adapters.storage.policy import scope_key
 
 KINDS = frozenset(
-    {"ManagedFile", "SkillVersion", "Ticket", "TicketMessage", "WorkTask", "WorkAttempt"}
+    {
+        "ManagedFile",
+        "SkillVersion",
+        "Ticket",
+        "TicketMessage",
+        "WorkTask",
+        "WorkAttempt",
+        "WorkSession",
+        "WorkSessionMessage",
+    }
 )
 OWNERS = ("catalogue", "skills", "tickets", "activity")
 type Identity = tuple[str, str]
@@ -139,6 +148,13 @@ async def impact(
                 node.parents.update(("WorkTask", task) for task in body["task_ids"])
             elif kind == "TicketMessage":
                 node.parents.add(("Ticket", body["ticket_id"]))
+            elif kind == "WorkSession":
+                node.parents.update(("WorkTask", task) for task in body["task_ids"])
+            elif kind == "WorkSessionMessage":
+                node.parents.add(("WorkSession", body["session_id"]))
+                nodes.setdefault(("WorkSession", body["session_id"]), _Node()).parents.add(
+                    (kind, identifier)
+                )
     finally:
         await rows.close()
     gone = {identity for identity, node in nodes.items() if node.sources.intersection(selected)}

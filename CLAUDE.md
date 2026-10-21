@@ -18,7 +18,9 @@
 Windows/Docker машине. Твои следующие пакеты — R2 context/ticket release,
 R3 рабочий разговор и Linux/headless R5; точные зоны и условия передачи:
 [обновлённый brief](docs/agent-tasks/workplace-agency-revision.md).
-Сейчас оператор поручил только документацию; coding по уточнению на паузе.
+После документационного checkpoint оператор возобновил R1; твой R2 уже начат
+по переданному поручению. Published session-стык и shared-окна R2/R3:
+[отчёт R1](docs/implementation-reports/R1-agent-session.md).
 Начатую AW-08 не удаляй: сохрани branch/HEAD и перечисли доступный результат
 для передачи, не продолжай править передаваемую зону одновременно с Codex.
 

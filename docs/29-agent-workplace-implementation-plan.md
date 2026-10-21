@@ -4,8 +4,9 @@
 а не вызываемый помощник на подзадачу. AW-08 передан Codex, AW-05/06/07
 получают описанные дополнения, их прежняя интеграция не отменяется.
 Актуальные assignments, shared-окна и acceptance —
-[R1–R5](agent-tasks/workplace-agency-revision.md). Сейчас оператор поручил
-только документацию; coding по уточнению приостановлен до нового поручения.
+[R1–R5](agent-tasks/workplace-agency-revision.md). После фиксации оператор
+возобновил реализацию Codex: [R1, первая поставка](implementation-reports/R1-agent-session.md).
+Полный session/OpenCode gate остаётся открытым; исторические criteria не закрывают R1.
 
 Дата: 2026-10-21. Основание: [согласованная концепция](28-agent-workplace-concept.md),
 решения D53–D61 в [doc07](07-decisions.md). Оператор разрешил начать реализацию

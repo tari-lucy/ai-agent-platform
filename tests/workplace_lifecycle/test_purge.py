@@ -11,6 +11,7 @@ from ai_agent_adapters.retention.physical import SQLitePhysicalStore
 from ai_agent_adapters.workspace_files.purge import WorkplacePurger
 from ai_agent_application.retention import RetentionService
 from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
+from ai_agent_contracts.agent_sessions import WorkSession, WorkSessionMessage
 from ai_agent_contracts.agent_workplace import SkillVersion, Ticket, TicketMessage
 from ai_agent_contracts.api import Receipt
 from ai_agent_contracts.codec import ContractError
@@ -144,6 +145,38 @@ def test_deletion_erases_old_files_material_skills_messages_and_orphans(tmp_path
     async def scenario():
         w, source, admission, other = await prepare(tmp_path)
         try:
+            # A resumable session is also a derivative, including all referenced history.
+            await put(
+                w,
+                ACT,
+                WorkSession(
+                    id="session",
+                    scope=AREA,
+                    version=1,
+                    created_at=w.now,
+                    updated_at=w.now,
+                    title=MARKER,
+                    last_sequence=1,
+                    context_sources=[source],
+                ),
+                "make-session",
+            )
+            await put(
+                w,
+                ACT,
+                WorkSessionMessage(
+                    id="session-message",
+                    scope=AREA,
+                    version=1,
+                    created_at=w.now,
+                    updated_at=w.now,
+                    session_id="session",
+                    sequence=1,
+                    speaker="operator",
+                    source=source,
+                ),
+                "make-session-message",
+            )
             approved = None
             quiesced = []
 
@@ -168,6 +201,8 @@ def test_deletion_erases_old_files_material_skills_messages_and_orphans(tmp_path
                 ("SkillVersion", "method"),
                 ("Ticket", "ticket"),
                 ("TicketMessage", "ticket-msg"),
+                ("WorkSession", "session"),
+                ("WorkSessionMessage", "session-message"),
             } <= identities
             assert ("ManagedFile", "independent") not in identities
             physical = SQLitePhysicalStore(w.store)
