@@ -29,7 +29,9 @@ async def enable_social(root: Path) -> None:
         try:
             await store.provision(
                 work_scope(config.workspace_id, config.persona_id, config.work_space_id),
-                rights.work_grants(operator_controls=config.operator_controls),
+                rights.work_grants(
+                    operator_controls=config.operator_controls, tickets=config.workplace_tickets
+                ),
             )
         finally:
             await store.close()

@@ -259,6 +259,19 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("laboratory.event-args", LaboratoryEventArguments)
     registry.register("laboratory.create-args", LaboratoryCreateArguments)
     registry.register("laboratory.transfer-settings-args", SettingsTransferArguments)
+    from ai_agent_contracts.agent_workplace import (
+        PermissionConditions,
+        PermissionDecisionArguments,
+        PermissionLimits,
+        TicketReadArguments,
+        TicketReplyArguments,
+    )
+
+    registry.register("ticket.reply-args", TicketReplyArguments)
+    registry.register("ticket.read-args", TicketReadArguments)
+    registry.register("permission.decision-args", PermissionDecisionArguments)
+    registry.register("workplace.permission-conditions", PermissionConditions)
+    registry.register("workplace.permission-limits", PermissionLimits)
 
 
 SettingsTransferKey = Literal["profile", "gm_intensity", "story_rules_version"]

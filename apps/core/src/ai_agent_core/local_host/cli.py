@@ -23,6 +23,7 @@ from .memory import enable_memory
 from .recovery import enable_recovery
 from .serve import permissions_expired, serve
 from .social import enable_social
+from .tickets import enable_tickets
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 
@@ -82,6 +83,10 @@ def parser() -> argparse.ArgumentParser:
         help="explicit offline rights for the private interlocutor and confirmed promises",
     )
     social.add_argument("--root", type=Path, required=True)
+    tickets = commands.add_parser(
+        "enable-tickets", help="explicit offline rights for operator tickets in the panel"
+    )
+    tickets.add_argument("--root", type=Path, required=True)
     gm = commands.add_parser(
         "configure-gm", help="explicit offline internal game master switch and limits"
     )
@@ -188,6 +193,10 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "enable-social":
             asyncio.run(enable_social(arguments.root))
             print("private interlocutor and confirmed promises enabled; agent stays STOPPED")
+            return 0
+        if arguments.command == "enable-tickets":
+            asyncio.run(enable_tickets(arguments.root))
+            print("operator tickets enabled; no rights granted to the agent; agent stays STOPPED")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)

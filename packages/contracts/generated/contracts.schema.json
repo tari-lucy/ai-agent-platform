@@ -2109,7 +2109,9 @@
             "binding.edit",
             "operation.cancel",
             "llm.assignment",
-            "llm.limits"
+            "llm.limits",
+            "ticket.reply",
+            "ticket.read"
           ],
           "title": "Type",
           "type": "string"
@@ -2423,7 +2425,8 @@
             "change.rollback.execute",
             "workspace.backup.execute",
             "workspace.restore.execute",
-            "llm.recalculate.execute"
+            "llm.recalculate.execute",
+            "permission.decision.execute"
           ],
           "title": "Type",
           "type": "string"
@@ -5674,6 +5677,118 @@
       "title": "Page[Briefing]",
       "type": "object"
     },
+    "Page_CapabilityBinding_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CapabilityBinding"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[CapabilityBinding]",
+      "type": "object"
+    },
+    "Page_CapabilityManifest_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CapabilityManifest"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[CapabilityManifest]",
+      "type": "object"
+    },
     "Page_Capability_": {
       "additionalProperties": false,
       "properties": {
@@ -7298,6 +7413,118 @@
       "title": "Page[Tariff]",
       "type": "object"
     },
+    "Page_TicketMessage_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TicketMessage"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[TicketMessage]",
+      "type": "object"
+    },
+    "Page_Ticket_": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Ticket"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "projection_lag_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projection Lag Ms"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "complete"
+      ],
+      "title": "Page[Ticket]",
+      "type": "object"
+    },
     "Page_Topic_": {
       "additionalProperties": false,
       "properties": {
@@ -7501,6 +7728,8 @@
           "memory.export.preview": "#/$defs/PlanCommand",
           "operation.cancel": "#/$defs/EditCommand",
           "opportunity.cancel": "#/$defs/EditCommand",
+          "permission.decision.execute": "#/$defs/ExecutePlanCommand",
+          "permission.decision.preview": "#/$defs/PlanCommand",
           "permission.edit": "#/$defs/EditCommand",
           "person.link": "#/$defs/EditCommand",
           "person.unlink": "#/$defs/EditCommand",
@@ -7515,6 +7744,8 @@
           "session.process-memory": "#/$defs/ProcessMemoryCommand",
           "session.reflect": "#/$defs/ReflectCommand",
           "tariff.create": "#/$defs/CreateCommand",
+          "ticket.read": "#/$defs/EditCommand",
+          "ticket.reply": "#/$defs/EditCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
           "workspace.restore.execute": "#/$defs/ExecutePlanCommand",
@@ -7650,7 +7881,8 @@
             "change.changed",
             "check.changed",
             "connection.changed",
-            "usage.changed"
+            "usage.changed",
+            "ticket.changed"
           ],
           "title": "Type",
           "type": "string"
@@ -7798,6 +8030,380 @@
         "expires_at"
       ],
       "title": "Permission",
+      "type": "object"
+    },
+    "PermissionConditions": {
+      "additionalProperties": false,
+      "description": "``workplace.permission-conditions`` of a workplace Permission: scope of the decision.",
+      "properties": {
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "constraints": {
+          "maxLength": 16000,
+          "title": "Constraints",
+          "type": "string"
+        },
+        "ticket_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticket Id"
+        },
+        "ticket_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticket Version"
+        }
+      },
+      "required": [
+        "areas",
+        "constraints",
+        "ticket_id",
+        "ticket_version"
+      ],
+      "title": "PermissionConditions",
+      "type": "object"
+    },
+    "PermissionDecisionArguments": {
+      "additionalProperties": false,
+      "description": "A structured operator decision on one capability right; never parsed from ticket text.\n\n``grant`` answers an exact ticket version and creates or replaces the right; ``revoke``\nnames the exact current permission version. Both go preview → execute.",
+      "properties": {
+        "action": {
+          "enum": [
+            "grant",
+            "revoke"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "constraints": {
+          "default": "",
+          "maxLength": 16000,
+          "title": "Constraints",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "enum": [
+                "prepare_only",
+                "operator_decision",
+                "automatic"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "permission_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Permission Id"
+        },
+        "permission_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Permission Version"
+        },
+        "ticket_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticket Id"
+        },
+        "ticket_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticket Version"
+        }
+      },
+      "required": [
+        "action",
+        "capability_id",
+        "binding_id"
+      ],
+      "title": "PermissionDecisionArguments",
+      "type": "object"
+    },
+    "PermissionDecisionProof": {
+      "additionalProperties": false,
+      "description": "Workspace-owner proof of a previewed decision; execute rechecks every pinned version.",
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_version": {
+          "minimum": 1,
+          "title": "Binding Version",
+          "type": "integer"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/PermissionDecisionArguments"
+        },
+        "executed_by": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executed By"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "manifest_version": {
+          "minimum": 1,
+          "title": "Manifest Version",
+          "type": "integer"
+        },
+        "operator_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operator Id",
+          "type": "string"
+        },
+        "permission_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Permission Id",
+          "type": "string"
+        },
+        "permission_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Permission Version"
+        },
+        "plan_expires_at": {
+          "format": "date-time",
+          "title": "Plan Expires At",
+          "type": "string"
+        },
+        "policy_version": {
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "ticket_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticket Id"
+        },
+        "ticket_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ticket Version"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "operator_id",
+        "decision",
+        "permission_id",
+        "permission_version",
+        "capability_id",
+        "manifest_version",
+        "binding_id",
+        "binding_version",
+        "ticket_id",
+        "ticket_version",
+        "policy_version",
+        "plan_expires_at",
+        "expires_at"
+      ],
+      "title": "PermissionDecisionProof",
+      "type": "object"
+    },
+    "PermissionLimits": {
+      "additionalProperties": false,
+      "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.",
+      "properties": {
+        "duration_seconds": {
+          "maximum": 31536000,
+          "minimum": 60,
+          "title": "Duration Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "duration_seconds"
+      ],
+      "title": "PermissionLimits",
       "type": "object"
     },
     "Person": {
@@ -7976,7 +8582,8 @@
             "change.rollback.preview",
             "workspace.backup.preview",
             "workspace.restore.preview",
-            "llm.recalculate.preview"
+            "llm.recalculate.preview",
+            "permission.decision.preview"
           ],
           "title": "Type",
           "type": "string"
@@ -11397,6 +12004,7 @@
           "memory.changed": "#/$defs/PanelEvent",
           "relationship.changed": "#/$defs/PanelEvent",
           "run.changed": "#/$defs/PanelEvent",
+          "ticket.changed": "#/$defs/PanelEvent",
           "usage.changed": "#/$defs/PanelEvent",
           "utterance.changed": "#/$defs/PanelEvent"
         },
@@ -12130,6 +12738,58 @@
         "service"
       ],
       "type": "string"
+    },
+    "TicketReadArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticket_id"
+      ],
+      "title": "TicketReadArguments",
+      "type": "object"
+    },
+    "TicketReplyArguments": {
+      "additionalProperties": false,
+      "description": "Operator message on an exact ticket version; ``answer`` hands the turn to the agent.\n\n``resolve``/``close`` end the ticket with this text as the resolution; a later answer or\nagent recurrence reopens it. Nothing here grants a right: that is a separate decision.",
+      "properties": {
+        "body": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "answer",
+            "resolve",
+            "close"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "ticket_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Ticket Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticket_id",
+        "body",
+        "outcome"
+      ],
+      "title": "TicketReplyArguments",
+      "type": "object"
     },
     "TicketState": {
       "enum": [
@@ -12987,8 +13647,14 @@
     "CapabilityBinding": {
       "$ref": "#/$defs/CapabilityBinding"
     },
+    "CapabilityBindingPage": {
+      "$ref": "#/$defs/Page_CapabilityBinding_"
+    },
     "CapabilityManifest": {
       "$ref": "#/$defs/CapabilityManifest"
+    },
+    "CapabilityManifestPage": {
+      "$ref": "#/$defs/Page_CapabilityManifest_"
     },
     "CapabilityPage": {
       "$ref": "#/$defs/Page_Capability_"
@@ -13224,6 +13890,18 @@
     "Permission": {
       "$ref": "#/$defs/Permission"
     },
+    "PermissionConditions": {
+      "$ref": "#/$defs/PermissionConditions"
+    },
+    "PermissionDecisionArguments": {
+      "$ref": "#/$defs/PermissionDecisionArguments"
+    },
+    "PermissionDecisionProof": {
+      "$ref": "#/$defs/PermissionDecisionProof"
+    },
+    "PermissionLimits": {
+      "$ref": "#/$defs/PermissionLimits"
+    },
     "PermissionPage": {
       "$ref": "#/$defs/Page_Permission_"
     },
@@ -13442,6 +14120,18 @@
     },
     "TicketMessage": {
       "$ref": "#/$defs/TicketMessage"
+    },
+    "TicketMessagePage": {
+      "$ref": "#/$defs/Page_TicketMessage_"
+    },
+    "TicketPage": {
+      "$ref": "#/$defs/Page_Ticket_"
+    },
+    "TicketReadArguments": {
+      "$ref": "#/$defs/TicketReadArguments"
+    },
+    "TicketReplyArguments": {
+      "$ref": "#/$defs/TicketReplyArguments"
     },
     "TokenUsage": {
       "$ref": "#/$defs/TokenUsage"

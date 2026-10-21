@@ -113,6 +113,25 @@ class Mutations:
 
             async with runtime._lock:
                 return await close(runtime, authority, request)
+        if isinstance(request, (PlanCommand, ExecutePlanCommand)) and request.type in (
+            "permission.decision.preview",
+            "permission.decision.execute",
+        ):
+            from .permission_decisions import execute as decide
+            from .permission_decisions import preview as propose
+
+            if runtime.permission_ceiling is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            async with runtime._lock:
+                return await (
+                    propose(runtime, authority, request)
+                    if isinstance(request, PlanCommand)
+                    else decide(runtime, authority, request)
+                )
+        if isinstance(request, EditCommand) and request.type in ("ticket.reply", "ticket.read"):
+            from .tickets import mutate as ticket_mutate
+
+            return await ticket_mutate(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

@@ -1,6 +1,7 @@
 """Host directory layout, nonsecret configuration and local secret files."""
 
 import os
+import re
 import secrets
 import stat
 import subprocess
@@ -140,6 +141,14 @@ class RecoveryConfig(BaseModel):
     backup_quota_bytes: int = Field(default=1073741824, strict=True, ge=1048576)
 
 
+class PermissionCeiling(BaseModel):
+    """Host-configured maximum the operator may grant for one workplace capability."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    level: Literal["prepare_only", "operator_decision", "automatic"]
+    max_days: int = Field(ge=1, le=365)
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -157,6 +166,11 @@ class HostConfig(BaseModel):
     settings_space_id: str | None = Field(default=None, pattern=IDENTIFIER)
     # The panel login is a stable social interlocutor only after its rights were provisioned.
     private_social: bool = False
+    # Operator tickets (AW-01) only after `enable-tickets` provisioned the TICKETS rows.
+    workplace_tickets: bool = False
+    # Structured permission decisions (AW-01); None keeps them unavailable. Only capabilities
+    # listed here can be granted, never above their level or duration.
+    workplace_permissions: dict[str, PermissionCeiling] | None = None
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:
@@ -164,6 +178,15 @@ class HostConfig(BaseModel):
             raise ValueError("MEMORY_CONTROLS_REQUIRED")
         if self.operator_controls != (self.settings_space_id is not None):
             raise ValueError("OPERATOR_SETTINGS_SCOPE")
+        if self.workplace_permissions is not None and (
+            not self.workplace_tickets
+            or not self.operator_controls
+            or any(
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", key)
+                for key in self.workplace_permissions
+            )
+        ):
+            raise ValueError("WORKPLACE_PERMISSIONS")
         spaces = [self.work_space_id, *self.test_space_ids]
         if self.settings_space_id is not None:
             spaces.append(self.settings_space_id)

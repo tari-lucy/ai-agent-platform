@@ -347,3 +347,104 @@ class TicketMessage(Record):
     author_id: Id
     body: Text = Field(min_length=1)
     ticket_version: Version
+
+
+# --- Operator ticket commands (AW-01) -------------------------------------------------------
+
+
+class TicketReplyArguments(Contract):
+    """Operator message on an exact ticket version; ``answer`` hands the turn to the agent.
+
+    ``resolve``/``close`` end the ticket with this text as the resolution; a later answer or
+    agent recurrence reopens it. Nothing here grants a right: that is a separate decision.
+    """
+
+    ticket_id: Id
+    body: Text = Field(min_length=1, max_length=4000)
+    outcome: Literal["answer", "resolve", "close"]
+
+    @model_validator(mode="after")
+    def not_blank(self) -> Self:
+        if not self.body.strip():
+            raise ValueError("EMPTY_MESSAGE")
+        return self
+
+
+class TicketReadArguments(Contract):
+    ticket_id: Id
+
+
+# --- Operator permission decision (AW-01, second delivery) ----------------------------------
+
+PermissionLevel = Literal["prepare_only", "operator_decision", "automatic"]
+
+
+class PermissionDecisionArguments(Contract):
+    """A structured operator decision on one capability right; never parsed from ticket text.
+
+    ``grant`` answers an exact ticket version and creates or replaces the right; ``revoke``
+    names the exact current permission version. Both go preview → execute.
+    """
+
+    action: Literal["grant", "revoke"]
+    capability_id: Id
+    binding_id: Id
+    ticket_id: Id | None = None
+    ticket_version: Version | None = None
+    level: PermissionLevel | None = None
+    duration_seconds: int | None = Field(strict=True, ge=60, le=31_536_000, default=None)
+    areas: list[WorkplaceArea] = Field(default_factory=list, max_length=8)
+    constraints: Text = ""
+    permission_id: Id | None = None
+    permission_version: Version | None = None
+
+    @model_validator(mode="after")
+    def shape(self) -> Self:
+        if self.action == "grant" and (
+            self.ticket_id is None
+            or self.ticket_version is None
+            or self.level is None
+            or self.duration_seconds is None
+        ):
+            raise ValueError("GRANT_SHAPE")
+        if self.action == "revoke" and (
+            self.permission_id is None or self.permission_version is None
+        ):
+            raise ValueError("REVOKE_SHAPE")
+        if len(set(self.areas)) != len(self.areas):
+            raise ValueError("AREAS_DUPLICATE")
+        return self
+
+
+class PermissionConditions(Contract):
+    """``workplace.permission-conditions`` of a workplace Permission: scope of the decision."""
+
+    areas: list[WorkplaceArea] = Field(max_length=8)
+    constraints: Text
+    ticket_id: Id | None
+    ticket_version: Version | None
+
+
+class PermissionLimits(Contract):
+    """``workplace.permission-limits``: the granted duration, bounded by the host ceiling."""
+
+    duration_seconds: int = Field(strict=True, ge=60, le=31_536_000)
+
+
+class PermissionDecisionProof(VersionedRecord):
+    """Workspace-owner proof of a previewed decision; execute rechecks every pinned version."""
+
+    operator_id: Id
+    decision: PermissionDecisionArguments
+    permission_id: Id
+    permission_version: Version | None
+    capability_id: Id
+    manifest_version: Version
+    binding_id: Id
+    binding_version: Version
+    ticket_id: Id | None
+    ticket_version: Version | None
+    policy_version: Version
+    plan_expires_at: UTC
+    expires_at: UTC
+    executed_by: Id | None = None
