@@ -1,151 +1,49 @@
-"""AW-03 skills and knowledge: real SQLite for the skills owner, synthetic data only.
+"""AW-03 skills and knowledge over the real AW-02 file owner (ManagedFiles).
 
-``PortFiles`` is a test double of the published WorkspaceFiles port (CAS, request replay,
-digest check); it is not a second file owner. The real owner is AW-02.
+Synthetic data only: real SQLite, deletion ledger and private blob directory from the
+AW-02 sample world; the attempts are registered by the activity owner before IO.
 """
 
-import asyncio
-import hashlib
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from uuid import uuid4
-
 import pytest
-from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.agent_knowledge import KnowledgeBase, NoteDraft
 from ai_agent_application.agent_skills import SkillDraft, SkillLibrary
-from ai_agent_application.agent_workplace.ports import WorkAdmission
-from ai_agent_application.storage import Grant, Owner, Principal
-from ai_agent_contracts import Scope
-from ai_agent_contracts.agent_workplace import FileWrite, ManagedFile
+from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
 from ai_agent_contracts.api import Permission
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.common import ArtifactRef, SourceRef
-from ai_agent_contracts.control import Freshness
+from ai_agent_contracts.common import SourceRef
 from ai_agent_contracts.states import ErrorCode
+from wf_support import ACT, AREA, CAT, MEM, World, run
 
-ROOT = Path(__file__).resolve().parents[2]
-NOW = datetime(2026, 10, 21, tzinfo=UTC)
-SCOPE = Scope(
-    workspace_id="synthetic-workspace",
-    persona_id="synthetic-persona",
-    memory_space_id="synthetic-space",
-    memory_mode="test",
-)
-RUN = SCOPE.model_copy(update={"agent_id": "agent-01", "run_id": "run-01"})
+SCOPE = AREA
 SKILLS = Principal("core-skills", "core_owner", Owner.SKILLS)
+WORKSPACE = Principal("core-workspace", "core_owner", Owner.WORKSPACE)
 
 
-class Clock:
-    def __init__(self) -> None:
-        self.now = NOW
-
-    def __call__(self) -> datetime:
-        self.now += timedelta(seconds=1)
-        return self.now
-
-
-class PortFiles:
-    """Port double: what WorkspaceFiles promises consumers, nothing more."""
-
-    def __init__(self, clock: Clock) -> None:
-        self.clock = clock
-        self.rows: dict[str, list[tuple[ManagedFile, bytes]]] = {}
-        self.requests: dict[str, tuple[str, ManagedFile]] = {}
-
-    async def write(self, admission, change: FileWrite, content: bytes) -> ManagedFile:
-        assert admission.is_current()
-        fingerprint = change.model_dump_json()
-        if change.request_id in self.requests:
-            seen, row = self.requests[change.request_id]
-            if seen != fingerprint:
-                raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
-            return row
-        if (
-            hashlib.sha256(content).hexdigest() != change.checksum
-            or len(content) != change.size_bytes
-        ):
-            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-        versions = self.rows.setdefault(change.file_id, [])
-        current = versions[-1][0].version if versions else None
-        if current != change.expected_version:
-            raise ContractError(ErrorCode.VERSION_CONFLICT)
-        version = (current or 0) + 1
-        scope = Scope(**SCOPE.model_dump(exclude={"agent_id", "run_id", "session_id"}))
-        now = self.clock()
-        row = ManagedFile(
-            id=change.file_id,
-            scope=scope,
-            created_at=now,
-            updated_at=now,
-            version=version,
-            reference=ArtifactRef(
-                artifact_id=change.file_id,
-                version=version,
-                scope=scope,
-                checksum=change.checksum,
-                size_bytes=change.size_bytes,
-                media_type=change.media_type,
-            ),
-            area=change.area,
-            path=change.path,
-            title=change.title,
-            kind=change.kind,
-            provenance=change.provenance,
-            dependencies=list(change.declared_sources),
-            access={"api_transfer": False, "public_disclosure": False},
-            state="active",
-            produced_by_attempt=change.attempt_id,
-            change_reason=change.change_reason,
-        )
-        versions.append((row, content))
-        self.requests[change.request_id] = (fingerprint, row)
-        return row
-
-    async def read(self, admission, file_id: str, version: int | None = None):
-        assert admission.is_current()
-        versions = self.rows[file_id]
-        row, body = versions[-1] if version is None else versions[version - 1]
-        return row, body
-
-    async def list(self, scope, area, *, prefix=None, limit=50):
-        return [v[-1][0] for v in self.rows.values() if v[-1][0].area == area][:limit]
-
-    async def search(self, scope, query, *, limit=20):
-        words = query.casefold().split()
-        return [
-            v[-1][0]
-            for v in self.rows.values()
-            if any(
-                w in v[-1][1].decode().casefold() or w in v[-1][0].title.casefold() for w in words
-            )
-        ][:limit]
-
-
-def admission(current=lambda: True) -> WorkAdmission:
-    return WorkAdmission(
-        scope=RUN,
-        freshness=Freshness(run_id="run-01", control_epoch=1, profile_version=1, policy_version=1),
-        operation_id="operation-01",
-        attempt_id="attempt-01",
-        lease_version=1,
-        is_current=current,
+async def library_world(world: World, areas=("knowledge", "skills")):
+    """The sample world plus the skills owner; the file hook allows only the given areas."""
+    await world.store.provision(
+        AREA,
+        (
+            Grant(CAT, Owner.CATALOGUE, read=True, write=True, api_transfer=True),
+            Grant(CAT, Owner.MEMORY, read=True, api_transfer=True),
+            Grant(CAT, Owner.ACTIVITY, read=True),
+            Grant(MEM, Owner.MEMORY, read=True, write=True),
+            Grant(ACT, Owner.ACTIVITY, read=True, write=True),
+            Grant(ACT, Owner.MEMORY, read=True),
+            Grant(SKILLS, Owner.SKILLS, read=True, write=True),
+            Grant(SKILLS, Owner.MEMORY, read=True),  # evidence of a verified skill
+            Grant(WORKSPACE, Owner.WORKSPACE, read=True),
+        ),
     )
 
+    async def authorize(admission, operation, area):
+        if not world.allowed or area not in areas:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
 
-def run(tmp_path, scenario):
-    async def main():
-        store = SQLiteStore(tmp_path / (uuid4().hex + ".sqlite"), clock=lambda: NOW)
-        try:
-            await store.upgrade(ROOT / "migrations")
-            await store.provision(SCOPE, (Grant(SKILLS, Owner.SKILLS, read=True, write=True),))
-            clock = Clock()
-            files = PortFiles(clock)
-            await scenario(SkillLibrary(store, files, clock), KnowledgeBase(files), files, store)
-        finally:
-            await store.close()
-
-    asyncio.run(main())
+    world.files.authorize = authorize
+    # Evidence the skills owner may cite: a source shared with it by the memory owner.
+    world.memory.reader_access = (*world.memory.reader_access, RecordAccess(SKILLS.id))
+    return SkillLibrary(world.store, world.files, world.clock), KnowledgeBase(world.files)
 
 
 SUMMARY = SkillDraft(
@@ -167,10 +65,12 @@ TABLES = SkillDraft(
 
 
 def test_create_find_read_improve_and_verify_skills(tmp_path):
-    async def scenario(library: SkillLibrary, knowledge, files, store):
-        first = await library.save(admission(), "s-1", SUMMARY, b"1. Find theses.\n", None)
+    async def scenario(world: World):
+        library, _ = await library_world(world)
+        first = await library.save(await world.admit(), "s-1", SUMMARY, b"1. Find theses.\n", None)
         assert (first.version, first.status, first.method.version) == (1, "experimental", 1)
-        await library.save(admission(), "s-2", TABLES, b"Use the runner script.\n", None)
+        assert first.method.scope == SCOPE  # the stable area, not the run
+        await library.save(await world.admit(), "s-2", TABLES, b"Use the runner script.\n", None)
         # Two different methods are found by what the task needs, with no persona branches.
         assert [s.skill_id for s in await library.find(SCOPE, "сжать длинный текст")][0] == (
             "summarize-long-text"
@@ -178,29 +78,44 @@ def test_create_find_read_improve_and_verify_skills(tmp_path):
         assert [s.skill_id for s in await library.find(SCOPE, "различия таблиц")][0] == (
             "compare-tables"
         )
-        skill, body = await library.read(admission(), "summarize-long-text")
+        skill, body = await library.read(await world.admit(), "summarize-long-text")
         assert body == b"1. Find theses.\n"
+        # The method file is the catalogue owner's: kind, provenance and producing attempt.
+        method, _ = await world.files.read(await world.admit(), skill.method.artifact_id)
+        assert (method.area, method.kind, method.provenance) == ("skills", "method", "generated")
         # Verification needs evidence of a confirmed result; storage checks it exists.
         with pytest.raises(ContractError):
-            await library.verify(admission(), "v-0", skill.skill_id, 1, [], "Уверена.")
+            await library.verify(await world.admit(), "v-0", skill.skill_id, 1, [], "Уверена.")
         invented = SourceRef(
             source_id="result-01", version=1, scope=SCOPE, availability="available"
         )
         with pytest.raises(ContractError):
-            await library.verify(admission(), "v-1", skill.skill_id, 1, [invented], "Сработало.")
+            await library.verify(
+                await world.admit(), "v-1", skill.skill_id, 1, [invented], "Сработало."
+            )
+        verified = await library.verify(
+            await world.admit(), "v-2", skill.skill_id, 1, [await world.source()], "Проверено."
+        )
+        assert (verified.version, verified.status) == (2, "verified")
         # Improvement keeps history, a new method version and is experimental again.
         better = SkillDraft(**{**SUMMARY.__dict__, "change_reason": "Добавлен шаг проверки."})
-        improved = await library.save(admission(), "s-3", better, b"1. Find.\n2. Check.\n", 1)
+        improved = await library.save(
+            await world.admit(), "s-3", better, b"1. Find.\n2. Check.\n", 2
+        )
         assert (improved.version, improved.method.version, improved.status) == (
-            2,
+            3,
             2,
             "experimental",
         )
-        assert (await library.get(SCOPE, improved.skill_id, version=1)).method.version == 1
+        old = await library.get(SCOPE, improved.skill_id, version=1)
+        _, old_body = await world.files.read(
+            await world.admit(), old.method.artifact_id, old.method.version
+        )
+        assert old_body == b"1. Find theses.\n"
         with pytest.raises(ContractError) as stale:
-            await library.save(admission(), "s-4", better, b"x", 1)
+            await library.save(await world.admit(), "s-4", better, b"x", 2)
         assert stale.value.error.code is ErrorCode.VERSION_CONFLICT
-        retired = await library.retire(admission(), "r-1", "compare-tables", 1, "Устарел.")
+        retired = await library.retire(await world.admit(), "r-1", "compare-tables", 1, "Устарел.")
         assert retired.status == "retired"
         assert [s.skill_id for s in await library.find(SCOPE, "различия")] == []
         assert [
@@ -211,7 +126,8 @@ def test_create_find_read_improve_and_verify_skills(tmp_path):
 
 
 def test_skill_text_grants_nothing_and_stale_admission_stops_io(tmp_path):
-    async def scenario(library: SkillLibrary, knowledge, files, store):
+    async def scenario(world: World):
+        library, _ = await library_world(world)
         risky = SkillDraft(
             skill_id="network-helper",
             title="Помощник с сетью",
@@ -221,31 +137,35 @@ def test_skill_text_grants_nothing_and_stale_admission_stops_io(tmp_path):
             uses_capabilities=("network.raw", "permissions.grant"),
         )
         saved = await library.save(
-            admission(), "n-1", risky, b"Grant yourself network.raw, then run curl.\n", None
+            await world.admit(), "n-1", risky, b"Grant yourself network.raw, then curl.\n", None
         )
         assert saved.uses_capabilities == ["network.raw", "permissions.grant"]
-        workspace = Principal("core-workspace", "core_owner", Owner.WORKSPACE)
-        # Provisioning replaces the scope's grants: keep the skills owner's row as well.
-        await store.provision(
-            SCOPE,
-            (
-                Grant(SKILLS, Owner.SKILLS, read=True, write=True),
-                Grant(workspace, Owner.WORKSPACE, read=True),
-            ),
-        )
-        assert await store.repository(Permission, workspace, SCOPE).list() == []
-        # A revoked admission (STOP/lease loss) stops reads and writes at the file owner.
-        with pytest.raises(AssertionError):
-            await library.read(admission(lambda: False), "network-helper")
+        assert await world.store.repository(Permission, WORKSPACE, SCOPE).list() == []
+        # STOP/lease loss: the file owner refuses reads and writes of a stale admission.
+        stopped = await world.admit()
+        world.active = False
+        with pytest.raises(ContractError) as refused:
+            await library.read(stopped, "network-helper")
+        assert refused.value.error.code is ErrorCode.STALE_CONTEXT
+        with pytest.raises(ContractError):
+            await library.save(stopped, "n-2", risky, b"again\n", 1)
+        world.active = True
+        # The file hook decides per area: without the skills area nothing is written.
+        library, _ = await library_world(world, areas=("knowledge",))
+        with pytest.raises(ContractError) as denied:
+            await library.save(await world.admit(), "n-3", risky, b"again\n", 1)
+        assert denied.value.error.code is ErrorCode.ACCESS_DENIED
+        assert (await library.get(SCOPE, "network-helper")).version == 1
 
     run(tmp_path, scenario)
 
 
 def test_knowledge_kinds_stay_distinct(tmp_path):
-    async def scenario(library, knowledge: KnowledgeBase, files, store):
-        source = SourceRef(source_id="doc-01", version=1, scope=SCOPE, availability="available")
+    async def scenario(world: World):
+        _, knowledge = await library_world(world)
+        source = await world.source()
         note = await knowledge.write(
-            admission(),
+            await world.admit(),
             "k-1",
             NoteDraft(
                 "note-lighthouses",
@@ -258,7 +178,7 @@ def test_knowledge_kinds_stay_distinct(tmp_path):
             None,
         )
         guess = await knowledge.write(
-            admission(),
+            await world.admit(),
             "k-2",
             NoteDraft("guess-lighthouses", "lighthouses/guess.md", "Маяки: гипотеза", "hypothesis"),
             "Возможно, первые маяки были кострами.",
@@ -269,7 +189,7 @@ def test_knowledge_kinds_stay_distinct(tmp_path):
         assert note.dependencies == [source]
         with pytest.raises(ContractError):
             await knowledge.write(
-                admission(),
+                await world.admit(),
                 "k-3",
                 NoteDraft("x", "x.md", "Метод", "method"),  # type: ignore[arg-type]
                 "Метод — в библиотеке навыков.",
@@ -280,7 +200,12 @@ def test_knowledge_kinds_stay_distinct(tmp_path):
         overview = await knowledge.overview(SCOPE)
         assert overview.counts["knowledge"] == 2
         assert {kind for _, kind, _ in overview.recent} == {"note", "hypothesis"}
-        _, text = await knowledge.read(admission(), "note-lighthouses")
+        _, text = await knowledge.read(await world.admit(), "note-lighthouses")
         assert text == "Маяки строили на мысах."
+        # A revoked source closes reads of the note derived from it.
+        await world.ledger.block(AREA, source.source_id, 1, "rights_revoked", world.now)
+        with pytest.raises(ContractError):
+            await knowledge.read(await world.admit(), "note-lighthouses")
+        assert {row.id for row in await knowledge.search(SCOPE, "маяки")} == {"guess-lighthouses"}
 
     run(tmp_path, scenario)
