@@ -13,6 +13,8 @@ AW-05 — `integrated` Claude ([отчёт](implementation-reports/AW-05.md)): �
 деятельности на jobs/бюджете, разрешённые вызовы библиотеки с lineage; скрипты — после AW-04.
 AW-06 — `integrated` Claude ([отчёт](implementation-reports/AW-06.md)): бриф личности в
 шагах и выборе цели, результаты с receipts → эпизоды, собственный вывод — interpretation.
+AW-07 — `integrated` Claude ([отчёт](implementation-reports/AW-07.md)): экран «Работа» на
+чтениях владельцев, поручение и отмена задачи с версией, расход доли деятельности.
 AW-02 — `integrated` Codex ([отчёт](implementation-reports/AW-02.md)): принятый файловый порт и physical store; runtime включение ждёт AW-09. AW-04 — `in progress` Codex: первая выключенная поставка sandbox/stdio bridge (`51830cc`, [отчёт](implementation-reports/AW-04.md)); полный gate ждёт shared-model composition и узкого cross-review. AW-09 — `in progress` Codex по integrated AW-01/02, полное покрытие ждёт AW-03/06/08. Остальные задачи
 пулов `planned` до готовности зависимостей; отдельное разрешение на следующую
 готовую задачу не требуется. Base/ветка/checkout фиксируются при старте.
