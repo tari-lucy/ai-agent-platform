@@ -314,10 +314,20 @@ class SQLitePhysicalStore:
     async def erase_records(self, scope: Scope, refs: Sequence[tuple[str, str]]) -> int:
         await self.store.check_schema()
         async with self.store.connection(write=True) as connection:
-            await self._secure(connection)
-            for kind, record_id in refs:
-                await self._erase(connection, scope_key(scope), kind, record_id, whole=False)
+            await self.erase_records_locked(connection, scope, refs)
         return len(refs)
+
+    async def erase_records_locked(
+        self, connection: AsyncConnection, scope: Scope, refs: Sequence[tuple[str, str]]
+    ) -> None:
+        """Same retention erasure under an already reserved catalogue writer.
+
+        Trusted adapters only: allows filesystem pruning and SQL invalidation to
+        use one writer reservation instead of deadlocking two write transactions.
+        """
+        await self._secure(connection)
+        for kind, record_id in refs:
+            await self._erase(connection, scope_key(scope), kind, record_id, whole=False)
 
     # ---- metadata lifecycle ---------------------------------------------------------------
 

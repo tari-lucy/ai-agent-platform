@@ -95,6 +95,11 @@ class DirectoryBlobs:
                     _sync_directory(parent)
                 except FileExistsError:
                     pass
+            # Preserve an unambiguous not-found result on Windows too: the handle
+            # helper intentionally normalises other OS errors to safe codes.
+            os.stat(
+                self.root / name if parent is None else name, dir_fd=parent, follow_symlinks=False
+            )
             with _anchor(self.root / name):
                 pass  # reject substituted/reparse directories before any content IO
         return self.root / name
@@ -191,3 +196,50 @@ class DirectoryBlobs:
 
     async def used_bytes(self, scope: Scope) -> int:
         return await asyncio.to_thread(self._used, self._scope(scope))
+
+    def _prune(self, scope: Scope, keep: frozenset[str], max_entries: int) -> int:
+        if any(re.fullmatch(r"[0-9a-f]{64}", name) is None for name in keep):
+            raise UnsafeBlobError("BLOB_ID_INVALID")
+        if type(max_entries) is not int or max_entries < 1:
+            raise UnsafeBlobError("BLOB_LIMIT_INVALID")
+        try:
+            root = self._scope(scope)
+        except FileNotFoundError:
+            return 0
+        with _anchor(root) as descriptor:
+            # Validate the whole inventory before unlinking anything. Names are never paths.
+            with os.scandir(root if descriptor is None else descriptor) as entries:
+                names: list[str] = []
+                for entry in entries:
+                    if len(names) == max_entries:
+                        raise UnsafeBlobError("BLOB_SCAN_LIMIT")
+                    if re.fullmatch(r"(?:[0-9a-f]{64}|pending-[0-9a-f]{32})", entry.name) is None:
+                        raise UnsafeBlobError("BLOB_STORAGE_UNSAFE")
+                    info = os.stat(
+                        root / entry.name if descriptor is None else entry.name,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_nlink != 1
+                        or getattr(info, "st_file_attributes", 0) & 0x400
+                    ):
+                        raise UnsafeBlobError("BLOB_STORAGE_UNSAFE")
+                    names.append(entry.name)
+            removed = 0
+            for name in names:
+                if name not in keep:
+                    os.unlink(root / name if descriptor is None else name, dir_fd=descriptor)
+                    removed += 1
+            _sync_directory(descriptor)
+            return removed
+
+    async def prune(self, scope: Scope, keep: frozenset[str], *, max_entries: int) -> int:
+        """Trusted retention only, while holding the catalogue SQLite writer reservation.
+
+        Keep every still-referenced revision digest. Unpublished orphans/pending
+        copies are removed too; raw source text can survive a failed catalogue save.
+        Never call concurrently with put outside its owner transaction.
+        """
+        return await asyncio.to_thread(self._prune, scope, keep, max_entries)
