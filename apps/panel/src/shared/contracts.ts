@@ -8,6 +8,6 @@ export type { ApiLimits, RecallRequest, RecallResult, MemoryCycle, MemoryCyclePa
   Ticket, TicketPage, TicketMessage, TicketMessagePage, CapabilityManifest, CapabilityManifestPage, CapabilityBinding, CapabilityBindingPage,
   PermissionDecisionArguments, WorkplaceLibrary, SkillVersion, ManagedFile,
   WorkTask, WorkTaskPage, WorkAttempt, WorkAttemptPage, WorkStep, WorkAssignArguments, WorkAbandonArguments,
-  WorkSession, WorkSessionPage, WorkSessionTranscript, WorkSessionEntry,
+  WorkSession, WorkSessionPage, WorkSessionTranscript, WorkSessionEntry, WorkplaceFileContent,
   Utterance, UtterancePage, StreamChunk, StreamTerminal, ProfileMarkdown, ProfileValidation, LaboratoryCatalogue, GmRuntimeState, GmRuntimeStatePage,
 } from '../../../../packages/contracts/generated/contracts.ts';
