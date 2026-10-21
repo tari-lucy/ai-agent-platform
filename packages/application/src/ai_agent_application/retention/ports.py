@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ai_agent_contracts.common import Scope
 
@@ -27,6 +27,17 @@ class DerivedPurger(Protocol):
     """Caches, exports, contexts, indexes: anything that holds a copy of source text."""
 
     async def purge_sources(self, scope: Scope, source_ids: Sequence[str]) -> None: ...
+
+
+@runtime_checkable
+class LedgerPurger(Protocol):
+    """A restored source stub may be clean while newly supported derivatives are not.
+
+    Optional extension for purgers added after old backups were made. Reconcile
+    clean/missing-source entries too; do not trust a historical purged_at alone.
+    """
+
+    async def reapply_ledger(self, scope: Scope, source_ids: Sequence[str]) -> None: ...
 
 
 class PhysicalStore(Protocol):
