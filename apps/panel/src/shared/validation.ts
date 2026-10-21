@@ -1,6 +1,7 @@
 import type {
   Artifact, BriefingPage, EncounterPage, PersonPage, PromisePage, RelationshipPage, TopicPage, LaboratoryReportPage, CapabilityPage, CharacterStatePage, OpportunityPage, StateChangePage, StoryArcPage, ClaimPage, ConnectionPage, ConsequencePlan, CostCalculationPage, LLMAssignmentPage, LLMAttemptPage, TariffPage, DeliveryPage, EpisodePage, SummaryPage, OperationProjectionPage, OperatorSession, PanelCommand, PanelEvent,
   PermissionPage, ProfilePage, Receipt, WorkspacePage, RunSessionPage, Scope, SourcePage, StopReceipt, UtterancePage,
+  TicketMessagePage, TicketPage, CapabilityManifestPage, CapabilityBindingPage,
 } from './contracts.ts';
 import { permits, samePartition } from './scope.ts';
 
@@ -73,6 +74,7 @@ export function stopReceipt(value: unknown, selected: Scope, requestId: string):
 const eventTypes = new Set([
   'run.changed', 'job.changed', 'utterance.changed', 'delivery.changed', 'memory.changed',
   'relationship.changed', 'arc.changed', 'change.changed', 'check.changed', 'connection.changed', 'usage.changed',
+  'ticket.changed',
 ]);
 export function event(value: unknown): PanelEvent {
   demand(object(value) && isScope(value.scope) && id(value.id) && id(value.event_id) &&
@@ -542,4 +544,48 @@ export function recall(value: unknown, selected: Scope, limit = 12): import('./c
     typeof fragment.attribution === 'string' && fragment.attribution.length <= 512 &&
     Array.isArray(fragment.conflicts) && fragment.conflicts.length <= 200 && fragment.conflicts.every(id)));
   return value as import('./contracts.ts').RecallResult;
+}
+
+// AW-01 tickets: a conversation, never a grant. Turns and states must agree.
+const ticketKinds = new Set(['problem', 'question', 'idea', 'capability_request']);
+const ticketStates = new Set(['waiting_reply', 'in_progress', 'resolved', 'closed_unfulfilled']);
+const parties = new Set(['operator', 'agent', 'service']);
+export function tickets(value: unknown, selected: Scope): TicketPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.ticket_id) && row.ticket_id === row.id && ticketKinds.has(String(row.kind)) &&
+    ticketStates.has(String(row.state)) && text(row.title, 512) && text(row.summary) && text(row.attempted) && text(row.decision_needed) &&
+    (row.next_turn === null || parties.has(String(row.next_turn))) &&
+    // terminal tickets have nobody's turn; waiting means the operator's
+    (['resolved', 'closed_unfulfilled'].includes(String(row.state)) === (row.next_turn === null)) &&
+    (row.state !== 'waiting_reply' || row.next_turn === 'operator') &&
+    Number.isSafeInteger(row.message_count) && Number.isSafeInteger(row.operator_read_version) &&
+    Number(row.operator_read_version) <= Number(row.version) &&
+    Array.isArray(row.task_ids) && row.task_ids.every(id) && refs(row.sources) &&
+    (row.kind === 'capability_request') === (object(row.request) && id(row.request.capability_id))));
+  return value as TicketPage;
+}
+export function ticketMessages(value: unknown, selected: Scope): TicketMessagePage {
+  // Messages are immutable records: they have no version of their own.
+  demand(object(value) && Array.isArray(value.items) && value.items.length <= 50 && typeof value.complete === 'boolean' &&
+    (value.next_cursor === null || id(value.next_cursor)));
+  demand(value.items.every((row: unknown) => object(row) && isScope(row.scope) && samePartition(selected, row.scope) && id(row.id) &&
+    id(row.ticket_id) && Number.isSafeInteger(row.sequence) && Number(row.sequence) >= 1 && parties.has(String(row.author)) &&
+    id(row.author_id) && text(row.body) && version(row.ticket_version) && date(row.created_at)));
+  return value as TicketMessagePage;
+}
+const areas = new Set(['inbox', 'knowledge', 'skills', 'projects', 'scratch', 'exports', 'reference', 'guide']);
+export function capabilityManifests(value: unknown, selected: Scope): CapabilityManifestPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.capability_id) && version(row.capability_version) && text(row.summary, 512) && text(row.instructions) &&
+    ['none', 'local_write', 'external_effect', 'public_output'].includes(String(row.effect)) &&
+    Array.isArray(row.areas) && row.areas.every((item: unknown) => areas.has(String(item)))));
+  return value as CapabilityManifestPage;
+}
+export function capabilityBindings(value: unknown, selected: Scope): CapabilityBindingPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.binding_id) && row.binding_id === row.id && id(row.capability_id) &&
+    ['pending', 'ready', 'disabled', 'revoked'].includes(String(row.state)) &&
+    // ready only with a verification time
+    ((row.state === 'ready') === (row.verified_at != null && date(row.verified_at)))));
+  return value as CapabilityBindingPage;
 }

@@ -4,8 +4,10 @@
 решения D53–D61 в [doc07](07-decisions.md). Оператор разрешил начать реализацию
 2026-10-21 после фиксации плана в `113e975`. Пулы выданы Claude и Codex согласно
 §3/4. AW-00 — `integrated` Claude ([отчёт](implementation-reports/AW-00.md)): общие
-контракты/порты в main, AW-02 может начинать код. AW-01 — `in progress` Claude.
-AW-02 — `assigned` Codex. Остальные задачи
+контракты/порты в main, AW-02 может начинать код. AW-01 — `integrated` Claude
+([отчёт](implementation-reports/AW-01.md)): тикеты в панели; решение по праву в коде,
+выключено до узкого перекрёстного разбора. AW-03 — подготовка Claude, ждёт AW-02.
+AW-02 — `integrated` Codex ([отчёт](implementation-reports/AW-02.md)): принятый файловый порт и physical store; runtime включение ждёт AW-09. AW-04 — `in progress` Codex. Остальные задачи
 пулов `planned` до готовности зависимостей; отдельное разрешение на следующую
 готовую задачу не требуется. Base/ветка/checkout фиксируются при старте.
 

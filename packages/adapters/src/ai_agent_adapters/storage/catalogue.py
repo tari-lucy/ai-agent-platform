@@ -80,6 +80,7 @@ SPECS = {
     "SkillVersion": Spec(agent_workplace.SkillVersion, Owner.SKILLS),
     "Ticket": Spec(agent_workplace.Ticket, Owner.TICKETS),
     "TicketMessage": Spec(agent_workplace.TicketMessage, Owner.TICKETS),
+    "PermissionDecisionProof": Spec(agent_workplace.PermissionDecisionProof, Owner.WORKSPACE),
 }
 
 

@@ -149,6 +149,8 @@ class EditCommand(CommandBase):
         "operation.cancel",
         "llm.assignment",
         "llm.limits",
+        "ticket.reply",
+        "ticket.read",
     ]
     arguments: ExtensionPayload
     expected_version: Version
@@ -162,6 +164,7 @@ class PlanCommand(CommandBase):
         "workspace.backup.preview",
         "workspace.restore.preview",
         "llm.recalculate.preview",
+        "permission.decision.preview",
     ]
     arguments: ExtensionPayload
     expected_version: Version
@@ -180,6 +183,7 @@ class ExecutePlanCommand(CommandBase):
         "workspace.backup.execute",
         "workspace.restore.execute",
         "llm.recalculate.execute",
+        "permission.decision.execute",
     ]
     arguments: ExecutePlanArguments
     expected_version: Version
@@ -255,6 +259,7 @@ class PanelEvent(Record):
         "check.changed",
         "connection.changed",
         "usage.changed",
+        "ticket.changed",
     ]
     resource_id: Id
     resource_version: Version | None
