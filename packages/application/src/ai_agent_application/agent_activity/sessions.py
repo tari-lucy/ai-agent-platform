@@ -4,6 +4,8 @@ Trusted composition stores text through the existing Source owner BEFORE append.
 Only references are stored here. R2 releases bodies/history through their owners.
 """
 
+import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 
@@ -14,9 +16,15 @@ from ai_agent_contracts.agent_sessions import (
     WorkSessionMessageArguments,
     WorkSessionOpenArguments,
 )
-from ai_agent_contracts.api import CreateCommand, EditCommand, Receipt
+from ai_agent_contracts.api import (
+    CreateCommand,
+    EditCommand,
+    MessageArguments,
+    MessageCommand,
+    Receipt,
+)
 from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.common import Scope, SourceRef
+from ai_agent_contracts.common import ArtifactRef, Scope, SourceRef
 from ai_agent_contracts.states import ErrorCode
 
 from ai_agent_application.memory import derived_id
@@ -32,9 +40,11 @@ def message_id(scope: Scope, session_id: str, sequence: int) -> str:
 class SessionBook:
     """CAS + request replay of ordered operator input, independent of run state.
 
-    authorize is the live authenticated-operator fence; verify_source is the
+    authorize is the caller's live fence (authenticated operator for intake,
+    current runtime admission for the delivery hook); verify_source is the
     memory/retention owner check of the exact ref. Neither may be omitted.
-    This class is not an agent-facing tool and cannot publish character output.
+    This class is not an agent-facing tool. A character reference is accepted only
+    by record_delivered with an independently checked delivery from its owner.
     """
 
     def __init__(
@@ -45,6 +55,7 @@ class SessionBook:
         *,
         authorize: Callable[[Scope], None],
         verify_source: Callable[[Scope, SourceRef, str], Awaitable[None]],
+        verify_delivery: Callable[[Scope, str, SourceRef], Awaitable[None]] | None = None,
         readers: tuple[RecordAccess, ...] = (),
         max_sessions: int = 20,
         max_messages: int = 2000,
@@ -57,6 +68,7 @@ class SessionBook:
             raise ValueError("SESSION_LIMITS_OR_OWNER")
         self.store, self.principal, self.clock = store, principal, clock
         self.authorize, self.verify_source, self.readers = authorize, verify_source, readers
+        self.verify_delivery = verify_delivery
         self.max_sessions, self.max_messages = max_sessions, max_messages
 
     async def get(self, scope: Scope, session_id: str) -> WorkSession | None:
@@ -189,6 +201,132 @@ class SessionBook:
                 receipt = Receipt(
                     request_id=request.request_id,
                     scope=request.scope,
+                    status="completed",
+                    resource_id=session.id,
+                    version=revised.version,
+                )
+                await unit.complete(receipt)
+                return receipt
+
+    async def record_delivered(
+        self,
+        scope: Scope,
+        request_id: str,
+        session_id: str,
+        *,
+        generation: int,
+        through_sequence: int,
+        source: SourceRef,
+        text: str,
+        delivery_id: str,
+        context_sources: tuple[SourceRef, ...],
+        context_files: tuple[ArtifactRef, ...] = (),
+    ) -> Receipt:
+        """Trusted delivery hook; no model/runner/client can assert that it was delivered.
+
+        Source content is owned by memory. Only after the delivery owner verifies
+        delivery do we append a character reference and advance the consumed prefix.
+        Concurrent later operator input is preserved and remains pending.
+        Rejected intake must be removed by the source owner, just like R3 operator intake.
+        """
+        if self.verify_delivery is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        scope = area(scope)
+        if (
+            type(through_sequence) is not int
+            or through_sequence < 0
+            or type(generation) is not int
+            or generation < 1
+            or not delivery_id
+            or source.scope.partition != scope.partition
+            or source.availability != "available"
+            or len(context_sources) > 200
+            or len(context_files) > 200
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        payload = {
+            "generation": generation,
+            "through": through_sequence,
+            "source": source.model_dump(mode="json"),
+            "delivery": delivery_id,
+            "text_digest": hashlib.sha256(text.encode()).hexdigest(),
+            "sources": [ref.model_dump(mode="json") for ref in context_sources],
+            "files": [ref.model_dump(mode="json") for ref in context_files],
+        }
+        command = MessageCommand(
+            request_id=request_id,
+            scope=scope,
+            target=session_id,
+            type="dialogue.message",
+            arguments=MessageArguments(
+                text=hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            ),
+        )
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, command) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                session = await self.get(scope, session_id)
+                if session is None or session.state in ("closed", "invalidated"):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if (
+                    session.generation != generation
+                    or not session.processed_sequence <= through_sequence <= session.last_sequence
+                ):
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                if session.last_sequence >= self.max_messages:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                if through_sequence - session.processed_sequence > 200:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                prefix = [
+                    row
+                    for row in await self.messages(
+                        scope, session_id, after_sequence=session.processed_sequence, limit=200
+                    )
+                    if row.sequence <= through_sequence
+                ]
+                if any(row.source not in context_sources for row in prefix):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                await self.verify_source(scope, source, text)
+                await self.verify_delivery(scope, delivery_id, source)
+                now = self.clock()
+                sequence = session.last_sequence + 1
+                row = WorkSessionMessage(
+                    id=message_id(scope, session.id, sequence),
+                    scope=scope,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                    session_id=session.id,
+                    sequence=sequence,
+                    speaker="character",
+                    source=source,
+                    reply_to_sequence=max(
+                        (item.sequence for item in prefix if item.speaker == "operator"),
+                        default=None,
+                    ),
+                )
+                # Include our own appended reply only when there are no later unconsumed inputs.
+                consumed = (
+                    sequence if session.last_sequence == through_sequence else through_sequence
+                )
+                revised = WorkSession.model_validate(
+                    dict(
+                        session.model_dump(),
+                        version=session.version + 1,
+                        updated_at=now,
+                        last_sequence=sequence,
+                        processed_sequence=consumed,
+                        context_sources=list(context_sources),
+                        context_files=list(context_files),
+                        checkpoint=None,
+                    )
+                )
+                await unit.put(revised, expected_version=session.version)
+                await unit.put(row, access=self.readers or None)
+                receipt = Receipt(
+                    request_id=request_id,
+                    scope=scope,
                     status="completed",
                     resource_id=session.id,
                     version=revised.version,

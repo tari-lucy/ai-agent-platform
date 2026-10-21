@@ -23,3 +23,9 @@ Redis server не устанавливается M0-02. Для будущей Re
 M1-05 WebSocket transport: websockets17.2 — BSD-3-Clause, license text включён
 в distribution. [Upstream](https://github.com/python-websockets/websockets).
 Добавлена только эта прямая dependency; остальные версии lock сохранены.
+
+Необязательный sandbox OpenCode 1.19.3: MIT, полный текст —
+deploy/opencode/LICENSE.txt; [exact source](https://github.com/anomalyco/opencode/tree/v1.19.3).
+Архив/binary checksums, граница сборки и тесты — отчёт R1-agent-session.
+Binary не включён в Git и не устанавливается на Windows-хост. Полный инвентарь
+транзитивных notices upstream binary остаётся условием распространяемой поставки.
