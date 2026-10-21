@@ -8,13 +8,19 @@ sources shown become inputs of the attempt, so whatever the step produces keeps 
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from ai_agent_contracts.common import Scope, SourceRef
-from ai_agent_contracts.memory import RecallRequest
+from ai_agent_contracts.memory import RecallRequest, Source
 
 from ai_agent_application.dialogue.context import data
-from ai_agent_application.dialogue.ports import MemoryPort, ProfileSource, RecallPort, SocialPort
+from ai_agent_application.dialogue.ports import ProfileSource, RecallPort, SocialPort
+
+
+class SourceRights(Protocol):
+    """Rights of a source as the recording owner sees them (invisible = not shown)."""
+
+    async def get_source(self, scope: Scope, source_id: str) -> Source | None: ...
 
 
 @dataclass(frozen=True)
@@ -38,7 +44,7 @@ class PersonaContext:
     def __init__(
         self,
         profile: ProfileSource,
-        memory: MemoryPort,
+        memory: SourceRights,
         social: SocialPort | None = None,
         recall: RecallPort | None = None,
         limits: BriefLimits | None = None,

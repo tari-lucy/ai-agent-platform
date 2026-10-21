@@ -117,7 +117,11 @@ def core_grants(
         ]
     if activity:
         # The activity owner writes only tasks/attempts; executions read its tasks as jobs.
-        grants += [Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True)]
+        # It reads MEMORY only to record which sources a step was shown (attempt inputs).
+        grants += [
+            Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True),
+            Grant(PRINCIPALS[Owner.ACTIVITY], Owner.MEMORY, read=True),
+        ]
     if files:
         grants += [
             Grant(PRINCIPALS[Owner.CATALOGUE], Owner.MEMORY, read=True),
@@ -210,9 +214,11 @@ def record_readers() -> tuple[RecordAccess, ...]:
             )
         )
         + (RecordAccess(PRINCIPALS[Owner.SOCIAL].id),)  # read only, never API transfer
-        # Read only: the file release guard and skill evidence check a source still exists.
+        # Read only: the file release guard, skill evidence and attempt inputs check a source.
         # Without the offline workplace-files grants this entry opens nothing.
-        + tuple(RecordAccess(PRINCIPALS[o].id) for o in (Owner.CATALOGUE, Owner.SKILLS))
+        + tuple(
+            RecordAccess(PRINCIPALS[o].id) for o in (Owner.CATALOGUE, Owner.SKILLS, Owner.ACTIVITY)
+        )
     )
 
 

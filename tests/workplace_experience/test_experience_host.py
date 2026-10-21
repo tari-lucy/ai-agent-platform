@@ -75,7 +75,12 @@ def test_own_goal_from_character_and_results_returned_as_experience(tmp_path, mo
             assert profile.canon[:60] in step_call["persona"]  # the brief is in every step
 
             memory = PRINCIPALS[Owner.MEMORY]
-            sources = await rt.store.repository(Source, memory, scope).list(limit=200)
+            # The step's records follow its task update; wait for the conclusion as well.
+            sources = await until(
+                lambda: rt.store.repository(Source, memory, scope).list(limit=200),
+                lambda found: any(s.source_type == "workplace-conclusion" for s in found),
+                "conclusion recorded",
+            )
             results = [s for s in sources if s.source_type == "workplace-result"]
             conclusions = [s for s in sources if s.source_type == "workplace-conclusion"]
             assert len(results) == 1 and results[0].provenance == "observation"

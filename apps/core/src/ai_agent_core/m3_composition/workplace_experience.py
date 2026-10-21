@@ -12,6 +12,8 @@ from ai_agent_application.agent_experience import ExperienceRecorder, PersonaCon
 from ai_agent_application.memory.recall import RecallService
 from ai_agent_application.social import SocialService
 from ai_agent_application.storage import Owner, Principal
+from ai_agent_contracts.common import Scope
+from ai_agent_contracts.memory import Source
 
 from .dialogue import Profiles, memory
 from .state import PRINCIPALS
@@ -20,11 +22,24 @@ if TYPE_CHECKING:
     from .service import Runtime
 
 
+class AttemptSources:
+    """Source rights as the activity owner sees them: a source the attempt could not record as
+    its input is never shown, so nothing reaches the model without lineage."""
+
+    def __init__(self, rt: Runtime) -> None:
+        self.rt = rt
+
+    async def get_source(self, scope: Scope, source_id: str) -> Source | None:
+        return await self.rt.store.repository(Source, PRINCIPALS[Owner.ACTIVITY], scope).get(
+            source_id, purpose="api_transfer"
+        )
+
+
 def persona(rt: Runtime) -> PersonaContext:
     clock = rt.supervisor.clock.utc
     return PersonaContext(
         Profiles(rt),
-        memory(rt),
+        AttemptSources(rt),
         SocialService(
             rt.store,
             PRINCIPALS[Owner.SOCIAL],
