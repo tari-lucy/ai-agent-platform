@@ -114,6 +114,12 @@ class Views:
                 memory_calls_used=budget.memory_used(rows, now)
                 if budget and budget.memory_processing
                 else 0,
+                activity_daily_calls=budget.activity_daily_calls
+                if budget and budget.activity_enabled
+                else 0,
+                activity_calls_used=budget.activity_used(rows, now)
+                if budget and budget.activity_enabled
+                else 0,
                 dialogue_remaining=budget.dialogue_remaining(rows, now) if budget else None,
                 period=None if budget is None else budget.period,
                 attempt_limit=None if budget is None else budget.max_attempts,

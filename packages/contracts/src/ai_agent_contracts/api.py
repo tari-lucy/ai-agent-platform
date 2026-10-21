@@ -152,6 +152,7 @@ class EditCommand(CommandBase):
         "llm.limits",
         "ticket.reply",
         "ticket.read",
+        "work.abandon",
     ]
     arguments: ExtensionPayload
     expected_version: Version

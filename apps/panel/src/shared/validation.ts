@@ -611,3 +611,27 @@ export function workplaceLibrary(value: unknown, selected: Scope): import('./con
     artifactRef(row.reference, selected) && refs(row.dependencies)));
   return value as import('./contracts.ts').WorkplaceLibrary;
 }
+
+// Work tasks and attempts (AW-05/AW-07): the activity owner's records, never a UI projection.
+const taskStates = new Set(['open', 'active', 'waiting', 'done', 'abandoned']);
+const origins = new Set(['assignment', 'own_goal', 'commitment', 'ticket_followup']);
+const stepStatuses = new Set(['succeeded', 'failed', 'unknown']);
+const attemptStates = new Set(['prepared', 'submitted', 'succeeded', 'failed', 'cancelled', 'unknown']);
+export function workTasks(value: unknown, selected: Scope): import('./contracts.ts').WorkTaskPage {
+  page(value, selected);
+  demand(value.items.every((row) => row.task_id === row.id && origins.has(String(row.origin)) && taskStates.has(String(row.state)) &&
+    text(row.goal) && text(row.reason) && (row.outcome == null || text(row.outcome)) &&
+    // waiting needs a ticket; finished needs an outcome
+    (row.state !== 'waiting' || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.length > 0)) &&
+    (!['done', 'abandoned'].includes(String(row.state)) || typeof row.outcome === 'string') &&
+    (row.waiting_ticket_ids === undefined || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.every(id))) &&
+    (row.progress === undefined || (Array.isArray(row.progress) && row.progress.length <= 20 && row.progress.every((step: unknown) =>
+      object(step) && id(step.attempt_id) && id(step.capability_id) && stepStatuses.has(String(step.status)) && text(step.summary, 4000))))));
+  return value as import('./contracts.ts').WorkTaskPage;
+}
+export function workAttempts(value: unknown, selected: Scope): import('./contracts.ts').WorkAttemptPage {
+  page(value, selected);
+  demand(value.items.every((row) => id(row.task_id) && id(row.operation_id) && id(row.capability_id) &&
+    attemptStates.has(String(row.state)) && Number.isSafeInteger(row.attempt_no)));
+  return value as import('./contracts.ts').WorkAttemptPage;
+}

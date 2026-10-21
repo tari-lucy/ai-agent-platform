@@ -33,10 +33,11 @@ from ai_agent_contracts.agent_workplace import (
     CapabilityBinding,
     CapabilityManifest,
     Ticket,
+    WorkAbandonArguments,
     WorkAssignArguments,
     WorkTask,
 )
-from ai_agent_contracts.api import CreateCommand, Permission, Receipt
+from ai_agent_contracts.api import CreateCommand, EditCommand, Permission, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode, OperationState
@@ -468,4 +469,59 @@ async def assign(rt: Runtime, authority: ControlAuthority, request: CreateComman
         status="completed",
         resource_id=task.id,
         version=task.version,
+    )
+
+
+async def abandon(rt: Runtime, authority: ControlAuthority, request: EditCommand) -> Receipt:
+    """The operator drops one task at its exact version; a repeat replays, a stale pin conflicts.
+
+    The revision is built from the pinned version, so a retry after a lost reply is the same
+    command (replay) and a decision on an outdated view is a VERSION_CONFLICT. A step still in
+    flight cannot overwrite it: its own task update is pinned to the version it read.
+    """
+    if rt.activity is None:
+        raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+    if request.arguments.schema_id != "work.abandon-args":
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+    args = rt.registry.validate(
+        request.arguments.schema_id, request.arguments.schema_version, request.arguments.data
+    )
+    if not isinstance(args, WorkAbandonArguments) or args.task_id != request.target:
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+
+    def current() -> None:
+        rt.authorize_configuration(authority, request.scope)
+        if request.scope.memory_mode != "work":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    owner = book(rt)
+    with rt.store.fence(current, owner=Owner.ACTIVITY):
+        current()
+        repo = owner.tasks_repo(request.scope)
+        latest = await repo.get(args.task_id)
+        pinned = await repo.get(args.task_id, version=request.expected_version)
+        if latest is None or pinned is None:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS, request.request_id)
+        if pinned.state in ("done", "abandoned"):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS, request.request_id)
+        data = pinned.model_dump()
+        data.update(
+            version=pinned.version + 1,
+            updated_at=rt.supervisor.clock.utc(),  # not in the fingerprint: a retry replays
+            state="abandoned",
+            outcome="Отменено оператором: " + args.reason.strip(),
+            waiting_ticket_ids=[],
+        )
+        receipt = await owner._commit(
+            request.request_id,
+            pinned.scope,
+            [(WorkTask.model_validate(data), request.expected_version)],
+        )
+    rt.notify("work.changed", pinned.scope, pinned.id, pinned.version + 1)
+    return Receipt(
+        request_id=request.request_id,
+        scope=request.scope,
+        status="completed",
+        resource_id=pinned.id,
+        version=receipt.version,
     )

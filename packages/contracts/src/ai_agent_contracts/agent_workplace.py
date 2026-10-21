@@ -485,6 +485,19 @@ class WorkAssignArguments(Contract):
         return self
 
 
+class WorkAbandonArguments(Contract):
+    """The operator stops pursuing one task; the exact task version is the command's pin."""
+
+    task_id: Id
+    reason: Text = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def not_blank(self) -> Self:
+        if not self.reason.strip():
+            raise ValueError("EMPTY_REASON")
+        return self
+
+
 class WorkplaceLibrary(Contract):
     """Operator view of skills and catalogued files, read through the file owner's guard.
 

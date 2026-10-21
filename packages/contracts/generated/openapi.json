@@ -2172,7 +2172,8 @@
               "llm.assignment",
               "llm.limits",
               "ticket.reply",
-              "ticket.read"
+              "ticket.read",
+              "work.abandon"
             ],
             "title": "Type",
             "type": "string"
@@ -7919,6 +7920,7 @@
             "tariff.create": "#/components/schemas/CreateCommand",
             "ticket.read": "#/components/schemas/EditCommand",
             "ticket.reply": "#/components/schemas/EditCommand",
+            "work.abandon": "#/components/schemas/EditCommand",
             "work.assign": "#/components/schemas/CreateCommand",
             "workspace.backup.execute": "#/components/schemas/ExecutePlanCommand",
             "workspace.backup.preview": "#/components/schemas/PlanCommand",
@@ -8802,6 +8804,19 @@
         "additionalProperties": false,
         "description": "Safe private-dialogue admission counter, not a monetary cost or permission grant.",
         "properties": {
+          "activity_calls_used": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Activity Calls Used",
+            "type": "integer"
+          },
+          "activity_daily_calls": {
+            "default": 0,
+            "maximum": 1000,
+            "minimum": 0,
+            "title": "Activity Daily Calls",
+            "type": "integer"
+          },
           "attempt_limit": {
             "anyOf": [
               {
@@ -13393,6 +13408,31 @@
           "updated_at"
         ],
         "title": "VersionedRecord",
+        "type": "object"
+      },
+      "WorkAbandonArguments": {
+        "additionalProperties": false,
+        "description": "The operator stops pursuing one task; the exact task version is the command's pin.",
+        "properties": {
+          "reason": {
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "reason"
+        ],
+        "title": "WorkAbandonArguments",
         "type": "object"
       },
       "WorkAssignArguments": {

@@ -167,6 +167,7 @@ MODELS = (
     agent_workplace.PermissionLimits,
     agent_workplace.PermissionDecisionProof,
     agent_workplace.WorkAssignArguments,
+    agent_workplace.WorkAbandonArguments,
     agent_workplace.WorkplaceLibrary,
 )
 

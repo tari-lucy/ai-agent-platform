@@ -133,6 +133,11 @@ class Mutations:
 
             async with runtime._lock:
                 return await assign(runtime, authority, request)
+        if isinstance(request, EditCommand) and request.type == "work.abandon":
+            from .activity import abandon
+
+            async with runtime._lock:
+                return await abandon(runtime, authority, request)
         if isinstance(request, EditCommand) and request.type in ("ticket.reply", "ticket.read"):
             from .tickets import mutate as ticket_mutate
 

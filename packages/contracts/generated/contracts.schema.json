@@ -2112,7 +2112,8 @@
             "llm.assignment",
             "llm.limits",
             "ticket.reply",
-            "ticket.read"
+            "ticket.read",
+            "work.abandon"
           ],
           "title": "Type",
           "type": "string"
@@ -7859,6 +7860,7 @@
           "tariff.create": "#/$defs/CreateCommand",
           "ticket.read": "#/$defs/EditCommand",
           "ticket.reply": "#/$defs/EditCommand",
+          "work.abandon": "#/$defs/EditCommand",
           "work.assign": "#/$defs/CreateCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
@@ -8742,6 +8744,19 @@
       "additionalProperties": false,
       "description": "Safe private-dialogue admission counter, not a monetary cost or permission grant.",
       "properties": {
+        "activity_calls_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Activity Calls Used",
+          "type": "integer"
+        },
+        "activity_daily_calls": {
+          "default": 0,
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Activity Daily Calls",
+          "type": "integer"
+        },
         "attempt_limit": {
           "anyOf": [
             {
@@ -13335,6 +13350,31 @@
       "title": "VersionedRecord",
       "type": "object"
     },
+    "WorkAbandonArguments": {
+      "additionalProperties": false,
+      "description": "The operator stops pursuing one task; the exact task version is the command's pin.",
+      "properties": {
+        "reason": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "reason"
+      ],
+      "title": "WorkAbandonArguments",
+      "type": "object"
+    },
     "WorkAssignArguments": {
       "additionalProperties": false,
       "description": "An operator's assignment; it is stored as a task and runs only after an explicit START.",
@@ -14412,6 +14452,9 @@
     },
     "VersionedRecord": {
       "$ref": "#/$defs/VersionedRecord"
+    },
+    "WorkAbandonArguments": {
+      "$ref": "#/$defs/WorkAbandonArguments"
     },
     "WorkAssignArguments": {
       "$ref": "#/$defs/WorkAssignArguments"

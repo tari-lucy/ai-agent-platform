@@ -17,6 +17,7 @@ import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 import { PersonaScreen } from './persona/PersonaScreen.tsx';
 import { TicketsScreen } from './tickets/TicketsScreen.tsx';
 import { LibraryScreen } from './library/LibraryScreen.tsx';
+import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 
@@ -30,6 +31,7 @@ const screens = [
   { path: 'llm', label: 'LLM и расходы', mark: '07', title: 'Понятный учёт', detail: 'Модели, токены и расходы появятся после подключения учёта. Отсутствие данных не означает нулевой расход.', task: 'M4-08' },
   { path: 'tickets', label: 'Обращения', mark: '08', title: 'Обращения агента', detail: 'Вопросы и запросы агента к оператору.', task: 'AW-01' },
   { path: 'library', label: 'Библиотека', mark: '09', title: 'Навыки и знания', detail: 'Навыки, заметки и гипотезы агента.', task: 'AW-03' },
+  { path: 'work', label: 'Работа', mark: '10', title: 'Занятия агента', detail: 'Поручения, собственные цели, шаги и результаты.', task: 'AW-07' },
 ] as const;
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
 const connectionLabels: Record<ConnectionState, string> = {
@@ -77,7 +79,7 @@ type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Sco
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
-  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, library: LibraryScreen,
+  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, library: LibraryScreen, work: WorkScreen,
 };
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();

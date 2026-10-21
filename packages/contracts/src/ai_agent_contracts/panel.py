@@ -265,12 +265,14 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
         PermissionLimits,
         TicketReadArguments,
         TicketReplyArguments,
+        WorkAbandonArguments,
         WorkAssignArguments,
     )
 
     registry.register("ticket.reply-args", TicketReplyArguments)
     registry.register("ticket.read-args", TicketReadArguments)
     registry.register("work.assign-args", WorkAssignArguments)
+    registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
     registry.register("workplace.permission-conditions", PermissionConditions)
     registry.register("workplace.permission-limits", PermissionLimits)
@@ -446,6 +448,9 @@ class PrivateApiStatus(Contract):
     memory_processing: bool = Field(default=False, strict=True)
     memory_daily_calls: int = Field(default=0, strict=True, ge=0, le=32)
     memory_calls_used: int = Field(default=0, strict=True, ge=0)
+    # Activity share of the same daily limit (AW-05); 0/0 while the contour is off.
+    activity_daily_calls: int = Field(default=0, strict=True, ge=0, le=1000)
+    activity_calls_used: int = Field(default=0, strict=True, ge=0)
     dialogue_remaining: int | None = Field(default=None, strict=True, ge=0)
     period: Literal["lifetime", "utc_day"] | None
     attempt_limit: int | None = Field(strict=True, ge=1)
