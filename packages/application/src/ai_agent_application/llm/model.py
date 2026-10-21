@@ -9,11 +9,13 @@ from ai_agent_contracts.common import Contract, Id, Version
 from ai_agent_contracts.llm import TokenUsage
 from pydantic import BaseModel, Field
 
+from .tools import MAX_TOOL_CALLS, MAX_TOOLS, ToolCall, ToolDefinition
+
 MAX_MESSAGES = 200
 MAX_PROMPT_CHARS = 400_000
 MAX_OUTPUT_CHARS = 200_000
 
-type Role = Literal["system", "user", "assistant"]
+type Role = Literal["system", "user", "assistant", "tool"]
 type AttemptStatus = Literal["completed", "failed", "cancelled", "incomplete", "unknown"]
 
 UNKNOWN_USAGE = TokenUsage(
@@ -34,6 +36,18 @@ class GenerationParameters(Contract):
 class ChatMessage:
     role: Role
     content: str
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.role not in ("system", "user", "assistant", "tool") or not isinstance(
+            self.content, str
+        ):
+            raise ValueError("MESSAGE_SHAPE")
+        if len(self.tool_calls) > MAX_TOOL_CALLS or (self.tool_calls and self.role != "assistant"):
+            raise ValueError("MESSAGE_TOOL_CALLS")
+        if (self.role == "tool") != (self.tool_call_id is not None):
+            raise ValueError("MESSAGE_TOOL_RESULT")
 
 
 @dataclass(frozen=True)
@@ -106,13 +120,31 @@ class UsageReported:
     usage: TokenUsage
 
 
-type ProviderEvent = Started | Delta | Finished | UsageReported
+@dataclass(frozen=True)
+class ToolCallDelta:
+    index: int
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
+
+
+type ProviderEvent = Started | Delta | Finished | UsageReported | ToolCallDelta
 
 
 @dataclass(frozen=True)
 class ProviderCall:
     assignment: ResolvedAssignment
     messages: tuple[ChatMessage, ...]
+    tools: tuple[ToolDefinition, ...] = ()
+
+
+def prompt_size(messages: tuple[ChatMessage, ...], tools: tuple[ToolDefinition, ...] = ()) -> int:
+    return sum(
+        len(item.content)
+        + len(item.tool_call_id or "")
+        + sum(len(call.id) + len(call.name) + len(call.arguments) for call in item.tool_calls)
+        for item in messages
+    ) + sum(len(tool.name) + len(tool.description) + len(tool.parameters_json) for tool in tools)
 
 
 @dataclass(frozen=True)
@@ -124,6 +156,7 @@ class GenerationRequest:
     result_model: type[BaseModel] | None = None
     # Optional per-call ceiling. May only lower the configured role assignment.
     max_output_tokens: int | None = None
+    tools: tuple[ToolDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         if self.max_output_tokens is not None and (
@@ -132,8 +165,31 @@ class GenerationRequest:
             raise ValueError("OUTPUT_TOKEN_LIMIT")
         if not 1 <= len(self.messages) <= MAX_MESSAGES:
             raise ValueError("MESSAGES_BOUNDS")
-        if sum(len(item.content) for item in self.messages) > MAX_PROMPT_CHARS:
+        if prompt_size(self.messages, self.tools) > MAX_PROMPT_CHARS:
             raise ValueError("PROMPT_TOO_LARGE")
+        if len(self.tools) > MAX_TOOLS or len({tool.name for tool in self.tools}) != len(
+            self.tools
+        ):
+            raise ValueError("TOOLS_BOUNDS_OR_DUPLICATE")
+        if self.tools and self.result_model is not None:
+            raise ValueError("TOOLS_OR_RESULT_SCHEMA")
+        pending: set[str] = set()
+        seen: set[str] = set()
+        for message in self.messages:
+            if message.role == "tool":
+                if message.tool_call_id is None or message.tool_call_id not in pending:
+                    raise ValueError("TOOL_RESULT_WITHOUT_CALL")
+                pending.remove(message.tool_call_id)
+            else:
+                if pending:
+                    raise ValueError("TOOL_RESULTS_REQUIRED")
+                for call in message.tool_calls:
+                    if call.id in seen:
+                        raise ValueError("TOOL_CALL_ID_DUPLICATE")
+                    seen.add(call.id)
+                    pending.add(call.id)
+        if pending:
+            raise ValueError("TOOL_RESULTS_REQUIRED")
 
 
 @dataclass(frozen=True)
@@ -169,3 +225,4 @@ class Generation:
     attempts: tuple[AttemptReport, ...]
     used_fallback: bool
     assignment_id: str | None
+    tool_calls: tuple[ToolCall, ...] = ()

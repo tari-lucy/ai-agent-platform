@@ -91,6 +91,7 @@ class ExecutionModelGateway:
                     messages=request.messages,
                     result_model=request.result_model,
                     max_output_tokens=request.max_output_tokens,
+                    tools=request.tools,
                 ),
                 self.execution.cancel,
             )
@@ -103,7 +104,9 @@ class ExecutionModelGateway:
             return ModelReply("not_admitted", "", attempt)
         if result.failure is Failure.NOT_ADMITTED:
             return ModelReply("not_admitted", "", attempt)
-        return ModelReply(result.status, result.text or "", attempt, result.parsed)
+        return ModelReply(
+            result.status, result.text or "", attempt, result.parsed, result.tool_calls
+        )
 
 
 def admission(execution: Execution) -> WorkAdmission:

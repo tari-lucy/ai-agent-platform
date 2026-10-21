@@ -164,7 +164,9 @@ def test_tool_call_fragments_are_never_forwarded():
             "choices": [
                 {
                     "delta": {
-                        "tool_calls": [{"function": {"name": "rm", "arguments": '{"p": "/"'}}]
+                        "tool_calls": [
+                            {"index": 0, "function": {"name": "rm", "arguments": '{"p": "/"'}}
+                        ]
                     },
                     "finish_reason": None,
                 }

@@ -3,7 +3,7 @@
 The adapter reads the endpoint and credential by the *names* held in the assignment from an
 injected settings mapping; it never opens ``.env`` itself and never puts the endpoint, headers,
 body or remote error text into an exception, event or log. Redirects are not followed, so the
-credential cannot leave for another host. Only streaming text is requested: tools are not sent.
+credential cannot leave for another host. Tool fragments remain data, never executable actions.
 """
 
 import json
@@ -23,7 +23,8 @@ from ai_agent_application.llm import (
     Started,
     UsageReported,
 )
-from ai_agent_application.llm.model import ProviderEvent
+from ai_agent_application.llm.model import ChatMessage, ProviderEvent, ToolCallDelta
+from ai_agent_application.llm.tools import MAX_TOOL_CALLS, object_json
 from ai_agent_contracts.llm import TokenUsage
 from httpx_sse import SSEError, aconnect_sse
 
@@ -130,6 +131,45 @@ def failure_for_status(status: int) -> Failure:
     return Failure.REJECTED
 
 
+def _message(message: ChatMessage) -> dict[str, Any]:
+    result: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_call_id is not None:
+        result["tool_call_id"] = message.tool_call_id
+    if message.tool_calls:
+        result["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    return result
+
+
+def _tool_events(raw: Any) -> list[ToolCallDelta]:
+    if not isinstance(raw, list) or len(raw) > MAX_TOOL_CALLS:
+        raise ProviderError(Failure.PROTOCOL)
+    result = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ProviderError(Failure.PROTOCOL)
+        index = item.get("index")
+        function = item.get("function", {})
+        if (
+            type(index) is not int
+            or not 0 <= index < MAX_TOOL_CALLS
+            or item.get("type", "function") != "function"
+            or not isinstance(function, dict)
+        ):
+            raise ProviderError(Failure.PROTOCOL)
+        values = (item.get("id", ""), function.get("name", ""), function.get("arguments", ""))
+        if not all(isinstance(value, str) for value in values):
+            raise ProviderError(Failure.PROTOCOL)
+        result.append(ToolCallDelta(index, *values))
+    return result
+
+
 class OpenAICompatibleProvider:
     """``LLMProvider`` for Chat Completions with ``stream=true`` and ``include_usage``."""
 
@@ -161,11 +201,23 @@ class OpenAICompatibleProvider:
         parameters = assignment.parameters
         body: dict[str, Any] = {
             "model": assignment.model_id,
-            "messages": [{"role": m.role, "content": m.content} for m in call.messages],
+            "messages": [_message(message) for message in call.messages],
             "stream": True,
             "stream_options": {"include_usage": True},
             "max_tokens": parameters.max_output_tokens,
         }
+        if call.tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": object_json(tool.parameters_json),
+                    },
+                }
+                for tool in call.tools
+            ]
         if parameters.temperature is not None:
             body["temperature"] = parameters.temperature
         if parameters.top_p is not None:
@@ -228,6 +280,9 @@ class OpenAICompatibleProvider:
                 content = delta.get("content") if isinstance(delta, dict) else None
                 if isinstance(content, str) and content:
                     yield Delta(content)
+                if isinstance(delta, dict) and "tool_calls" in delta:
+                    for event in _tool_events(delta["tool_calls"]):
+                        yield event
                 reason = choice.get("finish_reason") if isinstance(choice, dict) else None
                 if isinstance(reason, str):
                     yield Finished(_REASONS.get(reason, "other"))  # type: ignore[arg-type]

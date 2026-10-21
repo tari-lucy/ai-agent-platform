@@ -39,6 +39,7 @@ from ai_agent_application.llm import (
     LLMGateway,
     ProviderFactory,
 )
+from ai_agent_application.llm.model import prompt_size
 from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.memory.service import derived_id
@@ -1341,7 +1342,7 @@ class Execution:
             or binding.connection_id != budget.connection_id
             or not budget.allows(request.role_id, self.args.request.kind)
             or self.command.scope.memory_mode != "work"
-            or sum(len(message.content) for message in request.messages) > budget.max_prompt_chars
+            or prompt_size(request.messages, request.tools) > budget.max_prompt_chars
         ):
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         unique = (

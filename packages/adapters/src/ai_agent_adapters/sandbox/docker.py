@@ -14,7 +14,6 @@ from uuid import uuid4
 from ai_agent_application.agent_workplace.ports import (
     AttemptContext,
     ModelGateway,
-    ModelRequest,
     ReleaseGuard,
     RunnerOutcome,
     RunnerOutput,
@@ -22,13 +21,13 @@ from ai_agent_application.agent_workplace.ports import (
     WorkAdmission,
     WorkspaceFiles,
 )
-from ai_agent_application.llm.model import ChatMessage
 from ai_agent_application.workspace_files.guard import current
 from ai_agent_contracts.agent_workplace import WorkAttempt, logical_path
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .entry import ENTRY
+from .model_protocol import model_request, wire_calls
 from .policy import RunnerTemplate, create_args
 
 type Authorize = Callable[[WorkAdmission, str], Awaitable[None]]
@@ -161,40 +160,22 @@ class DockerTaskRunner:
                         continue
                     if row.get("kind") != "model" or task.network != "gateway":
                         raise ValueError("RUNNER_FRAME_INVALID")
-                    answer = {"status": "not_admitted", "text": ""}
+                    answer: dict[str, Any] = {"status": "not_admitted", "text": ""}
                     if calls < template.max_model_calls:
                         calls += 1
                         await self._verify(admission, attempt)
                         await self.guard.verify(
                             admission, attempt.inputs, attempt.input_files, "api_transfer"
                         )
-                        tokens = row.get("max_tokens")
-                        entries = row.get("messages")
-                        if (
-                            self.models is None
-                            or template.model_role_id is None
-                            or type(tokens) is not int
-                            or not 1 <= tokens <= template.max_model_tokens
-                            or not isinstance(entries, list)
-                            or not 1 <= len(entries) <= 200
-                            or any(
-                                not isinstance(m, dict)
-                                or set(m) != {"role", "content"}
-                                or m["role"] not in {"system", "user", "assistant"}
-                                or not isinstance(m["content"], str)
-                                for m in entries
-                            )
-                            or sum(len(m["content"]) for m in entries) > template.max_prompt_chars
-                        ):
+                        if self.models is None or template.model_role_id is None:
                             raise ValueError("RUNNER_MODEL_REQUEST_INVALID")
                         reply = await self.models.generate(
                             admission,
-                            ModelRequest(
-                                template.model_role_id,
-                                tuple(
-                                    ChatMessage(cast(Any, m["role"]), m["content"]) for m in entries
-                                ),
-                                tokens,
+                            model_request(
+                                row,
+                                role=template.model_role_id,
+                                max_tokens=template.max_model_tokens,
+                                max_prompt=template.max_prompt_chars,
                                 call_id=f"sandbox-{calls}",
                             ),
                         )
@@ -205,7 +186,13 @@ class DockerTaskRunner:
                         if reply.status == "completed":
                             if len(reply.text.encode()) > task.limits.output_bytes:
                                 raise ValueError("RUNNER_MODEL_OUTPUT_LIMIT")
-                            answer = {"status": "completed", "text": reply.text}
+                            answer = {
+                                "status": "completed",
+                                "text": reply.text,
+                                "tool_calls": wire_calls(reply.tool_calls),
+                            }
+                            if len(json.dumps(answer).encode()) > task.limits.output_bytes:
+                                raise ValueError("RUNNER_MODEL_OUTPUT_LIMIT")
                     process.stdin.write(json.dumps(answer).encode() + b"\n")
                     await process.stdin.drain()
                 await process.wait()

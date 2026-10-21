@@ -13,11 +13,13 @@ from .model import (
     ProviderError,
     ResolvedAssignment,
     Started,
+    ToolCallDelta,
     UsageReported,
 )
 from .ports import Admission, AttemptSink, LLMProvider, ProviderFactory, register_llm_extensions
 from .roles import resolve_assignment
 from .service import LLMGateway, parse_result
+from .tools import ToolCall, ToolDefinition
 
 __all__ = [
     "Admission",
@@ -37,6 +39,9 @@ __all__ = [
     "ProviderFactory",
     "ResolvedAssignment",
     "Started",
+    "ToolCall",
+    "ToolCallDelta",
+    "ToolDefinition",
     "UsageReported",
     "parse_result",
     "register_llm_extensions",
