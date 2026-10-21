@@ -165,6 +165,7 @@ MODELS = (
     agent_workplace.PermissionConditions,
     agent_workplace.PermissionLimits,
     agent_workplace.PermissionDecisionProof,
+    agent_workplace.WorkplaceLibrary,
 )
 
 ADAPTERS: dict[str, TypeAdapter[Any]] = {model.__name__: TypeAdapter(model) for model in MODELS}

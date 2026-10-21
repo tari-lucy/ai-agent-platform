@@ -24,6 +24,7 @@ from .recovery import enable_recovery
 from .serve import permissions_expired, serve
 from .social import enable_social
 from .tickets import enable_tickets
+from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 
@@ -87,6 +88,19 @@ def parser() -> argparse.ArgumentParser:
         "enable-tickets", help="explicit offline rights for operator tickets in the panel"
     )
     tickets.add_argument("--root", type=Path, required=True)
+    files = commands.add_parser(
+        "enable-workplace-files",
+        help="explicit offline private file store, skills and knowledge; grants no agent right",
+    )
+    files.add_argument("--root", type=Path, required=True)
+    files.add_argument("--blob-dir", type=Path, help="new private directory; default in --root")
+    files.add_argument(
+        "--ceiling-days",
+        type=int,
+        help="let the operator grant these capabilities up to N days (needs enable-tickets)",
+    )
+    files.add_argument("--max-file-bytes", type=int)
+    files.add_argument("--max-scope-bytes", type=int)
     gm = commands.add_parser(
         "configure-gm", help="explicit offline internal game master switch and limits"
     )
@@ -197,6 +211,25 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "enable-tickets":
             asyncio.run(enable_tickets(arguments.root))
             print("operator tickets enabled; no rights granted to the agent; agent stays STOPPED")
+            return 0
+        if arguments.command == "enable-workplace-files":
+            limits = {
+                key: value
+                for key, value in (
+                    ("max_file_bytes", arguments.max_file_bytes),
+                    ("max_scope_bytes", arguments.max_scope_bytes),
+                )
+                if value is not None
+            }
+            asyncio.run(
+                enable_workplace_files(
+                    arguments.root,
+                    blob_dir=arguments.blob_dir,
+                    ceiling_days=arguments.ceiling_days,
+                    **limits,
+                )
+            )
+            print("workplace files enabled; no rights granted to the agent; agent stays STOPPED")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)

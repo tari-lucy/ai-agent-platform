@@ -19,15 +19,26 @@ Operator tickets (AW-01) are off by default: the offline `enable-tickets` adds o
 TICKETS owner rows (own records, MEMORY read for evidence) and the operator's TICKETS read.
 A ticket never grants a right; no agent/runner principal reaches the permission owner.
 
+Managed files, skills and knowledge (AW-03) are off by default: the offline
+`enable-workplace-files` adds the SKILLS owner and the catalogue's reads of MEMORY (release
+guard on sources) and ACTIVITY (the attempt that does the IO); SKILLS reads MEMORY only to check
+evidence. Which area an agent may touch is never a grant here: it is a current Permission of
+the workplace agent, checked by the file owner before and after IO.
+
 Explicit --operator-controls is a separately accepted matrix: WORKSPACE plan/receipt
 writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separate
 metadata-only TEST scope has no execution grants. Serve never provisions either mode.
 """
 
+from typing import TYPE_CHECKING
+
 from ai_agent_application.laboratory import lab_grants
 from ai_agent_application.storage import Grant, Owner, RecordAccess
 
 from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
+
+if TYPE_CHECKING:
+    from .layout import HostConfig
 
 # Owners whose own records the m3 runtime, dialogue and lab paths write.
 WRITERS = (
@@ -64,7 +75,11 @@ OPERATOR_LAB_OWNERS = (Owner.MEMORY, Owner.CATALOGUE, Owner.LABORATORY)
 
 
 def core_grants(
-    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+    *,
+    preparing: bool = False,
+    operator_controls: bool = False,
+    tickets: bool = False,
+    files: bool = False,
 ) -> tuple[Grant, ...]:
     """Default WORKSPACE is read-only; explicit controls mode also stores plans/receipts.
 
@@ -99,6 +114,13 @@ def core_grants(
             Grant(PRINCIPALS[Owner.TICKETS], Owner.TICKETS, read=True, write=True),
             Grant(PRINCIPALS[Owner.TICKETS], Owner.MEMORY, read=True),
         ]
+    if files:
+        grants += [
+            Grant(PRINCIPALS[Owner.CATALOGUE], Owner.MEMORY, read=True),
+            Grant(PRINCIPALS[Owner.CATALOGUE], Owner.ACTIVITY, read=True),
+            Grant(PRINCIPALS[Owner.SKILLS], Owner.SKILLS, read=True, write=True),
+            Grant(PRINCIPALS[Owner.SKILLS], Owner.MEMORY, read=True),
+        ]
     return tuple(grants)
 
 
@@ -114,11 +136,24 @@ def operator_grants(*, operator_controls: bool = False, tickets: bool = False) -
 
 
 def work_grants(
-    *, preparing: bool = False, operator_controls: bool = False, tickets: bool = False
+    *,
+    preparing: bool = False,
+    operator_controls: bool = False,
+    tickets: bool = False,
+    files: bool = False,
 ) -> tuple[Grant, ...]:
     return core_grants(
-        preparing=preparing, operator_controls=operator_controls, tickets=tickets
+        preparing=preparing, operator_controls=operator_controls, tickets=tickets, files=files
     ) + operator_grants(operator_controls=operator_controls, tickets=tickets)
+
+
+def host_grants(config: HostConfig) -> tuple[Grant, ...]:
+    """The current work-scope matrix of a prepared host, from its explicit offline flags."""
+    return work_grants(
+        operator_controls=config.operator_controls,
+        tickets=config.workplace_tickets,
+        files=config.workplace_files is not None,
+    )
 
 
 def ticket_readers() -> tuple[RecordAccess, ...]:
@@ -162,6 +197,9 @@ def record_readers() -> tuple[RecordAccess, ...]:
             )
         )
         + (RecordAccess(PRINCIPALS[Owner.SOCIAL].id),)  # read only, never API transfer
+        # Read only: the file release guard and skill evidence check a source still exists.
+        # Without the offline workplace-files grants this entry opens nothing.
+        + tuple(RecordAccess(PRINCIPALS[o].id) for o in (Owner.CATALOGUE, Owner.SKILLS))
     )
 
 

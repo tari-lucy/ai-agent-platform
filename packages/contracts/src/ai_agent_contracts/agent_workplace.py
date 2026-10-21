@@ -18,6 +18,7 @@ from ai_agent_contracts.common import (
     Digest,
     Id,
     Record,
+    Scope,
     ShortText,
     SourceRef,
     Text,
@@ -448,3 +449,17 @@ class PermissionDecisionProof(VersionedRecord):
     plan_expires_at: UTC
     expires_at: UTC
     executed_by: Id | None = None
+
+
+class WorkplaceLibrary(Contract):
+    """Operator view of skills and catalogued files, read through the file owner's guard.
+
+    A skill whose method is no longer releasable (revoked source, expired, hidden) is left out;
+    ``complete`` is false when a listing reached its bound.
+    """
+
+    scope: Scope
+    skills: list[SkillVersion] = Field(max_length=200)
+    files: list[ManagedFile] = Field(max_length=800)
+    complete: bool = Field(strict=True)
+    checked_at: UTC

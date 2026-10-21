@@ -28,7 +28,7 @@ async def enable_tickets(root: Path) -> None:
         try:
             await store.provision(
                 work_scope(config.workspace_id, config.persona_id, config.work_space_id),
-                rights.work_grants(operator_controls=config.operator_controls, tickets=True),
+                rights.host_grants(config.model_copy(update={"workplace_tickets": True})),
             )
         finally:
             await store.close()

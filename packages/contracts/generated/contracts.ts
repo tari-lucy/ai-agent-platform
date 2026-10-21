@@ -241,5 +241,6 @@ export type WorkOrigin = "assignment" | "own_goal" | "commitment" | "ticket_foll
 export type WorkTask = { "created_at": string; "goal": string; "id": string; "origin": WorkOrigin; "outcome"?: (string) | (null); "parent_task_id"?: (string) | (null); "reason": string; "result_files"?: Array<ArtifactRef>; "schema_version"?: "1.0"; "scope": Scope; "state": WorkTaskState; "task_id": string; "updated_at": string; "version": number; "waiting_ticket_ids"?: Array<string>; };
 export type WorkTaskState = "open" | "active" | "waiting" | "done" | "abandoned";
 export type WorkplaceArea = "inbox" | "knowledge" | "skills" | "projects" | "scratch" | "exports" | "reference" | "guide";
+export type WorkplaceLibrary = { "checked_at": string; "complete": boolean; "files": Array<ManagedFile>; "scope": Scope; "skills": Array<SkillVersion>; };
 export type Workspace = { "active_agent_id": (string) | (null); "connection_ids": Array<string>; "created_at": string; "id": string; "policy_version": number; "profile_ids": Array<string>; "schema_version"?: "1.0"; "scope": Scope; "settings": ExtensionPayload; "updated_at": string; "version": number; };
 export type WorkspacePage = Page_Workspace_;
