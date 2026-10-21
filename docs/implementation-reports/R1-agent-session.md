@@ -184,3 +184,125 @@ LLMGateway → broker → OpenCode, настоящий harness внутри sand
 session driver/checkpoint/cancel и delivery/ACK. При renew аренды драйвер
 обновляет доверенный WorkAdmission для следующего RPC, а не принимает lease
 от клиента. Ни один из этих gates не закрывается текстовым broker-тестом.
+
+## Structured tools: существующий gateway и stdio broker
+
+Добавлен provider-neutral протокол описаний инструментов, завершённых вызовов
+и связанных результатов в истории. Схемы/аргументы bounded; повторяющиеся JSON
+ключи, нечисловые значения, неизвестные имена, дубликаты id, разрывы индексов
+и незаконченные аргументы не выпускаются как completed proposals. Fragment
+не исполняется. После частичного tool output нет автоматического retry/fallback.
+STOP удаляет proposal, техническая запись попытки остаётся. Старые текстовые
+запросы сохраняют форму без tools. Это внутренние типы, wire-контракты R3
+и generated exports не менялись.
+
+OpenAI-compatible adapter передаёт tools и tool-result историю, собирает SSE
+фрагменты через gateway. ExecutionModelGateway сохраняет scope/epoch/lease,
+pre/post release, per-call ceiling и общий journal/budget. Размер запроса теперь
+считает также schemas и tool arguments, включая existing live prompt ceiling.
+Runner принимает закрытый bounded формат и отдаёт завершённый tool proposal
+внутрь песочницы; запрос не может выбрать роль/credential/host-tool. Внешняя
+сеть, mounts и права не расширены. Ответ broker тоже ограничен по байтам.
+
+Проверки: llm + bound gateway — **114 passed**, один прежний тест получил
+PROTOCOL из-за старой фикстуры без обязательного index. Фикстура исправлена,
+повтор только этого теста — **1 passed**. Sandbox protocol/policy + два реальных
+Docker loopback сценария — **17 passed (3.87 с)**: прежний текст/отказ/unknown
+route и tools SSE → tool result → итоговый текст через настоящий LLMGateway
+с синтетическим провайдером. Docker использовал уже имеющийся локальный image,
+контейнеры удалены runner. Платных вызовов не было. Ruff и strict mypy по
+изменённым модулям проверяются перед commit.
+
+Граница: настоящий OpenCode ещё не запускался. Этот тест не доказывает его
+совместимость, shared-budget harness gate или session delivery/ACK. Дальнейшие
+поставки: driver, checkpoint, видимая отмена по release; Windows/OpenCode R5.
+R3 `03fb572` и Linux R5 `5bf92bd` опубликованы Claude отдельно; его shared
+окна освобождены. Личные runtime-настройки/данные не менялись.
+
+## Видимость отменённых попыток и покрытие общего gate
+
+Activity tick после сверки завершённых jobs пишет в существующий WorkTask.outcome
+фиксированное техническое пояснение для cancelled/failed/unknown, а при исчерпании
+числа попыток — явное отсутствие автоматического продолжения. Не утверждает точную
+причину отмены, если JobOwner её не хранит. Закрытый текст источников не используется.
+Это доверенная reconciliation вне отозванного execution fence, но под актуальным
+ACTIVE/OPEN fence supervisor. Повтор идемпотентен; завершённая/отменённая оператором
+задача не переписывается, STOP запрещает запись. Следующее успешное решение
+убирает устаревшее техническое пояснение. Отдельный SQLite owner test — **1 passed
+(1.51 с)**; первый запуск выявил только пропущенный limit в новой test fixture.
+
+В scripts/check_combined.py добавлены tests/workplace_sessions,
+tests/workplace_lifecycle и tests/workplace_sandbox (Docker остаётся opt-in).
+Новый gate не был выдан за уже пройденный полный suite. Claude R5 уже добавил
+свой headless journey независимо; shared UI/контракты этой правкой не затронуты.
+После изменения reconciliation и очистки старого пояснения выполнен один прежний
+production-host путь assignment → ticket → answer → completion → restart STOPPED:
+**1 passed (34.21 с)**. Полные suites не повторялись. Ruff и strict mypy изменённой
+композиции чистые.
+
+## Настоящий OpenCode в изолированном adapter gate
+
+Выбран exact pin **1.19.3, Linux x64 baseline**. Official archive SHA-256:
+`531cff2441129c30f0edd5878af494108ad07f5feb46d7ee29a2a5b830a5765d`;
+binary SHA-256: `179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9`.
+Проверены official CLI/server docs и exact source config/paths/npm/read/flags.
+Добавлены воспроизводимые scripts/build_opencode_sandbox.ps1, deploy/opencode,
+стандартный AgentHarness adapter и standalone image launcher. Binary не в Git;
+никакого запуска OpenCode или установщика на Windows-хосте.
+
+Первый --version без выделенного HOME получил правильный EROFS. С временными
+HOME/XDG в контейнере — 1.19.3. Первый model handshake выявил недостающие
+стандартные stream_options.include_usage, tool_choice=auto в facade; они добавлены
+с закрытой проверкой значений. Другие provider options не принимаются.
+Прямая read-проба выявила relative-worktree permission paths; доступ ограничен
+только inputs/outputs внутри sandbox. Выполнен фактический read manifest →
+tool result → final через существующий LLMGateway и scripted provider.
+
+Новый affected gate tests/workplace_harness: **4 passed (6.47 с)** на Windows
+Docker Desktop/Linux engine. Из них один настоящий OpenCode, ровно два model
+calls, оба под lowered ceiling 256, два technical reports с synthetic provider
+usage. Нет title/summary вызовов. Сырые ошибки и partial text не становятся
+ответом. Контейнер удалён; close очищает staged cache. Ruff, strict mypy
+четырёх source modules и import boundaries — чистые. Личный host и платные
+API не использовались. В check_combined добавлен новый набор; full suite не
+повторялся. Исходный synthetic probe в runtime/ не включён в Git.
+
+В exact source Npm.install проверяет writable перед любым install. Поэтому
+конфигурационный каталог image read-only; project config отключён, нет plugin/
+MCP/LSP/formatter, models-fetch/updates/compaction отключены. Контейнер network
+none, без mounts/secret/socket. Model token ceiling берётся из trusted template,
+не зашит в персонажа. Отдельная задача получения полного transitive notices
+upstream binary остаётся до распространяемой поставки (не заявлен release SBOM).
+
+Граница остаётся: это настоящий isolated OpenCode adapter, но ещё не единый
+production session driver. Он не подключён автоматически к private host;
+platform tools/тикеты/файлы через owner bridge, logical-session responses,
+delivery/ACK и staged restore остаются обязательными следующими стыками.
+Сырой OpenCode checkpoint не сохраняется: следующая среда должна получать
+контекст заново через R2/Source/File owners. Такая реконструкция безопаснее
+непроверенного export/import, но не объявляет полный resume gate пройденным.
+
+## SessionBook: внутренний delivery hook
+
+Добавлен record_delivered для доверенной композиции, без новой HTTP-команды
+или права агенту публиковать свой ответ. Обязателен отдельный verify_delivery
+от владельца доставок; без него CAPABILITY_UNAVAILABLE. Плюс точная проверка
+Source/text, generation, доступного prefix и полного набора его оснований.
+Ни один исполнитель не может передать boolean «доставлено» вместо этой проверки.
+
+В одной owner transaction добавляется только SourceRef с speaker=character и
+reply_to_sequence и продвигается processed_sequence. Новый ввод, поступивший
+во время генерации, не теряется и не помечается обработанным. Собственная
+добавленная реплика сразу считается обработанной только когда нового ввода нет.
+Replay не создаёт второй ответ; raw text не дублируется в message или fingerprint.
+После отказа Source должен снять вызывающий memory owner (как в R3 orphan fix).
+
+Affected gate: новые hook cases + прежние session owner tests — **6 passed
+(2.87 с)** на настоящем SQLite. Delivery callback в этом наборе синтетический:
+это не доказательство существующей UI ACK-интеграции. Проверены отсутствие
+callback/подтверждения, неподоказанные основания, чужая generation, пропуск
+входов, source/text mismatch, отозванный допуск, close, replay и новый ввод
+параллельно ответу. Ruff и strict mypy модуля чистые. Runtime wiring,
+очистка orphan ответа и UI delivery/ACK остаются следующей поставкой.
+После совместимых добавлений внутренних ports выполнен общий strict mypy:
+**277 source files, clean**. Полный pytest gate не запускался повторно.

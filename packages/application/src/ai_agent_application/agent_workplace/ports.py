@@ -24,6 +24,7 @@ from ai_agent_contracts.control import Freshness
 from pydantic import BaseModel
 
 from ai_agent_application.llm.model import ChatMessage
+from ai_agent_application.llm.tools import ToolCall, ToolDefinition
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ class ModelRequest:
     max_output_tokens: int
     call_id: str = "call"
     result_model: type[BaseModel] | None = None
+    tools: tuple[ToolDefinition, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,7 @@ class ModelReply:
     text: str
     attempt_id: str
     parsed: BaseModel | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 class ModelGateway(Protocol):
@@ -185,6 +188,8 @@ class TaskRunner(Protocol):
 
     async def staged(self, admission: WorkAdmission, output: RunnerOutput) -> bytes: ...
 
+    async def cancel(self, admission: WorkAdmission) -> None: ...
+
 
 @dataclass(frozen=True)
 class HarnessTurn:
@@ -201,6 +206,7 @@ class HarnessEvent:
     kind: Literal["progress", "permission_ask", "result", "failed", "cancelled", "unknown"]
     detail: str
     capability_id: str | None = None
+    files: tuple[RunnerOutput, ...] = ()
 
 
 class AgentHarness(Protocol):

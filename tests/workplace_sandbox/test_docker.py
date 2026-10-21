@@ -250,6 +250,97 @@ print('BROKER_BOUNDED')
     asyncio.run(scenario())
 
 
+def test_tool_round_trip_through_loopback_stdio_and_existing_gateway():
+    from ai_agent_adapters.llm import ScriptedProvider
+    from ai_agent_application.agent_workplace.ports import ModelReply
+    from ai_agent_application.llm import (
+        Delta,
+        Finished,
+        GenerationParameters,
+        GenerationRequest,
+        LLMGateway,
+        ResolvedAssignment,
+        ToolCallDelta,
+    )
+
+    async def scenario():
+        w = World()
+        provider = ScriptedProvider(
+            [
+                [ToolCallDelta(0, "a", "read_file", '{"path":"notes"}'), Finished("tool_calls")],
+                [Delta("synthetic result"), Finished("stop")],
+            ]
+        )
+        binding = ResolvedAssignment(
+            "assignment",
+            1,
+            "activity",
+            "connection",
+            "mock",
+            "model",
+            "ENDPOINT_NOT_READ",
+            "KEY_NOT_READ",
+            GenerationParameters(max_output_tokens=64),
+            "unverified",
+        )
+        gateway = LLMGateway(lambda _: provider, lambda _: binding)
+
+        class Models:
+            async def generate(self, admission, request):
+                assert admission == w.admission
+                result = await gateway.generate(
+                    GenerationRequest(
+                        operation_id=request.call_id,
+                        role_id=request.role_id,
+                        messages=request.messages,
+                        tools=request.tools,
+                        max_output_tokens=request.max_output_tokens,
+                    )
+                )
+                return ModelReply(
+                    result.status,
+                    result.text or "",
+                    "synthetic-attempt",
+                    tool_calls=result.tool_calls,
+                )
+
+        template = replace(w.runner.templates["python-task"], model_role_id="activity")
+        w.runner.templates[template.id] = template
+        w.runner.models = Models()
+        code = """
+import json, os, urllib.request
+base = os.environ['AI_WORKPLACE_MODEL_BASE_URL']
+tools = [{'type':'function','function':{'name':'read_file','parameters':{'type':'object'}}}]
+messages = [{'role':'user','content':'synthetic prompt'}]
+def send(stream):
+    data = json.dumps(dict(messages=messages, tools=tools, stream=stream, max_tokens=32)).encode()
+    return urllib.request.urlopen(urllib.request.Request(base+'/chat/completions', data=data))
+with send(True) as response:
+    chunks = [json.loads(line[6:]) for line in response if line.startswith(b'data: ')
+              and b'[DONE]' not in line]
+assert chunks[-1]['choices'][0]['finish_reason'] == 'tool_calls'
+call = chunks[0]['choices'][0]['delta']['tool_calls'][0]
+assert call.pop('index') == 0 and call['function']['name'] == 'read_file'
+assert json.loads(call['function']['arguments']) == {'path':'notes'}
+messages.append({'role':'assistant','content':None,'tool_calls':[call]})
+messages.append({'role':'tool','tool_call_id':call['id'],'content':'synthetic file'})
+with send(False) as response:
+    body = json.load(response)
+assert body['choices'][0]['message']['content'] == 'synthetic result'
+assert body['choices'][0]['finish_reason'] == 'stop'
+print('TOOLS_BOUNDED')
+"""
+        result = await w.runner.run(w.admission, replace(w.task(code), network="gateway"))
+        assert result.status == "succeeded", result
+        assert result.stdout_tail.strip() == "TOOLS_BOUNDED"
+        assert len(provider.calls) == 2
+        assert provider.calls[1].messages[-1].tool_call_id == "a"
+        assert all(call.assignment.parameters.max_output_tokens == 32 for call in provider.calls)
+        assert w.names[-1][1] == "removed"
+
+    asyncio.run(scenario())
+
+
 def test_real_catalogue_input_result_provenance_and_revocation(tmp_path):
     """Reuse the AW-02 real owner fixture, not another filesystem or fake source guard."""
     import runpy
