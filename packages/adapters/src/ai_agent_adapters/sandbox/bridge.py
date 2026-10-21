@@ -1,0 +1,88 @@
+"""Container loopback text-chat facade. Stdio is the only upstream transport."""
+
+BRIDGE = r"""
+import http.server, queue, threading
+wire_lock = threading.Lock()
+rpc_slot = threading.Lock()
+replies = queue.Queue(maxsize=1)
+
+def wire(value):
+    with wire_lock:
+        print(json.dumps(value, separators=(",", ":")), flush=True)
+
+def responses():
+    for line in sys.stdin.buffer:
+        try:
+            replies.put_nowait(json.loads(line))
+        except (ValueError, queue.Full):
+            break
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def send_json(self, status, body):
+        encoded = json.dumps(body, separators=(",", ":")).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def do_POST(self):
+        if self.path != "/v1/chat/completions":
+            self.send_json(404, {"error": "ROUTE_NOT_AVAILABLE"})
+            return
+        if not rpc_slot.acquire(blocking=False):
+            self.send_json(429, {"error": "MODEL_BUSY"})
+            return
+        try:
+            self.connection.settimeout(cap["wall_seconds"])
+            size = int(self.headers.get("Content-Length", "-1"))
+            if not 0 < size <= payload["max_prompt_chars"] * 6 + 8192:
+                raise ValueError()
+            body = json.loads(self.rfile.read(size))
+            if any(key not in {"messages", "model", "max_tokens", "max_completion_tokens", "stream"}
+                   for key in body):
+                self.send_json(400, {"error": "TEXT_CHAT_ONLY"})
+                return
+            wire({"kind": "model", "messages": body["messages"],
+                  "max_tokens": body.get("max_completion_tokens",
+                      body.get("max_tokens", payload["max_model_tokens"]))})
+            answer = replies.get(timeout=cap["wall_seconds"])
+            if answer.get("status") != "completed":
+                self.send_json(429, {"error": "MODEL_NOT_ADMITTED"})
+                return
+            text = answer["text"]
+            message = {"role": "assistant", "content": text}
+            response = {"id": "task-model", "object": "chat.completion", "model": "bound-role",
+                        "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}
+            if body.get("stream") is True:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                chunk = {"id": "task-model", "object": "chat.completion.chunk",
+                         "model": "bound-role",
+                         "choices": [{"index": 0, "delta": message, "finish_reason": None}]}
+                final = {"id": "task-model", "object": "chat.completion.chunk",
+                         "model": "bound-role",
+                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                self.wfile.write(("data: " + json.dumps(chunk) + "\n\ndata: " + json.dumps(final) +
+                                  "\n\ndata: [DONE]\n\n").encode())
+                self.wfile.flush()
+            else:
+                self.send_json(200, response)
+        except (ValueError, KeyError, TypeError, OSError, queue.Empty):
+            try:
+                self.send_json(400, {"error": "MODEL_REQUEST_INVALID"})
+            except OSError:
+                pass
+        finally:
+            rpc_slot.release()
+
+if payload["gateway"]:
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=responses, daemon=True).start()
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    env["AI_WORKPLACE_MODEL_BASE_URL"] = "http://127.0.0.1:%d/v1" % server.server_port
+"""
