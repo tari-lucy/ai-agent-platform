@@ -52,4 +52,19 @@ def test_gateway_binds_scope_epoch_operation_lease_and_forwards_the_token_ceilin
         assert (await gateway.generate(admission, request)).status == "completed"
         assert sent[0].max_output_tokens == 32 and sent[0].operation_id == "act-one"
 
+        async def denied():
+            return False
+
+        gateway.release = denied
+        assert (await gateway.generate(admission, request)).status == "not_admitted"
+        assert len(sent) == 1
+        decisions = iter((True, False))
+
+        async def revoked_during_model():
+            return next(decisions)
+
+        gateway.release = revoked_during_model
+        late = await gateway.generate(admission, request)
+        assert late.status == "not_admitted" and late.text == "" and len(sent) == 2
+
     asyncio.run(scenario())

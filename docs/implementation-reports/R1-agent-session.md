@@ -143,3 +143,44 @@ journey assign → ticket → operator answer → completion → restart STOPPED
 каталоги (`pytest -o pythonpath=…`), source imports — из собственного frozen venv.
 Первый collection не нашёл dev_support; Windows absolute backslashes в override
 также не подошли, использованы относительные tests/* пути. Полные suites не повторялись.
+
+## R2 integrated: устранён прямой путь ticket → activity prompt
+
+Сведён main `0475221` с принятой R2. `activity.context()` больше не берёт
+raw title/body: использует TicketView из единого `session_context(rt)`.
+Refused capability IDs остаются структурными control-данными, не свободным
+текстом. Подготовка WorkAttempt теперь получает также точные ticket/material
+refs показанного контекста. Прежнее silent `[-200:]` для provenance убрано:
+overflow отказывает до вызова модели. Основания из предыдущих tool steps
+сохраняются. `extra_sources` участвуют также в existing Execution.verify.
+
+WorkContext.still_valid проверяется непосредственно до и после model call,
+включая goal-путь. Поздний отзыв закрывает текст/решение, оплаченная technical
+квитанция остаётся в общем journal. Политика release не дублируется в R1.
+
+Добавлен `ReleasedSessionContext`, реализация агрегирующего R1 порта поверх
+R2 SessionContextPort + SessionHistory + Source owner + existing ReleaseGuard.
+Контекст transient, bounded по сообщениям/символам, с полными SourceRef/
+ArtifactRef. Входы берутся по порядку: backlog не перескакивается ради newest.
+through_sequence учитывает только реально показанный prefix; source/close/
+generation/version/STOP проверяются до возврата. Checkpoint без повторной
+проверки не загружается; физическое хранение checkpoint/harness ещё не подключено.
+
+Affected bridge gate: sanitized title/replies, pre/post-model revoke, прежний
+production-host assignment/ticket/answer/restart и own-goal/quiet/disabled —
+**4 passed (55.07 с)**. Сборка с настоящими SessionBook/Source/ReleaseGuard,
+bounded pending prefix и STOP при чтении — **2 passed (1.48 с)**. Первая
+фикстура сборки использовала Source reader без API-transfer grant и получила
+правильный отказ; исправлена на существующий reader с явным тестовым grant,
+production права не менялись. Ruff и strict mypy — чистые.
+
+После этого Claude опубликовал `96c1ae2` с однострочным ReleasedReader wiring
+в своё выданное окно `service.py::access_ports()`. Оно принимается merge из main;
+R1 не переписывает его и не создаёт второй ticket reader. Регрессионный
+host journey выше выполнен до этой отдельной строки; её проверка — отчёт R2.
+
+Следующий незакрытый объём: полноценный tool-call/result protocol существующего
+LLMGateway → broker → OpenCode, настоящий harness внутри sandbox, bounded
+session driver/checkpoint/cancel и delivery/ACK. При renew аренды драйвер
+обновляет доверенный WorkAdmission для следующего RPC, а не принимает lease
+от клиента. Ни один из этих gates не закрывается текстовым broker-тестом.
