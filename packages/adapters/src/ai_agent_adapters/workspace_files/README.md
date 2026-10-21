@@ -1,42 +1,36 @@
-# Независимая подготовка AW-02
+# Managed filesystem AW-02
 
-Пока здесь только нижний слой **чтения неизменяемого содержимого** из закрытого
-служебного каталога. Это не готовое рабочее пространство, не публичный API,
-не новый repository/owner и не временная замена контракту AW-00.
+`DirectoryBlobs` хранит private immutable SHA-256 blobs, а `ManagedFiles`
+(application/workspace_files) реализует принятый порт AW-00 через единственный
+Owner.CATALOGUE. Имена/версии/связи/права находятся в существующей SQLite.
 
-`read_blob(root, digest, max_bytes=...)` принимает от доверенного владельца
-абсолютный root, SHA-256 содержимого и настроенный предел размера. Агенту нельзя
-передавать выбор root или монтировать это хранилище напрямую. Имена пользовательских
-документов и версионный каталог будут сопоставляться с содержимым выше этого слоя.
-Digest здесь — внутреннее имя blob, не предлагаемая новая wire-схема AW-00.
+Trusted setup вызывает `DirectoryBlobs.prepare` только для нового каталога;
+существующий root должен быть закрыт от agent/runner. Scope partition хэшируется,
+blob names — только 64 lowercase hex. Raw root никогда не монтируется в sandbox.
+`CatalogueUsage.counts` считает все metadata/revisions, включая скрытые записи,
+под существующей SQLite write reservation. Все physical bytes, включая orphan
+после прерванной записи, расходуют quota. AW-09 отвечает за их очистку/backup.
 
-Гарантии этого примитива:
+`ManagedFiles` требует FileLimits, реальный AttemptContext, FileReleaseGuard с
+существующим DeletionLedger, mandatory authorize hook и актуальный WorkAdmission.
+Source/file dependencies выводятся из записанных входов, не только из ответа
+модели. Hook проверяет Permission агента и область; grants principal отдельно
+ограничивают SQL. API/public transfer по умолчанию запрещены. Service list/search
+доступны только trusted composition с собственным session/scope authorization.
 
-- только 64 lowercase hex имени, без pathname/ADS/device/UNC;
-- Linux: все компоненты каталога открываются через `dir_fd`/`O_NOFOLLOW`,
-  финальный файл — относительно удержанного descriptor; FIFO не блокирует read;
-- Windows: каждый каталог от корня диска удерживается handle с data access
-  без delete sharing; reparse attributes проверяются на самом открытом handle;
-- финальный файл обычный, без hardlinks, размер проверяется до/после чтения,
-  фактическое чтение ограничено; SHA-256 сверяется до возврата bytes;
-- handles закрываются при успехе/отказе; ошибки не содержат путей или текста.
+`read_blob(root, digest, max_bytes=...)` — нижний физический примитив, без решения
+о правах. POSIX использует pinned dir_fd/O_NOFOLLOW; Windows — directory handles
+с FILE_LIST_DIRECTORY без delete sharing, проверяет reparse на handle. Файл
+обычный, nlink=1, bounded read, digest и размер проверяются до возврата. Attribute-only
+Windows handle не блокирует rename; не заменять handle IO на resolve/open.
 
-На Windows чтения одних атрибутов недостаточно для запрета rename: требуется
-`FILE_LIST_DIRECTORY`. Это найдено настоящим race-тестом. Нельзя заменять
-handle IO последовательностью `resolve/is_symlink/open`.
+Каталог и receipt публикуются после blob fsync в одной SQLite транзакции. Сбой
+оставляет только недоступный orphan. POSIX directory fsync выполнен; Windows
+power-cut durability metadata не заявляется. Physical IO ошибки application
+преобразует в фиксированные коды без путей/текста. Не обходить owner release guard
+через generic repository, особенно для state/access/TTL и старых версий.
 
-Обязательства будущего владельца: проверить scope/rights/TTL/ledger/epoch до
-и после IO; удерживать root приватным; вести связи всех источников, каталог,
-версии, квоты всего пространства, атомарное сохранение и физическую очистку.
-Примитив не решает эти задачи и не включён в runtime. Raw directory access
-другому процессу агента не выдаётся: это не sandbox для выполнения кода.
-
-Проверки: `python -m pytest -q tests/workplace_files`. На Windows при проблеме
-с системным TEMP передать `--basetemp` с **новым** путём внутри своего ignored
-test-каталога; pytest очищает переданный каталог, существующие данные не брать.
-Нативные link-тесты должны выполняться в среде, где разрешено создавать
-синтетические ссылки. POSIX/Windows проверки явно разделены маркерами.
-
-Источники поведения системных вызовов:
-[Microsoft CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew),
-[Python OS API](https://docs.python.org/3/library/os.html).
+Проверки: `python -m pytest -q tests/workplace_files`. На Windows basetemp — новый
+уникальный путь собственного ignored runtime (pytest его очищает), нативным
+link-тестам нужны права создавать синтетические ссылки. Linux/Windows skips
+явные. Полные результаты/границы: docs/implementation-reports/AW-02.md.

@@ -82,28 +82,36 @@ class _Kernel:
 
 
 @contextmanager
-def open_read(root: Path, name: str) -> Iterator[int]:
+def pinned_root(root: Path) -> Iterator[_Kernel]:
     if sys.platform != "win32":
         raise OSError("BLOB_SAFE_IO_UNAVAILABLE")
-    import msvcrt
-
     kernel = _Kernel()
     pins: list[int] = []
-    descriptor: int | None = None
     try:
         # Ancestors are pinned in order; each next component is inspected through
         # its own handle before using it as the parent of another open operation.
         for directory in reversed((root, *root.parents)):
             pins.append(kernel.open(directory, directory=True))
+        yield kernel
+    finally:
+        for handle in reversed(pins):
+            kernel.close(handle)
+
+
+@contextmanager
+def open_read(root: Path, name: str) -> Iterator[int]:
+    if sys.platform != "win32":
+        raise OSError("BLOB_SAFE_IO_UNAVAILABLE")
+    import msvcrt
+
+    with pinned_root(root) as kernel:
         handle = kernel.open(root / name, directory=False)
         try:
             descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
         except BaseException:
             kernel.close(handle)
             raise
-        yield descriptor
-    finally:
-        if descriptor is not None:
+        try:
+            yield descriptor
+        finally:
             os.close(descriptor)
-        for handle in reversed(pins):
-            kernel.close(handle)
