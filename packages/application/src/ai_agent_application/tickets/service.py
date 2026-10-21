@@ -81,10 +81,18 @@ def message_id(ticket: str, sequence: int) -> str:
 
 
 def _merge[T](old: Sequence[T], new: Sequence[T], key: Callable[[T], object]) -> list[T]:
+    """Union of the ticket's links; nothing already recorded is ever dropped.
+
+    Sources and materials are the provenance of the ticket's text: dropping an old one would
+    leave text whose basis can no longer be checked on revoke/TTL. A full list refuses the
+    update (bounded) instead of silently forgetting a basis.
+    """
     seen: dict[object, T] = {key(item): item for item in old}
     for item in new:
         seen.setdefault(key(item), item)
-    return list(seen.values())[-MAX_LINKS:]
+    if len(seen) > MAX_LINKS:
+        raise ContractError(ErrorCode.RESOURCE_BUSY)
+    return list(seen.values())
 
 
 class TicketService:
@@ -228,7 +236,7 @@ class TicketService:
                     resolution=None,
                     agent_priority=max(current.agent_priority, draft.agent_priority),
                     technical_refusal=current.technical_refusal or draft.technical_refusal,
-                    task_ids=_merge(current.task_ids, draft.task_ids, str)[-20:],
+                    task_ids=list(dict.fromkeys([*current.task_ids, *draft.task_ids]))[-20:],
                     materials=_merge(
                         current.materials, draft.materials, lambda r: (r.artifact_id, r.version)
                     ),
