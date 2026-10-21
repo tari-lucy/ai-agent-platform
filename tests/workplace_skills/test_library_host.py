@@ -89,7 +89,7 @@ async def decide(host, request_id: str, decision: dict, version: int):
         dict(
             type="permission.decision.preview",
             request_id=request_id + "-preview",
-            target=SKILLS,
+            target=decision["capability_id"],
             scope=host.scope.model_dump(mode="json"),
             expected_version=version,
             arguments=dict(schema_id="permission.decision-args", data=decision),
@@ -101,7 +101,7 @@ async def decide(host, request_id: str, decision: dict, version: int):
         dict(
             type="permission.decision.execute",
             request_id=request_id,
-            target=SKILLS,
+            target=decision["capability_id"],
             scope=host.scope.model_dump(mode="json"),
             expected_version=1,
             arguments={"plan_id": preview.json()["resource_id"], "plan_version": 1},
