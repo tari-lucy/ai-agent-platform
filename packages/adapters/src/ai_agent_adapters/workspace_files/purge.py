@@ -94,3 +94,7 @@ class WorkplacePurger:
             await self.blobs.prune(scope, plan.keep_blobs, max_entries=self.max_blobs)
             await physical.erase_records_locked(connection, scope, plan.identities)
         # RetentionService owns finalize/VACUUM/tombstone/purged_at after all purgers.
+
+    async def reapply_ledger(self, scope: Scope, source_ids: Sequence[str]) -> None:
+        """Also remove copies in backups whose source stub was already marked clean."""
+        await self.purge_sources(scope, source_ids)

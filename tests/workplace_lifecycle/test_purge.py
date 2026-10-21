@@ -244,6 +244,8 @@ def test_failed_physical_purge_stays_blocked_then_resumes(tmp_path, monkeypatch)
             )
             assert not done.complete and done.outcomes[0].failed_step == "derived"
             assert (await w.ledger.entries(AREA))[0].purged_at is None
+            assert await w.store.repository(Ticket, TICK, AREA).get("ticket") is None
+            assert await w.store.repository(TicketMessage, TICK, AREA).get("ticket-msg") is None
             with pytest.raises(ContractError):
                 await w.files.read(admission, "note")
             monkeypatch.setattr(w.blobs, "prune", original)
@@ -349,6 +351,35 @@ def test_scan_limit_and_foreign_partition_do_not_widen_deletion(tmp_path):
             assert (await normal.preview(foreign, [source.source_id])).records == ()
             with pytest.raises(RuntimeError, match="WORKPLACE_SOURCE_NOT_BLOCKED"):
                 await normal.purge_sources(foreign, [source.source_id])
+        finally:
+            await w.close()
+
+    asyncio.run(scenario())
+
+
+def test_clean_source_stub_does_not_skip_new_derivatives_on_restore(tmp_path):
+    async def scenario():
+        w, source, _, _ = await prepare(tmp_path)
+        try:
+            physical = SQLitePhysicalStore(w.store)
+            await w.ledger.block(AREA, source.source_id, 1, "operator_delete", w.now)
+            await physical.erase_source(AREA, source.source_id, "deleted")
+            await w.ledger.mark_purged(AREA, source.source_id, w.now)
+
+            async def confirm(scope, plan):
+                assert plan.source_ids == (source.source_id,)
+
+            async def quiesce(*args):
+                pass
+
+            purger = WorkplacePurger(w.store, w.blobs, w.ledger, confirm=confirm, quiesce=quiesce)
+            retention = RetentionService(
+                w.store, MEM, w.memory, physical, w.ledger, purgers=(purger,), clock=w.clock
+            )
+            assert (await purger.preview(AREA, [source.source_id])).records  # genuinely dirty copy
+            assert not (await retention.apply_ledger(AREA)).pending
+            assert (await purger.preview(AREA, [source.source_id])).records == ()
+            assert MARKER.encode() not in Path(w.store.engine.url.database).read_bytes()
         finally:
             await w.close()
 
