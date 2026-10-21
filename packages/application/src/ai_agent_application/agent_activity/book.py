@@ -10,6 +10,13 @@ import json
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
+from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
+from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
+from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.common import Record, Scope, SourceRef, VersionedRecord
+from ai_agent_contracts.control import Freshness
+from ai_agent_contracts.states import ErrorCode
+
 from ai_agent_application.memory import derived_id
 from ai_agent_application.storage import (
     Owner,
@@ -18,12 +25,6 @@ from ai_agent_application.storage import (
     RecordRepository,
     Storage,
 )
-from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
-from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
-from ai_agent_contracts.codec import ContractError
-from ai_agent_contracts.common import Record, Scope, SourceRef, VersionedRecord
-from ai_agent_contracts.control import Freshness
-from ai_agent_contracts.states import ErrorCode
 
 from .model import ORIGIN_ORDER
 

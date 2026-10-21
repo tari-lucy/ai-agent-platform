@@ -171,6 +171,23 @@ class PermissionCeiling(BaseModel):
     max_days: int = Field(ge=1, le=365)
 
 
+class WorkplaceFilesConfig(BaseModel):
+    """Private managed-file store (AW-02/AW-03) and its quotas; never inside the database."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    blob_dir: str = Field(min_length=1, max_length=4096)
+    max_file_bytes: int = Field(default=1048576, strict=True, ge=1024, le=67108864)
+    max_scope_bytes: int = Field(default=268435456, strict=True, ge=1048576, le=17179869184)
+    max_files: int = Field(default=2000, strict=True, ge=10, le=100000)
+    max_versions: int = Field(default=20000, strict=True, ge=10, le=1000000)
+
+    @model_validator(mode="after")
+    def bounds(self) -> Self:
+        if self.max_file_bytes > self.max_scope_bytes or self.max_files > self.max_versions:
+            raise ValueError("WORKPLACE_FILE_LIMITS")
+        return self
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -193,6 +210,9 @@ class HostConfig(BaseModel):
     # Structured permission decisions (AW-01); None keeps them unavailable. Only capabilities
     # listed here can be granted, never above their level or duration.
     workplace_permissions: dict[str, PermissionCeiling] | None = None
+    # Managed files, skills and knowledge (AW-03) only after `enable-workplace-files`; they
+    # need the deletion ledger (recovery) for the release guard.
+    workplace_files: WorkplaceFilesConfig | None = None
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:
@@ -209,6 +229,10 @@ class HostConfig(BaseModel):
             )
         ):
             raise ValueError("WORKPLACE_PERMISSIONS")
+        if self.workplace_files is not None and (
+            self.recovery is None or not self.operator_controls
+        ):
+            raise ValueError("WORKPLACE_FILES")
         spaces = [self.work_space_id, *self.test_space_ids]
         if self.settings_space_id is not None:
             spaces.append(self.settings_space_id)

@@ -11,13 +11,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from ai_agent_application.agent_workplace.ports import (
-    ModelGateway,
-    ModelRequest,
-    WorkAdmission,
-)
-from ai_agent_application.llm.model import ChatMessage
-from ai_agent_application.tickets import TicketDraft, TicketService
 from ai_agent_contracts.agent_workplace import (
     CapabilityManifest,
     CapabilityRequest,
@@ -25,6 +18,14 @@ from ai_agent_contracts.agent_workplace import (
     WorkTask,
 )
 from ai_agent_contracts.common import SourceRef
+
+from ai_agent_application.agent_workplace.ports import (
+    ModelGateway,
+    ModelRequest,
+    WorkAdmission,
+)
+from ai_agent_application.llm.model import ChatMessage
+from ai_agent_application.tickets import TicketDraft, TicketService
 
 from .book import ActivityBook
 from .model import ActivitySettings, StepDecision

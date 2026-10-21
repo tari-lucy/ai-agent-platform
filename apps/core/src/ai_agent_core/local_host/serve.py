@@ -192,6 +192,23 @@ def _build(
     if config.recovery is not None:
         app.state.runtime.maintenance = HostMaintenance(host, config, app.state.runtime, opened)
 
+    if config.workplace_files is not None:
+        # Explicitly prepared offline; the release guard needs the host deletion ledger.
+        from ai_agent_application.workspace_files import FileLimits
+
+        from ai_agent_core.m3_composition.workplace import build as build_workplace
+
+        assert isinstance(runtime.maintenance, HostMaintenance)  # config requires recovery
+        files = config.workplace_files
+        runtime.workplace = build_workplace(
+            runtime,
+            runtime.maintenance.ledger,
+            Path(files.blob_dir),
+            FileLimits(
+                files.max_file_bytes, files.max_scope_bytes, files.max_files, files.max_versions
+            ),
+        )
+
     if config.live is not None and config.operator_controls:
         from .live_budget import LiveBudget
 

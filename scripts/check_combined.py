@@ -47,6 +47,8 @@ HELPERS = (
     "tests/workplace_contracts",
     "tests/workplace_tickets",
     "tests/workplace_activity",
+    "tests/workplace_files",
+    "tests/workplace_skills",
 )
 TESTS = (
     "tests/operations",
@@ -82,6 +84,11 @@ TESTS = (
     "tests/e2e",
     "tests/evaluation",
     "tests/probes/m0_06/test_configuration.py",
+    "tests/workplace_contracts",
+    "tests/workplace_tickets",
+    "tests/workplace_files",
+    "tests/workplace_skills",
+    "tests/workplace_activity",
 )
 
 

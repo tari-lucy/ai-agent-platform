@@ -319,6 +319,10 @@ class Runtime:
         from .activity import AutonomousActivity
 
         self.autonomous_activity = AutonomousActivity(self)
+        # Managed files, skills and knowledge; only an explicitly prepared host builds them.
+        from .workplace import Workplace
+
+        self.workplace: Workplace | None = None
         self.private_api_budget = private_api_budget
         self.attempt_lock = asyncio.Lock()
         from .memory_cycles import DailyMemory

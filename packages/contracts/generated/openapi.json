@@ -13702,6 +13702,49 @@
         ],
         "type": "string"
       },
+      "WorkplaceLibrary": {
+        "additionalProperties": false,
+        "description": "Operator view of skills and catalogued files, read through the file owner's guard.\n\nA skill whose method is no longer releasable (revoked source, expired, hidden) is left out;\n``complete`` is false when a listing reached its bound.",
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedFile"
+            },
+            "maxItems": 800,
+            "title": "Files",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillVersion"
+            },
+            "maxItems": 200,
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "skills",
+          "files",
+          "complete",
+          "checked_at"
+        ],
+        "title": "WorkplaceLibrary",
+        "type": "object"
+      },
       "Workspace": {
         "additionalProperties": false,
         "properties": {
@@ -21122,6 +21165,66 @@
               }
             },
             "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workplace-library": {
+      "get": {
+        "operationId": "read_WorkplaceLibrary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkplaceLibrary"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
           },
           "409": {
             "$ref": "#/components/responses/ApiError"
