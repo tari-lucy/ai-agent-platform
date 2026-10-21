@@ -34,9 +34,11 @@ from .model import (
     ProviderError,
     ResolvedAssignment,
     Started,
+    ToolCallDelta,
     UsageReported,
 )
 from .ports import Admission, AttemptJournal, AttemptSink, LLMProvider, ProviderFactory
+from .tools import ToolBuffer, ToolCall
 
 MAX_RETRY_PAUSE_SECONDS = 30.0
 MAX_RESULT_BYTES = 256_000
@@ -86,6 +88,8 @@ class _Outcome:
         self.reported_model: str | None = None
         self.usage: TokenUsage = UNKNOWN_USAGE
         self.retry_after: float | None = None
+        self.tool_buffer = ToolBuffer()
+        self.tool_calls: tuple[ToolCall, ...] = ()
 
 
 class LLMGateway:
@@ -161,7 +165,12 @@ class LLMGateway:
                         position > 0,
                         assignment.assignment_id,
                     )
-                if failure in RETRYABLE and not outcome.text and number + 1 < self._max_attempts:
+                if (
+                    failure in RETRYABLE
+                    and not outcome.text
+                    and not outcome.tool_buffer.parts
+                    and number + 1 < self._max_attempts
+                ):
                     if not await self._pause(self._delay(number, outcome.retry_after), cancel):
                         return self._cancelled(request, preview, attempts, position, assignment)
                     continue
@@ -170,10 +179,13 @@ class LLMGateway:
             if (
                 outcome.failure in FALLBACK_ELIGIBLE
                 and not outcome.text
+                and not outcome.tool_buffer.parts
                 and position + 1 < len(chain)
             ):
                 continue
-            status: Literal["failed", "incomplete"] = "incomplete" if outcome.text else "failed"
+            status: Literal["failed", "incomplete"] = (
+                "incomplete" if outcome.text or outcome.tool_buffer.parts else "failed"
+            )
             return self._finish(
                 request,
                 status,
@@ -284,9 +296,11 @@ class LLMGateway:
             if self._stopped(cancel):
                 raise ProviderError(Failure.NOT_ADMITTED)
             provider: LLMProvider = self._providers(assignment.adapter_id)
-            events = provider.stream(ProviderCall(assignment=assignment, messages=request.messages))
+            events = provider.stream(
+                ProviderCall(assignment=assignment, messages=request.messages, tools=request.tools)
+            )
             async with asyncio.timeout(assignment.parameters.timeout_seconds):
-                await self._consume(events, outcome, cancel, on_delta)
+                await self._consume(events, outcome, cancel, on_delta, request)
         except ProviderError as error:
             outcome.failure = error.failure
             outcome.retry_after = error.retry_after
@@ -335,6 +349,7 @@ class LLMGateway:
         outcome: _Outcome,
         cancel: asyncio.Event | None,
         on_delta: DeltaSink | None,
+        request: GenerationRequest,
     ) -> None:
         reason: str | None = None
         outcome.status = None
@@ -370,12 +385,34 @@ class LLMGateway:
                 if on_delta is not None:
                     await on_delta(event.text)
             elif isinstance(event, Finished):
+                if reason is not None:
+                    raise ProviderError(Failure.PROTOCOL)
                 reason = event.reason
+            elif isinstance(event, ToolCallDelta):
+                if not request.tools:
+                    raise ProviderError(Failure.UNSUPPORTED)
+                if reason is not None:
+                    raise ProviderError(Failure.PROTOCOL)
+                try:
+                    outcome.tool_buffer.add(event.index, event.id, event.name, event.arguments)
+                except ValueError:
+                    raise ProviderError(Failure.PROTOCOL) from None
             elif isinstance(event, UsageReported):
                 outcome.usage = event.usage  # replaces: a late final usage is never added on top
         if reason is None:
             outcome.failure = Failure.TRANSIENT  # stream ended without a terminal event
             return
+        if reason == "tool_calls" and request.tools:
+            try:
+                outcome.tool_calls = outcome.tool_buffer.finish(
+                    {tool.name for tool in request.tools}
+                )
+            except ValueError, RecursionError:
+                raise ProviderError(Failure.MALFORMED_RESULT) from None
+            outcome.status = "completed"
+            return
+        if outcome.tool_buffer.parts:
+            raise ProviderError(Failure.PROTOCOL)
         outcome.failure = {
             "stop": None,
             "length": Failure.TRUNCATED,
@@ -398,7 +435,7 @@ class LLMGateway:
             outcome.failure = failure = Failure.CANCELLED
         if failure in (Failure.CANCELLED, Failure.NOT_ADMITTED):
             outcome.status = "cancelled"
-        elif outcome.text:
+        elif outcome.text or outcome.tool_buffer.parts:
             outcome.status = "incomplete"
         elif failure in (Failure.TIMEOUT, Failure.TRANSIENT, Failure.PROTOCOL):
             outcome.status = "unknown"  # no terminal answer: cost and effect stay unknown
@@ -450,6 +487,7 @@ class LLMGateway:
             attempts=tuple(attempts),
             used_fallback=used,
             assignment_id=assignment.assignment_id,
+            tool_calls=outcome.tool_calls,
         )
 
     def _cancelled(

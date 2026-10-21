@@ -184,3 +184,58 @@ LLMGateway → broker → OpenCode, настоящий harness внутри sand
 session driver/checkpoint/cancel и delivery/ACK. При renew аренды драйвер
 обновляет доверенный WorkAdmission для следующего RPC, а не принимает lease
 от клиента. Ни один из этих gates не закрывается текстовым broker-тестом.
+
+## Structured tools: существующий gateway и stdio broker
+
+Добавлен provider-neutral протокол описаний инструментов, завершённых вызовов
+и связанных результатов в истории. Схемы/аргументы bounded; повторяющиеся JSON
+ключи, нечисловые значения, неизвестные имена, дубликаты id, разрывы индексов
+и незаконченные аргументы не выпускаются как completed proposals. Fragment
+не исполняется. После частичного tool output нет автоматического retry/fallback.
+STOP удаляет proposal, техническая запись попытки остаётся. Старые текстовые
+запросы сохраняют форму без tools. Это внутренние типы, wire-контракты R3
+и generated exports не менялись.
+
+OpenAI-compatible adapter передаёт tools и tool-result историю, собирает SSE
+фрагменты через gateway. ExecutionModelGateway сохраняет scope/epoch/lease,
+pre/post release, per-call ceiling и общий journal/budget. Размер запроса теперь
+считает также schemas и tool arguments, включая existing live prompt ceiling.
+Runner принимает закрытый bounded формат и отдаёт завершённый tool proposal
+внутрь песочницы; запрос не может выбрать роль/credential/host-tool. Внешняя
+сеть, mounts и права не расширены. Ответ broker тоже ограничен по байтам.
+
+Проверки: llm + bound gateway — **114 passed**, один прежний тест получил
+PROTOCOL из-за старой фикстуры без обязательного index. Фикстура исправлена,
+повтор только этого теста — **1 passed**. Sandbox protocol/policy + два реальных
+Docker loopback сценария — **17 passed (3.87 с)**: прежний текст/отказ/unknown
+route и tools SSE → tool result → итоговый текст через настоящий LLMGateway
+с синтетическим провайдером. Docker использовал уже имеющийся локальный image,
+контейнеры удалены runner. Платных вызовов не было. Ruff и strict mypy по
+изменённым модулям проверяются перед commit.
+
+Граница: настоящий OpenCode ещё не запускался. Этот тест не доказывает его
+совместимость, shared-budget harness gate или session delivery/ACK. Дальнейшие
+поставки: driver, checkpoint, видимая отмена по release; Windows/OpenCode R5.
+R3 `03fb572` и Linux R5 `5bf92bd` опубликованы Claude отдельно; его shared
+окна освобождены. Личные runtime-настройки/данные не менялись.
+
+## Видимость отменённых попыток и покрытие общего gate
+
+Activity tick после сверки завершённых jobs пишет в существующий WorkTask.outcome
+фиксированное техническое пояснение для cancelled/failed/unknown, а при исчерпании
+числа попыток — явное отсутствие автоматического продолжения. Не утверждает точную
+причину отмены, если JobOwner её не хранит. Закрытый текст источников не используется.
+Это доверенная reconciliation вне отозванного execution fence, но под актуальным
+ACTIVE/OPEN fence supervisor. Повтор идемпотентен; завершённая/отменённая оператором
+задача не переписывается, STOP запрещает запись. Следующее успешное решение
+убирает устаревшее техническое пояснение. Отдельный SQLite owner test — **1 passed
+(1.51 с)**; первый запуск выявил только пропущенный limit в новой test fixture.
+
+В scripts/check_combined.py добавлены tests/workplace_sessions,
+tests/workplace_lifecycle и tests/workplace_sandbox (Docker остаётся opt-in).
+Новый gate не был выдан за уже пройденный полный suite. Claude R5 уже добавил
+свой headless journey независимо; shared UI/контракты этой правкой не затронуты.
+После изменения reconciliation и очистки старого пояснения выполнен один прежний
+production-host путь assignment → ticket → answer → completion → restart STOPPED:
+**1 passed (34.21 с)**. Полные suites не повторялись. Ruff и strict mypy изменённой
+композиции чистые.

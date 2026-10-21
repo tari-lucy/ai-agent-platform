@@ -91,6 +91,7 @@ class ExecutionModelGateway:
                     messages=request.messages,
                     result_model=request.result_model,
                     max_output_tokens=request.max_output_tokens,
+                    tools=request.tools,
                 ),
                 self.execution.cancel,
             )
@@ -103,7 +104,9 @@ class ExecutionModelGateway:
             return ModelReply("not_admitted", "", attempt)
         if result.failure is Failure.NOT_ADMITTED:
             return ModelReply("not_admitted", "", attempt)
-        return ModelReply(result.status, result.text or "", attempt, result.parsed)
+        return ModelReply(
+            result.status, result.text or "", attempt, result.parsed, result.tool_calls
+        )
 
 
 def admission(execution: Execution) -> WorkAdmission:
@@ -401,7 +404,14 @@ class AutonomousActivity:
             if await self._in_flight(scope, owner, history):
                 return self._skip("ATTEMPT_IN_FLIGHT")
             if len(history) >= settings.max_attempts_per_task:
+                await self._attempt_notice(scope, owner, task.id, len(history), "limit")
                 continue
+            if history:
+                latest = await owner.attempts_repo(scope).get(history[-1].id)
+                if latest is not None and latest.state in ("cancelled", "failed", "unknown"):
+                    await self._attempt_notice(
+                        scope, owner, task.id, latest.attempt_no, latest.state
+                    )
             last = max((a.updated_at for a in history), default=None)
             if last is not None and now - last < timedelta(seconds=settings.cooldown_seconds):
                 continue
@@ -445,6 +455,46 @@ class AutonomousActivity:
                 return True
             await owner.settle(attempt, mapped)  # type: ignore[arg-type]
         return False
+
+    async def _attempt_notice(
+        self, scope: Scope, owner: ActivityBook, task_id: str, number: int, reason: str
+    ) -> None:
+        """Reconcile a terminal attempt outside its revoked execution fence.
+
+        Only a fixed technical explanation is stored, never text from denied context.
+        The next tick may continue under its ordinary cooldown/budget, not this notice.
+        """
+        snapshot = self.rt.supervisor.snapshot
+
+        def current() -> None:
+            if (
+                self.rt.supervisor.snapshot != snapshot
+                or snapshot.state.value != "ACTIVE"
+                or snapshot.activity.value != "OPEN"
+                or snapshot.scope.partition != scope.partition
+            ):
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+
+        explanations = {
+            "cancelled": (
+                "Отменена: допуск отозван, контекст недоступен или выполнение остановлено."
+            ),
+            "failed": "Шаг завершился ошибкой. Результат не применён.",
+            "unknown": "Исход шага неизвестен. Успех не подтверждён.",
+            "limit": (
+                "Достигнут предел попыток. Автоматического продолжения не будет; проверьте задачу."
+            ),
+        }
+        text = f"Попытка {number}. {explanations[reason]}"
+        with self.rt.store.fence(current, owner=Owner.ACTIVITY):
+            current()
+            task = await owner.tasks_repo(scope).get(task_id)
+            if task is None or task.state in ("done", "abandoned") or task.outcome == text:
+                return
+            revised = await owner.update_task(
+                f"notice-{task.id}-{task.version}-{number}-{reason}", task, outcome=text
+            )
+        self.rt.notify("work.changed", revised.scope, revised.id, revised.version)
 
     async def _goal_slot(self, scope: Scope, now: datetime) -> str | None:
         settings = self.rt.activity

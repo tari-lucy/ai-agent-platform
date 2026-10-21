@@ -194,7 +194,7 @@ class ActivityStep:
             return StepOutcome("abandoned", dropped, detail=decision.summary)
         if decision.action == "defer":
             later = await self.book.update_task(
-                "defer-" + key, task, state="open", waiting_ticket_ids=[]
+                "defer-" + key, task, state="open", waiting_ticket_ids=[], outcome=None
             )
             return StepOutcome("deferred", later, detail=decision.summary)
         if decision.action == "ask_operator":
@@ -263,6 +263,7 @@ class ActivityStep:
             "tool-" + key,
             task,
             state="active",
+            outcome=None,
             waiting_ticket_ids=[],
             progress=[*task.progress, step][-MAX_PROGRESS:],
             result_files=list(latest.values())[-200:],
@@ -286,7 +287,7 @@ class ActivityStep:
 
     async def _wait(self, key: str, task: WorkTask, ticket: Ticket) -> StepOutcome:
         waiting = await self.book.update_task(
-            "wait-" + key, task, state="waiting", waiting_ticket_ids=[ticket.id]
+            "wait-" + key, task, state="waiting", waiting_ticket_ids=[ticket.id], outcome=None
         )
         return StepOutcome("waiting", waiting, ticket_ids=(ticket.id,))
 

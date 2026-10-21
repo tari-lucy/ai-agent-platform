@@ -11,8 +11,9 @@ from .model import AttemptReport, GenerationParameters, ProviderCall, ProviderEv
 class LLMProvider(Protocol):
     """One wire protocol. ``stream`` yields neutral events and raises ``ProviderError``.
 
-    Closing the iterator (``aclose``) must release the connection. The provider never receives
-    tools, so no event can carry an executable argument.
+    Closing the iterator (``aclose``) must release the connection. Tools are data-only
+    descriptions/proposals: the gateway validates the complete terminal result, and
+    only a separately authorised owner may execute it. Stream deltas never execute.
     """
 
     def stream(self, call: ProviderCall) -> AsyncIterator[ProviderEvent]: ...

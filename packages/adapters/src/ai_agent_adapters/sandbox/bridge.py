@@ -1,4 +1,4 @@
-"""Container loopback text-chat facade. Stdio is the only upstream transport."""
+"""Container loopback Chat Completions facade. Stdio is the only upstream transport."""
 
 BRIDGE = r"""
 import http.server, queue, threading
@@ -42,11 +42,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not 0 < size <= payload["max_prompt_chars"] * 6 + 8192:
                 raise ValueError()
             body = json.loads(self.rfile.read(size))
-            if any(key not in {"messages", "model", "max_tokens", "max_completion_tokens", "stream"}
-                   for key in body):
-                self.send_json(400, {"error": "TEXT_CHAT_ONLY"})
+            allowed = {"messages", "model", "max_tokens", "max_completion_tokens",
+                       "stream", "tools"}
+            if any(key not in allowed for key in body):
+                self.send_json(400, {"error": "MODEL_OPTION_UNSUPPORTED"})
                 return
             wire({"kind": "model", "messages": body["messages"],
+                  "tools": body.get("tools", []),
                   "max_tokens": body.get("max_completion_tokens",
                       body.get("max_tokens", payload["max_model_tokens"]))})
             answer = replies.get(timeout=cap["wall_seconds"])
@@ -55,18 +57,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             text = answer["text"]
             message = {"role": "assistant", "content": text}
+            tool_calls = answer.get("tool_calls", [])
+            reason = "tool_calls" if tool_calls else "stop"
+            if tool_calls:
+                message["tool_calls"] = tool_calls
             response = {"id": "task-model", "object": "chat.completion", "model": "bound-role",
-                        "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}
+                        "choices": [{"index": 0, "message": message, "finish_reason": reason}]}
             if body.get("stream") is True:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
+                if tool_calls:
+                    message = dict(message, tool_calls=[dict(call, index=index)
+                                   for index, call in enumerate(tool_calls)])
                 chunk = {"id": "task-model", "object": "chat.completion.chunk",
                          "model": "bound-role",
                          "choices": [{"index": 0, "delta": message, "finish_reason": None}]}
                 final = {"id": "task-model", "object": "chat.completion.chunk",
                          "model": "bound-role",
-                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                         "choices": [{"index": 0, "delta": {}, "finish_reason": reason}]}
                 self.wfile.write(("data: " + json.dumps(chunk) + "\n\ndata: " + json.dumps(final) +
                                   "\n\ndata: [DONE]\n\n").encode())
                 self.wfile.flush()
