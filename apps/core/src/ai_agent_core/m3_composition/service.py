@@ -426,10 +426,11 @@ class Runtime:
 
         from .access import Mutations
         from .downloads import Downloads
+        from .ticket_reads import ReleasedReader
         from .views import Views
 
         return AccessPorts(
-            reader=SQLiteReader(self.store),
+            reader=ReleasedReader(SQLiteReader(self.store), self),  # tickets: R2 release
             views=Views(self),
             downloads=Downloads(self),
             mutations=Mutations(self),

@@ -13,6 +13,7 @@ from ai_agent_application.tickets.release import WITHHELD
 from ai_agent_contracts.common import SourceRef
 from ai_agent_contracts.states import Provenance
 from quality_support import Model, prepared_host
+from test_http import scope_params
 
 from ai_agent_core.access.reads import SQLiteReader
 from ai_agent_core.local_host.recovery import enable_recovery
@@ -147,6 +148,11 @@ def test_session_context_and_release_on_host_owners(tmp_path, monkeypatch):
             assert {m.body for m in messages.items if m.ticket_id == later.resource_id} == {
                 WITHHELD
             }
+            # The same through the panel HTTP route (production access_ports wiring).
+            http = await host.env.client.get("/api/v1/tickets", params=scope_params(scope))
+            assert http.status_code == 200, http.text
+            rows = {row["id"]: row["summary"] for row in http.json()["items"]}
+            assert rows[later.resource_id] == WITHHELD
             # Other resources pass through unchanged.
             plain = await SQLiteReader(rt.store).read(
                 "permissions", "operator", scope, None, 50, None
