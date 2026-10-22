@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from ai_agent_application.agent_workplace.ports import ModelRequest
+from ai_agent_application.agent_workplace.ports import ModelRequest, WorkspaceRequest
 from ai_agent_application.llm import ChatMessage, GenerationRequest, ToolCall, ToolDefinition
 from ai_agent_application.llm.model import prompt_size
 from ai_agent_application.llm.tools import MAX_TOOL_CALLS, MAX_TOOLS
@@ -17,6 +17,33 @@ def _keys(value: Any, required: set[str], optional: set[str] | None = None) -> d
     ):
         raise ValueError("RUNNER_MODEL_SHAPE")
     return value
+
+
+def workspace_request(row: Any) -> WorkspaceRequest:
+    value = _keys(row, {"kind", "call_id", "operation", "arguments"})
+    arguments = value["arguments"]
+    if (
+        value["kind"] != "workspace"
+        or not isinstance(value["call_id"], str)
+        or not 1 <= len(value["call_id"]) <= 64
+        or value["operation"]
+        not in {
+            "capabilities",
+            "list_files",
+            "read_file",
+            "write_note",
+            "raise_ticket",
+            "read_ticket",
+        }
+        or not isinstance(arguments, dict)
+        or len(arguments) > 12
+        or any(
+            not isinstance(k, str) or len(k) > 64 or not isinstance(v, str) or len(v) > 4000
+            for k, v in arguments.items()
+        )
+    ):
+        raise ValueError("RUNNER_WORKSPACE_REQUEST_INVALID")
+    return WorkspaceRequest(value["call_id"], value["operation"], arguments)
 
 
 def _calls(value: Any) -> tuple[ToolCall, ...]:

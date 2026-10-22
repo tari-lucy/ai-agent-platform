@@ -187,7 +187,6 @@ async def perform(ex: Execution) -> list[str]:
     )
     gate = replace(gate, attempt_id=attempt.id)
     gateway = ExecutionModelGateway(ex)
-    refs = ContextRefs(context.sources, context.files)
 
     async def current() -> bool:
         latest = await reader.get(scope, session.id)
@@ -202,6 +201,11 @@ async def perform(ex: Execution) -> list[str]:
             for candidate in await tools(rt, scope, session=True)
         ):
             return False
+        inputs = await owner.attempts_repo(scope).get(gate.attempt_id)
+        if inputs is None or inputs.state != "submitted":
+            return False
+        refs = ContextRefs(tuple(inputs.inputs), tuple(inputs.input_files))
+        await guard.verify(gate, refs.sources, refs.files, "api_transfer")
         return await provider.still_valid(scope, refs)
 
     gateway.release = current
@@ -236,11 +240,17 @@ async def perform(ex: Execution) -> list[str]:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         from .work_session_outputs import save_outputs
 
+        refreshed = await owner.attempts_repo(scope).get(attempt.id)
+        if refreshed is None or refreshed.state != "submitted":
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        attempt = refreshed
+        used_sources = tuple(attempt.inputs)
+        used_files = tuple(attempt.input_files)
         saved = await save_outputs(ex, harness, gate, attempt, final[0].files)
         output_context = tuple(
-            {(ref.artifact_id, ref.version): ref for ref in (*context.files, *saved)}.values()
+            {(ref.artifact_id, ref.version): ref for ref in (*used_files, *saved)}.values()
         )
-        await guard.verify(gate, context.sources, output_context, "api_transfer")
+        await guard.verify(gate, used_sources, output_context, "api_transfer")
         if not await current():
             raise ContractError(ErrorCode.STALE_CONTEXT)
         now = rt.supervisor.clock.utc()
@@ -267,7 +277,7 @@ async def perform(ex: Execution) -> list[str]:
             audience_id=AUDIENCE,
             channel_ids=[AUDIENCE],
             moderation_status="draft",
-            sources=list(context.sources),
+            sources=list(used_sources),
             operation_id=ex.command.operation_id,
             origin=extension(rt.registry, ORIGIN, origin.model_dump(mode="json")),
         )
@@ -332,10 +342,13 @@ async def perform(ex: Execution) -> list[str]:
                 generation=session.generation,
                 through_sequence=context.through_sequence,
             ),
-            sources=context.sources,
+            sources=used_sources,
             files=output_context,
         )
-        await owner.settle(attempt, "succeeded", identifier, result_files=list(saved))
+        all_written = {(r.artifact_id, r.version): r for r in (*attempt.result_files, *saved)}
+        await owner.settle(
+            attempt, "succeeded", identifier, result_files=list(all_written.values())
+        )
         rt.notify("work-session.changed", session.scope, session.id, receipt.version)
         return [identifier, delivery.id, session.id]
     finally:

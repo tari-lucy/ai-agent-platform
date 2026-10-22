@@ -24,6 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'OPENCODE_EXTRACT_FAILED' }
 Copy-Item -LiteralPath (Join-Path $r1Root 'deploy/opencode/Dockerfile') -Destination $r1Build
 Copy-Item -LiteralPath (Join-Path $r1Root 'deploy/opencode/LICENSE.txt') -Destination $r1Build
 Copy-Item -LiteralPath (Join-Path $r1Root 'packages/adapters/src/ai_agent_adapters/agent_harness/worker.py') -Destination $r1Build
+Copy-Item -LiteralPath (Join-Path $r1Root 'packages/adapters/src/ai_agent_adapters/agent_harness/workspace_mcp.py') -Destination $r1Build
 docker build --pull=false --network=none --tag $Tag $r1Build
 if ($LASTEXITCODE -ne 0) { throw 'OPENCODE_IMAGE_BUILD_FAILED' }
 docker image inspect --format '{{.Id}}' $Tag

@@ -436,3 +436,66 @@ R1/R4/R5 целиком **не закрыты**. Отдельными следу
 Закрытый lifecycle/isolation gate пока не разрешает enable на личном host.
 Приватный host/профиль/диалоги и .env не читались и не менялись, новых прав
 ему не выдавалось, настоящих API-вызовов не было.
+
+## 2026-10-22: owner bridge в настоящем OpenCode
+
+Завершён следующий ограниченный этап: встроенный локальный MCP
+`platform_workspace` → контейнерный loopback → существующий stdio runner →
+владельцы платформы. Схема local MCP сверена по
+[официальной документации](https://docs.opencode.ai/docs/mcp-servers/),
+совместимость проверена на pinned OpenCode 1.19.3, без SDK/новых зависимостей.
+Внешние MCP, shell, сеть, host mounts, секреты и Docker socket не включаются.
+
+В bridge есть discovery capabilities и чтение списка/текста файлов по opaque
+id, запись note/hypothesis через KnowledgeBase/ManagedFiles, problem/question/
+idea и capability_request через TicketService, чтение известного ticket_id
+через TicketRelease. История/источники/материалы тикета не обходят release.
+Права файлов ограничены областью действующей Permission capability этой
+сессии. Нет raw SQL, доступа к host-пути или произвольного Python/HTTP tool.
+Текст навыка и request capability_id не расширяют полномочия.
+
+`max_workspace_calls` доверенного RunnerTemplate — конечный предел owner-
+вызовов на turn (0 по умолчанию, максимум 64); исчерпание даёт RESOURCE_BUSY
+без нового owner-вызова. Независимо от него все LLM calls используют activity
+Gateway/journal и общий дневной бюджет. MCP не получает scope, principal,
+WorkAdmission или модельный endpoint/key: это серверная привязка попытки.
+Кадры/аргументы и ответы ограничены; исправлена граница escaped JSON для
+обычного кириллического ответа, без снятия ограничения на bytes.
+
+Новые прочитанные SourceRef/ArtifactRef добавляются владельцем WorkAttempt
+**до выдачи текста**. Старые inputs не удаляются; разные версии одного Source
+не подменяются. Перед последующими модельными вызовами и публикацией draft
+driver проверяет уже полный owner-набор. Записи заметок получают все inputs,
+а их ArtifactRef идут в result_files и основания draft/тикета. Scope/права/TTL/
+ledger проверяются до и после IO. Повтор write с тем же call_id использует
+owner receipt; изменённое содержимое под тем же id не становится второй записью.
+
+Финальный affected gate на Windows/Docker Desktop: **31 passed (74.20 с)**,
+без полного suite проекта. В нём:
+
+- настоящий OpenCode + production host/API/owners + синтетический HTTP
+  provider: write_note → read_file → capability_request → финальный ответ →
+  ACK/history. **4** LLM-вызова в activity; Permission до/после побайтово по
+  значениям моделей одинаковы. Прочитанный файл присутствует в inputs,
+  result_files, origin draft и материалах тикета;
+- настоящий Docker transport: предел 2 owner-вызова, третий отказан, новых
+  model calls нет, удаление контейнера подтверждено;
+- настоящие SQLite/blob/ledger owner-проверки: расширение lineage перед
+  возвратом текста, последующая запись с полными grounds, replay/conflict,
+  отзыв, STOP, чужой admission и запрещённый scope argument;
+- закрытая схема RPC, кириллический ответ, прежние adapter/policy/model
+  protocol регрессии. Ruff, strict mypy (**282 source files**), import
+  boundaries и generated exports чистые. UI не менялся и не пересобирался.
+
+Финальный image: `sha256:ccbffec52935bc931fa2f5c870d04f5d92b309c14852fe62bb450dc95d556bd3`.
+Архив OpenCode использован из проверенного локального cache; бинарник и
+базовый image pinned, RUN-сборка без сети. Никаких платных API-вызовов,
+переноса/включения личного host или выдачи ему новых прав не было.
+
+Полный R1/R4/R5 остаётся открыт. В этом этапе ещё нет исполнения helpers и
+создания SkillVersion через MCP, переноса task goals в OpenCode, автоматического
+обнаружения/пробуждения по ответам тикетов и durable recovery/staged restore.
+read_ticket требует известного id; наличие owner bridge не объявляется
+готовым автономным ticket-resume. Windows browser и production launcher также
+остаются следующими gates. После сдачи этого этапа работа остановлена по
+договорённости с оператором, следующий этап — только после «продолжай».

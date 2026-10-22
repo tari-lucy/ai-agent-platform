@@ -42,7 +42,7 @@ tests/workplace_sandbox в PYTHONPATH (source imports — из venv этого c
 Изоляция: сеть none, нет mounts/secret/docker socket/опубликованных портов,
 read-only root, non-root, tmpfs. Только контейнерный loopback facade → stdio
 → существующий ModelGateway. Отключены project config, title/summary/compaction,
-models fetch, обновления, plugins/MCP/LSP/formatter. Config-каталог read-only:
+models fetch, обновления, plugins, внешние MCP/LSP/formatter. Config-каталог read-only:
 в exact release штатный Npm.install пропускает unwritable каталог.
 
 OpenCode может читать staged inputs и создавать/редактировать outputs. Bash,
@@ -56,6 +56,20 @@ OpenCode в долгую память не сохраняется. Cache staged 
 или runner lifecycle. Счётчики OpenCode не являются учётом бюджета — используется
 host journal, а неизвестный usage не превращается в 0.
 
-**Ещё не готово:** production session driver/delivery/ACK, platform tools bridge,
-safe staged restore и full runtime integration. Эти ограничения нельзя считать
-закрытыми успешным isolated harness тестом.
+Session driver/delivery/ACK и запись результатов через ManagedFiles проверены
+на production composition с синтетическим провайдером. Для owner bridge
+доверенный RunnerTemplate явно задаёт `max_workspace_calls > 0` (default 0).
+Тогда доступен единственный локальный MCP `platform_workspace`: capabilities,
+list_files, read_file, write_note, raise_ticket и read_ticket. Он обращается к
+контейнерному loopback, затем по существующему stdio-транспорту к владельцам.
+Ни scope, ни admission/principal, ни права контейнер не передаёт. Новый
+инструмент запрашивается тикетом; ответ оператора не выдаёт Permission.
+
+Для `test_workspace_host.py` и `test_workspace_transport.py` требуется
+`AW_WORKSPACE_IMAGE_ID` с проверенным полным image digest. Это отдельный
+opt-in от `AW_OPENCODE_IMAGE_ID`. Тестовые host/данные/провайдер синтетические,
+OpenCode и Docker настоящие. Включение на личном host отсутствует.
+
+**Ещё не готово:** полный выбор/возобновление дел и helpers/skills через
+OpenCode, автоматическое пробуждение по тикетам, safe staged restore и
+production launcher. Эти gates не закрываются успешным owner bridge journey.
