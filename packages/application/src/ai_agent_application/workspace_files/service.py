@@ -21,7 +21,7 @@ from ai_agent_contracts.common import ArtifactRef, Scope
 from ai_agent_contracts.states import ErrorCode
 
 from ai_agent_application.agent_workplace.ports import AttemptContext, WorkAdmission
-from ai_agent_application.storage import Owner, Principal, RecordAccess, Storage
+from ai_agent_application.storage import Owner, Principal, ReadPurpose, RecordAccess, Storage
 
 from .guard import FileReleaseGuard, current, stable_scope
 
@@ -115,6 +115,19 @@ class ManagedFiles:
         data = await self._content(entry)
         await self.guard.verify(admission, (), (entry.reference,), "private")
         await self.authorize(admission, "read", entry.area)
+        return entry, data
+
+    async def released_content(
+        self, scope: Scope, file_id: str, purpose: ReadPurpose
+    ) -> tuple[ManagedFile, bytes]:
+        """Current file content for a caller authenticated by the composition boundary."""
+        entry = await self._file(scope, file_id)
+        await self.guard.check(scope, (), (entry.reference,), purpose)
+        data = await self._content(entry)
+        await self.guard.check(scope, (), (entry.reference,), purpose)
+        latest = await self._file(scope, file_id)
+        if latest.reference != entry.reference:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         return entry, data
 
     async def _entries(self, scope: Scope) -> list[ManagedFile]:
