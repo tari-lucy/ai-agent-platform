@@ -66,7 +66,9 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     if rt.session_harness is None or rt.session_capability is None:
         return None
     manifests = {
-        tool.manifest.capability_id: tool for tool in await tools(rt, scope) if tool.available
+        tool.manifest.capability_id: tool
+        for tool in await tools(rt, scope, session=True)
+        if tool.available
     }
     if rt.session_capability not in manifests:
         return None
@@ -173,7 +175,9 @@ async def perform(ex: Execution) -> list[str]:
         list(context.files),
     )
     manifests = {
-        tool.manifest.capability_id: tool for tool in await tools(rt, scope) if tool.available
+        tool.manifest.capability_id: tool
+        for tool in await tools(rt, scope, session=True)
+        if tool.available
     }
     tool = manifests.get(rt.session_capability)
     if tool is None:
@@ -195,7 +199,7 @@ async def perform(ex: Execution) -> list[str]:
             return False
         if not any(
             candidate.available and candidate.manifest == tool.manifest
-            for candidate in await tools(rt, scope)
+            for candidate in await tools(rt, scope, session=True)
         ):
             return False
         return await provider.still_valid(scope, refs)
@@ -230,9 +234,15 @@ async def perform(ex: Execution) -> list[str]:
         final = [event for event in result if event.kind == "result"]
         if len(final) != 1 or not final[0].detail.strip() or len(final[0].detail) > 16000:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-        # File outputs need a separate managed-file write; never imply they were saved.
-        if final[0].files:
-            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        from .work_session_outputs import save_outputs
+
+        saved = await save_outputs(ex, harness, gate, attempt, final[0].files)
+        output_context = tuple(
+            {(ref.artifact_id, ref.version): ref for ref in (*context.files, *saved)}.values()
+        )
+        await guard.verify(gate, context.sources, output_context, "api_transfer")
+        if not await current():
+            raise ContractError(ErrorCode.STALE_CONTEXT)
         now = rt.supervisor.clock.utc()
         identifier = derived_id("work-reply", scope, attempt.id)
         origin = SessionReplyOrigin(
@@ -240,7 +250,7 @@ async def perform(ex: Execution) -> list[str]:
             generation=session.generation,
             through_sequence=context.through_sequence,
             after_sequence=session.processed_sequence,
-            context_files=list(context.files),
+            context_files=list(output_context),
         )
         utterance = record(
             rt.registry,
@@ -323,9 +333,9 @@ async def perform(ex: Execution) -> list[str]:
                 through_sequence=context.through_sequence,
             ),
             sources=context.sources,
-            files=context.files,
+            files=output_context,
         )
-        await owner.settle(attempt, "succeeded", identifier)
+        await owner.settle(attempt, "succeeded", identifier, result_files=list(saved))
         rt.notify("work-session.changed", session.scope, session.id, receipt.version)
         return [identifier, delivery.id, session.id]
     finally:

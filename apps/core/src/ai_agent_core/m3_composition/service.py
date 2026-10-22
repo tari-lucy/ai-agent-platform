@@ -320,6 +320,7 @@ class Runtime:
 
         self.session_harness: HarnessFactory | None = None
         self.session_capability: str | None = None
+        self.session_output_area: str | None = None
         self.tool_executors: dict[str, ToolExecutor] = {}
         from .activity import AutonomousActivity
 
