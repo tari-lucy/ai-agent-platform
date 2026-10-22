@@ -53,15 +53,8 @@ if TYPE_CHECKING:
 MODELS: dict[str, type[VersionedRecord]] = {
     m.__name__: m
     for m in (
-        Source,
-        Claim,
-        Summary,
-        StateChange,
-        CharacterState,
-        Profile,
-        GmRuntimeState,
-        StoryArc,
-        Opportunity,
+        Source, Claim, Summary, StateChange, CharacterState, Profile,
+        GmRuntimeState, StoryArc, Opportunity,
     )
 }
 OWNERS = {

@@ -84,3 +84,30 @@ cli serve --root R --panel-dir apps/panel/dist --provider live --env-file /abs/.
   test-only install в `test_opencode_skills_browser.py`).
 - Helpers (`max_helper_calls`) launcher не включает — отдельное решение.
 - Подключение личного host — отдельно, после проверки штатного запуска.
+
+## Итог проверок (base main `1b36577`)
+
+- `tests/workplace_launcher` (scripted) + `workplace_sessions` + `workplace_conversation` +
+  `workplace_harness` + `local_host`: 104 passed, 11 skipped, 2 failed — 
+  `test_import_has_no_effects` (stale venv этой машины, падает всегда) и
+  `test_panel_and_api_on_one_address_smoke` (падает только в групповом прогоне, отдельно
+  `test_panel.py` — 4 passed; так же вёл себя на main без этой ветки).
+- `test_real_launcher.py` с настоящим OpenCode/Docker на Linux — 1 passed (48.6 с).
+- Панель: tsc, eslint, 203 node tests, build; headless Chromium — разговор, ACK, работа,
+  обращения — 6 passed. Пока агент STOPPED, «Чей ход» по-прежнему говорит про запуск;
+  причина ожидания показывается после START, ссылка на обращение — когда запрос открыт.
+- Ruff, strict mypy (290 source files), import boundaries, generated exports — чисто.
+- Полный combined gate этой ветки не повторялся (gate R5 на предыдущей ревизии — в отчёте R5).
+
+## Изменённые shared-файлы
+
+- contracts: `ai_agent_contracts/panel.py` (`WorkSessionTranscript.waiting_reason`,
+  `waiting_detail`, `access_ticket_id`) и `packages/contracts/generated/*`;
+- composition: `m3_composition/service.py` (`Runtime.session_unavailable`),
+  `work_session_runtime.py` (вызов запроса доступа в `select`), `work_sessions.py`
+  (причина в расшифровке); новый `work_session_access.py`;
+- local_host: `layout.py`, `serve.py`, `cli.py`, новый `work_sessions.py`;
+- панель: `shared/validation.ts`, `ui/work/conversation.ts`, `ui/work/Conversation.tsx`;
+- тесты/скрипты: `tests/workplace_sessions/session_support.py` (`synthetic()` вынесен из
+  `install`, без копии), `scripts/check_combined.py` (+`tests/workplace_launcher`), новый
+  `scripts/build_opencode_sandbox.py`; docs: `deploy/opencode/README.md`, `manual-mvp-check.md`.

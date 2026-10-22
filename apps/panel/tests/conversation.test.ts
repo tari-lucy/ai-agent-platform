@@ -90,6 +90,7 @@ test('a waiting message shows why: no right, the access request, its refusal or 
   assert.equal(turn(transcript({ waiting_reason: 'unavailable', waiting_detail: 'DOCKER_NOT_FOUND' }), true),
     'Рабочий контур не подключён на этом хосте (DOCKER_NOT_FOUND)');
   assert.equal(turn(transcript({ processed_sequence: 1, waiting_reason: 'access_refused' }), true), 'Сообщение учтено агентом');
+  assert.equal(turn(transcript({ waiting_reason: 'unavailable' }), false), 'Сообщение сохранено; исполнение начнётся только после запуска');
   assert.equal(workSessionTranscript(transcript({ waiting_reason: 'access_requested', access_ticket_id: 't-1' }), scope, 's-1').access_ticket_id, 't-1');
   assert.throws(() => workSessionTranscript(transcript({ waiting_reason: 'later' as never }), scope, 's-1'));
 });

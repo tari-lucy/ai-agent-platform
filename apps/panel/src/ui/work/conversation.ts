@@ -31,7 +31,8 @@ export function turn(transcript: WorkSessionTranscript, running: boolean): strin
     if (transcript.pending_reply) return transcript.pending_reply.withheld ? 'Ответ скрыт: основания недоступны' :
       transcript.pending_reply.acknowledgeable ? 'Ответ готов, ждёт получения' : 'Ответ подготовлен; подтверждение пока недоступно';
   if (transcript.entries.some((entry) => pending(transcript, entry.sequence, entry.speaker))) {
-    const notice = waitingNotice(transcript);
+    // STOPPED: nothing runs anyway; the reason matters once the person could take the message.
+    const notice = running ? waitingNotice(transcript) : null;
     if (notice) return notice;
     return running ? 'Сообщение сохранено и ожидает исполнения' : 'Сообщение сохранено; исполнение начнётся только после запуска';
   }
