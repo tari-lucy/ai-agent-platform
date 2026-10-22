@@ -312,10 +312,10 @@ def main(argv: list[str] | None = None) -> int:
             print("work conversations enabled; no rights granted to the agent; agent stays STOPPED")
             return 0
         if arguments.command == "check-work-sessions":
-            settings = load_config(paths(arguments.root)).work_sessions
-            if settings is None:
+            prepared = load_config(paths(arguments.root)).work_sessions
+            if prepared is None:
                 raise HostError("WORK_SESSIONS_NOT_ENABLED")
-            reason = check_work_sessions(settings)
+            reason = check_work_sessions(prepared)
             if reason is not None:
                 raise HostError(reason)
             print("work conversations ready: Docker and the pinned OpenCode image found")

@@ -43,10 +43,16 @@ restore). Поручение оператора/Codex 2026-10-22; вариант
   сообщения отвечены, ACK; новый разговор без нового тикета; повторные tick и второй разговор
   без дублей; STOP → новое сообщение ждёт → restart STOPPED → START отвечает; отказ не
   переоткрывается и после restart+START; STOP во время ожидания ничего не исполняет;
-  не готовый host — `unavailable` с кодом, тикета нет. 3 passed.
+  не готовый host — `unavailable` с кодом, тикета нет; CLI отдаёт фиксированные коды.
 - `tests/workplace_launcher/test_real_launcher.py` — **настоящий OpenCode/Docker на Linux**
   (`AW_OPENCODE_IMAGE_ID`): enable с реальной проверкой образа → сообщение → START →
-  системный тикет → решение → ответ OpenCode → ACK → STOP → restart STOPPED.
+  системный тикет → решение → ответ OpenCode → ACK → STOP → restart STOPPED. На VPS
+  (Ubuntu 24.04, Docker 29.1.3, 2 CPU / 3 GB) — 1 passed (48.6 с), образ собран
+  `build_opencode_sandbox.py`, синтетический провайдер, без сети.
+- Наблюдение для runner (зона Codex, не менялась): при параллельной полной нагрузке на 2 CPU
+  ход стабильно завершался `SANDBOX_UNKNOWN` без вызова модели — runner ограничивает каждую
+  проверку допуска `wait_for(_verify, timeout=1)`, а TimeoutError считает неизвестным исходом.
+  На свободной машине проходит. Для слабого host стоит решить, остаётся ли 1 с.
 - Панель: tsc, eslint, node tests.
 
 ## Команды (синтетический host, не личный)

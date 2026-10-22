@@ -242,3 +242,17 @@ def test_not_ready_host_keeps_conversations_waiting_with_the_reason(tmp_path, mo
             assert not await tickets(rt, host.scope) and model.count() == 0
 
     asyncio.run(scenario())
+
+
+def test_cli_reports_fixed_codes_and_grants_nothing(tmp_path, monkeypatch, capsys):
+    from ai_agent_core.local_host.cli import main
+
+    async def scenario():
+        return await prepared(tmp_path, monkeypatch, WorkModel())
+
+    host = asyncio.run(scenario())
+    assert main(["check-work-sessions", "--root", str(host.root)]) == 78
+    assert "WORK_SESSIONS_NOT_ENABLED" in capsys.readouterr().err
+    args = ["enable-work-sessions", "--root", str(host.root), "--image-id", IMAGE]
+    assert main([*args, "--area", "projects", "--output-area", "projects"]) == 78
+    assert "WORK_SESSIONS_FILES_REQUIRED" in capsys.readouterr().err

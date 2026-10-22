@@ -10,6 +10,9 @@ Linux x64 baseline. Это отдельный image для существующ�
 ./scripts/build_opencode_sandbox.ps1
 ```
 
+На Linux/macOS тот же архив и контекст: `python scripts/build_opencode_sandbox.py
+--pull-base` (без `--pull-base` базовый образ должен уже быть локально).
+
 Скрипт явно скачивает exact release archive (~61 MB), проверяет SHA-256,
 состав архива, готовит отдельный runtime/opencode-build/<id> с точным контекстом.
 Можно передать `-ArchivePath <уже скачанный архив>`, чтобы не скачивать повторно,
@@ -77,6 +80,7 @@ list_files, read_file, write_note, raise_ticket и read_ticket. Он обращ�
 opt-in от `AW_OPENCODE_IMAGE_ID`. Тестовые host/данные/провайдер синтетические,
 OpenCode и Docker настоящие. Включение на личном host отсутствует.
 
-**Ещё не готово:** полный выбор/возобновление дел и helpers/skills через
-OpenCode, автоматическое пробуждение по тикетам, safe staged restore и
-production launcher. Эти gates не закрываются успешным owner bridge journey.
+Штатное подключение к host — `enable-work-sessions` и обычный `serve`:
+[launcher](../../docs/implementation-reports/opencode-launcher.md).
+
+**Ещё не готово:** helpers через launcher и включение на личном host.
