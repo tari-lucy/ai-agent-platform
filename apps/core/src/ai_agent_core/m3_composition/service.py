@@ -860,17 +860,38 @@ class Runtime:
                 self.scheduler.complete(
                     allocation, Outcome.SUCCEEDED if status == "SUCCEEDED" else Outcome.CANCELLED
                 )
+        # Teardown is over. Shutdown must not interrupt the factual SQLite receipt.
+        # JobOwner journals the outcome; this task never applies the result payload.
+        settlement = asyncio.create_task(
+            self._execution_receipt(
+                job, claim.command, claim.lease, status, error_code, identifiers
+            )
+        )
+        try:
+            return await asyncio.shield(settlement)
+        except asyncio.CancelledError:
+            return await settlement
+
+    async def _execution_receipt(
+        self,
+        job: Job,
+        command: ExecutionCommand,
+        lease: Lease,
+        status: str,
+        error_code: ErrorCode | None,
+        identifiers: list[str],
+    ) -> Job:
         result = record(
             self.registry,
             ExecutionResult,
-            id=derived_id("m3result", job.scope, claim.lease.attempt_id),
+            id=derived_id("m3result", job.scope, lease.attempt_id),
             scope=job.scope,
             created_at=self.supervisor.clock.utc(),
             type="execution.result",
-            command_id=claim.command.id,
+            command_id=command.id,
             operation_id=job.operation_id,
-            attempt_id=claim.lease.attempt_id,
-            lease_version=claim.lease.lease_version,
+            attempt_id=lease.attempt_id,
+            lease_version=lease.lease_version,
             freshness=job.freshness,
             status=status,
             evidence=[],
@@ -908,7 +929,7 @@ class Runtime:
             # This executor really ended. Reconcile metadata only; never reapply the payload.
             factual = result.model_copy(
                 update={
-                    "id": derived_id("m3settled", job.scope, claim.lease.attempt_id),
+                    "id": derived_id("m3settled", job.scope, lease.attempt_id),
                     "result": None,
                 }
             )
@@ -927,7 +948,7 @@ class Runtime:
             return accepted
         with suppress(ContractError):
             token = self.supervisor.resolve(
-                claim.command.cancellation_id, scope=job.scope, freshness=job.freshness
+                command.cancellation_id, scope=job.scope, freshness=job.freshness
             )
             self.supervisor.retire(token)
         return accepted
