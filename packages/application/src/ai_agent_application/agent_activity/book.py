@@ -287,7 +287,12 @@ class ActivityBook:
         return stored
 
     async def settle(
-        self, attempt: WorkAttempt, state: AttemptState, result_id: str | None = None
+        self,
+        attempt: WorkAttempt,
+        state: AttemptState,
+        result_id: str | None = None,
+        *,
+        result_files: builtins.list[ArtifactRef] | None = None,
     ) -> WorkAttempt:
         if attempt.state == state:
             return attempt
@@ -297,6 +302,7 @@ class ActivityBook:
             updated_at=self.clock(),
             state=state,
             result_id=result_id if state == "succeeded" else attempt.result_id,
+            result_files=attempt.result_files if result_files is None else result_files,
         )
         revised = WorkAttempt.model_validate(data)
         await self._commit(
