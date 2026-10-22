@@ -13,8 +13,10 @@ holds → restart STOPPED → START continues. Every model call goes through the
 """
 
 import asyncio
+import json
 from dataclasses import replace
 
+from ai_agent_application.agent_workplace.ports import WorkspaceRequest
 from ai_agent_application.storage import Owner
 from ai_agent_contracts.agent_workplace import WorkTask
 from ai_agent_contracts.memory import Episode, Source
@@ -28,6 +30,7 @@ from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
 from ai_agent_core.m3_composition.dialogue import memory
 from ai_agent_core.m3_composition.state import PRINCIPALS, command
+from ai_agent_core.m3_composition.work_session_workspace import Workspace
 from ai_agent_core.m3_composition.work_sessions import sessions
 from ai_agent_core.m3_composition.workplace_experience import session_context
 
@@ -226,6 +229,69 @@ def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
                 if s.source_type == "work-session-reply"
             ]
             assert len(replies) == 1
+
+            # 5c. A conversation in which the person asks the operator by ticket; the operator's
+            # answer resumes the same session without a new chat message (R1 ticket-resume).
+            asked: list = []
+            plain_factory = rt.session_harness
+
+            async def asking_factory(ex, gateway, gate):
+                harness = await plain_factory(ex, gateway, gate)
+                plain_turn = harness.turn
+
+                async def turn(admission, instruction):
+                    if not asked:
+                        receipt = json.loads(
+                            await Workspace(ex, gate).call(
+                                gate,
+                                WorkspaceRequest(
+                                    "ask",
+                                    "raise_ticket",
+                                    dict(title="Какой формат наброска?", body="Уточни формат."),
+                                ),
+                            )
+                        )
+                        asked.append(receipt["ticket_id"])
+                    return await plain_turn(admission, instruction)
+
+                harness.turn = turn
+                return harness
+
+            rt.session_harness = asking_factory
+            talk = (await open_session(host, "open-ticket", "Набросок для газеты")).json()
+            talk_id = talk["resource_id"]
+            await say(host, "say-ticket", talk_id, 1, "Сделай набросок для газеты.")
+            model.queues["activity"].append({"reply": "Уточню формат у оператора."})
+            first_draft = await until(
+                lambda: transcript(host, talk_id),
+                lambda v: (
+                    v.get("pending_reply") is not None and v["pending_reply"]["acknowledgeable"]
+                ),
+                "ticket turn draft",
+                seconds=30,
+            )
+            assert (
+                await ack(host, first_draft["pending_reply"], "ack-ticket-1")
+            ).status_code == 200
+            calls += 1
+            question = await rt.tickets.get(scope, asked[0])
+            assert question.kind == "question"
+            model.queues["activity"].append({"reply": "Сделаю горизонтальный набросок."})
+            await answer_ticket(host, question, "Горизонтальный, для полосы.")
+            resumed = await until(
+                lambda: transcript(host, talk_id),
+                lambda v: (
+                    v.get("pending_reply") is not None and v["pending_reply"]["acknowledgeable"]
+                ),
+                "resumed after ticket answer",
+                seconds=30,
+            )
+            assert len(resumed["entries"]) == 2  # no fabricated operator chat message
+            assert "Горизонтальный, для полосы." in model.last("activity")["messages"][1]["content"]
+            assert (await ack(host, resumed["pending_reply"], "ack-ticket-2")).status_code == 200
+            calls += 1
+            assert model.count("activity") == calls
+            rt.session_harness = plain_factory
 
             # 6. Revoke: the conversation message's text and any context built on it close.
             message, _ = await sessions(rt).messages(scope, session_id)  # operator, reply

@@ -34,6 +34,9 @@ def workspace_request(row: Any) -> WorkspaceRequest:
             "write_note",
             "raise_ticket",
             "read_ticket",
+            "find_skills",
+            "read_skill",
+            "save_skill",
         }
         or not isinstance(arguments, dict)
         or len(arguments) > 12

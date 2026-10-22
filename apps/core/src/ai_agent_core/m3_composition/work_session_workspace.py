@@ -14,6 +14,8 @@ from ai_agent_contracts.states import ErrorCode
 
 from .activity import book, tools
 from .work_session_runtime import Release
+from .work_session_skills import OPERATIONS as SKILL_OPERATIONS
+from .work_session_skills import call as skill_call
 from .workplace import granted_areas
 from .workplace_experience import ticket_release
 
@@ -48,6 +50,7 @@ class Workspace:
             "write_note": {"file_id", "path", "title", "kind", "body", "expected_version"},
             "raise_ticket": {"title", "body", "capability_id", "kind"},
             "read_ticket": {"ticket_id"},
+            **SKILL_OPERATIONS,
         }
         if request.operation not in allowed or set(a) - allowed[request.operation]:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
@@ -120,6 +123,10 @@ class Workspace:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
             files = written = [entry.reference]
             result = {"id": entry.id, "version": entry.version, "provenance": entry.provenance}
+        elif request.operation in SKILL_OPERATIONS:
+            result, sources, files, written = await skill_call(
+                rt, guard, admission, attempt, request.operation, a, key
+            )
         elif request.operation == "raise_ticket":
             title, body = a.get("title", ""), a.get("body", "")
             if not title.strip() or not body.strip():
