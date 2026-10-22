@@ -21,6 +21,7 @@ from ai_agent_contracts.memory import Episode, Source
 from test_activity import FAST, WorkModel, assign, fast, prepared, rows, task, until
 from test_http import post, scope_params
 from test_library_tools import KNOWLEDGE, SKILLS, grant, use
+from test_runtime import ack, install
 from test_work_sessions_http import open_session, say, transcript
 
 from ai_agent_core.local_host.recovery import enable_recovery
@@ -195,8 +196,39 @@ def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
             )
             assert status.json()["activity_calls_used"] == calls
 
+            # 5b. The person answers the operator's conversation message (R1 session driver,
+            # synthetic harness over the shared gateway); it enters history only after ACK.
+            await install(rt, scope)
+            model.queues["activity"].append({"reply": "Метод наброска заведён, смотри библиотеку."})
+            view = await until(
+                lambda: transcript(host, session_id),
+                lambda v: (
+                    v.get("pending_reply") is not None and v["pending_reply"]["acknowledgeable"]
+                ),
+                "session draft",
+                seconds=30,
+            )
+            assert [e["speaker"] for e in view["entries"]] == ["operator"]  # not history yet
+            assert "смотри библиотеку" in view["pending_reply"]["text"]
+            delivered = await ack(host, view["pending_reply"], "journey-ack")
+            assert delivered.status_code == 200, delivered.text
+            assert (
+                await ack(host, view["pending_reply"], "journey-ack")
+            ).json() == delivered.json()
+            view = await transcript(host, session_id)
+            assert [e["speaker"] for e in view["entries"]] == ["operator", "character"]
+            assert view["pending_reply"] is None and view["processed_sequence"] == 2
+            calls += 1
+            assert model.count("activity") == calls
+            replies = [
+                s
+                for s in await rt.store.repository(Source, mem, scope).list(limit=200)
+                if s.source_type == "work-session-reply"
+            ]
+            assert len(replies) == 1
+
             # 6. Revoke: the conversation message's text and any context built on it close.
-            [message] = await sessions(rt).messages(scope, session_id)
+            message, _ = await sessions(rt).messages(scope, session_id)  # operator, reply
             port = session_context(rt)
             built = await port.build(scope, "набросок", [ticket.id])
             await memory(rt).set_rights(
@@ -207,7 +239,8 @@ def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
                 api_transfer_allowed=False,
                 public_disclosure_allowed=False,
             )
-            assert (await transcript(host, session_id))["entries"][0]["withheld"] is True
+            entries = (await transcript(host, session_id))["entries"]
+            assert entries[0]["withheld"] is True and entries[1]["withheld"] is False
             assert await port.still_valid(scope, built.refs)  # the message was not its basis
 
             # 7. STOP holds: new work is stored, nothing is submitted.
