@@ -209,3 +209,30 @@ def test_knowledge_kinds_stay_distinct(tmp_path):
         assert {row.id for row in await knowledge.search(SCOPE, "маяки")} == {"guess-lighthouses"}
 
     run(tmp_path, scenario)
+
+
+def test_save_replays_the_same_request_and_refuses_a_stale_one_before_writing(tmp_path):
+    async def scenario(world: World):
+        library, _ = await library_world(world)
+        gate = await world.admit()
+        first = await library.save(gate, "s-1", SUMMARY, b"1. Find theses.\n", None)
+        # The same request again (lost reply): the same revision, no second file version.
+        again = await library.save(gate, "s-1", SUMMARY, b"1. Find theses.\n", None)
+        assert again == first and again.method.version == 1
+        better = SkillDraft(**{**SUMMARY.__dict__, "change_reason": "Шаг проверки."})
+        improving = await world.admit()
+        second = await library.save(improving, "s-2", better, b"1. Find.\n2. Check.\n", 1)
+        assert (second.version, second.method.version) == (2, 2)
+        # A replay comes from the same attempt (same tool call); another attempt is another
+        # request and would conflict at the file owner.
+        replayed = await library.save(improving, "s-2", better, b"1. Find.\n2. Check.\n", 1)
+        assert replayed == second
+        # Another change on the outdated version is refused before the method file moves.
+        with pytest.raises(ContractError) as stale:
+            await library.save(await world.admit(), "s-3", better, b"Stale.\n", 1)
+        assert stale.value.error.code is ErrorCode.VERSION_CONFLICT
+        method, _ = await world.files.read(await world.admit(), second.method.artifact_id)
+        assert method.version == 2
+        assert (await library.get(SCOPE, SUMMARY.skill_id)).version == 2
+
+    run(tmp_path, scenario)

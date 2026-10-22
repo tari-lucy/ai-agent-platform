@@ -54,9 +54,12 @@ async def save_outputs(
                 title=output.name[:200],
                 kind="result",
                 provenance="generated",
-                media_type="text/markdown"
-                if output.name.endswith(".md")
-                else "application/octet-stream",
+                media_type={
+                    "md": "text/markdown",
+                    "txt": "text/plain",
+                    "json": "application/json",
+                    "py": "text/x-python",
+                }.get(output.name.rsplit(".", 1)[-1], "application/octet-stream"),
                 checksum=output.checksum,
                 size_bytes=output.size_bytes,
                 attempt_id=attempt.id,

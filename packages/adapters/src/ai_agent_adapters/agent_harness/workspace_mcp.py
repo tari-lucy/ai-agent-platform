@@ -18,6 +18,9 @@ SCHEMA = {
                 "write_note",
                 "raise_ticket",
                 "read_ticket",
+                "find_skills",
+                "read_skill",
+                "save_skill",
             ],
         },
         "arguments": {
@@ -50,8 +53,12 @@ def respond(request: dict[str, Any]) -> dict[str, Any]:
                     "read_file(file_id); write_note(file_id,path,title,body,kind=note|hypothesis, "
                     "expected_version optional); "
                     "raise_ticket(title,body,kind=question|problem|idea,capability_id optional); "
-                    "read_ticket(ticket_id). "
-                    "Arguments are strings. Tickets request access, never grant it. No host paths.",
+                    "read_ticket(ticket_id); find_skills(query); read_skill(skill_id); "
+                    "save_skill(skill_id,title,applicability,method,limitations optional, "
+                    "change_reason optional,expected_version optional). "
+                    "Arguments are strings. Tickets request access, never grant it. A saved skill "
+                    "is experimental: it grants no access, adds no tool and runs nothing. "
+                    "No host paths.",
                     "inputSchema": SCHEMA,
                 }
             ]

@@ -11,7 +11,13 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from ai_agent_contracts.agent_sessions import SessionTicketRef, WorkSession
-from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
+from ai_agent_contracts.agent_workplace import (
+    AttemptState,
+    HelperRun,
+    WorkAttempt,
+    WorkOrigin,
+    WorkTask,
+)
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import ArtifactRef, Record, Scope, SourceRef, VersionedRecord
@@ -335,6 +341,43 @@ class ActivityBook:
         )
         await self._commit(
             f"extend-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
+        )
+        return revised
+
+    async def helper_receipt(self, attempt: WorkAttempt, run: HelperRun) -> WorkAttempt:
+        """Reserve before execution; finish once. No second registry and no body cache."""
+        if attempt.state != "submitted" or attempt.session_id is None:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        runs = {r.call_id: r for r in attempt.helper_runs}
+        previous = runs.get(run.call_id)
+        if previous is not None:
+            if previous.fingerprint != run.fingerprint:
+                raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
+            if previous == run:
+                return attempt
+            if previous.status != "prepared" or run.status == "prepared":
+                raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
+        elif run.status != "prepared":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        runs[run.call_id] = run
+        if len(runs) > 16:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        parents = {(r.artifact_id, r.version): r for r in (*attempt.input_files, *run.outputs)}
+        results = {(r.artifact_id, r.version): r for r in (*attempt.result_files, *run.outputs)}
+        if max(len(parents), len(results)) > 200:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        revised = WorkAttempt.model_validate(
+            dict(
+                attempt.model_dump(),
+                helper_runs=list(runs.values()),
+                input_files=list(parents.values()),
+                result_files=list(results.values()),
+                version=attempt.version + 1,
+                updated_at=self.clock(),
+            )
+        )
+        await self._commit(
+            f"helper-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
         )
         return revised
 

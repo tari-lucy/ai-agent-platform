@@ -28,6 +28,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .entry import ENTRY
+from .helper_protocol import helper_request
 from .model_protocol import model_request, wire_calls, workspace_request
 from .policy import RunnerTemplate, create_args
 
@@ -95,6 +96,7 @@ class DockerTaskRunner:
         cache_seconds: float = 30,
         models: ModelGateway | None = None,
         workspace: WorkspaceGateway | None = None,
+        helpers: WorkspaceGateway | None = None,
     ) -> None:
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
@@ -105,6 +107,7 @@ class DockerTaskRunner:
         self.authorize, self.lifecycle, self.cache_seconds = authorize, lifecycle, cache_seconds
         self.models = models
         self.workspace = workspace
+        self.helpers = helpers
         self._active: tuple[WorkAdmission, str, asyncio.Event] | None = None
         self._cache: tuple[WorkAdmission, WorkAttempt, float, dict[RunnerOutput, bytes]] | None = (
             None
@@ -148,6 +151,7 @@ class DockerTaskRunner:
         final: bytes | None = None
         calls = 0
         workspace_calls = 0
+        helper_calls = 0
         try:
             async with asyncio.timeout(task.limits.wall_seconds + 3):
                 process.stdin.write(payload + b"\n")
@@ -162,8 +166,37 @@ class DockerTaskRunner:
                         final = raw
                         process.stdin.close()
                         continue
-                    if row.get("kind") == "workspace":
+                    if row.get("kind") == "helper":
                         answer: dict[str, Any] = {
+                            "status": "denied",
+                            "code": "RESOURCE_BUSY"
+                            if template.max_helper_calls > 0
+                            and helper_calls >= template.max_helper_calls
+                            else "CAPABILITY_UNAVAILABLE",
+                        }
+                        if (
+                            task.network == "gateway"
+                            and self.helpers is not None
+                            and helper_calls < template.max_helper_calls
+                        ):
+                            helper_calls += 1
+                            request = helper_request(row)
+                            await self._verify(admission, attempt)
+                            try:
+                                text = await self.helpers.call(admission, request)
+                                await self._verify(admission, attempt)
+                                if not isinstance(text, str) or len(text.encode()) > min(
+                                    16000, task.limits.output_bytes
+                                ):
+                                    raise ValueError("RUNNER_HELPER_OUTPUT_LIMIT")
+                                answer = {"status": "completed", "text": text}
+                            except ContractError as error:
+                                answer = {"status": "denied", "code": error.error.code.value}
+                        process.stdin.write(json.dumps(answer).encode() + b"\n")
+                        await process.stdin.drain()
+                        continue
+                    if row.get("kind") == "workspace":
+                        answer = {
                             "status": "denied",
                             "code": "RESOURCE_BUSY"
                             if template.max_workspace_calls > 0
@@ -409,6 +442,7 @@ class DockerTaskRunner:
                     "max_prompt_chars": template.max_prompt_chars,
                     "max_model_tokens": template.max_model_tokens,
                     "workspace": self.workspace is not None and template.max_workspace_calls > 0,
+                    "helper": self.helpers is not None and template.max_helper_calls > 0,
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096

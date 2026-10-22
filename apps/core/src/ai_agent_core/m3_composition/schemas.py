@@ -47,6 +47,7 @@ class TaskInput(Contract):
     work_session_id: Id | None = None
     work_session_generation: int | None = Field(default=None, strict=True, ge=1)
     work_session_attempt: int | None = Field(default=None, strict=True, ge=1, le=1000)
+    work_session_sequence: int | None = Field(default=None, strict=True, ge=1)
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
@@ -54,6 +55,7 @@ class TaskInput(Contract):
             (self.work_session_id is None) != (self.work_session_generation is None)
             or (self.work_session_id is not None and self.kind != "activity")
             or (self.work_session_id is None) != (self.work_session_attempt is None)
+            or (self.work_session_id is None and self.work_session_sequence is not None)
         ):
             raise ValueError("WORK_SESSION_INPUT")
         if len(self.source_ids) > 20 and not (self.kind == "consolidate" and self.digest_of):
