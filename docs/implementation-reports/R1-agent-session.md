@@ -574,3 +574,11 @@ owner receipts и lineage. Skills-зона и три переданных Claude
 пункт session lifecycle/UI; текущая правка STOP его не решает. Skills MCP и
 Linux ticket-resume интегрированы Claude, Windows/OpenCode проверка навыков
 и staged restore остаются отдельными gates. Личный host не включался.
+
+## 2026-10-22: staged restore рабочего места
+
+Отдельный этап R4: [поставка и инструкция для Claude/R5](R4-staged-restore.md).
+В существующий backup подключены snapshot blob bundle, ledger/purger в staging,
+owner reset сессионного контекста, закрытое переключение и finish-restore.
+Итоговый affected gate на Windows — 63 passed; Docker и реальная модель в этом
+этапе не запускались. Это не production launcher и не перенос личного host.

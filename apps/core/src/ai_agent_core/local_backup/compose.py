@@ -5,12 +5,15 @@ switcher are wired to the host's paths. Nothing here starts the runtime or a mod
 schedules itself: `create_backup` is a callback for the coordinator's daily cycle.
 """
 
+import asyncio
+import json
 import os
 import tempfile
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+from uuid import uuid4
 
 from ai_agent_adapters.backup import (
     DirectoryBackupStore,
@@ -23,15 +26,19 @@ from ai_agent_adapters.recall import SQLiteRecallIndex
 from ai_agent_adapters.retention import SQLitePhysicalStore
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_adapters.storage.migrations import HEAD
+from ai_agent_adapters.workspace_files.directory import DirectoryBlobs
 from ai_agent_application.backup import (
     BackupPolicy,
     BackupResult,
     BackupService,
+    Issue,
     LedgerView,
+    Manifest,
 )
 from ai_agent_application.backup.model import Kind
 from ai_agent_application.memory import IndexHealth, MemoryService
 from ai_agent_application.retention import DeletionLedger, RetentionService
+from ai_agent_application.retention.ports import DerivedPurger
 from ai_agent_application.storage import Owner
 
 from ai_agent_core.local_host.layout import (
@@ -48,6 +55,7 @@ from ai_agent_core.m3_composition.state import PRINCIPALS
 from .compat import HostCompatibility
 from .layout import HOST_CONFIG, BackupLayout
 from .ledger import open_existing_ledger
+from .workplace import STAGED_BLOBS, WorkplaceRestore, database_digest
 
 SOFTWARE = "local-backup/1"
 
@@ -69,12 +77,40 @@ class HostLockGate:
 class GuardedSwitcher:
     """A database switch alone cannot admit an old derived directory to serve."""
 
-    def __init__(self, switcher: FileSwitcher, marker: Path) -> None:
+    def __init__(
+        self, switcher: FileSwitcher, marker: Path, workplace: WorkplaceRestore | None = None
+    ) -> None:
         self.switcher, self.marker = switcher, marker
+        self.workplace = workplace
 
     async def switch(self, staged_dir: Path) -> None:
-        write_secret(self.marker, "restore needs derived cleanup and job inventory check\n")
-        await self.switcher.switch(staged_dir)
+        if self.workplace is not None:
+            await self.workplace.verify(
+                staged_dir / "database.sqlite", DirectoryBlobs(staged_dir / STAGED_BLOBS)
+            )
+        binding = await asyncio.to_thread(database_digest, staged_dir / "database.sqlite")
+        write_secret(self.marker, json.dumps({"database_digest": binding}) + "\n")
+        place = self.workplace
+        if place is None or place.live is None:
+            await self.switcher.switch(staged_dir)
+            return
+        database = staged_dir / "database.sqlite"
+        incoming = DirectoryBlobs.prepare(place.live.root.with_name(".restore-" + uuid4().hex))
+        await place.bundle.copy(database, DirectoryBlobs(staged_dir / STAGED_BLOBS), incoming)
+        # Adjacent roots keep renames on the same filesystem even with external blob storage.
+        kept = place.live.root.with_name(".replaced-" + uuid4().hex)
+        displaced = False
+        try:
+            os.replace(place.live.root, kept)
+            displaced = True
+            os.replace(incoming.root, place.live.root)
+            await self.switcher.switch(staged_dir)
+        except BaseException:
+            if displaced:
+                if place.live.root.exists():
+                    os.replace(place.live.root, incoming.root)
+                os.replace(kept, place.live.root)
+            raise
         # Only the explicit finish-restore gate removes this marker, even after an IO failure.
 
 
@@ -152,6 +188,8 @@ def compose(
     restrict(layout.work_dir, directory=True)
     registry = new_registry()
     reader = PRINCIPALS[Owner.MEMORY]
+    gate = HostLockGate()
+    workplace = WorkplaceRestore(layout, config, ledger, gate) if config.recovery else None
 
     async def build(database: Path) -> SQLiteRestoreTarget:
         """The staged copy opened like the host opens its own: same extensions and recall index."""
@@ -159,13 +197,29 @@ def compose(
         index = SQLiteRecallIndex(database.parent / "index.sqlite")  # FTS only, as in serve
         memory = MemoryService(staged, reader, registry, index=index, health=IndexHealth())
         physical = SQLitePhysicalStore(staged)
-        retention = RetentionService(staged, reader, memory, physical, ledger, index=index)
+        purgers: tuple[DerivedPurger, ...] = ()
+        if workplace is not None:
+            root = database.parent / STAGED_BLOBS
+            blobs = DirectoryBlobs(root) if root.exists() else DirectoryBlobs.prepare(root)
+            purgers = (workplace.purger(staged, blobs),)
+        retention = RetentionService(
+            staged, reader, memory, physical, ledger, index=index, purgers=purgers
+        )
         return SQLiteRestoreTarget(staged, retention, memory, physical, index.close)
 
     async def close_live() -> None:
         """Offline restore: this process opened no live store, and the host lock is held."""
 
-    gate = HostLockGate()
+    compatible = HostCompatibility(
+        host, config, assignments_fit=assignments_fit, workplace_ready=workplace is not None
+    )
+
+    async def restore_check(manifest: Manifest, copy_dir: Path) -> list[Issue]:
+        issues = await compatible(manifest, copy_dir)
+        if workplace is not None and not any(issue.blocking for issue in issues):
+            issues.extend(await workplace.preview(manifest, copy_dir))
+        return issues
+
     switcher = FileSwitcher(host.database, host.dialogue_index, layout.replaced_dir)
     service = BackupService(
         SQLiteSnapshotter(host.database),
@@ -173,7 +227,7 @@ def compose(
         ledger,
         gate,
         SQLiteStagingFactory(build),
-        GuardedSwitcher(switcher, host.root / "RESTORE-PENDING")
+        GuardedSwitcher(switcher, host.root / "RESTORE-PENDING", workplace)
         if config.recovery is not None
         else switcher,
         work_dir=layout.work_dir,
@@ -181,7 +235,9 @@ def compose(
         close_live=close_live,
         ledger_dir=layout.ledger_copies,
         extra=HostConfigFile(layout),
-        restore_check=HostCompatibility(host, config, assignments_fit=assignments_fit),
+        restore_check=restore_check,
+        snapshot_extra=workplace.snapshot if workplace else None,
+        stage_files=workplace.prepare if workplace else None,
         policy=policy,
         clock=clock,
         software=SOFTWARE,
