@@ -7,6 +7,7 @@ from ai_agent_application.agent_workplace.ports import (
     HarnessEvent,
     HarnessTurn,
     RunnerLimits,
+    RunnerOutput,
     RunnerTask,
     TaskRunner,
     WorkAdmission,
@@ -90,6 +91,12 @@ class OpenCodeHarness:
         active = self._active
         if active is not None and active[0] == session_key:
             await self.runner.cancel(active[1])
+
+    async def staged(self, admission: WorkAdmission, output: RunnerOutput) -> bytes:
+        current(admission)
+        if self._last is None or self._last[1] != admission:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        return await self.runner.staged(admission, output)
 
     async def close(self, session_key: str) -> None:
         # Per-turn container teardown removes OpenCode's DB/logs/config/history.

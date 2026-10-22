@@ -127,7 +127,7 @@ def book(rt: Runtime) -> ActivityBook:
     )
 
 
-async def tools(rt: Runtime, scope: Scope) -> list[Tool]:
+async def tools(rt: Runtime, scope: Scope, *, session: bool = False) -> list[Tool]:
     """Manifests with their current usability: an automatic right, ready binding, executor."""
     owner = PRINCIPALS[Owner.WORKSPACE]
     now = rt.supervisor.clock.utc()
@@ -153,7 +153,9 @@ async def tools(rt: Runtime, scope: Scope) -> list[Tool]:
             for p in rights
         )
         executor = manifest.capability_id in rt.tool_executors or (
-            rt.session_harness is not None and manifest.capability_id == rt.session_capability
+            session
+            and rt.session_harness is not None
+            and manifest.capability_id == rt.session_capability
         )
         found.append(Tool(manifest, granted and executor))
     return found
