@@ -368,3 +368,71 @@ harness поверх настоящего model gateway. Следующее: own
 подключение OpenCode factory/launcher, browser ACK journey и staged restore.
 Файловые outputs harness пока отклоняются: они не объявляются сохранёнными
 без отдельной записи через ManagedFiles. Платных API-вызовов не было.
+
+## 2026-10-22: настоящий OpenCode в production session composition
+
+Предыдущая граница staged outputs закрыта для опубликованных файлов:
+`OpenCodeSessions(runtime, trusted_template, output_area=...).install()`
+подключает настоящий `OpenCodeHarness`/`DockerTaskRunner` к session factory.
+Шаблон требует точный executable prefix и роль activity. Image digest, CPU/RAM/
+PID/wall/output/disk ceilings, число модельных вызовов и область результатов
+поступают из доверенной композиции, не из текста персонажа или ответа модели.
+Install не создаёт manifest/binding/Permission, не запускает START и не меняет
+host.json. Без уже действующих прав выполнение закрыто. Сессионная среда не
+показывается старому task-step как вложенный инструмент второй личности.
+
+Контейнер регистрируется настоящим ResourceTicket supervisor. Только
+подтверждённое удаление Docker даёт acknowledge, в том числе после STOP.
+Неизвестная очистка сохраняет handle/resource и закрывает выполнение через
+FAULTED. Это live handles существующего owner, не второй реестр jobs.
+Частый runner fence проверяет epoch/lease/cancel и актуальные права/основания;
+полная jobs proof проверяется на create/model/file boundaries. Дублирующий
+полный proof в heartbeat создавал конкуренцию с тем же модельным вызовом и
+односекундный timeout runner; устранено дублирование, лимиты не увеличены.
+
+`AgentHarness.staged` отдаёт проверенные временные bytes. Driver сохраняет их
+через `ManagedFiles.write`: реальные checksum/size, quota, актуальные права
+области, неизымаемые inputs/input_files и provenance=generated. Публикация
+каждого файла имеет обычную owner-квитанцию. Namespace попытки отделяет
+одинаковые имена в разных ходах; файлы прошлой попытки не перезаписываются.
+При нескольких outputs запись не является общей транзакцией: если следующий
+файл отклонён, уже записанные файлы остаются самостоятельными результатами,
+но успешного draft/доставки/эпизода этого хода нет. `result_files` попытки и
+контекст draft несут точные сохранённые ArtifactRef; release закрывает ответ,
+если файл или его основание уже недоступны.
+
+Проверено на Windows/Docker Desktop, Python 3.14.8, OpenCode 1.19.3:
+
+- Production-built host с настоящими owners, jobs, API, live-адаптером над
+  синтетическим HTTP transport и настоящим OpenCode: STOPPED → сообщение →
+  START → чтение staged manifest → write в tmpfs → запись ManagedFiles →
+  pending draft → ACK → character/history/эпизод. **3 модельных вызова**.
+- Следующий настоящий контейнер: STOP во время четвёртого модельного вызова,
+  подтверждённое удаление, отсутствие позднего ответа/Source, завершение job
+  cancellation receipt → STOPPED. После restart остаётся STOPPED, новых
+  модельных вызовов нет. Статус STOPPING до job receipt тест не подменяет
+  фактом одного удаления контейнера.
+- Новый combined journey и прежний runtime/ACK вместе: **2 passed (102.34 с)**.
+  Использован существующий image
+  `sha256:29afdbd56f89006dc8c1d380355b72d35a1c8f088e4784066e32ed3c4e4f2477`.
+  Worker/upstream binary не менялись и заново не скачивались.
+- Быстрый affected-набор: outputs и прежний OpenCode adapter — **8 passed
+  (1.73 с)**. Проверены неверный digest, путь за пределами namespace, отзыв
+  ledger во время получения bytes, STOP и одинаковые имена двух попыток.
+- Ruff, strict mypy (**280 source files**), import boundaries и generated
+  exports чистые. UI не менялся; его build и полный pytest повторно не гонялись.
+
+Для Linux/browser R5 опубликован общий тестовый helper
+`tests/workplace_sessions/session_support.py` (`install`, `ack`), main b31d356.
+Старые импорты через test_runtime сохранены. Claude делает Linux browser ACK
+journey и продолжение Linux journey; Windows browser с настоящим OpenCode
+остаётся частью R5 Codex. Новая Docker-composition на Linux в этом прогоне
+не проверялась. Scripted модель доказывает маршрут, не качество ответов.
+
+R1/R4/R5 целиком **не закрыты**. Отдельными следующими задачами остаются bridge
+платформенных инструментов/тикетов в OpenCode, возобновление содержательной
+работы с результатами и task goals, durable recovery/reconciliation после
+падения процесса, staged restore, production launcher и browser journey.
+Закрытый lifecycle/isolation gate пока не разрешает enable на личном host.
+Приватный host/профиль/диалоги и .env не читались и не менялись, новых прав
+ему не выдавалось, настоящих API-вызовов не было.
