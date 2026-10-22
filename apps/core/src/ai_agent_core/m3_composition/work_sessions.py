@@ -141,6 +141,8 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
                     reply_to_sequence=row.reply_to_sequence,
                 )
             )
+    from .work_session_delivery import draft
+
     return WorkSessionTranscript(
         scope=scope,
         session_id=session.id,
@@ -148,6 +150,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         state=session.state,
         title=session.title,
         processed_sequence=session.processed_sequence,
+        pending_reply=await draft(rt, session),
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

@@ -152,7 +152,9 @@ async def tools(rt: Runtime, scope: Scope) -> list[Tool]:
             and p.expires_at > now
             for p in rights
         )
-        executor = manifest.capability_id in rt.tool_executors
+        executor = manifest.capability_id in rt.tool_executors or (
+            rt.session_harness is not None and manifest.capability_id == rt.session_capability
+        )
         found.append(Tool(manifest, granted and executor))
     return found
 
@@ -217,6 +219,10 @@ async def perform(execution: Execution) -> list[str]:
     if settings is None or tickets is None:
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
     gate = admission(execution)
+    if request.work_session_id is not None:
+        from .work_session_runtime import perform as session_turn
+
+        return await session_turn(execution)
     gateway = ExecutionModelGateway(execution)
     owner = book(rt)
     if request.trigger_id.startswith(GOAL_PREFIX):
@@ -394,6 +400,12 @@ class AutonomousActivity:
         attempts = await UsageLedger(rt.store, PRINCIPALS[Owner.LLM], rt.registry).attempts(scope)
         if budget.activity_room(attempts, now) < 1:
             return self._skip("BUDGET")  # no call is made, not even to decide
+        from .work_session_runtime import select as session_work
+
+        request = await session_work(rt, scope)
+        if request is not None:
+            await rt.submit(None, "activity-" + request.trigger_id, request)
+            return "SUBMITTED_SESSION"
         owner = book(rt)
         usable = {t.manifest.capability_id for t in await tools(rt, scope) if t.available}
         candidates: list[tuple[WorkTask, int]] = []

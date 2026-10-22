@@ -273,6 +273,7 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("ticket.read-args", TicketReadArguments)
     registry.register("work.assign-args", WorkAssignArguments)
     from ai_agent_contracts.agent_sessions import (
+        SessionReplyOrigin,
         WorkSessionCloseArguments,
         WorkSessionMessageArguments,
         WorkSessionOpenArguments,
@@ -281,6 +282,7 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("work.session.open-args", WorkSessionOpenArguments)
     registry.register("work.session.message-args", WorkSessionMessageArguments)
     registry.register("work.session.close-args", WorkSessionCloseArguments)
+    registry.register("work.session-reply", SessionReplyOrigin)
     registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
     registry.register("workplace.permission-conditions", PermissionConditions)
@@ -539,6 +541,22 @@ class WorkSessionEntry(Contract):
         return self
 
 
+class WorkSessionDraft(Contract):
+    scope: Scope
+    utterance_id: Id
+    version: Version
+    revision: Version
+    text: str | None = Field(default=None, max_length=16000)
+    withheld: bool = Field(strict=True)
+    acknowledgeable: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def valid_text(self) -> Self:
+        if self.withheld != (self.text is None) or (self.withheld and self.acknowledgeable):
+            raise ValueError("DRAFT_RELEASE")
+        return self
+
+
 class WorkSessionTranscript(Contract):
     """A bounded tail of one work conversation; ``complete`` is false if older ones are cut."""
 
@@ -549,6 +567,7 @@ class WorkSessionTranscript(Contract):
     title: ShortText
     # Messages up to here were taken by the person's session; later ones are stored and wait.
     processed_sequence: int = Field(default=0, strict=True, ge=0)
+    pending_reply: WorkSessionDraft | None = None
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC

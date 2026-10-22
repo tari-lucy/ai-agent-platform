@@ -10946,6 +10946,52 @@
         "title": "ServiceResultCommand",
         "type": "object"
       },
+      "SessionReplyRef": {
+        "additionalProperties": false,
+        "description": "An undelivered draft owned by Gateway/Channel, never a remembered message.",
+        "properties": {
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "through_sequence": {
+            "minimum": 0,
+            "title": "Through Sequence",
+            "type": "integer"
+          },
+          "utterance_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Utterance Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "utterance_id",
+          "version",
+          "revision",
+          "scope",
+          "generation",
+          "through_sequence"
+        ],
+        "title": "SessionReplyRef",
+        "type": "object"
+      },
       "SettingsTransferArguments": {
         "additionalProperties": false,
         "properties": {
@@ -13428,6 +13474,17 @@
             "default": null,
             "title": "Operation Id"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtensionPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "revision": {
             "minimum": 1,
             "title": "Revision",
@@ -13580,7 +13637,7 @@
       },
       "WorkAttempt": {
         "additionalProperties": false,
-        "description": "One try at a task step, bound to exactly one job operation.\n\n``inputs``/``input_files`` are recorded by the trusted context service when the attempt is\nprepared; result dependencies are derived from them and cannot be removed by the executor.\n``state`` reconciles from the job's ExecutionResult; ``unknown`` needs reconciliation\nbefore any retry with an external effect.",
+        "description": "One task step or conversation turn, bound to exactly one job operation.\n\n``inputs``/``input_files`` are recorded by the trusted context service when the attempt is\nprepared; result dependencies are derived from them and cannot be removed by the executor.\n``state`` reconciles from the job's ExecutionResult; ``unknown`` needs reconciliation\nbefore any retry with an external effect.",
         "properties": {
           "attempt_no": {
             "maximum": 1000,
@@ -13670,15 +13727,51 @@
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
+          "session_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Id"
+          },
+          "session_sequence": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Sequence"
+          },
           "state": {
             "$ref": "#/components/schemas/AttemptState"
           },
           "task_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
-            "title": "Task Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
           },
           "updated_at": {
             "format": "date-time",
@@ -13697,7 +13790,6 @@
           "created_at",
           "version",
           "updated_at",
-          "task_id",
           "attempt_no",
           "operation_id",
           "capability_id",
@@ -13770,6 +13862,17 @@
             "minimum": 0,
             "title": "Last Sequence",
             "type": "integer"
+          },
+          "pending_reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionReplyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "processed_sequence": {
             "default": 0,
@@ -13862,6 +13965,62 @@
           "session_id"
         ],
         "title": "WorkSessionCloseArguments",
+        "type": "object"
+      },
+      "WorkSessionDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgeable": {
+            "title": "Acknowledgeable",
+            "type": "boolean"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 16000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          },
+          "utterance_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Utterance Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "withheld": {
+            "title": "Withheld",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "utterance_id",
+          "version",
+          "revision",
+          "withheld",
+          "acknowledgeable"
+        ],
+        "title": "WorkSessionDraft",
         "type": "object"
       },
       "WorkSessionEntry": {
@@ -14088,6 +14247,17 @@
             "maxItems": 200,
             "title": "Entries",
             "type": "array"
+          },
+          "pending_reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkSessionDraft"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "processed_sequence": {
             "default": 0,

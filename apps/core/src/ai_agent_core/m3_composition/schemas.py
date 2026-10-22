@@ -44,9 +44,18 @@ class TaskInput(Contract):
     resumed: bool = Field(default=False, strict=True)  # new generations for unsaved stages
     # A consolidate job over stored summaries instead of raw sources (knowledge digest).
     digest_of: list[Id] = Field(default_factory=list, max_length=31)
+    work_session_id: Id | None = None
+    work_session_generation: int | None = Field(default=None, strict=True, ge=1)
+    work_session_attempt: int | None = Field(default=None, strict=True, ge=1, le=1000)
 
     @model_validator(mode="after")
     def inputs(self) -> Self:
+        if (
+            (self.work_session_id is None) != (self.work_session_generation is None)
+            or (self.work_session_id is not None and self.kind != "activity")
+            or (self.work_session_id is None) != (self.work_session_attempt is None)
+        ):
+            raise ValueError("WORK_SESSION_INPUT")
         if len(self.source_ids) > 20 and not (self.kind == "consolidate" and self.digest_of):
             raise ValueError("TOO_MANY_SOURCES")
         if self.kind == "dialogue" and len(self.source_ids) != 1:

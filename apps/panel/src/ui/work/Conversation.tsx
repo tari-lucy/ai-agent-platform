@@ -1,7 +1,7 @@
 import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
-import type { RunSession, Scope, WorkSessionTranscript } from '../../shared/contracts.ts';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { RunSession, Scope, WorkSessionDraft, WorkSessionTranscript } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
@@ -11,6 +11,54 @@ import {
 
 const when = (value: string) => formatTime(value, 'short');
 const speakerLabels = { operator: 'Вы', character: 'Агент' } as const;
+
+function PendingReply({ api, draft, running, refresh }: {
+  api: PanelApi; draft: WorkSessionDraft; running: boolean; refresh: () => void;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const attempted = useRef(false);
+  const inFlight = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const receive = useCallback(async () => {
+    if (inFlight.current || !running || !draft.acknowledgeable || draft.withheld) return;
+    inFlight.current = true; setBusy(true); setError(null);
+    try {
+      await api.command({ type: 'dialogue.acknowledge', request_id: 'work-receipt-' + draft.utterance_id + '-' + draft.revision,
+        scope: draft.scope, target: draft.utterance_id, expected_version: draft.version,
+        arguments: { revision: draft.revision } });
+      refresh();
+    } catch (failure) { setError(failureMessage(failure)); }
+    finally { inFlight.current = false; setBusy(false); }
+  }, [api, draft, running, refresh]);
+  useEffect(() => {
+    if (!element.current || draft.withheld || !draft.acknowledgeable || !running) return;
+    let ratio = 0;
+    const check = () => {
+      if (ratio < 0.6 || document.visibilityState !== 'visible' || attempted.current) return;
+      attempted.current = true;
+      void receive();
+    };
+    const observer = new IntersectionObserver(([seen]) => {
+      ratio = seen.isIntersecting ? seen.intersectionRatio : 0; check();
+    }, { threshold: [0, 0.6, 1] });
+    observer.observe(element.current);
+    document.addEventListener('visibilitychange', check);
+    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', check); };
+    // One automatic attempt per exact draft; refresh replaces it after a confirmed ACK.
+  }, [draft, running, receive]);
+  return <Paper ref={element} withBorder p="xs" bg="blue.0" aria-label="Ответ агента, ожидающий получения">
+    <Text size="xs" c="dimmed">Агент · ответ ещё не подтверждён как полученный</Text>
+    {draft.withheld ? <Text size="sm">Текст скрыт: его основания больше недоступны.</Text> :
+      <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{draft.text}</Text>}
+    {error && <Text size="sm" c="red.8" role="alert">{error} Можно подтвердить получение повторно.</Text>}
+    {draft.acknowledgeable && running && <Button mt={4} size="xs" variant="light" loading={busy}
+      onClick={() => void receive()}>Подтвердить получение ответа</Button>}
+    {!draft.acknowledgeable && !draft.withheld && <Text size="xs" c="dimmed">
+      Подтверждение пока недоступно. После остановки прежний ответ не применяется; новое сообщение начнёт новый ход.
+    </Text>}
+  </Paper>;
+}
 
 function Start({ api, scope, onOpened }: { api: PanelApi; scope: Scope; onOpened: (id: string) => void }) {
   const cache = useQueryClient();
@@ -88,6 +136,8 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
       </Paper>)}
       {!transcript.entries.length && <Text size="sm" c="dimmed">Сообщений пока нет.</Text>}
     </Stack>
+    {transcript.pending_reply && <PendingReply key={transcript.pending_reply.utterance_id}
+      api={api} draft={transcript.pending_reply} running={running} refresh={refresh} />}
     {writable(transcript) && <Stack gap={4} mt="sm">
       <Textarea label="Сообщение агенту" autosize minRows={2} maxLength={MAX_MESSAGE} value={text}
         onChange={(event) => { setText(event.currentTarget.value); pending.current = null; }} />
@@ -106,12 +156,13 @@ export function Conversation({ api, scope, run }: { api: PanelApi; scope: Scope;
   const [chosen, setSelected] = useState<string | null>(null);
   // The newest conversation is shown until the operator picks another one.
   const selected = chosen ?? rows[0]?.id ?? null;
+  const running = run?.state === 'ACTIVE';
   const transcript = useQuery({
     queryKey: [...projectionKey('work-session-transcript', scope), selected],
     queryFn: ({ signal }) => api.workSessionTranscript(scope, selected!, signal),
     enabled: selected !== null,
+    refetchInterval: (query) => running && query.state.data?.pending_reply ? 1500 : false,
   });
-  const running = run?.state === 'ACTIVE';
   return <Stack gap="sm" aria-label="Разговор о работе">
     <Title order={2} size="h5">Разговор о работе</Title>
     <Text size="sm" c="dimmed">Обсудите поручение с самим агентом: уточните цель, передайте материалы, ответьте на вопросы.

@@ -151,6 +151,11 @@ class Mutations:
             from .tickets import mutate as ticket_mutate
 
             return await ticket_mutate(runtime, authority, request)
+        if isinstance(request, AcknowledgeCommand) and request.target.startswith("work-reply-"):
+            from .work_session_delivery import acknowledge
+
+            async with runtime._lock:
+                return await acknowledge(runtime, authority, request)
         if isinstance(request, (MessageCommand, AcknowledgeCommand, ReflectCommand)):
             from .dialogue import mutate
 

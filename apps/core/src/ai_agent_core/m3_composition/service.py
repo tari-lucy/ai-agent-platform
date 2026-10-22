@@ -316,6 +316,10 @@ class Runtime:
         from ai_agent_application.agent_activity.step import ToolExecutor
 
         self.activity: ActivitySettings | None = None
+        from .work_session_runtime import HarnessFactory
+
+        self.session_harness: HarnessFactory | None = None
+        self.session_capability: str | None = None
         self.tool_executors: dict[str, ToolExecutor] = {}
         from .activity import AutonomousActivity
 
@@ -710,6 +714,8 @@ class Runtime:
                 if request.kind == "dialogue"
                 else "gm"
                 if request.kind == "gm"
+                else "activity"
+                if request.kind == "activity"
                 else "reflection"
             )
             now = self.supervisor.clock.utc()

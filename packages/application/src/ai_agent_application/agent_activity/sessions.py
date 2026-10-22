@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from ai_agent_contracts.agent_sessions import (
+    SessionReplyRef,
     WorkSession,
     WorkSessionCloseArguments,
     WorkSessionMessage,
@@ -194,6 +195,8 @@ class SessionBook:
                         "version": session.version + 1,
                         "updated_at": now,
                         "last_sequence": sequence,
+                        # New operator input supersedes an undelivered draft.
+                        "pending_reply": None,
                     }
                 )
                 await unit.put(revised, expected_version=session.version)
@@ -201,6 +204,67 @@ class SessionBook:
                 receipt = Receipt(
                     request_id=request.request_id,
                     scope=request.scope,
+                    status="completed",
+                    resource_id=session.id,
+                    version=revised.version,
+                )
+                await unit.complete(receipt)
+                return receipt
+
+    async def queue_reply(
+        self,
+        scope: Scope,
+        request_id: str,
+        session_id: str,
+        *,
+        expected_version: int,
+        reply: SessionReplyRef,
+        sources: tuple[SourceRef, ...],
+        files: tuple[ArtifactRef, ...],
+    ) -> Receipt:
+        """Runtime-only pointer to a gateway draft. No body and no consumed input yet."""
+        scope = area(scope)
+        payload = {
+            "reply": reply.model_dump(mode="json"),
+            "expected": expected_version,
+            "sources": [r.model_dump(mode="json") for r in sources],
+            "files": [r.model_dump(mode="json") for r in files],
+        }
+        command = MessageCommand(
+            request_id=request_id,
+            scope=scope,
+            target=session_id,
+            type="dialogue.message",
+            arguments=MessageArguments(
+                text=hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            ),
+        )
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, command) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                session = await self.get(scope, session_id)
+                if session is None or session.state in ("closed", "invalidated"):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if session.version != expected_version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                if session.pending_reply is not None:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                revised = WorkSession.model_validate(
+                    dict(
+                        session.model_dump(),
+                        version=session.version + 1,
+                        updated_at=self.clock(),
+                        pending_reply=reply,
+                        context_sources=list(sources),
+                        context_files=list(files),
+                        checkpoint=None,
+                    )
+                )
+                await unit.put(revised, expected_version=session.version)
+                receipt = Receipt(
+                    request_id=request_id,
+                    scope=scope,
                     status="completed",
                     resource_id=session.id,
                     version=revised.version,
@@ -320,6 +384,7 @@ class SessionBook:
                         context_sources=list(context_sources),
                         context_files=list(context_files),
                         checkpoint=None,
+                        pending_reply=None,
                     )
                 )
                 await unit.put(revised, expected_version=session.version)
@@ -359,6 +424,7 @@ class SessionBook:
                         "state": "closed",
                         "waiting_ticket_ids": [],
                         "checkpoint": None,
+                        "pending_reply": None,
                     }
                 )
                 await unit.put(revised, expected_version=session.version)
