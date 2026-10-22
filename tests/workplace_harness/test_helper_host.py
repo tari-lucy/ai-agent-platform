@@ -344,6 +344,8 @@ def test_helper_permission_isolation_results_and_stop(tmp_path, monkeypatch):
 
             await until(helper_running, bool, "running helper container", seconds=60)
             await asyncio.sleep(0.2)  # Script is sleeping; no output has been produced yet.
+            execution_task = rt._active
+            assert execution_task is not None
             run = rt.supervisor.snapshot
             stopped = await host.env.client.post(
                 f"/api/v1/agents/{run.agent_id}/stop",
@@ -362,6 +364,16 @@ def test_helper_permission_isolation_results_and_stop(tmp_path, monkeypatch):
                 "helper cleanup receipts",
                 seconds=30,
             )
+
+            async def execution_finished():
+                if execution_task.done():
+                    assert execution_task.result().status.value == "CANCELLED"
+                    return True
+                return False
+
+            await until(execution_finished, bool, "job termination receipt", seconds=30)
+            assert not rt.supervisor.snapshot.unconfirmed_resource_ids
+            assert rt.supervisor.snapshot.state.value == "STOPPED"
             final = await transcript(host, identifier)
             assert final["pending_reply"] is None and len(final["entries"]) == 5
             assert model.count("activity") == 6

@@ -563,6 +563,14 @@ skills, перенос task goals в OpenCode, staged restore/launcher и Window
 контейнер для сохранённых script-файлов, дополнительное helper Permission,
 owner receipts и lineage. Skills-зона и три переданных Claude shared-файла
 не меняются. Production enable и полный R1/R4/R5 этим не закрываются.
-Последний targeted smoke/protocol: 10 passed; остаётся конкретный R4 STOP
-gate — после удаления контейнеров job receipt может оставаться UNKNOWN и run
-закрывается FAULTED. Это fail-closed, а не подтверждённый graceful STOP.
+Первоначальный smoke/protocol: 10 passed, но STOP gate оставался открытым.
+Следующий ограниченный этап установил гонку shutdown при записи job receipt
+и защитил техническую запись после завершения исполнителя; подробные проверки
+и границы — в том же R1-helper-execution.md. Закрытие только Docker-контейнеров
+не считается завершением Job: smoke теперь ждёт его отдельную квитанцию.
+
+Сообщение Claude по skills: при отзыве основания сообщения разговор может
+оставаться open без нового хода и без видимой причины. Это отдельный открытый
+пункт session lifecycle/UI; текущая правка STOP его не решает. Skills MCP и
+Linux ticket-resume интегрированы Claude, Windows/OpenCode проверка навыков
+и staged restore остаются отдельными gates. Личный host не включался.
