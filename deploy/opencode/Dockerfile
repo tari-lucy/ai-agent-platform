@@ -3,6 +3,7 @@ FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf657
 COPY opencode /usr/local/bin/opencode
 COPY worker.py /opt/agent-harness/worker.py
 COPY workspace_mcp.py /opt/agent-harness/workspace_mcp.py
+COPY helper_mcp.py /opt/agent-harness/helper_mcp.py
 COPY LICENSE.txt /opt/agent-harness/OPENCODE-LICENSE.txt
 RUN --network=none python -c "import hashlib; from pathlib import Path; p=Path('/usr/local/bin/opencode'); assert hashlib.sha256(p.read_bytes()).hexdigest() == '179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9'; p.chmod(0o555); c=Path('/opt/agent-harness/config/opencode'); c.mkdir(parents=True); (c/'.gitignore').touch(); c.chmod(0o555)"
 LABEL ai-agent-platform.opencode.version="1.19.3"

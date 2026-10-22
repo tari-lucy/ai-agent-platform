@@ -21,6 +21,7 @@ class RunnerTemplate:
     max_prompt_chars: int = 16000
     max_model_tokens: int = 512
     max_workspace_calls: int = 0
+    max_helper_calls: int = 0
 
     def __post_init__(self) -> None:
         if (
@@ -43,6 +44,10 @@ class RunnerTemplate:
             or type(self.max_workspace_calls) is not int
             or not 0 <= self.max_workspace_calls <= 64
             or self.max_workspace_calls > 0
+            and self.model_role_id is None
+            or type(self.max_helper_calls) is not int
+            or not 0 <= self.max_helper_calls <= 16
+            or self.max_helper_calls > 0
             and self.model_role_id is None
         ):
             raise ValueError("RUNNER_TEMPLATE_INVALID")

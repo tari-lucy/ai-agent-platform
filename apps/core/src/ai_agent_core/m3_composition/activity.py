@@ -152,10 +152,18 @@ async def tools(rt: Runtime, scope: Scope, *, session: bool = False) -> list[Too
             and p.expires_at > now
             for p in rights
         )
-        executor = manifest.capability_id in rt.tool_executors or (
-            session
-            and rt.session_harness is not None
-            and manifest.capability_id == rt.session_capability
+        executor = (
+            manifest.capability_id in rt.tool_executors
+            or (
+                session
+                and rt.session_harness is not None
+                and manifest.capability_id == rt.session_capability
+            )
+            or (
+                session
+                and rt.session_helper_capability is not None
+                and manifest.capability_id == rt.session_helper_capability
+            )
         )
         found.append(Tool(manifest, granted and executor))
     return found

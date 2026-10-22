@@ -26,6 +26,13 @@ Python base закреплён digest; сборка может получить 
 30 s wall, 32 MB tmpfs, 64 KB выхода, два вызова модели, 256 output tokens.
 Это тестовые параметры, не изменение профиля/бюджета личного host.
 
+Для режима с workspace MCP **и helper MCP** 512 MiB оказалось недостаточно
+(Docker подтвердил OOMKilled). Проверенный потолок OpenCode в этом режиме —
+1024 MiB, отдельного Python helper — 128 MiB; учитывать оба плюс Docker/WSL.
+Подробности, разрешения и оставшиеся gates:
+[helper execution](../../docs/implementation-reports/R1-helper-execution.md).
+`max_helper_calls=0` оставляет MCP и запуск helper выключенными.
+
 Проверка с синтетическим провайдером:
 
 ```powershell
