@@ -101,6 +101,8 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
                 if state is None:
                     blocked = True
                     break
+                if state == "succeeded" and attempt.result_id is None:
+                    state = "unknown"  # no owner-recorded result to confirm
                 await owner.settle(attempt, state)  # type: ignore[arg-type]
             else:
                 state = attempt.state
@@ -189,6 +191,11 @@ async def perform(ex: Execution) -> list[str]:
             latest is None
             or latest.version != session.version
             or latest.generation != session.generation
+        ):
+            return False
+        if not any(
+            candidate.available and candidate.manifest == tool.manifest
+            for candidate in await tools(rt, scope)
         ):
             return False
         return await provider.still_valid(scope, refs)

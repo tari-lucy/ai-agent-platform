@@ -198,5 +198,72 @@ def test_session_response_waits_for_exact_ack_and_uses_existing_owners(tmp_path,
                 and attempts[0].task_id is None
             )
             assert model.count("activity") == 1
+            monkeypatch.setattr(work_session_delivery, "acknowledge", original_ack)
+
+            # A new input supersedes a pending response. Its old ACK cannot enter memory.
+            model.queues["activity"].append({"reply": "Superseded synthetic response"})
+            assert (
+                await say(
+                    host, "question-two", identifier, view["session_version"], "Another question"
+                )
+            ).status_code == 200
+            view = await until(
+                lambda: checked_view(identifier),
+                lambda v: (
+                    v.get("pending_reply") is not None and v["pending_reply"]["acknowledgeable"]
+                ),
+                "second draft",
+            )
+            stale = view["pending_reply"]
+            wrong = dict(stale, revision=stale["revision"] + 1)
+            assert (await ack(host, wrong, "wrong-revision")).status_code == 409
+            factory = rt.session_harness
+            rt.session_harness = None  # hold scheduling while inspecting the superseded result
+            assert (
+                await say(
+                    host, "question-three", identifier, view["session_version"], "Newer question"
+                )
+            ).status_code == 200
+            assert (await ack(host, stale, "superseded-ack")).status_code == 409
+            view = await transcript(host, identifier)
+            assert view["pending_reply"] is None and len(view["entries"]) == 4
+
+            # STOP revokes ACK for a completed draft, too. Restart never applies it itself.
+            model.queues["activity"].append({"reply": "Stopped synthetic response"})
+            rt.session_harness = factory
+            view = await until(
+                lambda: checked_view(identifier),
+                lambda v: (
+                    v.get("pending_reply") is not None and v["pending_reply"]["acknowledgeable"]
+                ),
+                "third draft",
+            )
+            stopped_draft = view["pending_reply"]
+            run = rt.supervisor.snapshot
+            stopped = await host.env.client.post(
+                f"/api/v1/agents/{run.agent_id}/stop",
+                json=dict(
+                    type="agent.stop",
+                    request_id="session-stop",
+                    target=run.agent_id,
+                    scope=run.scope.model_dump(mode="json"),
+                ),
+                headers=host.env.headers,
+            )
+            assert stopped.status_code == 200, stopped.text
+            assert (await ack(host, stopped_draft, "stopped-ack")).status_code != 200
+            sources = await rt.store.repository(Source, PRINCIPALS[Owner.MEMORY], host.scope).list(
+                limit=200
+            )
+            assert sum(s.source_type == "work-session-reply" for s in sources) == 1
+            assert model.count("activity") == 3
+
+        async with host.open():
+            assert host.runtime.supervisor.snapshot.state.value == "STOPPED"
+            view = await transcript(host, identifier)
+            assert not view["pending_reply"]["acknowledgeable"]
+            assert len(view["entries"]) == 4
+            assert (await ack(host, stopped_draft, "restart-ack")).status_code != 200
+            assert model.count("activity") == 3
 
     asyncio.run(scenario())

@@ -46,6 +46,20 @@ test('whose turn: a stored message waits for execution; no reply is promised', (
   assert.equal(writable(transcript({ state: 'waiting' })), true);
 });
 
+test('a pending answer is separate from history and a withheld answer cannot be acknowledged', () => {
+  const draft = { scope: runScope, utterance_id: 'reply-1', version: 1, revision: 1,
+    text: 'Ответ', withheld: false, acknowledgeable: true };
+  const ready = transcript({ pending_reply: draft });
+  assert.equal(workSessionTranscript(ready, scope, 's-1').entries.length, 1);
+  assert.equal(turn(ready, true), 'Ответ готов, ждёт получения');
+  const withheld = transcript({ pending_reply: { ...draft, text: null, withheld: true, acknowledgeable: false } });
+  assert.equal(workSessionTranscript(withheld, scope, 's-1').pending_reply?.text, null);
+  assert.equal(turn(withheld, true), 'Ответ скрыт: основания недоступны');
+  assert.throws(() => workSessionTranscript(transcript({ pending_reply: { ...draft, withheld: true } }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ pending_reply: { ...draft,
+    scope: { ...runScope, memory_mode: 'test' } } }), scope, 's-1'));
+});
+
 test('commands use the stable area, the seen version and the exact text', () => {
   assert.equal(messageProblem(' \n'), 'Напишите сообщение.');
   const open = openCommand(runScope, ' Конспект ', 'req-1');

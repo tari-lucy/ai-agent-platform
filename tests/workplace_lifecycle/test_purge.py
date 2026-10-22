@@ -12,14 +12,16 @@ from ai_agent_adapters.workspace_files.purge import WorkplacePurger
 from ai_agent_application.retention import RetentionService
 from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
 from ai_agent_contracts.agent_sessions import WorkSession, WorkSessionMessage
-from ai_agent_contracts.agent_workplace import SkillVersion, Ticket, TicketMessage
+from ai_agent_contracts.agent_workplace import SkillVersion, Ticket, TicketMessage, WorkAttempt
 from ai_agent_contracts.api import Receipt
 from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.control import Utterance
 
 SUPPORT = runpy.run_path(str(Path(__file__).parents[1] / "workplace_files" / "wf_support.py"))
 AREA, RUN, CAT, MEM, ACT = (SUPPORT[key] for key in ("AREA", "RUN", "CAT", "MEM", "ACT"))
 TICK = Principal("tickets", "core_owner", Owner.TICKETS)
 SKILL = Principal("skills", "core_owner", Owner.SKILLS)
+GATEWAY = Principal("gateway", "core_owner", Owner.GATEWAY)
 MARKER = "Synthetic observation about a lighthouse."
 
 
@@ -55,6 +57,7 @@ async def prepare(directory):
             Grant(ACT, Owner.MEMORY, read=True),
             Grant(TICK, Owner.TICKETS, read=True, write=True),
             Grant(SKILL, Owner.SKILLS, read=True, write=True),
+            Grant(GATEWAY, Owner.GATEWAY, read=True, write=True),
         ),
     )
     source = await w.source()
@@ -177,6 +180,46 @@ def test_deletion_erases_old_files_material_skills_messages_and_orphans(tmp_path
                 ),
                 "make-session-message",
             )
+            await put(
+                w,
+                GATEWAY,
+                Utterance(
+                    id="work-reply",
+                    utterance_id="work-reply",
+                    scope=RUN,
+                    version=1,
+                    revision=1,
+                    created_at=w.now,
+                    updated_at=w.now,
+                    content=MARKER,
+                    content_hash=hashlib.sha256(MARKER.encode()).hexdigest(),
+                    audience_id="operator-work-panel",
+                    channel_ids=["operator-work-panel"],
+                    moderation_status="draft",
+                ),
+                "make-reply",
+            )
+            await put(
+                w,
+                ACT,
+                WorkAttempt(
+                    id="session-attempt",
+                    scope=RUN,
+                    version=1,
+                    created_at=w.now,
+                    updated_at=w.now,
+                    session_id="session",
+                    session_sequence=1,
+                    attempt_no=1,
+                    operation_id="session-operation",
+                    capability_id="session-harness",
+                    capability_version=1,
+                    freshness=admission.freshness,
+                    state="succeeded",
+                    result_id="work-reply",
+                ),
+                "make-session-attempt",
+            )
             approved = None
             quiesced = []
 
@@ -203,6 +246,8 @@ def test_deletion_erases_old_files_material_skills_messages_and_orphans(tmp_path
                 ("TicketMessage", "ticket-msg"),
                 ("WorkSession", "session"),
                 ("WorkSessionMessage", "session-message"),
+                ("WorkAttempt", "session-attempt"),
+                ("Utterance", "work-reply"),
             } <= identities
             assert ("ManagedFile", "independent") not in identities
             physical = SQLitePhysicalStore(w.store)
