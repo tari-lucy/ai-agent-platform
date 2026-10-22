@@ -9,6 +9,7 @@ workplace agent for that attempt's capability, granted through the operator's de
 import asyncio
 import hashlib
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -135,7 +136,12 @@ def test_offline_enable_operator_grant_view_and_revoke(tmp_path, monkeypatch):
             assert closed.status_code >= 400 and "CAPABILITY_UNAVAILABLE" in closed.text
             assert host.runtime.workplace is None
         settings = await enable_workplace_files(host.root, ceiling_days=7)
-        assert stat.S_IMODE(Path(settings.blob_dir).stat().st_mode) & 0o077 == 0
+        if sys.platform == "win32":
+            from ai_agent_core.local_host.layout import windows_private
+
+            assert windows_private(Path(settings.blob_dir), parents=0)
+        else:
+            assert stat.S_IMODE(Path(settings.blob_dir).stat().st_mode) & 0o077 == 0
         assert settings == await enable_workplace_files(host.root, ceiling_days=7)  # repeatable
         async with host.open():
             rt = host.runtime
