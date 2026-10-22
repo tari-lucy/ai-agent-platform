@@ -156,6 +156,18 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
             )
     from .work_session_delivery import draft
 
+    pending = await draft(rt, session)
+    waiting = ticket = None
+    if (
+        pending is None
+        and session.state in ("open", "waiting")
+        and any(
+            e.speaker == "operator" and e.sequence > session.processed_sequence for e in entries
+        )
+    ):
+        from .work_session_access import access
+
+        waiting, ticket = await access(rt, scope)
     return WorkSessionTranscript(
         scope=scope,
         session_id=session.id,
@@ -163,7 +175,10 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         state=session.state,
         title=session.title,
         processed_sequence=session.processed_sequence,
-        pending_reply=await draft(rt, session),
+        pending_reply=pending,
+        waiting_reason=waiting,
+        waiting_detail=rt.session_unavailable if waiting == "unavailable" else None,
+        access_ticket_id=None if ticket is None or waiting == "access_required" else ticket.id,
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

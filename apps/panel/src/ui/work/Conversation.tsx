@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Group, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunSession, Scope, WorkSessionDraft, WorkSessionTranscript } from '../../shared/contracts.ts';
@@ -128,6 +128,7 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
       <Badge variant="light">{sessionStateLabels[transcript.state]}</Badge>
     </Group>
     <Text size="sm" c="dimmed">Чей ход: {turn(transcript, running)}</Text>
+    {transcript.access_ticket_id && <Text size="sm">Запрос разрешения: <Anchor href="#/tickets">открыть обращения</Anchor></Text>}
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
       {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker === 'operator' ? 'gray.0' : 'blue.0'}>

@@ -72,6 +72,9 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
         if tool.available
     }
     if rt.session_capability not in manifests:
+        from .work_session_access import request
+
+        await request(rt, scope, sessions)  # one technical access request, no model call
         return None
     owner, settings = book(rt), rt.activity
     assert settings is not None

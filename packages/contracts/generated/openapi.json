@@ -14324,6 +14324,21 @@
         "additionalProperties": false,
         "description": "A bounded tail of one work conversation; ``complete`` is false if older ones are cut.",
         "properties": {
+          "access_ticket_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Access Ticket Id"
+          },
           "checked_at": {
             "format": "date-time",
             "title": "Checked At",
@@ -14387,6 +14402,37 @@
             "maxLength": 512,
             "title": "Title",
             "type": "string"
+          },
+          "waiting_detail": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Waiting Detail"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unavailable",
+                  "access_required",
+                  "access_requested",
+                  "access_refused"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Waiting Reason"
           }
         },
         "required": [

@@ -31,11 +31,26 @@ export function turn(transcript: WorkSessionTranscript, running: boolean): strin
     if (transcript.pending_reply) return transcript.pending_reply.withheld ? 'Ответ скрыт: основания недоступны' :
       transcript.pending_reply.acknowledgeable ? 'Ответ готов, ждёт получения' : 'Ответ подготовлен; подтверждение пока недоступно';
   if (transcript.entries.some((entry) => pending(transcript, entry.sequence, entry.speaker))) {
+    // STOPPED: nothing runs anyway; the reason matters once the person could take the message.
+    const notice = running ? waitingNotice(transcript) : null;
+    if (notice) return notice;
     return running ? 'Сообщение сохранено и ожидает исполнения' : 'Сообщение сохранено; исполнение начнётся только после запуска';
   }
   const last = transcript.entries[transcript.entries.length - 1];
   if (!last || last.speaker === 'character') return 'Ваш ход';
   return 'Сообщение учтено агентом';
+}
+// Why stored messages wait, as the platform reports it; the access request is a technical one.
+export const waitingLabels: Record<NonNullable<WorkSessionTranscript['waiting_reason']>, string> = {
+  unavailable: 'Рабочий контур не подключён на этом хосте',
+  access_required: 'Для рабочего разговора требуется разрешение; запрос появится после запуска',
+  access_requested: 'Для рабочего разговора требуется разрешение: решите запрос в обращениях',
+  access_refused: 'Разрешение на рабочий контур отклонено; сообщения не исполняются',
+};
+export function waitingNotice(transcript: WorkSessionTranscript): string | null {
+  if (!transcript.waiting_reason) return null;
+  const label = waitingLabels[transcript.waiting_reason];
+  return transcript.waiting_reason === 'unavailable' && transcript.waiting_detail ? `${label} (${transcript.waiting_detail})` : label;
 }
 export const writable = (transcript: WorkSessionTranscript) => transcript.state === 'open' || transcript.state === 'waiting';
 export const openCommand = (scope: Scope, title: string, requestId: string, taskId?: string): CreateCommand => ({

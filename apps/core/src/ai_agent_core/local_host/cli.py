@@ -25,9 +25,21 @@ from .recovery import enable_recovery
 from .serve import permissions_expired, serve
 from .social import enable_social
 from .tickets import enable_tickets
+from .work_sessions import check as check_work_sessions
+from .work_sessions import enable_work_sessions
 from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
+SESSION_LIMITS = (
+    "memory_mb",
+    "pids",
+    "cpu_seconds",
+    "wall_seconds",
+    "disk_mb",
+    "max_model_calls",
+    "max_model_tokens",
+    "max_workspace_calls",
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -102,6 +114,25 @@ def parser() -> argparse.ArgumentParser:
     )
     files.add_argument("--max-file-bytes", type=int)
     files.add_argument("--max-scope-bytes", type=int)
+    sessions = commands.add_parser(
+        "enable-work-sessions",
+        help="explicit offline work conversations through a pinned OpenCode image; no right",
+    )
+    sessions.add_argument("--root", type=Path, required=True)
+    sessions.add_argument("--image-id", required=True, help="immutable sha256 image ID")
+    sessions.add_argument("--area", action="append", required=True, dest="areas")
+    sessions.add_argument("--output-area", required=True)
+    sessions.add_argument(
+        "--ceiling-days",
+        type=int,
+        help="let the operator grant the capability up to N days",
+    )
+    for name in SESSION_LIMITS:
+        sessions.add_argument("--" + name.replace("_", "-"), type=int)
+    check = commands.add_parser(
+        "check-work-sessions", help="readiness of Docker and the configured OpenCode image"
+    )
+    check.add_argument("--root", type=Path, required=True)
     gm = commands.add_parser(
         "configure-gm", help="explicit offline internal game master switch and limits"
     )
@@ -261,6 +292,33 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             print("workplace files enabled; no rights granted to the agent; agent stays STOPPED")
+            return 0
+        if arguments.command == "enable-work-sessions":
+            limits = {
+                name: getattr(arguments, name)
+                for name in SESSION_LIMITS
+                if getattr(arguments, name) is not None
+            }
+            asyncio.run(
+                enable_work_sessions(
+                    arguments.root,
+                    image_id=arguments.image_id,
+                    areas=arguments.areas,
+                    output_area=arguments.output_area,
+                    ceiling_days=arguments.ceiling_days,
+                    **limits,
+                )
+            )
+            print("work conversations enabled; no rights granted to the agent; agent stays STOPPED")
+            return 0
+        if arguments.command == "check-work-sessions":
+            prepared = load_config(paths(arguments.root)).work_sessions
+            if prepared is None:
+                raise HostError("WORK_SESSIONS_NOT_ENABLED")
+            reason = check_work_sessions(prepared)
+            if reason is not None:
+                raise HostError(reason)
+            print("work conversations ready: Docker and the pinned OpenCode image found")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)

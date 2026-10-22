@@ -568,6 +568,14 @@ class WorkSessionTranscript(Contract):
     # Messages up to here were taken by the person's session; later ones are stored and wait.
     processed_sequence: int = Field(default=0, strict=True, ge=0)
     pending_reply: WorkSessionDraft | None = None
+    # Why stored messages wait, when the platform knows: work conversations are not available on
+    # this host (``waiting_detail`` is a fixed code), need a right (``access_ticket_id`` once the
+    # technical request is open) or the operator refused it.
+    waiting_reason: (
+        Literal["unavailable", "access_required", "access_requested", "access_refused"] | None
+    ) = None
+    waiting_detail: ShortText | None = None
+    access_ticket_id: Id | None = None
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC

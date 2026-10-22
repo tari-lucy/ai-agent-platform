@@ -75,6 +75,12 @@ async def install(rt, scope, *, capability=CAPABILITY, areas=None):
             rt.store, rt.registry, Owner.WORKSPACE, scope, "seed-" + item.id, item, None, rt.readers
         )
 
+    synthetic(rt, capability)
+
+
+def synthetic(rt, capability=CAPABILITY):
+    """Only the scripted harness over the shared gateway; no records or rights are seeded."""
+
     class Harness:
         def __init__(self, gateway):
             self.gateway = gateway
