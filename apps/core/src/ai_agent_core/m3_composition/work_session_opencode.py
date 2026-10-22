@@ -24,18 +24,44 @@ if TYPE_CHECKING:
 
 
 class OpenCodeSessions:
-    def __init__(self, runtime: Runtime, template: RunnerTemplate, *, output_area: str) -> None:
+    def __init__(
+        self,
+        runtime: Runtime,
+        template: RunnerTemplate,
+        *,
+        output_area: str,
+        helper_template: RunnerTemplate | None = None,
+        helper_capability: str | None = None,
+    ) -> None:
+        from .work_session_helpers import PREFIX as HELPER_PREFIX
+
         if (
             template.executable_prefix != PREFIX
             or template.model_role_id != "activity"
             or output_area not in WRITABLE_AREAS
         ):
             raise ValueError("SESSION_RUNNER_TEMPLATE_INVALID")
+        if (
+            bool(template.max_helper_calls) != (helper_template is not None)
+            or (helper_template is None) != (helper_capability is None)
+            or helper_template is not None
+            and (
+                helper_template.id != template.id
+                or helper_template.executable_prefix != HELPER_PREFIX
+                or helper_template.model_role_id is not None
+                or helper_template.max_files > 16
+                or helper_capability == template.id
+                or helper_template.ceiling.wall_seconds >= template.ceiling.wall_seconds
+            )
+        ):
+            raise ValueError("SESSION_HELPER_TEMPLATE_INVALID")
         if runtime.workplace is None:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         self.rt, self.template, self.output_area = runtime, template, output_area
+        self.helper_template, self.helper_capability = helper_template, helper_capability
         # Live handles only, not another durable job/session/resource journal.
         self.runners: dict[str, DockerTaskRunner] = {}
+        self.helper_runners: dict[str, DockerTaskRunner] = {}
         self.resources: dict[str, ResourceTicket] = {}
 
     def install(self) -> None:
@@ -44,6 +70,7 @@ class OpenCodeSessions:
         self.rt.session_harness = self.create
         self.rt.session_capability = self.template.id
         self.rt.session_output_area = self.output_area
+        self.rt.session_helper_capability = self.helper_capability
 
     async def create(
         self, execution: Execution, models: ModelGateway, admission: WorkAdmission
@@ -99,6 +126,44 @@ class OpenCodeSessions:
                 # No receipt: retain the resource/runner for trusted reconciliation.
                 rt.supervisor.critical_failure(ErrorCode.OUTCOME_UNKNOWN)
 
+        helpers = None
+        if self.helper_template is not None:
+            from .work_session_helpers import Helpers
+            from .workplace import granted_areas
+
+            helper_areas = {self.output_area}
+
+            async def authorize_helper(gate: WorkAdmission, capability: str) -> None:
+                await authorize(gate, capability)
+                assert self.helper_capability is not None
+                if not helper_areas <= await granted_areas(rt, gate.scope, self.helper_capability):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if not any(
+                    t.available and t.manifest.capability_id == self.helper_capability
+                    for t in await tools(rt, gate.scope, session=True)
+                ):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+
+            async def helper_lifecycle(
+                gate: WorkAdmission, name: str, phase: Literal["register", "removed", "unknown"]
+            ) -> None:
+                if phase == "register":
+                    await authorize_helper(gate, self.template.id)
+                await lifecycle(gate, name, phase)
+
+            helper_runner = DockerTaskRunner(
+                (self.helper_template,),
+                place.files,
+                Attempts(rt),
+                Release(rt),
+                authorize=authorize_helper,
+                lifecycle=helper_lifecycle,
+            )
+            self.helper_runners[admission.attempt_id] = helper_runner
+            helpers = Helpers(
+                execution, admission, self.helper_template, helper_runner, helper_areas
+            )
+
         runner = DockerTaskRunner(
             (self.template,),
             place.files,
@@ -110,6 +175,7 @@ class OpenCodeSessions:
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
             else None,
+            helpers=helpers,
         )
         await execution.verify()
         await authorize(admission, self.template.id)
@@ -118,9 +184,13 @@ class OpenCodeSessions:
 
         class TrackedHarness(OpenCodeHarness):
             async def close(self, session_key: str) -> None:
+                nested = controller.helper_runners.get(admission.attempt_id)
+                if nested is not None:
+                    await nested.cancel(admission)
                 await super().close(session_key)
                 if session_key == execution.args.request.work_session_id:
                     controller.runners.pop(admission.attempt_id, None)
+                    controller.helper_runners.pop(admission.attempt_id, None)
 
         return TrackedHarness(runner, self.template.id, self.template.ceiling)
 

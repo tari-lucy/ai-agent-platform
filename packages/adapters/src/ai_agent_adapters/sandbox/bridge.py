@@ -30,6 +30,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_POST(self):
+        if self.path == "/v1/helper":
+            return self.workspace("helper")
         if self.path == "/v1/workspace":
             return self.workspace()
         if self.path != "/v1/chat/completions":
@@ -97,8 +99,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         finally:
             rpc_slot.release()
 
-    def workspace(self):
-        if not payload.get("workspace"):
+    def workspace(self, kind="workspace"):
+        if not payload.get(kind):
             return self.send_json(404, {"status": "denied", "code": "CAPABILITY_UNAVAILABLE"})
         if not rpc_slot.acquire(blocking=False):
             return self.send_json(429, {"status": "denied", "code": "RESOURCE_BUSY"})
@@ -110,7 +112,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if not isinstance(body, dict) or set(body) != {"call_id", "operation", "arguments"}:
                 raise ValueError()
-            wire(dict(body, kind="workspace"))
+            wire(dict(body, kind=kind))
             self.send_json(200, replies.get(timeout=cap["wall_seconds"]))
         except (ValueError, TypeError, OSError, queue.Empty):
             try:
@@ -128,4 +130,6 @@ if payload["gateway"]:
     env["AI_WORKPLACE_MAX_MODEL_TOKENS"] = str(payload["max_model_tokens"])
     if payload.get("workspace"):
         env["AI_WORKPLACE_WORKSPACE_URL"] = "http://127.0.0.1:%d/v1/workspace" % server.server_port
+    if payload.get("helper"):
+        env["AI_WORKPLACE_HELPER_URL"] = "http://127.0.0.1:%d/v1/helper" % server.server_port
 """
