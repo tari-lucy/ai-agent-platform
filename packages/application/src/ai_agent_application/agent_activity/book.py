@@ -10,7 +10,7 @@ import json
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
-from ai_agent_contracts.agent_sessions import WorkSession
+from ai_agent_contracts.agent_sessions import SessionTicketRef, WorkSession
 from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.codec import ContractError
@@ -292,6 +292,7 @@ class ActivityBook:
         sources: Iterable[SourceRef] = (),
         files: Iterable[ArtifactRef] = (),
         written: Iterable[ArtifactRef] = (),
+        tickets: Iterable[SessionTicketRef] = (),
     ) -> WorkAttempt:
         """Trusted tool context: append bases before returning text, never drop old inputs."""
         if attempt.state not in ("prepared", "submitted"):
@@ -299,6 +300,12 @@ class ActivityBook:
         refs = {(r.source_id, r.version): r for r in (*attempt.inputs, *sources)}
         parents = {(r.artifact_id, r.version): r for r in (*attempt.input_files, *files)}
         results = {(r.artifact_id, r.version): r for r in (*attempt.result_files, *written)}
+        linked = {r.ticket_id: r for r in attempt.session_tickets}
+        for ref in tickets:
+            if ref.ticket_id not in linked or linked[ref.ticket_id].version < ref.version:
+                linked[ref.ticket_id] = ref
+        if len(linked) > 20 or (linked and attempt.session_id is None):
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
         if max(len(refs), len(parents), len(results)) > 200:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         combined: builtins.list[SourceRef | ArtifactRef] = [
@@ -314,6 +321,7 @@ class ActivityBook:
             inputs=list(refs.values()),
             input_files=list(parents.values()),
             result_files=list(results.values()),
+            session_tickets=list(linked.values()),
         )
         if all(getattr(attempt, key) == value for key, value in changes.items()):
             return attempt

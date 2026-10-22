@@ -7,6 +7,7 @@ from ai_agent_application.agent_knowledge import NoteDraft
 from ai_agent_application.agent_workplace.ports import WorkAdmission, WorkspaceRequest
 from ai_agent_application.memory import derived_id
 from ai_agent_application.tickets import TicketDraft
+from ai_agent_contracts.agent_sessions import SessionTicketRef
 from ai_agent_contracts.agent_workplace import CapabilityRequest, TicketKind
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
@@ -50,7 +51,24 @@ class Workspace:
         }
         if request.operation not in allowed or set(a) - allowed[request.operation]:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-        sources, files, written = [], [], []
+        if request.operation in ("raise_ticket", "read_ticket"):
+            from .work_sessions import sessions
+
+            session = (
+                None
+                if attempt.session_id is None
+                else await sessions(rt).get(admission.scope, attempt.session_id)
+            )
+            if session is None or session.state in ("closed", "invalidated"):
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            linked_ids = set(session.waiting_ticket_ids) | {
+                ref.ticket_id for ref in attempt.session_tickets
+            }
+            if len(linked_ids) >= 20 and (
+                request.operation == "raise_ticket" or a.get("ticket_id") not in linked_ids
+            ):
+                raise ContractError(ErrorCode.RESOURCE_BUSY)
+        sources, files, written, linked = [], [], [], []
         result: Any
         key = derived_id("work-tool", admission.scope, admission.attempt_id, request.call_id)
         place = rt.workplace
@@ -141,6 +159,9 @@ class Workspace:
                 body,
             )
             result = {"ticket_id": receipt.resource_id, "version": receipt.version}
+            if receipt.resource_id is None or receipt.version is None:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            linked = [SessionTicketRef(ticket_id=receipt.resource_id, version=receipt.version)]
         else:
             ticket = await rt.tickets.get(admission.scope, a.get("ticket_id", ""))
             release = ticket_release(rt)
@@ -153,6 +174,7 @@ class Workspace:
                 "api_transfer",
             )
             sources, files = list(ticket.sources), list(ticket.materials)
+            linked = [SessionTicketRef(ticket_id=ticket.id, version=ticket.version)]
             result = {
                 "id": ticket.id,
                 "state": ticket.state,
@@ -162,7 +184,7 @@ class Workspace:
         await ex.verify()
         await guard.verify(admission, sources, files, "api_transfer")
         # Metadata must be owner-recorded before the model can see the returned text.
-        attempt = await owner.extend_inputs(attempt, sources, files, written)
+        attempt = await owner.extend_inputs(attempt, sources, files, written, linked)
         ex.extra_sources = tuple(attempt.inputs)
         await guard.verify(admission, attempt.inputs, attempt.input_files, "api_transfer")
         await ex.verify()

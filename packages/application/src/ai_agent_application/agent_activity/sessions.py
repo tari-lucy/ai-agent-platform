@@ -11,6 +11,7 @@ from datetime import datetime
 
 from ai_agent_contracts.agent_sessions import (
     SessionReplyRef,
+    SessionTicketRef,
     WorkSession,
     WorkSessionCloseArguments,
     WorkSessionMessage,
@@ -221,6 +222,7 @@ class SessionBook:
         reply: SessionReplyRef,
         sources: tuple[SourceRef, ...],
         files: tuple[ArtifactRef, ...],
+        tickets: tuple[SessionTicketRef, ...] = (),
     ) -> Receipt:
         """Runtime-only pointer to a gateway draft. No body and no consumed input yet."""
         scope = area(scope)
@@ -229,6 +231,7 @@ class SessionBook:
             "expected": expected_version,
             "sources": [r.model_dump(mode="json") for r in sources],
             "files": [r.model_dump(mode="json") for r in files],
+            "tickets": [r.model_dump(mode="json") for r in tickets],
         }
         command = MessageCommand(
             request_id=request_id,
@@ -250,6 +253,11 @@ class SessionBook:
                     raise ContractError(ErrorCode.VERSION_CONFLICT)
                 if session.pending_reply is not None:
                     raise ContractError(ErrorCode.RESOURCE_BUSY)
+                linked = list(
+                    dict.fromkeys([*session.waiting_ticket_ids, *(t.ticket_id for t in tickets)])
+                )
+                if len(linked) > 20:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
                 revised = WorkSession.model_validate(
                     dict(
                         session.model_dump(),
@@ -259,6 +267,7 @@ class SessionBook:
                         context_sources=list(sources),
                         context_files=list(files),
                         checkpoint=None,
+                        waiting_ticket_ids=linked,
                     )
                 )
                 await unit.put(revised, expected_version=session.version)
@@ -285,6 +294,7 @@ class SessionBook:
         delivery_id: str,
         context_sources: tuple[SourceRef, ...],
         context_files: tuple[ArtifactRef, ...] = (),
+        tickets: tuple[SessionTicketRef, ...] = (),
     ) -> Receipt:
         """Trusted delivery hook; no model/runner/client can assert that it was delivered.
 
@@ -316,6 +326,7 @@ class SessionBook:
             "text_digest": hashlib.sha256(text.encode()).hexdigest(),
             "sources": [ref.model_dump(mode="json") for ref in context_sources],
             "files": [ref.model_dump(mode="json") for ref in context_files],
+            "tickets": [ref.model_dump(mode="json") for ref in tickets],
         }
         command = MessageCommand(
             request_id=request_id,
@@ -374,6 +385,15 @@ class SessionBook:
                 consumed = (
                     sequence if session.last_sequence == through_sequence else through_sequence
                 )
+                revisions = {ref.ticket_id: ref for ref in session.ticket_revisions}
+                for ref in tickets:
+                    if ref.ticket_id not in session.waiting_ticket_ids:
+                        raise ContractError(ErrorCode.ACCESS_DENIED)
+                    if (
+                        ref.ticket_id not in revisions
+                        or revisions[ref.ticket_id].version < ref.version
+                    ):
+                        revisions[ref.ticket_id] = ref
                 revised = WorkSession.model_validate(
                     dict(
                         session.model_dump(),
@@ -385,6 +405,7 @@ class SessionBook:
                         context_files=list(context_files),
                         checkpoint=None,
                         pending_reply=None,
+                        ticket_revisions=list(revisions.values()),
                     )
                 )
                 await unit.put(revised, expected_version=session.version)

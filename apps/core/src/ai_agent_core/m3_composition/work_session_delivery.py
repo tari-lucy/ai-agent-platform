@@ -285,6 +285,7 @@ async def acknowledge(
                 delivery_id=delivery_id,
                 context_sources=tuple(utterance.sources),
                 context_files=tuple(details.context_files),
+                tickets=tuple(details.tickets),
             )
             linked = True
             inputs = [

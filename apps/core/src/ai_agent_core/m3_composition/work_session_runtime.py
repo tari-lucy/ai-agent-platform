@@ -27,6 +27,7 @@ from ai_agent_contracts.states import DeliveryState, ErrorCode
 
 from .schemas import TaskInput
 from .state import PRINCIPALS, extension, put, record
+from .work_session_tickets import updates as ticket_updates
 from .workplace_experience import session_context, ticket_release
 
 if TYPE_CHECKING:
@@ -75,20 +76,22 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     owner, settings = book(rt), rt.activity
     assert settings is not None
     for session in sorted(sessions, key=lambda s: (s.updated_at, s.id)):
-        if session.state != "open" or session.pending_reply is not None:
+        if session.state not in ("open", "waiting") or session.pending_reply is not None:
             continue
         rows = await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], area(scope)).get(
             session.id
         )
         if rows is None or rows != session:
             continue
-        # A character reply is not a new request. Only unconsumed operator input wakes a turn.
+        # Character replies never wake themselves; new operator input or ticket answers do.
         from .work_sessions import sessions as history
 
         messages = await history(rt).messages(
             scope, session.id, after_sequence=session.processed_sequence, limit=200
         )
-        if not any(message.speaker == "operator" for message in messages):
+        if not any(
+            message.speaker == "operator" for message in messages
+        ) and not await ticket_updates(rt, session):
             continue
         attempts = [
             a
@@ -150,14 +153,20 @@ async def perform(ex: Execution) -> list[str]:
     session = await reader.get(scope, request.work_session_id)
     if (
         session is None
-        or session.state != "open"
+        or session.state not in ("open", "waiting")
         or session.pending_reply is not None
         or session.generation != request.work_session_generation
     ):
         raise ContractError(ErrorCode.STALE_CONTEXT)
     gate, guard, provider = admission(ex), Release(rt), session_context(rt)
+    answered = await ticket_updates(rt, session)
+    # Prioritise waking tickets within R2's bounded context, retaining the owner session as-is.
+    requested = list(
+        dict.fromkeys([*(ref.ticket_id for ref in answered), *session.waiting_ticket_ids])
+    )
+    context_session = session.model_copy(update={"waiting_ticket_ids": requested})
     context = await ReleasedSessionContext(reader, provider, memory(rt), guard).build(
-        gate, session, max_messages=40, max_chars=16000
+        gate, context_session, max_messages=40, max_chars=16000
     )
     owner = book(rt)
     number = request.work_session_attempt
@@ -185,6 +194,7 @@ async def perform(ex: Execution) -> list[str]:
     attempt = await owner.bind(
         attempt, tool.manifest.capability_id, tool.manifest.capability_version
     )
+    attempt = await owner.extend_inputs(attempt, tickets=answered)
     gate = replace(gate, attempt_id=attempt.id)
     gateway = ExecutionModelGateway(ex)
 
@@ -195,6 +205,8 @@ async def perform(ex: Execution) -> list[str]:
             or latest.version != session.version
             or latest.generation != session.generation
         ):
+            return False
+        if await ticket_updates(rt, session) != answered:
             return False
         if not any(
             candidate.available and candidate.manifest == tool.manifest
@@ -261,6 +273,7 @@ async def perform(ex: Execution) -> list[str]:
             through_sequence=context.through_sequence,
             after_sequence=session.processed_sequence,
             context_files=list(output_context),
+            tickets=attempt.session_tickets,
         )
         utterance = record(
             rt.registry,
@@ -344,6 +357,7 @@ async def perform(ex: Execution) -> list[str]:
             ),
             sources=used_sources,
             files=output_context,
+            tickets=tuple(attempt.session_tickets),
         )
         all_written = {(r.artifact_id, r.version): r for r in (*attempt.result_files, *saved)}
         await owner.settle(
