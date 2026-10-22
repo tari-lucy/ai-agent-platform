@@ -146,6 +146,48 @@ class BlobBundle:
     def __init__(self, limits: BundleLimits) -> None:
         self.limits = limits
 
+    def _copy(self, database: Path, source: DirectoryBlobs, target: DirectoryBlobs | None) -> None:
+        selected = _selection(database, self.limits)
+        for scope, digest, size in selected.values():
+            content = read_blob(source._scope(scope), digest, max_bytes=self.limits.max_file_bytes)
+            if len(content) != size:
+                raise LifecycleError("WORKPLACE_BUNDLE_REFERENCE")
+            if target is not None:
+                target._put(scope, digest, content, self.limits.max_bundle_bytes)
+        if target is None:
+            # A torn switch must not certify an old root containing unpublished/orphan text.
+            actual: set[str] = set()
+            count = 0
+            with _anchor(source.root):
+                for directory in source.root.iterdir():
+                    count += 1
+                    if count > self.limits.max_entries * 2:
+                        raise LifecycleError("WORKPLACE_BUNDLE_LIMIT")
+                    if re.fullmatch(r"[0-9a-f]{64}", directory.name) is None:
+                        raise LifecycleError("WORKPLACE_BUNDLE_CONTENTS")
+                    with _anchor(directory):
+                        for item in directory.iterdir():
+                            count += 1
+                            if count > self.limits.max_entries * 2:
+                                raise LifecycleError("WORKPLACE_BUNDLE_LIMIT")
+                            actual.add(directory.name + "/" + item.name)
+            if actual != set(selected):
+                raise LifecycleError("WORKPLACE_BUNDLE_CONTENTS")
+
+    async def copy(
+        self, database: Path, source: DirectoryBlobs, target: DirectoryBlobs | None = None
+    ) -> None:
+        """Verify every referenced revision; optionally copy only those into fresh staging."""
+        if target is not None and any(target.root.iterdir()):
+            raise LifecycleError("WORKPLACE_RESTORE_NOT_EMPTY")
+        worker = asyncio.create_task(asyncio.to_thread(self._copy, database, source, target))
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await worker
+            raise
+
     def _create(self, database: Path, blobs: DirectoryBlobs, target: Path) -> None:
         if target.name != BUNDLE_NAME:
             raise LifecycleError("WORKPLACE_BUNDLE_NAME")

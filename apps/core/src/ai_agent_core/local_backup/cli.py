@@ -128,6 +128,10 @@ def _print_preview(preview: RestorePreview) -> None:
     )
     for issue in preview.issues:
         print(f"issue: {issue.code} {'blocking' if issue.blocking else 'warning'}")
+        if issue.code == "WORKPLACE_LEDGER_REDACTIONS":
+            count = issue.detail.split(":", 1)[0]
+            if count.isdecimal():
+                print(f"workplace_records_to_invalidate={count}")
     print(f"restorable: {str(not preview.blocked).lower()}")
     print(f"digest: {preview.digest}")
 

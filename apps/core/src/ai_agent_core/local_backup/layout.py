@@ -8,7 +8,7 @@ from ai_agent_core.local_host.layout import HostError, HostPaths, paths
 # The only files a copy may carry besides the database. `.env`, keys, operator password/hash,
 # logs and personal external directories are not on this list and are never added.
 HOST_CONFIG = "host.json"
-ALLOWED_EXTRA = frozenset({HOST_CONFIG})
+ALLOWED_EXTRA = frozenset({HOST_CONFIG, "workplace-blobs.zip"})
 
 
 def _overlap(first: Path, second: Path) -> bool:

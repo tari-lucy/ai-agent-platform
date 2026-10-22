@@ -76,6 +76,51 @@ class SessionBook:
     async def get(self, scope: Scope, session_id: str) -> WorkSession | None:
         return await self.store.repository(WorkSession, self.principal, area(scope)).get(session_id)
 
+    async def reset_context(
+        self, scope: Scope, session_id: str, request_id: str, *, expected_version: int
+    ) -> None:
+        """Trusted offline restore: retain history/progress, discard stale runtime context.
+
+        No message is marked delivered or processed, and uncertain attempts stay uncertain.
+        The caller's fence must prove exclusive offline ownership; not a model tool.
+        """
+        scope = area(scope)
+        request = MessageCommand(
+            request_id=request_id,
+            scope=scope,
+            target=session_id,
+            type="dialogue.message",
+            arguments=MessageArguments(text="reset context"),
+        )
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, request) as unit:
+                if unit.replay is not None:
+                    return
+                current = await self.get(scope, session_id)
+                if current is None or current.version != expected_version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                revised = current.model_copy(
+                    update={
+                        "version": current.version + 1,
+                        "updated_at": self.clock(),
+                        "generation": current.generation + 1,
+                        "checkpoint": None,
+                        "pending_reply": None,
+                        "context_sources": [],
+                        "context_files": [],
+                    }
+                )
+                await unit.put(revised, expected_version=current.version)
+                await unit.complete(
+                    Receipt(
+                        request_id=request_id,
+                        scope=scope,
+                        status="completed",
+                        resource_id=current.id,
+                        version=revised.version,
+                    )
+                )
+
     async def messages(
         self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
     ) -> list[WorkSessionMessage]:

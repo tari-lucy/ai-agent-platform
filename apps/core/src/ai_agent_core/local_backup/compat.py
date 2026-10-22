@@ -24,9 +24,27 @@ from .layout import ALLOWED_EXTRA, HOST_CONFIG
 
 AssignmentRule = Callable[[HostConfig, dict[tuple[str, str, str], dict[str, Any]]], bool]
 
-# Fields that decide what a live role or a right can do; volatile fields (verification, state)
-# are deliberately not compared.
+# Execution-relevant bindings and rights. Connection verification is volatile;
+# a capability's ready/revoked state and a permission's conditions are authoritative.
 BINDING_FIELDS = {
+    "CapabilityManifest": (
+        "capability_id",
+        "capability_version",
+        "areas",
+        "network",
+        "runner_required",
+        "effect",
+        "input_schema_id",
+        "output_schema_id",
+    ),
+    "CapabilityBinding": (
+        "capability_id",
+        "capability_version",
+        "adapter_id",
+        "adapter_version",
+        "state",
+        "verified_at",
+    ),
     "Connection": ("adapter_id", "endpoint_setting", "credential_setting"),
     "LLMAssignment": ("role_id", "connection_id", "model_id"),
     "Capability": ("adapter_id", "effect", "required_permissions", "resource_ids"),
@@ -37,6 +55,8 @@ BINDING_FIELDS = {
         "binding_id",
         "level",
         "expires_at",
+        "conditions",
+        "limits",
     ),
 }
 IDENTITY = (
@@ -47,6 +67,9 @@ IDENTITY = (
     "test_space_ids",
     "operator_controls",
     "settings_space_id",
+    "workplace_tickets",
+    "workplace_files",
+    "workplace_permissions",
 )
 GRANT_COLUMNS = (
     "scope_id, principal_id, owner, role, actor_owner, read, write, api_transfer,"
@@ -143,10 +166,13 @@ class HostCompatibility:
         host: HostPaths,
         config: HostConfig,
         assignments_fit: AssignmentRule | None = None,
+        *,
+        workplace_ready: bool = False,
     ) -> None:
         # The rule of admissible role assignments belongs to the coordinator; backup keeps no
         # role list of its own and only compares the copy with the current database.
         self.host, self.config, self.assignments_fit = host, config, assignments_fit
+        self.workplace_ready = workplace_ready
 
     async def __call__(self, manifest: Manifest, copy_dir: Path) -> list[Issue]:
         return await asyncio.to_thread(self._check, manifest, copy_dir)
@@ -159,7 +185,9 @@ class HostCompatibility:
         if not names <= ALLOWED_EXTRA | {DATABASE}:
             issues.append(Issue("FILE_NOT_ALLOWED"))
         copied = _read_config(copy_dir / HOST_CONFIG) if HOST_CONFIG in names else None
-        if any(
+        if "workplace-blobs.zip" in names and (copied is None or copied.workplace_files is None):
+            issues.append(Issue("WORKPLACE_BUNDLE_UNEXPECTED"))
+        if not self.workplace_ready and any(
             config is not None and (config.workplace_files is not None or config.workplace_tickets)
             for config in (self.config, copied)
         ):
@@ -181,8 +209,10 @@ class HostCompatibility:
         except sqlite3.Error, OSError, ValueError, KeyError:
             issues.append(Issue("HOST_STATE_UNREADABLE"))
             return issues
-        if (theirs["workplace"] or ours["workplace"]) and not any(
-            issue.code == "WORKPLACE_RESTORE_NOT_READY" for issue in issues
+        if (
+            not self.workplace_ready
+            and (theirs["workplace"] or ours["workplace"])
+            and not any(issue.code == "WORKPLACE_RESTORE_NOT_READY" for issue in issues)
         ):
             issues.append(Issue("WORKPLACE_RESTORE_NOT_READY"))
         if theirs["scopes"] != _expected_scopes(self.config):
