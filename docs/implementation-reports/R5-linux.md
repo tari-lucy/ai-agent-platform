@@ -123,6 +123,13 @@ HostLedger, `operator_delete`) → preview-restore → restore с решение
 и blob-каталоге. Отдельный backup-путь не создавался; Windows acceptance не менялся.
 `test_linux_journey.py` — 1 passed (206 с).
 
+Итоговый полный combined gate на этой ревизии (base `2f98540`): 1444 passed, 32 skipped,
+10 failed. Повтор упавших отдельно: 18 passed; `test_panel_and_api_on_one_address_smoke` при
+повторе прошёл (нестабилен под нагрузкой); `test_import_has_no_effects` падает всегда (stale
+venv этой машины). Часть падений `local_host` вызвана временными правками другой ветки в том
+же checkout во время прогона — на чистом дереве они проходят. После слияния main `a4351ab` —
+`tests/workplace_journey` 3 passed.
+
 ## Linux vs Windows: что чем проверено
 
 | Путь | Linux (Claude) | Windows/Docker (Codex) |
