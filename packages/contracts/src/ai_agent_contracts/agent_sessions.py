@@ -23,17 +23,27 @@ from ai_agent_contracts.common import (
 )
 
 
+class SessionTicketRef(Contract):
+    ticket_id: Id
+    version: Version
+
+
 class SessionReplyOrigin(Contract):
     session_id: Id
     generation: Version
     through_sequence: Counter
     after_sequence: Counter = 0
     context_files: list[ArtifactRef] = Field(default_factory=list, max_length=200)
+    tickets: list[SessionTicketRef] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def ordered(self) -> Self:
-        if self.after_sequence >= self.through_sequence:
+        if self.after_sequence > self.through_sequence or (
+            self.after_sequence == self.through_sequence and not self.tickets
+        ):
             raise ValueError("SESSION_REPLY_PREFIX")
+        if len({ref.ticket_id for ref in self.tickets}) != len(self.tickets):
+            raise ValueError("SESSION_TICKET_DUPLICATE")
         return self
 
 
@@ -57,6 +67,8 @@ class WorkSession(VersionedRecord):
     processed_sequence: Counter = 0
     task_ids: list[Id] = Field(default_factory=list, max_length=50)
     waiting_ticket_ids: list[Id] = Field(default_factory=list, max_length=20)
+    # Revisions actually considered in an acknowledged answer, not merely scheduled.
+    ticket_revisions: list[SessionTicketRef] = Field(default_factory=list, max_length=20)
     context_sources: list[SourceRef] = Field(default_factory=list, max_length=200)
     context_files: list[ArtifactRef] = Field(default_factory=list, max_length=200)
     checkpoint: ArtifactRef | None = None
@@ -74,6 +86,8 @@ class WorkSession(VersionedRecord):
             raise ValueError("SESSION_LINK_DUPLICATE")
         if self.state == "waiting" and not self.waiting_ticket_ids:
             raise ValueError("SESSION_WAIT_REQUIRED")
+        if len({ref.ticket_id for ref in self.ticket_revisions}) != len(self.ticket_revisions):
+            raise ValueError("SESSION_TICKET_DUPLICATE")
         if self.state == "invalidated" and self.checkpoint is not None:
             raise ValueError("INVALIDATED_CHECKPOINT")
         if self.pending_reply is not None and (

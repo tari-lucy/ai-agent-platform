@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AfterValidator, Field, model_validator
 
+from ai_agent_contracts.agent_sessions import SessionTicketRef
 from ai_agent_contracts.common import (
     UTC,
     ArtifactRef,
@@ -184,9 +185,15 @@ class WorkAttempt(VersionedRecord):
     input_files: list[ArtifactRef] = Field(default_factory=list, max_length=MAX_DEPENDENCIES)
     result_files: list[ArtifactRef] = Field(default_factory=list, max_length=MAX_DEPENDENCIES)
     result_id: Id | None = None
+    session_tickets: list[SessionTicketRef] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def run_bound(self) -> Self:
+        if self.session_tickets and (
+            self.session_id is None
+            or len({ref.ticket_id for ref in self.session_tickets}) != len(self.session_tickets)
+        ):
+            raise ValueError("ATTEMPT_SESSION_TICKETS")
         if (self.task_id is None) == (self.session_id is None) or (
             (self.session_id is None) != (self.session_sequence is None)
         ):

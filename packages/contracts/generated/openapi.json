@@ -10992,6 +10992,29 @@
         "title": "SessionReplyRef",
         "type": "object"
       },
+      "SessionTicketRef": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "version"
+        ],
+        "title": "SessionTicketRef",
+        "type": "object"
+      },
       "SettingsTransferArguments": {
         "additionalProperties": false,
         "properties": {
@@ -13755,6 +13778,14 @@
             "default": null,
             "title": "Session Sequence"
           },
+          "session_tickets": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTicketRef"
+            },
+            "maxItems": 20,
+            "title": "Session Tickets",
+            "type": "array"
+          },
           "state": {
             "$ref": "#/components/schemas/AttemptState"
           },
@@ -13909,6 +13940,14 @@
             },
             "maxItems": 50,
             "title": "Task Ids",
+            "type": "array"
+          },
+          "ticket_revisions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTicketRef"
+            },
+            "maxItems": 20,
+            "title": "Ticket Revisions",
             "type": "array"
           },
           "title": {
