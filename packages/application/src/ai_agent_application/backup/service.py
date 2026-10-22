@@ -75,6 +75,7 @@ class BackupService:
         ledger_dir: Path | None = None,
         extra: ExtraFiles | None = None,
         snapshot_extra: SnapshotExtraFiles | None = None,
+        stage_files: Callable[[Path, Path], Awaitable[None]] | None = None,
         upgrade_staged: Callable[[Path], Awaitable[None]] | None = None,
         restore_check: RestoreCheck | None = None,
         policy: BackupPolicy | None = None,
@@ -87,6 +88,7 @@ class BackupService:
         self.ledger_dir, self.extra, self.upgrade_staged = ledger_dir, extra, upgrade_staged
         self.restore_check = restore_check
         self.snapshot_extra = snapshot_extra
+        self.stage_files = stage_files
         self.policy, self.clock, self.software = policy or BackupPolicy(), clock, software
 
     # ---- creating copies ------------------------------------------------------------------
@@ -319,6 +321,9 @@ class BackupService:
             raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
         if preview.needs_migration and self.upgrade_staged is not None:
             await self.upgrade_staged(database)
+        if self.stage_files is not None:
+            copy_dir = (await self.store.path(preview.backup_id, DATABASE)).parent
+            await self.stage_files(database, copy_dir)
         target = await self.staging.open(database)
         reapplied: list[str] = []
         expired = reindexed = 0
