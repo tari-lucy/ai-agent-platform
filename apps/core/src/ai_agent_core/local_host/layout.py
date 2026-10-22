@@ -13,6 +13,7 @@ from typing import Any, Literal, Self
 
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from ai_agent_adapters.storage.policy import scope_key
+from ai_agent_contracts.agent_workplace import WRITABLE_AREAS, WorkplaceArea
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.panel import ApiLimitChange
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -188,6 +189,45 @@ class WorkplaceFilesConfig(BaseModel):
         return self
 
 
+class WorkSessionsConfig(BaseModel):
+    """Work conversations executed by a pinned OpenCode image (R5 launcher); data, no persona.
+
+    The image is referenced by its immutable ID and verified offline; every limit here is a
+    ceiling of the trusted runner template, never chosen by instruction text. Grants no right.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    capability_id: str = Field(
+        default="workplace.opencode-session", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    )
+    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    areas: tuple[WorkplaceArea, ...] = Field(min_length=1, max_length=8)
+    output_area: WorkplaceArea
+    memory_mb: int = Field(default=1024, strict=True, ge=256, le=8192)
+    pids: int = Field(default=128, strict=True, ge=16, le=1024)
+    cpu_seconds: int = Field(default=60, strict=True, ge=5, le=3600)
+    wall_seconds: int = Field(default=120, strict=True, ge=10, le=3600)
+    disk_mb: int = Field(default=32, strict=True, ge=8, le=1024)
+    output_bytes: int = Field(default=65536, strict=True, ge=1024, le=1048576)
+    max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=16777216)
+    max_files: int = Field(default=16, strict=True, ge=1, le=200)
+    max_model_calls: int = Field(default=6, strict=True, ge=1, le=16)
+    max_prompt_chars: int = Field(default=100000, strict=True, ge=1000, le=100000)
+    max_model_tokens: int = Field(default=1024, strict=True, ge=64, le=65536)
+    max_workspace_calls: int = Field(default=16, strict=True, ge=0, le=64)
+
+    @model_validator(mode="after")
+    def bounds(self) -> Self:
+        if (
+            self.output_area not in self.areas
+            or self.output_area not in WRITABLE_AREAS
+            or len(set(self.areas)) != len(self.areas)
+            or self.cpu_seconds > self.wall_seconds
+        ):
+            raise ValueError("WORK_SESSIONS_LIMITS")
+        return self
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -213,6 +253,8 @@ class HostConfig(BaseModel):
     # Managed files, skills and knowledge (AW-03) only after `enable-workplace-files`; they
     # need the deletion ledger (recovery) for the release guard.
     workplace_files: WorkplaceFilesConfig | None = None
+    # Work conversations through real OpenCode only after `enable-work-sessions`; off otherwise.
+    work_sessions: WorkSessionsConfig | None = None
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:
@@ -233,6 +275,10 @@ class HostConfig(BaseModel):
             self.recovery is None or not self.operator_controls
         ):
             raise ValueError("WORKPLACE_FILES")
+        if self.work_sessions is not None and (
+            self.workplace_files is None or not self.workplace_tickets
+        ):
+            raise ValueError("WORK_SESSIONS")
         spaces = [self.work_space_id, *self.test_space_ids]
         if self.settings_space_id is not None:
             spaces.append(self.settings_space_id)

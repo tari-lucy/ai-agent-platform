@@ -1,6 +1,7 @@
 """Open an initialised host directory STOPPED on loopback. No migration, grant or auto-start."""
 
 import asyncio
+import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -212,6 +213,15 @@ def _build(
 
         # Callable by activity steps only with the agent's current right (checked per call).
         runtime.tool_executors.update(executors(runtime, runtime.workplace))
+
+    if config.work_sessions is not None:
+        # Explicitly prepared offline; the existing session driver over real OpenCode. Not
+        # ready (no Docker/image, no activity) keeps conversations waiting, never runs them.
+        from .work_sessions import install
+
+        reason = install(runtime, config)
+        if reason is not None:
+            print(f"NOTICE: work conversations unavailable: {reason}", file=sys.stderr)
 
     if config.live is not None and config.operator_controls:
         from .live_budget import LiveBudget
