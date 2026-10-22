@@ -18,10 +18,10 @@ from dataclasses import replace
 from ai_agent_application.storage import Owner
 from ai_agent_contracts.agent_workplace import WorkTask
 from ai_agent_contracts.memory import Episode, Source
+from session_support import ack, install
 from test_activity import FAST, WorkModel, assign, fast, prepared, rows, task, until
 from test_http import post, scope_params
 from test_library_tools import KNOWLEDGE, SKILLS, grant, use
-from test_runtime import ack, install
 from test_work_sessions_http import open_session, say, transcript
 
 from ai_agent_core.local_host.recovery import enable_recovery
