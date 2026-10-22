@@ -286,6 +286,50 @@ class ActivityBook:
         assert stored is not None
         return stored
 
+    async def extend_inputs(
+        self,
+        attempt: WorkAttempt,
+        sources: Iterable[SourceRef] = (),
+        files: Iterable[ArtifactRef] = (),
+        written: Iterable[ArtifactRef] = (),
+    ) -> WorkAttempt:
+        """Trusted tool context: append bases before returning text, never drop old inputs."""
+        if attempt.state not in ("prepared", "submitted"):
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        refs = {(r.source_id, r.version): r for r in (*attempt.inputs, *sources)}
+        parents = {(r.artifact_id, r.version): r for r in (*attempt.input_files, *files)}
+        results = {(r.artifact_id, r.version): r for r in (*attempt.result_files, *written)}
+        if max(len(refs), len(parents), len(results)) > 200:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        combined: builtins.list[SourceRef | ArtifactRef] = [
+            *refs.values(),
+            *parents.values(),
+            *results.values(),
+        ]
+        if len({r.source_id for r in refs.values()}) != len(refs) or any(
+            r.scope.partition != attempt.scope.partition for r in combined
+        ):
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        changes = dict(
+            inputs=list(refs.values()),
+            input_files=list(parents.values()),
+            result_files=list(results.values()),
+        )
+        if all(getattr(attempt, key) == value for key, value in changes.items()):
+            return attempt
+        revised = WorkAttempt.model_validate(
+            dict(
+                attempt.model_dump(),
+                **changes,
+                version=attempt.version + 1,
+                updated_at=self.clock(),
+            )
+        )
+        await self._commit(
+            f"extend-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
+        )
+        return revised
+
     async def settle(
         self,
         attempt: WorkAttempt,

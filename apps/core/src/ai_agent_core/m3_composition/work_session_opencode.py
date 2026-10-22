@@ -10,7 +10,7 @@ from ai_agent_adapters.agent_harness import OpenCodeHarness
 from ai_agent_adapters.agent_harness.opencode import PREFIX
 from ai_agent_adapters.sandbox.docker import DockerTaskRunner
 from ai_agent_adapters.sandbox.policy import RunnerTemplate
-from ai_agent_application.agent_workplace.ports import ModelGateway, WorkAdmission
+from ai_agent_application.agent_workplace.ports import ModelGateway, WorkAdmission, WorkspaceGateway
 from ai_agent_application.control.ports import ResourceTicket
 from ai_agent_contracts.agent_workplace import WRITABLE_AREAS
 from ai_agent_contracts.codec import ContractError
@@ -107,6 +107,9 @@ class OpenCodeSessions:
             authorize=authorize,
             lifecycle=lifecycle,
             models=models,
+            workspace=self._workspace(execution, admission)
+            if self.template.max_workspace_calls
+            else None,
         )
         await execution.verify()
         await authorize(admission, self.template.id)
@@ -120,3 +123,9 @@ class OpenCodeSessions:
                     controller.runners.pop(admission.attempt_id, None)
 
         return TrackedHarness(runner, self.template.id, self.template.ceiling)
+
+    @staticmethod
+    def _workspace(execution: Execution, admission: WorkAdmission) -> WorkspaceGateway:
+        from .work_session_workspace import Workspace
+
+        return Workspace(execution, admission)
