@@ -163,6 +163,15 @@ class WorkTask(VersionedRecord):
 type AttemptState = Literal["prepared", "submitted", "succeeded", "failed", "cancelled", "unknown"]
 
 
+class HelperRun(Contract):
+    """Owner receipt in an attempt; prepared/unknown execution is never replayed blindly."""
+
+    call_id: Id
+    fingerprint: Digest
+    status: Literal["prepared", "succeeded", "failed", "cancelled", "timeout", "limit", "unknown"]
+    outputs: list[ArtifactRef] = Field(default_factory=list, max_length=20)
+
+
 class WorkAttempt(VersionedRecord):
     """One task step or conversation turn, bound to exactly one job operation.
 
@@ -186,9 +195,16 @@ class WorkAttempt(VersionedRecord):
     result_files: list[ArtifactRef] = Field(default_factory=list, max_length=MAX_DEPENDENCIES)
     result_id: Id | None = None
     session_tickets: list[SessionTicketRef] = Field(default_factory=list, max_length=20)
+    helper_runs: list[HelperRun] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def run_bound(self) -> Self:
+        if len({r.call_id for r in self.helper_runs}) != len(self.helper_runs) or any(
+            ref.scope.partition != self.scope.partition
+            for run in self.helper_runs
+            for ref in run.outputs
+        ):
+            raise ValueError("ATTEMPT_HELPER_RUNS")
         if self.session_tickets and (
             self.session_id is None
             or len({ref.ticket_id for ref in self.session_tickets}) != len(self.session_tickets)

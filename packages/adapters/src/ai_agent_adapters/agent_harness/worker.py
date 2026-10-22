@@ -16,7 +16,9 @@ MAX_LINE_BYTES = 65536
 MAX_TEXT = 16000
 
 
-def configuration(base_url: str, output_tokens: int, *, workspace: bool = False) -> dict[str, Any]:
+def configuration(
+    base_url: str, output_tokens: int, *, workspace: bool = False, helpers: bool = False
+) -> dict[str, Any]:
     # OpenCode uses paths relative to its worktree, which is / without VCS.
     paths = {
         "*": "deny",
@@ -58,6 +60,7 @@ def configuration(base_url: str, output_tokens: int, *, workspace: bool = False)
                     "read": paths,
                     "edit": outputs,
                     **({"platform_*": "allow"} if workspace else {}),
+                    **({"helpers_*": "allow"} if helpers else {}),
                 },
             },
             "title": {"disable": True},
@@ -69,14 +72,37 @@ def configuration(base_url: str, output_tokens: int, *, workspace: bool = False)
         "autoupdate": False,
         "plugin": [],
         "mcp": {
-            "platform": {
-                "type": "local",
-                "enabled": True,
-                "command": ["/usr/local/bin/python", "-I", "/opt/agent-harness/workspace_mcp.py"],
-            }
-        }
-        if workspace
-        else {},
+            **(
+                {
+                    "platform": {
+                        "type": "local",
+                        "enabled": True,
+                        "command": [
+                            "/usr/local/bin/python",
+                            "-I",
+                            "/opt/agent-harness/workspace_mcp.py",
+                        ],
+                    }
+                }
+                if workspace
+                else {}
+            ),
+            **(
+                {
+                    "helpers": {
+                        "type": "local",
+                        "enabled": True,
+                        "command": [
+                            "/usr/local/bin/python",
+                            "-I",
+                            "/opt/agent-harness/helper_mcp.py",
+                        ],
+                    }
+                }
+                if helpers
+                else {}
+            ),
+        },
         "lsp": False,
         "formatter": False,
         "instructions": [],
@@ -149,6 +175,7 @@ def main() -> None:
                     base_url,
                     int(environment["AI_WORKPLACE_MAX_MODEL_TOKENS"]),
                     workspace="AI_WORKPLACE_WORKSPACE_URL" in environment,
+                    helpers="AI_WORKPLACE_HELPER_URL" in environment,
                 )
             ),
         }

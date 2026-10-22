@@ -3046,6 +3046,52 @@
         "title": "GmRuntimeState",
         "type": "object"
       },
+      "HelperRun": {
+        "additionalProperties": false,
+        "description": "Owner receipt in an attempt; prepared/unknown execution is never replayed blindly.",
+        "properties": {
+          "call_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRef"
+            },
+            "maxItems": 20,
+            "title": "Outputs",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timeout",
+              "limit",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "fingerprint",
+          "status"
+        ],
+        "title": "HelperRun",
+        "type": "object"
+      },
       "Job": {
         "additionalProperties": false,
         "properties": {
@@ -13687,6 +13733,14 @@
           },
           "freshness": {
             "$ref": "#/components/schemas/Freshness"
+          },
+          "helper_runs": {
+            "items": {
+              "$ref": "#/components/schemas/HelperRun"
+            },
+            "maxItems": 16,
+            "title": "Helper Runs",
+            "type": "array"
           },
           "id": {
             "maxLength": 128,

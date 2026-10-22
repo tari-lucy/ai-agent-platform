@@ -123,6 +123,8 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
             < settings.cooldown_seconds
         ):
             continue
+        if await history(rt).get(scope, session.id) != session:
+            continue
         return TaskInput(
             kind="activity",
             trigger_id=session_attempt_id(
@@ -131,6 +133,7 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
             work_session_id=session.id,
             work_session_generation=session.generation,
             work_session_attempt=len(attempts) + 1,
+            work_session_sequence=session.last_sequence,
         )
     return None
 
@@ -156,6 +159,10 @@ async def perform(ex: Execution) -> list[str]:
         or session.state not in ("open", "waiting")
         or session.pending_reply is not None
         or session.generation != request.work_session_generation
+        or (
+            request.work_session_sequence is not None
+            and session.last_sequence != request.work_session_sequence
+        )
     ):
         raise ContractError(ErrorCode.STALE_CONTEXT)
     gate, guard, provider = admission(ex), Release(rt), session_context(rt)

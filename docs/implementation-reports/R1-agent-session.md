@@ -555,3 +555,14 @@ draft связь есть у WorkAttempt; неизвестный исход job 
 skills, перенос task goals в OpenCode, staged restore/launcher и Windows browser
 остаются отдельными gates. Частный host не менялся, новых прав ему не выдавалось,
 реальных/платных API-вызовов нет. Полный R1/R4/R5 этим этапом не закрывается.
+
+## 2026-10-22: Python helper execution
+
+Следующий ограниченный этап и его границы:
+[R1-helper-execution](R1-helper-execution.md). Отдельный MCP и networkless
+контейнер для сохранённых script-файлов, дополнительное helper Permission,
+owner receipts и lineage. Skills-зона и три переданных Claude shared-файла
+не меняются. Production enable и полный R1/R4/R5 этим не закрываются.
+Последний targeted smoke/protocol: 10 passed; остаётся конкретный R4 STOP
+gate — после удаления контейнеров job receipt может оставаться UNKNOWN и run
+закрывается FAULTED. Это fail-closed, а не подтверждённый graceful STOP.
