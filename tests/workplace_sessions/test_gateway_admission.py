@@ -28,7 +28,12 @@ def test_gateway_binds_scope_epoch_operation_lease_and_forwards_the_token_ceilin
         async def generate(request, cancel):
             sent.append(request)
             return SimpleNamespace(
-                attempts=[], failure=None, status="completed", text="done", parsed=None, tool_calls=()
+                attempts=[],
+                failure=None,
+                status="completed",
+                text="done",
+                parsed=None,
+                tool_calls=(),
             )
 
         execution = SimpleNamespace(
