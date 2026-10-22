@@ -155,26 +155,47 @@ class SkillLibrary:
         method: bytes,
         expected_version: int | None,
     ) -> SkillVersion:
-        """Create or improve a skill. A changed method is experimental again until verified."""
+        """Create or improve a skill. A changed method is experimental again until verified.
+
+        The new revision is built from the pinned ``expected_version`` (not from whatever is
+        current), so a retry of the same request is byte-identical and replays at both owners
+        (file and skill); a different request on an outdated version is a VERSION_CONFLICT.
+        """
         scope = area(admission.scope)
+        digest = hashlib.sha256(method).hexdigest()
         current = await self.get(scope, draft.skill_id)
         if (current.version if current else None) != expected_version:
-            raise ContractError(
-                ErrorCode.VERSION_CONFLICT, request_id, current.version if current else None
-            )
+            # Moved on: only a replay of this very change may continue (its revision is
+            # already the next one). Anything else is refused before any file is written.
+            written = await self.get(scope, draft.skill_id, version=(expected_version or 0) + 1)
+            if written is None or (
+                written.title,
+                written.applicability,
+                written.limitations,
+                written.change_reason,
+                written.method.checksum,
+            ) != (draft.title, draft.applicability, draft.limitations, draft.change_reason, digest):
+                raise ContractError(
+                    ErrorCode.VERSION_CONFLICT, request_id, current.version if current else None
+                )
+        pinned = None
+        if expected_version is not None:
+            pinned = await self.get(scope, draft.skill_id, version=expected_version)
+            if pinned is None:
+                raise ContractError(ErrorCode.VERSION_CONFLICT, request_id)
         file = await self.files.write(
             admission,
             FileWrite(
                 request_id=request_id + ".method",
                 file_id=method_file_id(draft.skill_id),
-                expected_version=current.method.version if current else None,
+                expected_version=pinned.method.version if pinned else None,
                 area="skills",
                 path=_slug(draft.skill_id) + "/method.md",
                 title=draft.title,
                 kind="method",
                 provenance="generated",
                 media_type="text/markdown",
-                checksum=hashlib.sha256(method).hexdigest(),
+                checksum=digest,
                 size_bytes=len(method),
                 attempt_id=admission.attempt_id,
                 change_reason=draft.change_reason[:512],
@@ -185,9 +206,9 @@ class SkillLibrary:
         skill = SkillVersion(
             id=draft.skill_id,
             scope=scope,
-            created_at=current.created_at if current else now,
+            created_at=pinned.created_at if pinned else now,
             updated_at=now,
-            version=(current.version + 1) if current else 1,
+            version=(pinned.version + 1) if pinned else 1,
             skill_id=draft.skill_id,
             title=draft.title,
             applicability=draft.applicability,
@@ -200,7 +221,7 @@ class SkillLibrary:
             change_reason=draft.change_reason,
         )
         await self._commit(request_id, skill, expected_version)
-        stored = await self.get(scope, draft.skill_id)
+        stored = await self.get(scope, draft.skill_id, version=skill.version)
         assert stored is not None
         return stored
 
