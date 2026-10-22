@@ -631,7 +631,8 @@ export function workTasks(value: unknown, selected: Scope): import('./contracts.
 }
 export function workAttempts(value: unknown, selected: Scope): import('./contracts.ts').WorkAttemptPage {
   page(value, selected);
-  demand(value.items.every((row) => id(row.task_id) && id(row.operation_id) && id(row.capability_id) &&
+  demand(value.items.every((row) => ((id(row.task_id) && row.session_id == null) ||
+    (row.task_id == null && id(row.session_id) && Number.isSafeInteger(row.session_sequence) && Number(row.session_sequence) > 0)) && id(row.operation_id) && id(row.capability_id) &&
     attemptStates.has(String(row.state)) && Number.isSafeInteger(row.attempt_no)));
   return value as import('./contracts.ts').WorkAttemptPage;
 }
@@ -661,6 +662,13 @@ export function workSessionTranscript(value: unknown, selected: Scope, sessionId
     if (ok) last = Number((entry as Record<string, unknown>).sequence);
     return ok;
   }));
+  if (value.pending_reply != null) {
+    const draft = value.pending_reply;
+    demand(object(draft) && isScope(draft.scope) && samePartition(selected, draft.scope) &&
+      id(draft.utterance_id) && version(draft.version) && version(draft.revision) &&
+      typeof draft.withheld === 'boolean' && typeof draft.acknowledgeable === 'boolean' &&
+      (draft.withheld ? draft.text == null && !draft.acknowledgeable : text(draft.text, 16000)));
+  }
   return value as import('./contracts.ts').WorkSessionTranscript;
 }
 

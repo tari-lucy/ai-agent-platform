@@ -10,6 +10,7 @@ import json
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
+from ai_agent_contracts.agent_sessions import WorkSession
 from ai_agent_contracts.agent_workplace import AttemptState, WorkAttempt, WorkOrigin, WorkTask
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
 from ai_agent_contracts.codec import ContractError
@@ -42,6 +43,10 @@ def area(scope: Scope) -> Scope:
 
 def attempt_id(task_id: str, number: int) -> str:
     return f"{task_id}.a{number:04d}"
+
+
+def session_attempt_id(scope: Scope, session_id: str, sequence: int, number: int) -> str:
+    return derived_id("session-attempt", area(scope), session_id, str(sequence), str(number))
 
 
 class ActivityBook:
@@ -212,6 +217,50 @@ class ActivityBook:
         stored = await repo.get(identifier)
         assert stored is not None
         return stored
+
+    async def session_attempts(self, scope: Scope, session_id: str) -> builtins.list[WorkAttempt]:
+        rows = await self._scan(self.attempts_repo(scope))
+        if len(rows) >= MAX_SCAN:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        return sorted(
+            (row for row in rows if row.session_id == session_id),
+            key=lambda row: (row.session_sequence or 0, row.attempt_no),
+        )
+
+    async def prepare_session(
+        self,
+        session: WorkSession,
+        number: int,
+        operation_id: str,
+        scope: Scope,
+        freshness: Freshness,
+        inputs: builtins.list[SourceRef],
+        input_files: builtins.list[ArtifactRef],
+    ) -> WorkAttempt:
+        identifier = session_attempt_id(scope, session.id, session.last_sequence, number)
+        existing = await self.attempts_repo(scope).get(identifier)
+        if existing is not None:
+            return existing
+        now = self.clock()
+        row = WorkAttempt(
+            id=identifier,
+            scope=scope,
+            version=1,
+            created_at=now,
+            updated_at=now,
+            session_id=session.id,
+            session_sequence=session.last_sequence,
+            attempt_no=number,
+            operation_id=operation_id,
+            capability_id="m3.activity",
+            capability_version=1,
+            freshness=freshness,
+            state="submitted",
+            inputs=inputs,
+            input_files=input_files,
+        )
+        await self._commit("prepare-" + identifier, scope, [(row, None)])
+        return row
 
     async def bind(
         self, attempt: WorkAttempt, capability_id: str, capability_version: int

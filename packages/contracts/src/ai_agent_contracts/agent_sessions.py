@@ -14,12 +14,38 @@ from ai_agent_contracts.common import (
     Contract,
     Counter,
     Id,
+    Scope,
     ShortText,
     SourceRef,
     Text,
     Version,
     VersionedRecord,
 )
+
+
+class SessionReplyOrigin(Contract):
+    session_id: Id
+    generation: Version
+    through_sequence: Counter
+    after_sequence: Counter = 0
+    context_files: list[ArtifactRef] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def ordered(self) -> Self:
+        if self.after_sequence >= self.through_sequence:
+            raise ValueError("SESSION_REPLY_PREFIX")
+        return self
+
+
+class SessionReplyRef(Contract):
+    """An undelivered draft owned by Gateway/Channel, never a remembered message."""
+
+    utterance_id: Id
+    version: Version
+    revision: Version
+    scope: Scope
+    generation: Version
+    through_sequence: Counter
 
 
 class WorkSession(VersionedRecord):
@@ -34,6 +60,7 @@ class WorkSession(VersionedRecord):
     context_sources: list[SourceRef] = Field(default_factory=list, max_length=200)
     context_files: list[ArtifactRef] = Field(default_factory=list, max_length=200)
     checkpoint: ArtifactRef | None = None
+    pending_reply: SessionReplyRef | None = None
 
     @model_validator(mode="after")
     def coherent(self) -> Self:
@@ -49,6 +76,15 @@ class WorkSession(VersionedRecord):
             raise ValueError("SESSION_WAIT_REQUIRED")
         if self.state == "invalidated" and self.checkpoint is not None:
             raise ValueError("INVALIDATED_CHECKPOINT")
+        if self.pending_reply is not None and (
+            self.state in ("closed", "invalidated")
+            or self.pending_reply.scope.partition != self.scope.partition
+            or self.pending_reply.generation != self.generation
+            or not self.processed_sequence
+            <= self.pending_reply.through_sequence
+            <= self.last_sequence
+        ):
+            raise ValueError("SESSION_PENDING_REPLY")
         refs: list[SourceRef | ArtifactRef] = [*self.context_sources, *self.context_files]
         if self.checkpoint is not None:
             refs.append(self.checkpoint)

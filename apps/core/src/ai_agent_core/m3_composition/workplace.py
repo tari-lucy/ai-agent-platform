@@ -163,9 +163,8 @@ TEXT_TYPES = ("text/", "application/json")
 async def file_content(rt: Runtime, scope: Scope, file_id: str) -> WorkplaceFileContent:
     """One file's current text for the operator's panel (purpose ``api_transfer``).
 
-    The same checks as the owner's own read: the release guard before and after reading the
-    bytes, exact size, and the store refuses a corrupted digest. A closed basis or a
-    non-text file gives no content. (Candidate for a public ManagedFiles operator read.)
+    ManagedFiles owns release checks and bounded blob reads. A closed basis or
+    a non-text file gives no content.
     """
     place = rt.workplace
     if place is None:
@@ -179,18 +178,12 @@ async def file_content(rt: Runtime, scope: Scope, file_id: str) -> WorkplaceFile
     truncated = False
     if entry.reference.media_type.startswith(TEXT_TYPES):
         try:
-            await files.guard.check(area, (), (entry.reference,), "api_transfer")
-            data = await files.blobs.read(
-                area, entry.reference.checksum, files.limits.max_file_bytes
-            )
-            if len(data) != entry.reference.size_bytes:
-                raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
-            await files.guard.check(area, (), (entry.reference,), "api_transfer")
+            released, data = await files.released_content(area, entry.id, "api_transfer")
+            if released.reference != entry.reference:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
         except ContractError as error:
             if error.error.code not in HIDDEN:
                 raise
-        except OSError:
-            raise ContractError(ErrorCode.SERVICE_UNAVAILABLE) from None
         else:
             decoded = data.decode("utf-8", errors="replace")
             truncated = len(decoded) > MAX_SHOWN

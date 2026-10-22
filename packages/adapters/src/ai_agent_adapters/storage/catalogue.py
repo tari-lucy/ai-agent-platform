@@ -122,7 +122,12 @@ def semantic_keys(record: Record) -> list[tuple[str, str]]:
     if isinstance(record, persona.CharacterState):
         values.append(("character-state", record.persona_id))
     if isinstance(record, agent_workplace.WorkAttempt):
-        values.append(("work-attempt", [record.task_id, record.attempt_no]))
+        if record.session_id is not None:
+            values.append(
+                ("session-attempt", [record.session_id, record.session_sequence, record.attempt_no])
+            )
+        else:
+            values.append(("work-attempt", [record.task_id, record.attempt_no]))
     if isinstance(record, agent_workplace.ManagedFile):
         # One catalogue name per area; keys follow the current revision (rename frees a path).
         values.append(("managed-file-path", [record.area, record.path]))

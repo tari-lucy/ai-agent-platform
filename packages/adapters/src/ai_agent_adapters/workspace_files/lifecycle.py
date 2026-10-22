@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai_agent_contracts.common import Scope
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ai_agent_adapters.storage import schema as db
@@ -29,6 +29,7 @@ KINDS = frozenset(
         "WorkAttempt",
         "WorkSession",
         "WorkSessionMessage",
+        "Utterance",
     }
 )
 OWNERS = ("catalogue", "skills", "tickets", "activity")
@@ -103,7 +104,10 @@ async def impact(
         )
         .where(
             db.revisions.c.scope_id == scope_key(scope),
-            db.records.c.owner.in_(OWNERS),
+            or_(
+                db.records.c.owner.in_(OWNERS),
+                and_(db.records.c.owner == "gateway", db.revisions.c.kind == "Utterance"),
+            ),
             db.revisions.c.kind != "Artifact",
         )
     )
@@ -138,10 +142,17 @@ async def impact(
                 if body.get("produced_by_attempt"):
                     node.parents.add(("WorkAttempt", body["produced_by_attempt"]))
             elif kind == "WorkAttempt":
-                node.parents.add(("WorkTask", body["task_id"]))
-                nodes.setdefault(("WorkTask", body["task_id"]), _Node()).parents.add(
-                    (kind, identifier)
+                subject = (
+                    ("WorkSession", body["session_id"])
+                    if body.get("session_id")
+                    else ("WorkTask", body["task_id"])
                 )
+                node.parents.add(subject)
+                nodes.setdefault(subject, _Node()).parents.add((kind, identifier))
+                if body.get("session_id") and body.get("result_id"):
+                    nodes.setdefault(("Utterance", body["result_id"]), _Node()).parents.add(
+                        (kind, identifier)
+                    )
             elif kind == "WorkTask" and body.get("parent_task_id"):
                 node.parents.add(("WorkTask", body["parent_task_id"]))
             elif kind == "Ticket":

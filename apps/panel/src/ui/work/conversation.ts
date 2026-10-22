@@ -28,6 +28,8 @@ export function turn(transcript: WorkSessionTranscript, running: boolean): strin
   if (transcript.state === 'closed') return 'Разговор закрыт';
   if (transcript.state === 'invalidated') return 'Контекст сброшен: начните новый разговор';
   if (transcript.state === 'waiting') return 'Ждёт ответа на обращение';
+    if (transcript.pending_reply) return transcript.pending_reply.withheld ? 'Ответ скрыт: основания недоступны' :
+      transcript.pending_reply.acknowledgeable ? 'Ответ готов, ждёт получения' : 'Ответ подготовлен; подтверждение пока недоступно';
   if (transcript.entries.some((entry) => pending(transcript, entry.sequence, entry.speaker))) {
     return running ? 'Сообщение сохранено и ожидает исполнения' : 'Сообщение сохранено; исполнение начнётся только после запуска';
   }

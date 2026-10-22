@@ -306,3 +306,65 @@ callback/подтверждения, неподоказанные основан
 очистка orphan ответа и UI delivery/ACK остаются следующей поставкой.
 После совместимых добавлений внутренних ports выполнен общий strict mypy:
 **277 source files, clean**. Полный pytest gate не запускался повторно.
+
+## 2026-10-22: публичное чтение ManagedFiles
+
+По запросу R3 добавлен `ManagedFiles.released_content(scope, file_id, purpose)`:
+текущая версия, release guard до/после bounded blob IO, проверка размера,
+проверка неизменности версии перед возвратом. Авторизацию оператора сохраняет
+HTTP boundary. Право api_transfer не выводится из private-read. Метод не выдаёт
+WorkAdmission и не расширяет права. `workplace.file_content` переведён на него;
+дублирование blob/guard-последовательности из композиции убрано.
+
+Новые owner-проверки: **3 passed** (допустимое чтение, запрет API-передачи,
+отзыв через ledger во время IO). В библиотечном host-тесте Windows проверяет
+настоящий закрытый DACL через `windows_private`, Linux сохраняет проверку
+POSIX-битов. Права старых Source не переписывались; изменения production-матрицы
+R3 для новых записей сохранены при совмещении с main.
+
+## 2026-10-22: session → job → draft → ACK → опыт
+
+Внутренний session driver использует существующую activity job, её допуск,
+ExecutionModelGateway и общий usage/budget. WorkAttempt имеет ровно один
+предмет: task или session; фиктивная задача для разговора не создаётся.
+Действующий manifest/binding/automatic Permission обязателен; проверяется
+повторно перед/после обращения к модели. Неизвестный исход не повторяется
+вслепую. Lease обновляется только из доверенного Execution.
+
+Контекст заново собирается через R2 и владельцев Source/File. Входы попытки
+сохраняют точные refs. Ответ до ACK живёт как private Utterance и QUEUED
+Delivery; WorkSession содержит только ссылку pending_reply. Source ответа,
+speaker=character, продвижение processed_sequence и эпизод проверенного опыта
+появляются после получения точной редакции оператором. При отказе привязки
+созданный Source снимается; повтор ACK не дублирует историю и эпизод.
+
+Панель показывает draft отдельно от истории и автоматически подтверждает
+его только в видимой вкладке, при видимости минимум 60% записи, активном run
+и серверном acknowledgeable. Одна автоматическая попытка, затем ручной повтор
+тем же request_id. Новый ввод отменяет pending pointer; STOP/restart закрывают
+применение старого ответа. Старый ACK не подтверждает новый ввод.
+
+При удалении основания lifecycle включает технический Utterance, в том числе
+через session → attempt → result. Проверка настоящих RetentionService,
+SQLitePhysicalStore и WorkplacePurger доказывает удаление marker из файла БД,
+а не только скрытие в API. Не вводится второй ledger.
+
+Проверки на Windows, синтетические данные и транспорт без внешней сети:
+сквозной runtime/ACK (повтор, неверная редакция, новый ввод, STOP, restart) и
+физическое удаление — **2 passed**. Контрактные тесты панели разговора —
+**6 passed**, lint/typecheck/build чистые. Ruff, strict mypy (**278 source
+files**), import boundaries и проверка generated exports чистые. Общий pytest
+всего проекта повторно не запускался. Один затронутый прогон runtime сессии,
+workplace_activity, workplace_conversation, library_host и brief_host —
+**11 passed (297.15 с)**. Windows init/ACL делают эти host-тесты заметно
+дороже owner-тестов. После исправлений не повторялись уже зелёные независимые
+наборы. Ошибка ruff из main устранена самостоятельным коммитом bf84479.
+
+Это совместимый внутренний стык, **не завершение R1/R5**. Factory harness
+должна быть явно подключена доверенной композицией; production host не
+изменён и автоматически OpenCode не включает. Настоящий OpenCode ранее
+проверен изолированно, а этот combined session-тест использует синтетический
+harness поверх настоящего model gateway. Следующее: owner bridge инструментов,
+подключение OpenCode factory/launcher, browser ACK journey и staged restore.
+Файловые outputs harness пока отклоняются: они не объявляются сохранёнными
+без отдельной записи через ManagedFiles. Платных API-вызовов не было.

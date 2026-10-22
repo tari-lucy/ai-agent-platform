@@ -163,7 +163,7 @@ type AttemptState = Literal["prepared", "submitted", "succeeded", "failed", "can
 
 
 class WorkAttempt(VersionedRecord):
-    """One try at a task step, bound to exactly one job operation.
+    """One task step or conversation turn, bound to exactly one job operation.
 
     ``inputs``/``input_files`` are recorded by the trusted context service when the attempt is
     prepared; result dependencies are derived from them and cannot be removed by the executor.
@@ -171,7 +171,9 @@ class WorkAttempt(VersionedRecord):
     before any retry with an external effect.
     """
 
-    task_id: Id
+    task_id: Id | None = None
+    session_id: Id | None = None
+    session_sequence: int | None = Field(default=None, strict=True, ge=1)
     attempt_no: int = Field(strict=True, ge=1, le=1000)
     operation_id: Id
     capability_id: Id
@@ -185,6 +187,10 @@ class WorkAttempt(VersionedRecord):
 
     @model_validator(mode="after")
     def run_bound(self) -> Self:
+        if (self.task_id is None) == (self.session_id is None) or (
+            (self.session_id is None) != (self.session_sequence is None)
+        ):
+            raise ValueError("ATTEMPT_SUBJECT")
         if self.scope.run_id is None or self.scope.run_id != self.freshness.run_id:
             raise ValueError("RUN_MISMATCH")
         if self.state == "succeeded" and self.result_id is None:
