@@ -144,6 +144,19 @@ class ModelGateway(Protocol):
 
 
 @dataclass(frozen=True)
+class WorkspaceRequest:
+    call_id: str
+    operation: str
+    arguments: dict[str, str]
+
+
+class WorkspaceGateway(Protocol):
+    """Closed owner bridge. The runner never supplies an admission, scope or principal."""
+
+    async def call(self, admission: WorkAdmission, request: WorkspaceRequest) -> str: ...
+
+
+@dataclass(frozen=True)
 class RunnerLimits:
     cpu_seconds: int
     memory_mb: int

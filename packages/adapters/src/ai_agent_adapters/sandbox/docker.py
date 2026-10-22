@@ -20,6 +20,7 @@ from ai_agent_application.agent_workplace.ports import (
     RunnerTask,
     WorkAdmission,
     WorkspaceFiles,
+    WorkspaceGateway,
 )
 from ai_agent_application.workspace_files.guard import current
 from ai_agent_contracts.agent_workplace import WorkAttempt, logical_path
@@ -27,7 +28,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .entry import ENTRY
-from .model_protocol import model_request, wire_calls
+from .model_protocol import model_request, wire_calls, workspace_request
 from .policy import RunnerTemplate, create_args
 
 type Authorize = Callable[[WorkAdmission, str], Awaitable[None]]
@@ -93,6 +94,7 @@ class DockerTaskRunner:
         lifecycle: Lifecycle,
         cache_seconds: float = 30,
         models: ModelGateway | None = None,
+        workspace: WorkspaceGateway | None = None,
     ) -> None:
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
@@ -102,6 +104,7 @@ class DockerTaskRunner:
         self.files, self.attempts, self.guard = files, attempts, guard
         self.authorize, self.lifecycle, self.cache_seconds = authorize, lifecycle, cache_seconds
         self.models = models
+        self.workspace = workspace
         self._active: tuple[WorkAdmission, str, asyncio.Event] | None = None
         self._cache: tuple[WorkAdmission, WorkAttempt, float, dict[RunnerOutput, bytes]] | None = (
             None
@@ -144,6 +147,7 @@ class DockerTaskRunner:
         assert process.stdin is not None and process.stdout is not None
         final: bytes | None = None
         calls = 0
+        workspace_calls = 0
         try:
             async with asyncio.timeout(task.limits.wall_seconds + 3):
                 process.stdin.write(payload + b"\n")
@@ -158,9 +162,38 @@ class DockerTaskRunner:
                         final = raw
                         process.stdin.close()
                         continue
+                    if row.get("kind") == "workspace":
+                        answer: dict[str, Any] = {
+                            "status": "denied",
+                            "code": "RESOURCE_BUSY"
+                            if template.max_workspace_calls > 0
+                            and workspace_calls >= template.max_workspace_calls
+                            else "CAPABILITY_UNAVAILABLE",
+                        }
+                        if (
+                            task.network == "gateway"
+                            and self.workspace is not None
+                            and (workspace_calls < template.max_workspace_calls)
+                        ):
+                            workspace_calls += 1
+                            request = workspace_request(row)
+                            await self._verify(admission, attempt)
+                            try:
+                                text = await self.workspace.call(admission, request)
+                                await self._verify(admission, attempt)
+                                if not isinstance(text, str) or len(text.encode()) > min(
+                                    16000, task.limits.output_bytes
+                                ):
+                                    raise ValueError("RUNNER_WORKSPACE_OUTPUT_LIMIT")
+                                answer = {"status": "completed", "text": text}
+                            except ContractError as error:
+                                answer = {"status": "denied", "code": error.error.code.value}
+                        process.stdin.write(json.dumps(answer).encode() + b"\n")
+                        await process.stdin.drain()
+                        continue
                     if row.get("kind") != "model" or task.network != "gateway":
                         raise ValueError("RUNNER_FRAME_INVALID")
-                    answer: dict[str, Any] = {"status": "not_admitted", "text": ""}
+                    answer = {"status": "not_admitted", "text": ""}
                     if calls < template.max_model_calls:
                         calls += 1
                         await self._verify(admission, attempt)
@@ -375,6 +408,7 @@ class DockerTaskRunner:
                     "gateway": task.network == "gateway",
                     "max_prompt_chars": template.max_prompt_chars,
                     "max_model_tokens": template.max_model_tokens,
+                    "workspace": self.workspace is not None and template.max_workspace_calls > 0,
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096

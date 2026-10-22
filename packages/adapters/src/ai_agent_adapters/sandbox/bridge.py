@@ -30,6 +30,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_POST(self):
+        if self.path == "/v1/workspace":
+            return self.workspace()
         if self.path != "/v1/chat/completions":
             self.send_json(404, {"error": "ROUTE_NOT_AVAILABLE"})
             return
@@ -95,10 +97,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
         finally:
             rpc_slot.release()
 
+    def workspace(self):
+        if not payload.get("workspace"):
+            return self.send_json(404, {"status": "denied", "code": "CAPABILITY_UNAVAILABLE"})
+        if not rpc_slot.acquire(blocking=False):
+            return self.send_json(429, {"status": "denied", "code": "RESOURCE_BUSY"})
+        try:
+            self.connection.settimeout(cap["wall_seconds"])
+            size = int(self.headers.get("Content-Length", "-1"))
+            if not 0 < size <= 65536:
+                raise ValueError()
+            body = json.loads(self.rfile.read(size))
+            if not isinstance(body, dict) or set(body) != {"call_id", "operation", "arguments"}:
+                raise ValueError()
+            wire(dict(body, kind="workspace"))
+            self.send_json(200, replies.get(timeout=cap["wall_seconds"]))
+        except (ValueError, TypeError, OSError, queue.Empty):
+            try:
+                self.send_json(400, {"status": "denied", "code": "INVALID_ARGUMENTS"})
+            except OSError:
+                pass
+        finally:
+            rpc_slot.release()
+
 if payload["gateway"]:
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=responses, daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     env["AI_WORKPLACE_MODEL_BASE_URL"] = "http://127.0.0.1:%d/v1" % server.server_port
     env["AI_WORKPLACE_MAX_MODEL_TOKENS"] = str(payload["max_model_tokens"])
+    if payload.get("workspace"):
+        env["AI_WORKPLACE_WORKSPACE_URL"] = "http://127.0.0.1:%d/v1/workspace" % server.server_port
 """
