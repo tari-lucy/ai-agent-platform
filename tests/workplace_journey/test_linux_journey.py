@@ -15,18 +15,25 @@ holds → restart STOPPED → START continues. Every model call goes through the
 import asyncio
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
 
+import pytest
 from ai_agent_application.agent_workplace.ports import WorkspaceRequest
 from ai_agent_application.storage import Owner
+from ai_agent_contracts.agent_sessions import WorkSession
 from ai_agent_contracts.agent_workplace import WorkTask
 from ai_agent_contracts.memory import Episode, Source
+from lb_support import cli, copy_id, digest_of
 from session_support import ack, install
 from test_activity import FAST, WorkModel, assign, fast, prepared, rows, task, until
 from test_http import post, scope_params
 from test_library_tools import KNOWLEDGE, SKILLS, grant, use
 from test_work_sessions_http import open_session, say, transcript
 
-from ai_agent_core.local_host.recovery import enable_recovery
+from ai_agent_core.local_host.finish_restore import finish_restore
+from ai_agent_core.local_host.layout import HostError, load_config, paths
+from ai_agent_core.local_host.recovery import HostLedger, enable_recovery
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
 from ai_agent_core.m3_composition.dialogue import memory
 from ai_agent_core.m3_composition.state import PRINCIPALS, command
@@ -79,7 +86,7 @@ async def stop(host):
     assert response.status_code == 200, response.text
 
 
-def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
+def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch, capsys):
     async def scenario():
         model = WorkModel()
         host = await prepared(tmp_path, monkeypatch, model)
@@ -295,6 +302,7 @@ def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
 
             # 6. Revoke: the conversation message's text and any context built on it close.
             message, _ = await sessions(rt).messages(scope, session_id)  # operator, reply
+            doomed = (await sessions(rt).messages(scope, talk_id))[0].source  # deleted in 9
             port = session_context(rt)
             built = await port.build(scope, "набросок", [ticket.id])
             await memory(rt).set_rights(
@@ -327,5 +335,64 @@ def test_linux_headless_journey_of_one_person(tmp_path, monkeypatch):
                 lambda: task(host, third), lambda t: t.state == "done", "after restart", seconds=30
             )
             assert model.count("activity") == calls + 1
+            calls += 1
+            generation = (
+                await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], scope).get(
+                    talk_id
+                )
+            ).generation
+        await rt.store.close()
+
+        # 9. Staged restore of an older copy (R4): what was deleted after the copy stays
+        # deleted, drafts/context do not come back, serve is closed until finish, then STOPPED.
+        host_paths = paths(host.root)
+        config = load_config(host_paths)
+        args = ["--root", str(host.root), "--store", config.recovery.store_dir]
+        args += ["--ledger", config.recovery.ledger_path]
+        code, out, err = await asyncio.to_thread(cli, "create", *args)
+        assert code == 0, (out, err)
+        backup_id = copy_id(out)
+        ledger = HostLedger(host_paths, config)
+        try:  # the operator deletes the newspaper conversation's message after the copy
+            await ledger.block(
+                scope, doomed.source_id, doomed.version, "operator_delete", datetime.now(UTC)
+            )
+        finally:
+            ledger.close()
+        code, preview, err = await asyncio.to_thread(
+            cli, "preview-restore", *args, "--backup-id", backup_id
+        )
+        assert code == 0, err
+        code, _, err = await asyncio.to_thread(
+            cli, "restore", *args, "--backup-id", backup_id,
+            "--decision-id", "journey-restore", "--digest", digest_of(preview),
+        )  # fmt: skip
+        assert code == 0, err
+        with pytest.raises(HostError, match="RESTORE_INCOMPLETE"):
+            async with host.open():
+                pytest.fail("a pending restore must not admit serve")
+        await finish_restore(host.root)
+        shown = capsys.readouterr().out
+        await finish_restore(host.root, digest=digest_of(shown), decision_id="journey-finish")
+        async with host.open():
+            rt = host.runtime
+            assert rt.supervisor.snapshot.state.value == "STOPPED"
+            await asyncio.sleep(1.0)
+            assert model.count("activity") == calls  # restore runs nothing
+            assert await rt.workplace.skills.get(scope, "sketch") is not None  # kept
+            kept = await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], scope).get(
+                session_id
+            )
+            assert kept is not None and kept.pending_reply is None
+            gone = await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], scope).get(
+                talk_id
+            )
+            assert gone is None or gone.generation > generation
+        await rt.store.close()
+        active = [host_paths.database, host_paths.dialogue_index]
+        active += list(Path(config.workplace_files.blob_dir).rglob("*"))
+        for candidate in active:
+            if candidate.is_file():
+                assert "Сделай набросок для газеты.".encode() not in candidate.read_bytes()
 
     asyncio.run(scenario())

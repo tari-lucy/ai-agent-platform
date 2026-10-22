@@ -32,7 +32,7 @@ SQLite, владельцы memory/persona/tickets/activity/files, deletion ledge
 8. Restart → STOPPED и тишина; START → сохранённая задача завершается одним вызовом.
 
 **Не покрыто на Linux (Windows/Docker gate, Codex):** настоящий OpenCode harness, sandbox
-runner/helper-скрипты, staged restore. Ответы личности и ACK — покрыты синтетическим harness. Отдельные узкие пробы revoke/TTL/ledger/cross-scope — в
+runner/helper-скрипты. Staged restore на Linux — шаг 9 (ниже). Ответы личности и ACK — покрыты синтетическим harness. Отдельные узкие пробы revoke/TTL/ledger/cross-scope — в
 `tests/workplace_tickets`, `workplace_experience`, `workplace_conversation`,
 `workplace_files`.
 
@@ -111,3 +111,26 @@ bridge (`raise_ticket`), ответ доставлен после ACK; опер�
 та же сессия продолжается без новой реплики оператора в разговоре (в истории по-прежнему 2
 записи), ответ оператора виден модели, новый черновик подтверждается. +2 вызова в той же доле.
 `tests/workplace_journey` после слияния main `e05b433` (helpers) — 3 passed.
+
+## Staged restore старой копии (R4 `2f98540`) — шаг 9
+
+После шагов 1–8 (все вызовы модели завершены, store закрыт) тем же CLI `local_backup`:
+create → оператор удаляет сообщение разговора «для газеты» **после** снимка (тот же
+HostLedger, `operator_delete`) → preview-restore → restore с решением/digest → serve закрыт
+`RESTORE_INCOMPLETE` → finish-restore preview/apply → новый serve **STOPPED**, вызовов модели
+нет. Навык и первый разговор сохранены, черновиков нет; разговор удалённого основания удалён
+или с новым generation; текст удалённого сообщения отсутствует в активной БД, индексе диалога
+и blob-каталоге. Отдельный backup-путь не создавался; Windows acceptance не менялся.
+`test_linux_journey.py` — 1 passed (206 с).
+
+## Linux vs Windows: что чем проверено
+
+| Путь | Linux (Claude) | Windows/Docker (Codex) |
+| --- | --- | --- |
+| Сценарий личности, тикеты, опыт, бюджет | production composition, синтетический транспорт | — |
+| Ответ в разговоре, ACK, ticket-resume | синтетический harness R1 поверх общего gateway | настоящий OpenCode |
+| Навыки через MCP | bridge в ходах сессии, синтетический harness | настоящий OpenCode MCP |
+| Панель | headless Chromium | браузер Windows |
+| Staged restore | шаг 9 сценария | `test_staged_host_restore.py` |
+| Sandbox runner, helper-скрипты | не проверяется | Docker |
+| Реальная модель | не вызывалась | по отдельному допуску |
