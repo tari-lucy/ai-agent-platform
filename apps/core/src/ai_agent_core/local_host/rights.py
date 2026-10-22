@@ -24,6 +24,9 @@ Managed files, skills and knowledge (AW-03) are off by default: the offline
 guard on sources) and ACTIVITY (the attempt that does the IO); SKILLS reads MEMORY only to check
 evidence. Which area an agent may touch is never a grant here: it is a current Permission of
 the workplace agent, checked by the file owner before and after IO.
+Catalogue (release guard) and activity (the person's brief) may also confirm api_transfer of
+memory sources (operator decision 2026-10-21): what may reach the person's own model is still
+decided by each source's api_transfer_allowed, revoke, TTL and the ledger; public stays off.
 
 Explicit --operator-controls is a separately accepted matrix: WORKSPACE plan/receipt
 writes, operator WORKSPACE transfer reads and PERSONA/GM evidence reads. A separate
@@ -120,11 +123,13 @@ def core_grants(
         # It reads MEMORY only to record which sources a step was shown (attempt inputs).
         grants += [
             Grant(PRINCIPALS[Owner.ACTIVITY], Owner.ACTIVITY, read=True, write=True),
-            Grant(PRINCIPALS[Owner.ACTIVITY], Owner.MEMORY, read=True),
+            # api_transfer: it confirms what of the brief may go to the person's model.
+            Grant(PRINCIPALS[Owner.ACTIVITY], Owner.MEMORY, read=True, api_transfer=True),
         ]
     if files:
         grants += [
-            Grant(PRINCIPALS[Owner.CATALOGUE], Owner.MEMORY, read=True),
+            # api_transfer: the release guard confirms a file's sources for its own model.
+            Grant(PRINCIPALS[Owner.CATALOGUE], Owner.MEMORY, read=True, api_transfer=True),
             Grant(PRINCIPALS[Owner.CATALOGUE], Owner.ACTIVITY, read=True),
             Grant(PRINCIPALS[Owner.SKILLS], Owner.SKILLS, read=True, write=True),
             Grant(PRINCIPALS[Owner.SKILLS], Owner.MEMORY, read=True),
@@ -217,8 +222,10 @@ def record_readers() -> tuple[RecordAccess, ...]:
         # Read only: the file release guard, skill evidence, attempt inputs and ticket bases
         # check a source exists.
         # Without the matching offline grant (workplace files, activity, tickets) it opens nothing.
+        # Catalogue and activity may also confirm api_transfer (operator decision 2026-10-21):
+        # the source's own api_transfer_allowed still decides; nothing public changes.
         + tuple(
-            RecordAccess(PRINCIPALS[o].id)
+            RecordAccess(PRINCIPALS[o].id, api_transfer=o in (Owner.CATALOGUE, Owner.ACTIVITY))
             for o in (Owner.CATALOGUE, Owner.SKILLS, Owner.ACTIVITY, Owner.TICKETS)
         )
     )

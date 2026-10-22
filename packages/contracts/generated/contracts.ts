@@ -261,6 +261,7 @@ export type WorkTask = { "created_at": string; "goal": string; "id": string; "or
 export type WorkTaskPage = Page_WorkTask_;
 export type WorkTaskState = "open" | "active" | "waiting" | "done" | "abandoned";
 export type WorkplaceArea = "inbox" | "knowledge" | "skills" | "projects" | "scratch" | "exports" | "reference" | "guide";
+export type WorkplaceFileContent = { "area": string; "checked_at": string; "file_id": string; "kind": string; "media_type": string; "provenance": string; "scope": Scope; "text"?: (string) | (null); "title": string; "truncated": boolean; "version": number; "withheld": boolean; };
 export type WorkplaceLibrary = { "checked_at": string; "complete": boolean; "files": Array<ManagedFile>; "scope": Scope; "skills": Array<SkillVersion>; };
 export type Workspace = { "active_agent_id": (string) | (null); "connection_ids": Array<string>; "created_at": string; "id": string; "policy_version": number; "profile_ids": Array<string>; "schema_version"?: "1.0"; "scope": Scope; "settings": ExtensionPayload; "updated_at": string; "version": number; };
 export type WorkspacePage = Page_Workspace_;

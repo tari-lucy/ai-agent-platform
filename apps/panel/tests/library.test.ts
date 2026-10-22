@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { workplaceLibrary } from '../src/shared/validation.ts';
+import { workplaceFileContent, workplaceLibrary } from '../src/shared/validation.ts';
 import { knowledge, skillOrder, sourcesLabel, statusLabels } from '../src/ui/library/model.ts';
 import type { ManagedFile, Scope, SkillVersion, WorkplaceLibrary } from '../src/shared/contracts.ts';
 
@@ -47,4 +47,17 @@ test('working skills come first and knowledge kinds stay apart from methods', ()
   assert.deepEqual([parts.notes, parts.hypotheses, parts.other].map((rows) => rows.map((row) => row.id)), [['n'], ['h'], ['r']]);
   assert.equal(statusLabels.experimental, 'Экспериментальный');
   assert.equal(sourcesLabel(file('s', { dependencies: [source] as ManagedFile['dependencies'] })), '1 источник');
+});
+
+test('file text is accepted only for the asked file, with text or withheld', () => {
+  const content = (over: Record<string, unknown> = {}) => ({
+    scope, file_id: 'note-1', version: 2, title: 'Заметка', area: 'knowledge', kind: 'note', provenance: 'generated',
+    media_type: 'text/markdown', text: 'Текст.', withheld: false, truncated: false, checked_at: T(9), ...over,
+  });
+  assert.equal(workplaceFileContent(content(), scope, 'note-1').text, 'Текст.');
+  assert.throws(() => workplaceFileContent(content(), scope, 'other'));
+  assert.throws(() => workplaceFileContent(content({ scope: other }), scope, 'note-1'));
+  assert.throws(() => workplaceFileContent(content({ withheld: true }), scope, 'note-1'));  // text with withheld
+  assert.equal(workplaceFileContent(content({ withheld: true, text: null }), scope, 'note-1').withheld, true);
+  assert.throws(() => workplaceFileContent(content({ withheld: true, text: null, truncated: true }), scope, 'note-1'));
 });

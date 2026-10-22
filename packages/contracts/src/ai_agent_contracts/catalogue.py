@@ -28,6 +28,7 @@ MODELS = (
     panel.PrivateApiStatus,
     panel.WorkSessionEntry,
     panel.WorkSessionTranscript,
+    panel.WorkplaceFileContent,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
     panel.PersonaApplyArguments,

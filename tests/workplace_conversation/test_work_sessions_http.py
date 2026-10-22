@@ -8,11 +8,13 @@ that nothing starts or calls a model. The person's replies come with the R1 sess
 
 import asyncio
 
+from ai_agent_application.storage import Owner
+from ai_agent_contracts.memory import Source
 from test_activity import WorkModel, prepared
 from test_http import post, scope_params
 
 from ai_agent_core.m3_composition.dialogue import memory
-from ai_agent_core.m3_composition.state import command
+from ai_agent_core.m3_composition.state import PRINCIPALS, command
 from ai_agent_core.m3_composition.work_sessions import sessions
 
 
@@ -73,6 +75,16 @@ def test_conversation_intake_replay_conflict_release_and_close(tmp_path, monkeyp
             assert changed.status_code == 409, changed.text
             stale = await say(host, "say-2", session_id, 1, "Устаревший вид.")
             assert stale.status_code == 409, stale.text
+            # The refused message left no loose text in memory: its source was retired
+            # (an expired source keeps no content and is not listed).
+            stored = {
+                src.content: src.availability
+                for src in await rt.store.repository(
+                    Source, PRINCIPALS[Owner.MEMORY], host.scope
+                ).list(limit=200)
+                if src.source_type == "work-session-message"
+            }
+            assert "Устаревший вид." not in stored
             second = await say(host, "say-3", session_id, 2, "И отметь спорные места.")
             assert second.status_code == 200, second.text
 
@@ -118,6 +130,14 @@ def test_conversation_intake_replay_conflict_release_and_close(tmp_path, monkeyp
             assert closed.status_code == 200, closed.text
             late = await say(host, "say-4", session_id, 4, "После закрытия.")
             assert late.status_code >= 400, late.text
+            texts = [
+                src.content
+                for src in await rt.store.repository(
+                    Source, PRINCIPALS[Owner.MEMORY], host.scope
+                ).list(limit=200)
+                if src.source_type == "work-session-message"
+            ]
+            assert "После закрытия." not in texts
             read = await host.env.client.get(
                 "/api/v1/work-sessions", params=scope_params(host.scope)
             )

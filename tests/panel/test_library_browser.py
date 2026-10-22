@@ -118,6 +118,11 @@ def test_operator_sees_skills_notes_and_hypotheses(page, tmp_path, monkeypatch):
         expect(skill).to_be_visible(timeout=10000)
         expect(skill.get_by_text("Экспериментальный")).to_be_visible()
         expect(skill.get_by_text("Когда применять: " + DRAFT.applicability)).to_be_visible()
+        # The operator opens the method's text (through the file owner's guard).
+        skill.get_by_role("button", name="Открыть").click()
+        expect(skill.get_by_label("Текст: " + DRAFT.title)).to_contain_text(
+            "1. Read.", timeout=10000
+        )
         note = page.get_by_role("listitem", name="Маяки: конспект")
         expect(note.get_by_text("Заметка", exact=True)).to_be_visible()
         expect(note.get_by_text("собственный текст агента", exact=False)).to_be_visible()

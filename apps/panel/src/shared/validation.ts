@@ -671,3 +671,11 @@ export function workSessionTranscript(value: unknown, selected: Scope, sessionId
   }
   return value as import('./contracts.ts').WorkSessionTranscript;
 }
+
+// File text for the operator (library): through the file owner's guard; withheld = no text.
+export function workplaceFileContent(value: unknown, selected: Scope, fileId: string): import('./contracts.ts').WorkplaceFileContent {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.file_id === fileId &&
+    version(value.version) && text(value.title, 512) && typeof value.withheld === 'boolean' && typeof value.truncated === 'boolean' &&
+    date(value.checked_at) && (value.withheld ? (value.text === null || value.text === undefined) && !value.truncated : text(value.text, 20000)));
+  return value as import('./contracts.ts').WorkplaceFileContent;
+}

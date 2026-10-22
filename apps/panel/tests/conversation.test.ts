@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { event, workSessionTranscript, workSessions } from '../src/shared/validation.ts';
 import { affectedResources } from '../src/shared/events.ts';
-import { closeCommand, messageCommand, messageProblem, openCommand, pending, turn, writable } from '../src/ui/work/conversation.ts';
-import type { Scope, WorkSessionTranscript } from '../src/shared/contracts.ts';
+import { closeCommand, discussTitle, messageCommand, messageProblem, openCommand, pending, sessionFor, turn, writable } from '../src/ui/work/conversation.ts';
+import type { Scope, WorkSession, WorkSessionTranscript } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
 const runScope: Scope = { ...scope, agent_id: 'primary', run_id: 'run-1', session_id: 'session-1' };
@@ -54,4 +54,16 @@ test('commands use the stable area, the seen version and the exact text', () => 
   assert.deepEqual([say.target, say.expected_version, say.arguments.data], ['s-1', 3, { session_id: 's-1', text: ' Привет ' }]);
   const close = closeCommand(runScope, transcript(), 'req-3');
   assert.deepEqual([close.type, close.expected_version], ['work.session.close', 3]);
+});
+
+test('a task is discussed in its own open conversation, opened with the task link', () => {
+  const session = (id: string, over: Partial<WorkSession> = {}) => ({
+    id, scope, version: 1, created_at: T(1), updated_at: T(1), title: 'Р', state: 'open', task_ids: ['t-1'], last_sequence: 0, ...over,
+  } as WorkSession);
+  const rows = [session('old', { updated_at: T(1) }), session('new', { updated_at: T(5) }), session('closed', { state: 'closed', updated_at: T(9) }), session('other', { task_ids: ['t-2'] })];
+  assert.equal(sessionFor('t-1', rows)?.id, 'new');  // newest still-open one; a closed one is not reused
+  assert.equal(sessionFor('t-3', rows), undefined);
+  const open = openCommand(runScope, discussTitle('Конспект'), 'req-9', 't-1');
+  assert.deepEqual(open.arguments.data, { title: 'Обсуждение: Конспект', task_id: 't-1' });
+  assert.equal(discussTitle('x'.repeat(300)).length, 200);
 });
