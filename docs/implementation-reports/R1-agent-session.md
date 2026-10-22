@@ -582,3 +582,12 @@ Linux ticket-resume интегрированы Claude, Windows/OpenCode пров
 owner reset сессионного контекста, закрытое переключение и finish-restore.
 Итоговый affected gate на Windows — 63 passed; Docker и реальная модель в этом
 этапе не запускались. Это не production launcher и не перенос личного host.
+
+## 2026-10-22: Windows browser + реальный OpenCode + skills
+
+[Независимая Windows-приёмка для launcher-пакета Claude](R5-windows-opencode-skills.md):
+панель → START → save/find/read/improve навыка в трёх настоящих OpenCode turn →
+автоматический ACK → reload без дублей → STOP. 1 passed, 7 scripted activity
+вызовов; Docker/Edge настоящие. Только новый opt-in тест и отчёт, local_host/
+launcher/shared-файлы Claude не менялись. Следующая проверка — его production
+wiring вместо test-only install; личный host по-прежнему не переключался.
