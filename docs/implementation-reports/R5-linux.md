@@ -81,3 +81,15 @@ cli serve --root R --panel-dir apps/panel/dist --provider live --env-file /abs/s
 `tests/workplace_{sessions,conversation,activity,journey,files,skills,experience,lifecycle}` —
 85 passed, 3 skipped; панель — tsc, eslint, 202 node tests, build. Стык ACK, проверенный
 Codex на Windows, на Linux headless без правок. Сценарий R5 расширен шагом 5b (выше).
+
+## Browser ACK journey (Linux headless; согласовано с Codex)
+
+`tests/panel/test_work_conversation_ack_browser.py`: production host app (`serve.build`) с
+собранной панелью под uvicorn внутри тестового процесса (control owner — в том же потоке),
+синтетический harness R1 (`session_support.install`) поверх общего gateway, headless Chromium.
+STOPPED: сообщение сохранено и ждёт исполнения, вызовов нет → START → черновик отдельно от
+истории, видимая вкладка подтверждает его один раз → реплика агента в истории, пометка
+ожидания снята, «Ваш ход» → reload: два сообщения, без дубля → STOP с этого экрана. Ровно один
+вызов модели. Вместе с прежними браузерными тестами разговора/работы — 4 passed. STOP/устаревший
+ACK/restart на уровне API покрыты `tests/workplace_sessions/test_runtime.py` (Codex). Настоящий
+OpenCode и браузер Windows — проверка Codex.
