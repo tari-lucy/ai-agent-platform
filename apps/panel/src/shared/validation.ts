@@ -641,6 +641,7 @@ export function workAttempts(value: unknown, selected: Scope): import('./contrac
 // released transcript, never in a session or message record.
 const sessionStates = new Set(['open', 'waiting', 'closed', 'invalidated']);
 const speakers = new Set(['operator', 'character']);
+const waitingReasons = new Set(['unavailable', 'access_required', 'access_requested', 'access_refused']);
 export function workSessions(value: unknown, selected: Scope): import('./contracts.ts').WorkSessionPage {
   page(value, selected);
   demand(value.items.every((row) => text(row.title, 512) && sessionStates.has(String(row.state)) &&
@@ -652,6 +653,9 @@ export function workSessionTranscript(value: unknown, selected: Scope, sessionId
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.session_id === sessionId &&
     version(value.session_version) && sessionStates.has(String(value.state)) && text(value.title, 512) &&
     (value.processed_sequence === undefined || (Number.isSafeInteger(value.processed_sequence) && Number(value.processed_sequence) >= 0)) &&
+    (value.waiting_reason == null || waitingReasons.has(String(value.waiting_reason))) &&
+    (value.waiting_detail == null || text(value.waiting_detail, 512)) &&
+    (value.access_ticket_id == null || id(value.access_ticket_id)) &&
     typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
   let last = 0;
   demand(value.entries.every((entry: unknown) => {

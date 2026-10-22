@@ -219,7 +219,7 @@ def _build(
         # ready (no Docker/image, no activity) keeps conversations waiting, never runs them.
         from .work_sessions import install
 
-        reason = install(runtime, config)
+        reason = runtime.session_unavailable = install(runtime, config)
         if reason is not None:
             print(f"NOTICE: work conversations unavailable: {reason}", file=sys.stderr)
 

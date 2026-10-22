@@ -322,6 +322,8 @@ class Runtime:
         self.session_capability: str | None = None
         self.session_output_area: str | None = None
         self.session_helper_capability: str | None = None
+        # Fixed code why configured work conversations are not wired on this host (launcher).
+        self.session_unavailable: str | None = None
         self.tool_executors: dict[str, ToolExecutor] = {}
         from .activity import AutonomousActivity
 

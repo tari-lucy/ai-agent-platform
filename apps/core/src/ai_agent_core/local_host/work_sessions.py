@@ -68,12 +68,15 @@ def check(settings: WorkSessionsConfig, *, timeout: float = 10.0) -> str | None:
     except subprocess.TimeoutExpired, OSError:
         return "DOCKER_UNAVAILABLE"
     if found.returncode != 0:
-        engine = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        try:
+            engine = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired, OSError:
+            return "DOCKER_UNAVAILABLE"
         return "DOCKER_UNAVAILABLE" if engine.returncode else "OPENCODE_IMAGE_MISSING"
     try:
         [info] = json.loads(found.stdout)
@@ -144,8 +147,8 @@ async def enable_work_sessions(
         if config.live is None or not config.live.activity.enabled:
             raise HostError("WORK_SESSIONS_ACTIVITY_REQUIRED")
         try:
-            settings = WorkSessionsConfig(
-                image_id=image_id, areas=tuple(areas), output_area=output_area, **limits
+            settings = WorkSessionsConfig.model_validate(
+                dict(image_id=image_id, areas=tuple(areas), output_area=output_area, **limits)
             )
             template(settings)  # the runner's own bounds, before anything is written
         except ValidationError, ValueError:
@@ -170,10 +173,12 @@ async def enable_work_sessions(
         store = SQLiteStore(host.database, extensions=registry)
         scope = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
         now = datetime.now(UTC)
-        common = dict(scope=scope, created_at=now, updated_at=now, version=1)
         manifest = CapabilityManifest(
             id="manifest-" + settings.capability_id,
-            **common,
+            scope=scope,
+            created_at=now,
+            updated_at=now,
+            version=1,
             capability_id=settings.capability_id,
             capability_version=1,
             summary=SUMMARY,
@@ -187,7 +192,10 @@ async def enable_work_sessions(
         )
         binding = CapabilityBinding(
             id=ADAPTER + "." + settings.capability_id,
-            **common,
+            scope=scope,
+            created_at=now,
+            updated_at=now,
+            version=1,
             binding_id=ADAPTER + "." + settings.capability_id,
             capability_id=settings.capability_id,
             capability_version=1,
