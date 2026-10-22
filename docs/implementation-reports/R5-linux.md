@@ -22,14 +22,17 @@ SQLite, владельцы memory/persona/tickets/activity/files, deletion ledge
    файлам), два `workplace-conclusion` (interpretation); библиотека показывает навык и
    заметку.
 5. Бюджет: ровно 9 вызовов модели; доля деятельности в `private-api-status` = 9.
+5b. Ответ личности в рабочем разговоре (session driver R1, синтетический harness поверх
+   общего gateway): черновик не входит в историю до ACK; после точного ACK — реплика
+   `character`, `processed_sequence` = 2, один Source `work-session-reply`; повтор ACK тот же
+   ответ; +1 вызов в той же доле.
 6. Отзыв `api_transfer` источника сообщения разговора: текст в расшифровке `withheld`;
    контекст, не построенный на нём, остаётся валидным.
 7. STOP: новое поручение сохраняется, вызовов нет.
 8. Restart → STOPPED и тишина; START → сохранённая задача завершается одним вызовом.
 
 **Не покрыто на Linux (Windows/Docker gate, Codex):** настоящий OpenCode harness, sandbox
-runner/helper-скрипты, ответы личности в разговоре (session driver R1), delivery/ACK,
-staged restore. Отдельные узкие пробы revoke/TTL/ledger/cross-scope — в
+runner/helper-скрипты, staged restore. Ответы личности и ACK — покрыты синтетическим harness. Отдельные узкие пробы revoke/TTL/ledger/cross-scope — в
 `tests/workplace_tickets`, `workplace_experience`, `workplace_conversation`,
 `workplace_files`.
 
@@ -72,3 +75,9 @@ cli serve --root R --panel-dir apps/panel/dist --provider live --env-file /abs/s
 
 - Под параллельной нагрузкой тесты со временем бывают ложными (повтор отдельно);
   `test_guards::test_import_has_no_effects` на этой машине падает всегда (stale venv).
+
+## 2026-10-22: Linux-проверка стыка доставки R1 (`3e492cd`)
+
+`tests/workplace_{sessions,conversation,activity,journey,files,skills,experience,lifecycle}` —
+85 passed, 3 skipped; панель — tsc, eslint, 202 node tests, build. Стык ACK, проверенный
+Codex на Windows, на Linux headless без правок. Сценарий R5 расширен шагом 5b (выше).
