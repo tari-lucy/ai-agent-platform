@@ -217,7 +217,14 @@ def test_revocation_during_the_model_call_closes_the_late_result(tmp_path, monke
             view = await until(lambda: transcript(host, sid), stopped, "late result closed")
             assert view["invalidated_reason"] == "message_unavailable"
             assert view["pending_reply"] is None
-            assert [a.state for a in await attempts(rt, scope, sid)] == ["failed"]
+            # The refused job ends and the next tick reconciles its attempt; it never stays
+            # submitted and is not retried.
+            settled = await until(
+                lambda: attempts(rt, scope, sid),
+                lambda found: all(a.state not in ("prepared", "submitted") for a in found),
+                "in-flight attempt reconciled",
+            )
+            assert [a.state for a in settled] == ["cancelled"]  # the late result is refused
             from ai_agent_contracts.control import Utterance
 
             drafts = await rt.store.repository(Utterance, PRINCIPALS[Owner.GATEWAY], scope).list(

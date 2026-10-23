@@ -185,9 +185,32 @@ async def _superseded(rt: Runtime, session: WorkSession, attempt: WorkAttempt) -
     return details.session_id == session.id and details.generation < session.generation
 
 
+async def _in_flight(
+    rt: Runtime, attempts: Sequence[WorkAttempt]
+) -> tuple[list[tuple[WorkAttempt, str]], bool]:
+    """Settle prepared/submitted attempts whose job is terminal; True while one still runs."""
+    from .activity import TERMINAL_JOB, book
+
+    owner = book(rt)
+    settled: list[tuple[WorkAttempt, str]] = []
+    for attempt in attempts:
+        if attempt.state not in ("prepared", "submitted"):
+            settled.append((attempt, attempt.state))
+            continue
+        loaded = await rt.jobs.store.load(attempt.operation_id, attempt.scope)
+        state = "unknown" if loaded is None else TERMINAL_JOB.get(loaded[0].status)
+        if state is None:
+            return settled, True
+        if state == "succeeded" and attempt.result_id is None:
+            state = "unknown"  # no owner-recorded result to confirm
+        await owner.settle(attempt, state)  # type: ignore[arg-type]
+        settled.append((attempt, state))
+    return settled, False
+
+
 async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     """One bounded session submission; undelivered drafts do not trigger another model call."""
-    from .activity import TERMINAL_JOB, book, tools
+    from .activity import book, tools
 
     repo = rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], area(scope))
     sessions = await repo.list(limit=200)
@@ -197,13 +220,20 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
             raise ContractError(ErrorCode.ACCESS_DENIED)
 
     # A closed basis is settled by its owner first, before any job, model call or access request.
+    # An invalidated conversation gets no further turn, so its in-flight attempts are
+    # reconciled with their jobs here (the loop below never looks at it again).
+    from .activity import book as activity_book
+
     settled = False
     for session in sessions:
+        found = None
         if session.state in ("open", "waiting"):
             found = await unavailable(rt, session)
             if found is not None:
                 await settle_basis(rt, session, found, authorize)
                 settled = True
+        if session.state == "invalidated" or found == "message":
+            await _in_flight(rt, await activity_book(rt).session_attempts(scope, session.id))
     if settled:
         sessions = await repo.list(limit=200)
     if rt.session_harness is None or rt.session_capability is None:
@@ -241,19 +271,8 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
             for a in await owner.session_attempts(scope, session.id)
             if a.session_sequence == session.last_sequence
         ]
-        blocked = False
-        for attempt in attempts:
-            if attempt.state in ("prepared", "submitted"):
-                loaded = await rt.jobs.store.load(attempt.operation_id, attempt.scope)
-                state = "unknown" if loaded is None else TERMINAL_JOB.get(loaded[0].status)
-                if state is None:
-                    blocked = True
-                    break
-                if state == "succeeded" and attempt.result_id is None:
-                    state = "unknown"  # no owner-recorded result to confirm
-                await owner.settle(attempt, state)  # type: ignore[arg-type]
-            else:
-                state = attempt.state
+        reconciled, blocked = await _in_flight(rt, attempts)
+        for attempt, state in reconciled:
             if state == "succeeded" and await _superseded(rt, session, attempt):
                 continue
             if state in ("unknown", "succeeded"):
