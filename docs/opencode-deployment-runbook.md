@@ -35,6 +35,11 @@ preflight, не одобрение прав, cross-review, проверка API-
    Если кэш неполон, остановиться и назвать недостающую установку; не подменять
    версии и не запускать незапрошенную загрузку. Эти команды не выполняются
    самим preflight.
+   Если uv находит устаревший alias установленного Python, получить
+   `sys._base_executable` из уже проверенного работающего интерпретатора и
+   передать этот точный путь в `uv sync --locked --offline --python ...
+   --no-python-downloads`. Не переносить старую `.venv` и не чинить глобальные
+   aliases ради кандидата. Проверка после sync: `uv pip check --python <candidate-python>`.
 3. Получить принятую сборку панели PUI и **настоящего** OpenCode adapter OC-03,
    с commit/build provenance. Не использовать тестовую страницу вместо него.
    Файлы сборок держать вне каталога личного host. Пакетировать native dist:
@@ -78,3 +83,6 @@ START остаётся отдельным действием оператора.
 
 Текущие фактические пробы и ограничения:
 [OC-04 runtime readiness](implementation-reports/OC-04-runtime-readiness.md).
+Подготовленное окружение и сборка панели:
+[OC-07 candidate preparation](implementation-reports/OC-07-candidate-preparation.md).
+После поступления native dist: [короткий первый проход](opencode-first-run-check.md).
