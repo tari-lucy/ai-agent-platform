@@ -261,14 +261,16 @@ def test_the_whole_operator_journey(page, live_panel, panel_password):
     page.get_by_label("Пароль", exact=True).fill(panel_password)
     page.get_by_role("button", name="Войти", exact=True).click()
     stop = page.get_by_role("button", name="STOP — остановить активного агента")
-    expect(stop).to_be_enabled()
+    # The panel opens on the overview; a stopped agent offers START in the header.
+    expect(page.get_by_role("heading", name="Рабочее пространство", level=1)).to_be_visible()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_enabled()
     expect(page.get_by_text("Остановлен", exact=False).first).to_be_visible()
     install(page, world)  # from here the core's business projections are deterministic mocks
     page.reload()
     expect(stop).to_be_enabled()
 
     # ---- dialogue: one message, one command ----
-    page.get_by_role("link", name="Диалог", exact=True).click()
+    page.get_by_role("link", name="Диалог · временно", exact=True).click()
     page.get_by_label("Сообщение персонажу").fill("Привет, это я")
     page.get_by_role("button", name="Отправить", exact=True).click()
     expect(page.get_by_text("Сообщение принято и сохранено ядром.")).to_be_visible()

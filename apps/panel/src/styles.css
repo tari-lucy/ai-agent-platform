@@ -16,6 +16,8 @@ button, a, summary { touch-action: manipulation; }
 /* Fixed beside the content, so it scrolls on its own when zoom or a short window leaves too little height. */
 .sidebar { position: fixed; top: var(--header-offset, var(--header-height)); bottom: 0; width: 258px; padding: 32px 20px; border-right: 1px solid #e6e3ee; background: #fcfbfe; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
 .sidebar nav { flex-shrink: 0; }
+.nav-group + .nav-group { margin-top: 14px; }
+.nav-group-title { display: block; margin: 0 12px 6px; }
 .nav-item { display: flex; gap: 14px; align-items: center; text-decoration: none; color: #696179; border-radius: 10px; padding: 13px 12px; font-size: 14px; margin-bottom: 5px; }
 .nav-number { font-size: 11px; opacity: .6; font-variant-numeric: tabular-nums; }
 .nav-item:hover { background: #f0edf8; }
@@ -41,8 +43,8 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 }
 @media (max-height: 760px) and (min-width: 701px) {
   .sidebar { padding: 16px 14px; }
-  .sidebar > .eyebrow { display: none; }
   .nav-item { padding: 8px 10px; margin-bottom: 2px; }
+  .nav-group + .nav-group { margin-top: 8px; }
   .sidebar-note { display: none; }
 }
 @media (max-width: 700px) {
@@ -58,6 +60,8 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
   .sidebar { position: static; width: auto; padding: 15px 16px; border-right: 0; border-bottom: 1px solid #e6e3ee; display: block; }
   .sidebar > .eyebrow, .sidebar-note { display: none; }
   .sidebar nav { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .nav-group { display: contents; }
+  .nav-group-title { display: none; }
   .nav-item { flex-shrink: 0; padding: 10px; font-size: 13px; margin: 0; }
   .nav-number { display: none; }
   .main-content { margin: 0; padding: 26px 16px; }

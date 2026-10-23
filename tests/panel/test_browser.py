@@ -150,7 +150,7 @@ def test_real_login_cookie_reload_ws_logout(page, live_panel, panel_password):
     assert panel_password not in page.content()
     page.reload()
     expect(start).to_be_enabled()
-    page.get_by_role("link", name="Рабочее пространство", exact=True).click()
+    page.get_by_role("link", name="Обзор и права", exact=True).click()
     expect(page.get_by_text("Тестовая память", exact=True)).to_be_visible()
     page.get_by_role("button", name="Выйти", exact=True).click()
     expect(page.get_by_role("heading", name="Вход оператора")).to_be_visible()
@@ -188,17 +188,20 @@ def test_selected_test_profile_does_not_retarget_stop(page, live_panel):
     assert "Ядро подтвердило остановку." not in page.content()
 
 
-def test_stop_available_on_all_seven_screens_and_mobile(page, live_panel):
+def test_stop_available_on_every_screen_and_mobile(page, live_panel):
     open_mock(page, live_panel)
     nav = page.get_by_role("navigation", name="Разделы панели")
     for label in [
-        "Диалог",
+        "Обзор и права",
+        "Обращения",
+        "Расходы и лимиты",
         "Персонаж",
-        "Память и люди",
         "Сюжет и развитие",
+        "Память и люди",
+        "Библиотека",
+        "Работа агента",
         "Лаборатория",
-        "Рабочее пространство",
-        "LLM и расходы",
+        "Диалог · временно",
     ]:
         nav.get_by_role("link", name=label, exact=True).click()
         expect(
@@ -364,3 +367,32 @@ def test_header_start_unknown_reuses_request_and_ignores_viewed_test_profile(pag
     page.get_by_role("button", name="STOP — остановить активного агента").click()
     expect(page.get_by_text("Допуски отозваны.", exact=False)).to_be_visible()
     assert len([path for path, _ in calls if path.endswith("/primary/stop")]) == 1
+
+
+def test_navigation_is_grouped_and_the_temporary_conversation_is_labelled(page, live_panel):
+    open_mock(page, live_panel)
+    # The panel opens on the overview: control and observation, not a second chat.
+    expect(page.get_by_role("heading", level=1)).to_be_visible()
+    assert page.url.endswith("#/workspace")
+    nav = page.get_by_role("navigation", name="Разделы панели")
+    groups = {
+        "Управление": ["Обзор и права", "Обращения", "Расходы и лимиты"],
+        "Персонаж и память": ["Персонаж", "Сюжет и развитие", "Память и люди", "Библиотека"],
+        "Наблюдение и диагностика": ["Работа агента", "Лаборатория", "Диалог · временно"],
+    }
+    for title, links in groups.items():
+        group = nav.get_by_role("group", name=title)
+        assert group.get_by_role("link").all_inner_texts() == links
+    guide = page.get_by_label("Подсказки по панели")
+    expect(guide).to_contain_text("Обзор и права:")
+    nav.get_by_role("link", name="Диалог · временно", exact=True).click()
+    expect(guide).to_contain_text("пока OpenCode не подключён")
+    guide.get_by_role("button", name="Как пользоваться панелью", exact=True).click()
+    expect(guide.get_by_role("link", name="Обращения", exact=True)).to_be_visible()
+    # No claim that OpenCode is already connected anywhere in the shell.
+    assert "OpenCode подключ" not in page.content()
+    page.set_viewport_size({"width": 390, "height": 700})
+    expect(
+        page.get_by_role("button", name="STOP — остановить активного агента")
+    ).to_be_in_viewport()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")

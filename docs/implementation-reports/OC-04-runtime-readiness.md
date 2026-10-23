@@ -73,9 +73,16 @@ Preflight действующего launcher: `LAUNCHER_OK`, `PYTHON_OK`, `ENV_FI
 не переиспользуется как editable-окружение нового checkout. Инструкция:
 [порядок подготовки и переключения](../opencode-deployment-runbook.md).
 
+Отрицательная preflight-проба с Python действующего deployment и ожидаемым
+новым checkout правильно дала `PYTHON_VERSION_OR_CHECKOUT_MISMATCH`.
+При финальной сверке появился main `b305cc5` с принятой PUI-01/02 Claude:
+включён в интеграцию, пересечений с runner/preflight нет. Это исходники новой
+панели в кандидате, не обновление уже запущенного личного dist; frontend-проверки
+Claude не повторялись за отсутствием изменения стыка.
+
 ## Следующее / не проверено
 
-- Claude заканчивает PUI, затем OC-02/03; backend не блокирует его работу.
+- PUI-01/02 уже в main; далее Claude делает OC-02/03, backend не блокирует работу.
 - Native browser SDK/поток/выбор профиля, два вымышленных профиля и private browser
   persistence — общий OC-06 после поставки клиента. Пробы здесь идут через HTTP
   API и Docker, не через ещё отсутствующий родной Web UI.

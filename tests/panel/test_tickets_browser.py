@@ -204,12 +204,28 @@ async def granted(service, store, scope):
     return [(p.capability_id, p.level, p.revoked_at is None) for p in rows]
 
 
+async def repeat_request(service, store, scope):
+    # The same request again from the agent: the owner merges it and the ticket version moves.
+    draft = TicketDraft(
+        kind="capability_request",
+        title=TITLE,
+        summary="Для конспекта нужен справочник.",
+        attempted="Искала в своих заметках.",
+        decision_needed="Выдать справочник или отказать.",
+        basis="reference.read",
+        request=CapabilityRequest(capability_id="reference.read", constraints="Только чтение."),
+    )
+    await service.raise_ticket("again", scope, "service", "workplace", draft, "Всё ещё нужен.")
+
+
 def test_operator_allows_a_request_after_preview_within_the_host_ceiling(page, tmp_path):
     root = capability_host(tmp_path)
+    before = in_thread(owner(root, granted))
     with Server(
         root, free_port(), tmp_path / "server.log", panel_dir=ROOT / "apps/panel/dist"
     ) as server:
         login(page, server, root)
+        expect(page.get_by_label("Профиль обращений")).to_contain_text("рабочая память")
         page.get_by_role("list", name="Нужен мой ответ").get_by_role("button").first.click()
         request = page.get_by_label("Запрос доступа")
         expect(request.get_by_text("Нужна возможность: Чтение общего справочника.")).to_be_visible(
@@ -230,11 +246,31 @@ def test_operator_allows_a_request_after_preview_within_the_host_ceiling(page, t
         consequences = request.get_by_label("Последствия решения")
         expect(consequences).to_contain_text("не запускает агента", timeout=10000)
         expect(consequences).to_contain_text("подключение ещё не готово")
+        granted_view = consequences.get_by_label("Что вы разрешаете")
+        expect(granted_view).to_contain_text("Области: Справочники")
+        expect(granted_view).to_contain_text("уровень: Только подготовка")
+        expect(granted_view).to_contain_text("Ограничения: Только чтение.")
+        # The agent adds to the ticket between preview and confirmation: the server refuses
+        # the stale decision; the panel explains, keeps the choice and offers a refresh.
+        in_thread(owner(root, repeat_request))
+        consequences.get_by_role("button", name="Подтвердить выдачу доступа").click()
+        problem = request.get_by_role("alert")
+        expect(problem).to_contain_text("изменилось", timeout=10000)
+        problem.get_by_role("button", name="Обновить карточку").click()
+        expect(request.get_by_role("button", name="Разрешить…")).to_be_enabled(timeout=10000)
+        assert in_thread(owner(root, granted)) == before  # the stale decision wrote nothing
+        expect(request.get_by_role("radio", name="Только подготовка")).to_be_checked()
+        request.get_by_role("button", name="Разрешить…").click()
+        consequences = request.get_by_label("Последствия решения")
         consequences.get_by_role("button", name="Подтвердить выдачу доступа").click()
         card = page.get_by_label("Карточка обращения")
         expect(card.get_by_role("status")).to_contain_text("Доступ выдан до", timeout=10000)
         expect(request.get_by_text("Доступ уже выдан до", exact=False)).to_be_visible(timeout=10000)
-    assert ("reference.read", "prepare_only", True) in in_thread(owner(root, granted))
+        # Opening, answering and deciding never started the agent.
+        expect(page.locator(".active-run")).to_contain_text("Остановлен")
+    rights = in_thread(owner(root, granted))
+    assert ("reference.read", "prepare_only", True) in rights
+    assert len(rights) == len(before) + 1  # exactly one decision; the stale one wrote nothing
 
 
 def test_operator_refuses_a_request_and_no_right_is_written(page, tmp_path):
