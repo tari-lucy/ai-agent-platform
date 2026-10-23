@@ -1,5 +1,6 @@
 """M4-07 acceptance: workspace screen on deterministic projections (UI-only, no live backend)."""
 
+import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -484,4 +485,22 @@ def test_test_memory_is_labelled_and_stop_stays_on_a_narrow_window(page, live_pa
     ).to_be_visible()
     page.set_viewport_size({"width": 390, "height": 844})
     expect(page.get_by_role("button", name=STOP_BUTTON)).to_be_in_viewport()
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.parametrize("size", [{"width": 1280, "height": 560}, {"width": 960, "height": 480}])
+def test_every_section_stays_reachable_when_zoom_leaves_little_height(page, live_panel, size):
+    # Browser zoom shrinks the CSS viewport; a short window is the same layout case.
+    open_workspace(page, live_panel)
+    page.set_viewport_size(size)
+    nav = page.get_by_role("navigation", name="Разделы панели")
+    links = nav.get_by_role("link")
+    assert links.count() > 5
+    sidebar = page.locator(".sidebar")
+    assert sidebar.evaluate("node => getComputedStyle(node).overflowY") == "auto"
+    last = links.last
+    last.scroll_into_view_if_needed()
+    expect(last).to_be_in_viewport()
+    last.click()
+    expect(last).to_have_class(re.compile("selected"))
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
