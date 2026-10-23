@@ -29,6 +29,9 @@ from ai_agent_core.m3_composition.artifacts import Reports
 from ai_agent_core.m3_composition.gm_cycle import PRIVATE_FAMILIES
 from ai_agent_core.m3_composition.service import PrivateAPIBudget
 from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
+from ai_agent_core.opencode_ui.assets import Bundle
+from ai_agent_core.opencode_ui.assets import load as load_opencode
+from ai_agent_core.opencode_ui.assets import mount as mount_opencode
 
 from . import rights
 from .init import test_scope, work_scope
@@ -54,12 +57,14 @@ def build(
     port: int | None = None,
     panel_dir: Path | None = None,
     env_file: Path | None = None,
+    opencode_ui_dir: Path | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     """Compose the app. Returns it with a closer for the indexes this function opened."""
     prepared = _prepare(
         host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
     )
-    return _build(host, config, prepared)
+    ui = None if opencode_ui_dir is None else load_opencode(opencode_ui_dir, host.root)
+    return _build(host, config, prepared, ui=ui)
 
 
 def _prepare(
@@ -86,7 +91,11 @@ def _prepare(
 
 
 def _build(
-    host: HostPaths, config: HostConfig, prepared: tuple[ProviderFactory, Path | None, str, int]
+    host: HostPaths,
+    config: HostConfig,
+    prepared: tuple[ProviderFactory, Path | None, str, int],
+    *,
+    ui: Bundle | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     factory, panel, secret, number = prepared
     work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
@@ -233,6 +242,7 @@ def _build(
         )
         runtime.budget_controls = LiveBudget(host, runtime, lock)
 
+    mount_opencode(app, ui)
     if panel is not None:
         mount(app, panel)
 
@@ -257,6 +267,7 @@ def serve(
     panel_dir: Path | None = None,
     env_file: Path | None = None,
     open_browser: bool = False,
+    opencode_ui_dir: Path | None = None,
 ) -> None:
     host = paths(root)
     if not host.root.is_dir():
@@ -267,13 +278,14 @@ def serve(
         number = config.port if port is None else port
         if not 1024 <= number <= 65535:
             raise HostError("INVALID_OPTION")
-        if open_browser and panel_dir is None:
+        if open_browser and panel_dir is None and opencode_ui_dir is None:
             raise HostError("PANEL_REQUIRED")
         prepared = _prepare(
             host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
         )
+        ui = None if opencode_ui_dir is None else load_opencode(opencode_ui_dir, host.root)
         with loopback_socket(number) as listener:
-            app, close = _build(host, config, prepared)
+            app, close = _build(host, config, prepared, ui=ui)
             stopped = threading.Event()
             browser = None
             try:
@@ -295,10 +307,14 @@ def serve(
                 )
                 if open_browser:
                     browser = threading.Thread(
-                        target=open_when_ready, args=(server, number, stopped), daemon=True
+                        target=open_when_ready,
+                        args=(server, number, stopped, "/opencode/" if ui is not None else "/"),
+                        daemon=True,
                     )
                     browser.start()
                 print(f"panel/API: http://{LOOPBACK}:{number}/ ; agent starts STOPPED", flush=True)
+                if ui is not None:
+                    print(f"OpenCode UI: http://{LOOPBACK}:{number}/opencode/", flush=True)
                 server.run(sockets=[listener])
             finally:
                 stopped.set()

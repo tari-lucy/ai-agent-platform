@@ -776,6 +776,12 @@ class AccessMiddleware:
         if len(path) > 2048:
             await _error(413, ErrorCode.INVALID_ARGUMENTS)(scope, receive, send)
             return
+        if path.startswith("/api/v1/opencode/"):
+            from ai_agent_core.opencode_ui.sse import event_path, stream
+
+            if event_path(path):
+                await stream(self.surface, scope, receive, send)
+                return
         if not path.startswith(("/api/", "/internal/")):
             try:
                 self.surface.browser(

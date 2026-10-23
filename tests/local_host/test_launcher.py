@@ -68,6 +68,13 @@ def test_launcher_uses_explicit_paths_and_never_reads_binding_values(tmp_path):
         str(env),
     ]
     assert "do-not-read-this-placeholder" not in done.stdout + done.stderr
+    value["opencode_ui_dir"] = str(target)
+    config.write_text(json.dumps(value), encoding="utf-8")
+    added = launch(config)
+    assert added.returncode == 0, added.stderr
+    newer = json.loads((target / "arguments.json").read_text(encoding="utf-8-sig"))
+    assert newer == args[:11] + ["--opencode-ui-dir", str(target)] + args[11:]
+    assert "do-not-read-this-placeholder" not in added.stdout + added.stderr
     value["unexpected"] = "PRIVATE_MARKER"
     config.write_text(json.dumps(value), encoding="utf-8")
     refused = launch(config)

@@ -60,11 +60,13 @@ class Server:
         provider: str = "mock",
         panel_dir: Path | None = None,
         env_file: Path | None = None,
+        opencode_ui_dir: Path | None = None,
     ) -> None:
         self.root, self.port, self.log = root, port, log
         self.origin = f"http://127.0.0.1:{port}"
         self.provider, self.panel_dir = provider, panel_dir
         self.env_file = env_file
+        self.opencode_ui_dir = opencode_ui_dir
         self.process: subprocess.Popen | None = None
 
     def __enter__(self) -> Server:
@@ -79,6 +81,7 @@ class Server:
                 "--port",
                 str(self.port),
                 *(("--env-file", str(self.env_file)) if self.env_file else ()),
+                *(("--opencode-ui-dir", str(self.opencode_ui_dir)) if self.opencode_ui_dir else ()),
             ),
             stdout=handle,
             stderr=handle,

@@ -78,6 +78,8 @@ async def dispatch(
                 "commands": sorted(COMMANDS),
                 "events": "/api/v1/events",
                 "events_transport": "websocket",
+                "events_sse": "/api/v1/opencode/agents/{directory}/events",
+                "ui_base": "/opencode/",
                 "stop": "/api/v1/agents/{agent_id}/stop",
                 "schema": "docs/protocols/opencode-bridge-v1.md",
             },

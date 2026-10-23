@@ -80,6 +80,11 @@ def parser() -> argparse.ArgumentParser:
         "--panel-dir", type=Path, help="absolute path of a built apps/panel/dist to serve"
     )
     run.add_argument(
+        "--opencode-ui-dir",
+        type=Path,
+        help="prepared upstream adapter build for /opencode; does not grant rights or start agents",
+    )
+    run.add_argument(
         "--open-browser", action="store_true", help="open panel once after successful startup"
     )
     budget = commands.add_parser(
@@ -379,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
             panel_dir=arguments.panel_dir,
             env_file=arguments.env_file,
             open_browser=arguments.open_browser,
+            opencode_ui_dir=arguments.opencode_ui_dir,
         )
         return 0
     except (HostError, ArtifactsError) as error:

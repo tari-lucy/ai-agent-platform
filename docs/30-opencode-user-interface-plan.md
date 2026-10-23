@@ -19,6 +19,11 @@ OC-01: ранняя owner-bridge поставка `aw-opencode/1` опублик
 server/harness lifecycle. Полное закрытие OC-01 требует native integration gate;
 опубликованный контракт уже можно использовать для зависимой реализации.
 
+OC-04: ранняя поставка локального UI loader/launcher и bounded SSE notifications.
+[Контракт артефакта и событий для OC-03](protocols/opencode-delivery-v1.md).
+Родная сборка/SDK, native journey и личное включение ещё не приняты; эта поставка
+не включает подключение аккаунта ChatGPT и не закрывает полный OC-04/06/07 gate.
+
 ## 1. Пользовательский путь
 
 Оператор открывает одно окно **родного Web OpenCode**, выбирает персонажа и

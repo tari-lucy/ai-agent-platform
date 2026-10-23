@@ -84,8 +84,12 @@ HTTP статусы/коды — прежние 401/403/409/429/503; ошибо�
 
 ## События
 
-Сейчас используется уже принятый `/api/v1/events` WebSocket с `EventSubscription`
-и Scope/ограниченным replay. Новый SSE broker ещё не поставлен (OC-04/03).
+Сохраняется уже принятый `/api/v1/events` WebSocket с `EventSubscription` и Scope.
+Долговечного replay store нет: старый after_event_id требует перечитать проекции.
+OC-04 добавляет owner notifications через SSE:
+`/api/v1/opencode/agents/{directory}/events` (connected/refetch/closed).
+Это не raw native schema и не поток готовых ответов;
+[поставка, auth, пределы и стык SDK](opencode-delivery-v1.md).
 `opencode_ui.protocol.invalidation(PanelEvent, selected_scope)` выдаёт только
 directory, event_id, owner_event, resource_id/resource_version и type=refetch;
 чужая partition даёт None. Подписку/авторизацию проверяет существующий сервер.

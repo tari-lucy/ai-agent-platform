@@ -69,6 +69,11 @@
 
 ## Текущая граница
 
+Ранняя инфраструктура OC-04 (UI bundle loader/launcher, owner SSE) описана в
+docs/protocols/opencode-delivery-v1.md и отчёте OC-04-native-delivery.md.
+Настоящего native dist/SDK и аккаунтного транспорта ChatGPT это не поставляет.
+Клиент остаётся OC-03 Claude; личное включение — после cross-review и OC-06/07.
+
 Ранняя поставка OC-01: docs/protocols/opencode-bridge-v1.md. Платформенный bridge
 опубликован, native UI ещё не подключён. Текущие gates/ограничения — отчёт
 docs/implementation-reports/OC-01-native-bridge.md. Нового доступа к модели через

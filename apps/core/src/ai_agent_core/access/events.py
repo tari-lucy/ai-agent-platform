@@ -15,6 +15,7 @@ class Subscriber:
     subscription: EventSubscription
     buffer: deque[bytes] = field(default_factory=deque, repr=False)
     closed: bool = False
+    notifications_only: bool = False
 
 
 class Events:
@@ -22,13 +23,17 @@ class Events:
         self.limits = limits
         self._clients: set[Subscriber] = set()
 
-    def subscribe(self, subscription: EventSubscription) -> Subscriber:
+    def subscribe(
+        self, subscription: EventSubscription, *, notifications_only: bool = False
+    ) -> Subscriber:
         if subscription.after_event_id is not None:
             # No replay store yet: refresh projections; never restart a model call.
             raise ContractError(ErrorCode.STALE_CONTEXT)
         if len(self._clients) >= self.limits.websocket_clients:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        client = Subscriber(subscription.model_copy(deep=True))
+        client = Subscriber(
+            subscription.model_copy(deep=True), notifications_only=notifications_only
+        )
         self._clients.add(client)
         return client
 
@@ -49,6 +54,8 @@ class Events:
     def _publish(self, event: PanelEvent | StreamChunk | StreamTerminal) -> None:
         raw = to_wire(event)
         for client in tuple(self._clients):
+            if client.notifications_only and not isinstance(event, PanelEvent):
+                continue
             selected = client.subscription
             if event.scope.partition != selected.scope.partition:
                 continue

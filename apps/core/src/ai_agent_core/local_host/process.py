@@ -77,13 +77,17 @@ class StartedServer(Protocol):
     started: bool
 
 
-def open_when_ready(server: StartedServer, port: int, stopped: threading.Event) -> None:
+def open_when_ready(
+    server: StartedServer, port: int, stopped: threading.Event, path: str = "/"
+) -> None:
+    if path not in ("/", "/opencode/"):
+        raise HostError("INVALID_OPTION")
     for _ in range(600):
         if stopped.wait(0.1):
             return
         if server.started:
             try:
-                if not webbrowser.open(f"http://127.0.0.1:{port}/", new=2):
+                if not webbrowser.open(f"http://127.0.0.1:{port}{path}", new=2):
                     print("BROWSER_NOT_OPENED: open the loopback panel manually", file=sys.stderr)
             except Exception:
                 print("BROWSER_NOT_OPENED: open the loopback panel manually", file=sys.stderr)
