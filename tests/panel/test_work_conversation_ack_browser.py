@@ -93,6 +93,7 @@ def work_host(tmp_path, monkeypatch, page):
     fast(rt)
     # The synthetic session harness, installed in the server's own loop (as R1's tests do).
     asyncio.run_coroutine_threadsafe(install(rt, host.scope), shared["loop"]).result(20)
+    host.served = rt, shared["loop"]  # owner calls run in the server's own loop
     try:
         yield "http://127.0.0.1:" + str(port), host, model
     finally:
@@ -143,3 +144,59 @@ def test_the_person_answers_in_the_panel_and_the_visible_tab_acknowledges(page, 
     stop.click()
     expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible(timeout=15000)
     assert model.count("activity") == 1
+
+
+def test_a_revoked_message_stops_its_conversation_with_a_visible_reason(page, work_host):
+    from ai_agent_application.storage import Owner
+    from ai_agent_contracts.agent_sessions import WorkSession
+
+    from ai_agent_core.m3_composition.dialogue import memory
+    from ai_agent_core.m3_composition.state import PRINCIPALS, command
+    from ai_agent_core.m3_composition.work_sessions import sessions
+
+    origin, host, model = work_host
+    rt, loop = host.served
+    page.goto(origin + "/#/work")
+    page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
+    page.get_by_role("button", name="Войти", exact=True).click()
+    talk = page.get_by_label("Разговор о работе")
+    talk.get_by_label("Новый разговор о работе").fill("Отозванный вопрос")
+    talk.get_by_role("button", name="Начать разговор").click()
+    thread = page.get_by_label("Разговор: Отозванный вопрос")
+    thread.get_by_label("Сообщение агенту").fill("Синтетический вопрос, который будет отозван.")
+    thread.get_by_role("button", name="Отправить").click()
+    expect(thread.get_by_text("сохранено, ждёт исполнения", exact=False)).to_be_visible(
+        timeout=10000
+    )
+
+    async def revoke():
+        [session] = await rt.store.repository(
+            WorkSession, PRINCIPALS[Owner.ACTIVITY], host.scope
+        ).list(limit=10)
+        [message] = await sessions(rt).messages(host.scope, session.id)
+        await memory(rt).set_rights(
+            command(host.scope, "revoke-browser"),
+            message.source.source_id,
+            message.source.version,
+            read_allowed=True,
+            api_transfer_allowed=False,
+            public_disclosure_allowed=False,
+        )
+
+    asyncio.run_coroutine_threadsafe(revoke(), loop).result(20)
+    # Even STOPPED, the panel says this message will not run (no START needed to learn it).
+    page.reload()
+    thread = page.get_by_label("Разговор: Отозванный вопрос")
+    expect(thread.get_by_text("не будет исполнено", exact=False)).to_be_visible(timeout=15000)
+
+    # START: the owner stops the conversation with the reason and how to continue; no model.
+    page.get_by_role("button", name="START — запустить агента").click()
+    expect(page.locator(".active-run")).to_contain_text("Работает", timeout=15000)
+    expect(thread.get_by_role("status")).to_contain_text("начните новый разговор", timeout=30000)
+    expect(thread.get_by_text("Чей ход: Разговор остановлен", exact=False)).to_be_visible()
+    assert model.count("activity") == 0
+
+    # The existing new-conversation path continues the work.
+    talk.get_by_label("Новый разговор о работе").fill("Новый вопрос")
+    talk.get_by_role("button", name="Начать разговор").click()
+    expect(page.get_by_label("Разговор: Новый вопрос")).to_be_visible(timeout=10000)

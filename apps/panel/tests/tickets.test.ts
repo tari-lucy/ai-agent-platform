@@ -62,7 +62,8 @@ test('projections reject inconsistent turns, foreign scopes and ungrounded capab
 });
 
 test('ticket.changed refreshes tickets and their messages', () => {
-  assert.deepEqual(affectedResources['ticket.changed'], ['tickets', 'ticket-messages']);
+  // A ticket answer can wake a work conversation and change its access state (c966401).
+  assert.deepEqual(affectedResources['ticket.changed'], ['tickets', 'ticket-messages', 'work-session-transcript']);
   const changed = event({ id: 'e1', event_id: 'e1', type: 'ticket.changed', scope, resource_id: 't-1', resource_version: 3,
     occurred_at: T(2), created_at: T(2), causal_id: null, operation_id: null });
   assert.equal(changed.type, 'ticket.changed');
