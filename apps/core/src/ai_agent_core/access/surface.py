@@ -333,6 +333,10 @@ class Surface:
             )
             return response
         authority = self.operator(headers, mutation=mutation)
+        if path.startswith("/api/v1/opencode/"):
+            from ai_agent_core.opencode_ui.surface import dispatch
+
+            return await dispatch(self, scope, receive, authority)
         if path == "/api/v1/auth/session" and method == "GET":
             return _json(self.sessions.info(authority))
         if path == "/api/v1/auth/logout" and method == "POST":

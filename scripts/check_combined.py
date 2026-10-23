@@ -59,6 +59,7 @@ HELPERS = (
     "tests/workplace_launcher",
 )
 TESTS = (
+    "tests/opencode_ui",
     "tests/operations",
     "tests/access",
     "tests/jobs",

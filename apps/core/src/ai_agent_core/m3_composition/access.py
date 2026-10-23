@@ -37,6 +37,11 @@ class Mutations:
         runtime = self.runtime
         runtime.authorize_configuration(authority, request.scope)
         inactive_edits = {
+            # Durable intake into an already authorised/prepared partition is metadata,
+            # not a second runtime. The selector still executes only the active partition.
+            "work.session.open",
+            "work.session.message",
+            "work.session.close",
             "persona.create",
             "persona.copy",
             "persona.apply",
