@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { event, workSessionTranscript, workSessions } from '../src/shared/validation.ts';
 import { affectedResources } from '../src/shared/events.ts';
-import { closeCommand, discussTitle, messageCommand, messageProblem, openCommand, pending, sessionFor, turn, writable } from '../src/ui/work/conversation.ts';
+import { closeCommand, discussTitle, messageCommand, messageProblem, openCommand, pending, sessionFor, stopNotice, turn, waitingLabels, writable } from '../src/ui/work/conversation.ts';
 import type { Scope, WorkSession, WorkSessionTranscript } from '../src/shared/contracts.ts';
 
 const scope: Scope = { workspace_id: 'synthetic', persona_id: 'alpha', memory_space_id: 'alpha-work', memory_mode: 'work' };
@@ -93,4 +93,16 @@ test('a waiting message shows why: no right, the access request, its refusal or 
   assert.equal(turn(transcript({ waiting_reason: 'unavailable' }), false), 'Сообщение сохранено; исполнение начнётся только после запуска');
   assert.equal(workSessionTranscript(transcript({ waiting_reason: 'access_requested', access_ticket_id: 't-1' }), scope, 's-1').access_ticket_id, 't-1');
   assert.throws(() => workSessionTranscript(transcript({ waiting_reason: 'later' as never }), scope, 's-1'));
+});
+
+test('an unavailable message stops the conversation with the reason and the way on', () => {
+  assert.equal(turn(transcript({ waiting_reason: 'message_unavailable' }), false), waitingLabels.message_unavailable);
+  const stopped = transcript({ state: 'invalidated', invalidated_reason: 'message_unavailable', entries: [] });
+  assert.equal(turn(stopped, true), 'Разговор остановлен: начните новый разговор');
+  assert.match(stopNotice(stopped) ?? '', /не исполнялось.*начните новый разговор/s);
+  assert.equal(stopNotice(transcript()), null);
+  assert.match(stopNotice(transcript({ state: 'invalidated', entries: [] })) ?? '', /сброшен/);
+  assert.equal(workSessionTranscript(stopped, scope, 's-1').invalidated_reason, 'message_unavailable');
+  assert.throws(() => workSessionTranscript(transcript({ invalidated_reason: 'message_unavailable' }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ state: 'invalidated', invalidated_reason: 'other' as never }), scope, 's-1'));
 });

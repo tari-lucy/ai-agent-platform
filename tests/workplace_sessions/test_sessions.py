@@ -208,3 +208,70 @@ def test_history_gap_fails_instead_of_claiming_it_is_complete(tmp_path):
             await w.close()
 
     asyncio.run(scenario())
+
+
+def test_invalidation_keeps_tasks_and_history_gaps_are_explicit(tmp_path):
+    async def scenario():
+        from ai_agent_application.agent_activity.book import ActivityBook
+        from ai_agent_application.agent_activity.sessions import message_id
+        from sqlalchemy import text
+
+        w, book, _ = await world(tmp_path)
+        try:
+            task = await ActivityBook(w.store, w.clock, principal=ACT).open_task(
+                "task", AREA, "assignment", "Synthetic goal", "Synthetic reason", limit=5
+            )
+            opened = await book.open(opening(task_id=task.id))
+            sid = opened.resource_id
+            await book.append(edit(sid, 1), await w.source())
+            await book.append(edit(sid, 2, key="second"), await w.source())
+            before = await book.get(AREA, sid)
+            with pytest.raises(ContractError) as stale:
+                await book.invalidate(
+                    AREA, sid, "stale", expected_version=1, reason="message_unavailable"
+                )
+            assert stale.value.error.code == ErrorCode.VERSION_CONFLICT
+            done = await book.invalidate(
+                AREA, sid, "stop", expected_version=before.version, reason="message_unavailable"
+            )
+            assert (
+                await book.invalidate(
+                    AREA, sid, "stop", expected_version=before.version, reason="message_unavailable"
+                )
+                == done
+            )  # replay
+            after = await book.get(AREA, sid)
+            assert (
+                after.state == "invalidated" and after.invalidated_reason == "message_unavailable"
+            )
+            assert after.task_ids == [task.id] and after.generation == before.generation + 1
+            assert after.pending_reply is None and not after.context_sources
+            with pytest.raises(ContractError):  # terminal: a second stop is refused
+                await book.invalidate(
+                    AREA, sid, "again", expected_version=after.version, reason="message_unavailable"
+                )
+            with pytest.raises(ContractError):  # no input after the stop
+                await book.append(edit(sid, after.version, key="late"), await w.source())
+            with pytest.raises(ValidationError):  # a reason only on an invalidated session
+                WorkSession.model_validate(
+                    {**before.model_dump(), "invalidated_reason": "message_unavailable"}
+                )
+
+            # Another conversation: a row hidden by its source's lifecycle is a gap, not an end.
+            other = (await book.open(opening(key="other"))).resource_id
+            await book.append(edit(other, 1, key="o1"), await w.source())
+            await book.append(edit(other, 2, key="o2"), await w.source())
+            async with w.store.engine.begin() as connection:
+                await connection.execute(
+                    text("UPDATE records SET available=0 WHERE id=:hidden"),
+                    {"hidden": message_id(AREA, other, 1)},
+                )
+            rows = await book.entries(AREA, other)
+            assert [sequence for sequence, _ in rows] == [1, 2]
+            assert [row is None for _, row in rows] == [True, False]
+            with pytest.raises(ContractError):
+                await book.messages(AREA, other)
+        finally:
+            await w.close()
+
+    asyncio.run(scenario())
