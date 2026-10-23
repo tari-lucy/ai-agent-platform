@@ -14200,6 +14200,19 @@
           "title": "Id",
           "type": "string"
         },
+        "invalidated_reason": {
+          "anyOf": [
+            {
+              "const": "message_unavailable",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalidated Reason"
+        },
         "last_sequence": {
           "default": 0,
           "minimum": 0,
@@ -14614,6 +14627,19 @@
           "title": "Entries",
           "type": "array"
         },
+        "invalidated_reason": {
+          "anyOf": [
+            {
+              "const": "message_unavailable",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalidated Reason"
+        },
         "pending_reply": {
           "anyOf": [
             {
@@ -14681,7 +14707,8 @@
                 "unavailable",
                 "access_required",
                 "access_requested",
-                "access_refused"
+                "access_refused",
+                "message_unavailable"
               ],
               "type": "string"
             },

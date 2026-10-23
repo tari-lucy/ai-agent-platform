@@ -573,12 +573,23 @@ class WorkSessionTranscript(Contract):
     pending_reply: WorkSessionDraft | None = None
     # Why stored messages wait, when the platform knows: work conversations are not available on
     # this host (``waiting_detail`` is a fixed code), need a right (``access_ticket_id`` once the
-    # technical request is open) or the operator refused it.
+    # technical request is open) or the operator refused it; or a stored message became
+    # unavailable (revoked, deleted, expired) and will not be executed.
     waiting_reason: (
-        Literal["unavailable", "access_required", "access_requested", "access_refused"] | None
+        Literal[
+            "unavailable",
+            "access_required",
+            "access_requested",
+            "access_refused",
+            "message_unavailable",
+        ]
+        | None
     ) = None
     waiting_detail: ShortText | None = None
     access_ticket_id: Id | None = None
+    # Set with state ``invalidated``: an unprocessed operator message became unavailable and was
+    # not executed; the operator continues in a new conversation.
+    invalidated_reason: Literal["message_unavailable"] | None = None
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC

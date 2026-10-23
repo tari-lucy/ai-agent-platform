@@ -73,6 +73,9 @@ class WorkSession(VersionedRecord):
     context_files: list[ArtifactRef] = Field(default_factory=list, max_length=200)
     checkpoint: ArtifactRef | None = None
     pending_reply: SessionReplyRef | None = None
+    # Why the owner stopped the conversation: an unprocessed operator message was revoked,
+    # expired or deleted, so it is never executed. Continue in a new conversation.
+    invalidated_reason: Literal["message_unavailable"] | None = None
 
     @model_validator(mode="after")
     def coherent(self) -> Self:
@@ -90,6 +93,8 @@ class WorkSession(VersionedRecord):
             raise ValueError("SESSION_TICKET_DUPLICATE")
         if self.state == "invalidated" and self.checkpoint is not None:
             raise ValueError("INVALIDATED_CHECKPOINT")
+        if self.invalidated_reason is not None and self.state != "invalidated":
+            raise ValueError("INVALIDATED_REASON")
         if self.pending_reply is not None and (
             self.state in ("closed", "invalidated")
             or self.pending_reply.scope.partition != self.scope.partition

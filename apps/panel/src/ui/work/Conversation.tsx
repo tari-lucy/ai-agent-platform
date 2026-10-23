@@ -7,7 +7,7 @@ import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { useWorkSessions } from './sessions.ts';
 import {
-  closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, pending as awaiting, sessionStateLabels, titleProblem, turn, writable,
+  closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, pending as awaiting, sessionStateLabels, stopNotice, titleProblem, turn, writable,
 } from './conversation.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -129,6 +129,7 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
     </Group>
     <Text size="sm" c="dimmed">Чей ход: {turn(transcript, running)}</Text>
     {transcript.access_ticket_id && <Text size="sm">Запрос разрешения: <Anchor href="#/tickets">открыть обращения</Anchor></Text>}
+    {stopNotice(transcript) && <Text size="sm" c="orange.8" role="status">{stopNotice(transcript)}</Text>}
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
       {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker === 'operator' ? 'gray.0' : 'blue.0'}>

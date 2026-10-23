@@ -26,7 +26,9 @@ export const pending = (transcript: WorkSessionTranscript, sequence: number, spe
 // Whose move. A stored message is not an answer: no reply is promised before the session runs it.
 export function turn(transcript: WorkSessionTranscript, running: boolean): string {
   if (transcript.state === 'closed') return 'Разговор закрыт';
-  if (transcript.state === 'invalidated') return 'Контекст сброшен: начните новый разговор';
+  if (transcript.state === 'invalidated') return transcript.invalidated_reason ? 'Разговор остановлен: начните новый разговор' : 'Контекст сброшен: начните новый разговор';
+  // Shown even while STOPPED: a start would not execute this message either.
+  if (transcript.waiting_reason === 'message_unavailable') return waitingLabels.message_unavailable;
   if (transcript.state === 'waiting') return 'Ждёт ответа на обращение';
     if (transcript.pending_reply) return transcript.pending_reply.withheld ? 'Ответ скрыт: основания недоступны' :
       transcript.pending_reply.acknowledgeable ? 'Ответ готов, ждёт получения' : 'Ответ подготовлен; подтверждение пока недоступно';
@@ -46,11 +48,23 @@ export const waitingLabels: Record<NonNullable<WorkSessionTranscript['waiting_re
   access_required: 'Для рабочего разговора требуется разрешение; запрос появится после запуска',
   access_requested: 'Для рабочего разговора требуется разрешение: решите запрос в обращениях',
   access_refused: 'Разрешение на рабочий контур отклонено; сообщения не исполняются',
+  message_unavailable: 'Сообщение оператора отозвано, удалено или истекло и не будет исполнено; начните новый разговор',
 };
 export function waitingNotice(transcript: WorkSessionTranscript): string | null {
   if (!transcript.waiting_reason) return null;
   const label = waitingLabels[transcript.waiting_reason];
   return transcript.waiting_reason === 'unavailable' && transcript.waiting_detail ? `${label} (${transcript.waiting_detail})` : label;
+}
+// Why the owner stopped this conversation and how to continue: the existing new-conversation form.
+export const invalidatedLabels: Record<NonNullable<WorkSessionTranscript['invalidated_reason']>, string> = {
+  message_unavailable: 'Сообщение оператора отозвано, удалено или истекло, поэтому оно не исполнялось. '
+    + 'Этот разговор остановлен; чтобы продолжить, начните новый разговор в поле «Новый разговор о работе» '
+    + 'и при необходимости повторите задачу заново.',
+};
+export function stopNotice(transcript: WorkSessionTranscript): string | null {
+  if (transcript.state !== 'invalidated') return null;
+  return transcript.invalidated_reason ? invalidatedLabels[transcript.invalidated_reason]
+    : 'Контекст этого разговора сброшен. Чтобы продолжить, начните новый разговор.';
 }
 export const writable = (transcript: WorkSessionTranscript) => transcript.state === 'open' || transcript.state === 'waiting';
 export const openCommand = (scope: Scope, title: string, requestId: string, taskId?: string): CreateCommand => ({
