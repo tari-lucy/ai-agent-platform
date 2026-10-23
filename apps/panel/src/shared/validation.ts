@@ -29,12 +29,13 @@ export function session(value: unknown): OperatorSession {
   return value as OperatorSession;
 }
 const states = new Set(['STOPPED', 'STARTING', 'ACTIVE', 'STOPPING', 'FAULTED']);
-function page(value: unknown, selected: Scope): asserts value is Record<string, unknown> & { items: Record<string, unknown>[] } {
+function page(value: unknown, selected: Scope, versioned = true): asserts value is Record<string, unknown> & { items: Record<string, unknown>[] } {
   demand(object(value) && Array.isArray(value.items) && value.items.length <= 50 &&
     typeof value.complete === 'boolean' && (value.next_cursor === null || id(value.next_cursor) || (typeof value.next_cursor === 'string' && /^t1\.[A-Za-z0-9_-]{1,509}$/.test(value.next_cursor))) &&
     (value.limit === undefined || value.limit === 50));
   demand(value.items.every((row: unknown) => object(row) && isScope(row.scope) &&
-    samePartition(selected, row.scope) && id(row.id) && version(row.version) &&
+    samePartition(selected, row.scope) && id(row.id) &&
+    ((!versioned && row.version === undefined) || version(row.version)) &&
     (row.schema_version === undefined || row.schema_version === '1.0')));
 }
 export function runs(value: unknown, selected: Scope): RunSessionPage {
@@ -151,7 +152,7 @@ export function memorySources(value: unknown, selected: Scope): SourcePage {
   return value as SourcePage;
 }
 export function episodes(value: unknown, selected: Scope): EpisodePage {
-  page(value, selected);
+  page(value, selected, false);
   demand(value.items.every((row) => text(row.choice) && text(row.actual_outcome) && refs(row.sources) &&
     Array.isArray(row.participant_ids) && row.participant_ids.every(id) && ['observation', 'simulation'].includes(String(row.provenance))));
   return value as EpisodePage;

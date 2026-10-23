@@ -27,12 +27,21 @@ const source = (over: object = {}): Source => ({ ...base, id: 's1', source_id: '
   api_transfer_allowed: true, public_disclosure_allowed: false, ...over } as unknown as Source);
 const claim = (over: object = {}): Claim => ({ ...base, id: 'c1', subject_id: 'ivan', content: 'Иван живёт у озера', knowledge_type: 'reported',
   sources: [ref('s1')], confidence: 0.6, conflict_ids: [], updated_at: T(5), ...over } as unknown as Claim);
-const episode = (over: object = {}): Episode => ({ ...base, id: 'e1', choice: 'Рассмотреть камень', actual_outcome: 'Камень обычный', operation_id: 'op-1',
+const episode = (over: object = {}): Episode => ({ schema_version: '1.0', scope, created_at: T(1), id: 'e1', choice: 'Рассмотреть камень', actual_outcome: 'Камень обычный', operation_id: 'op-1',
   outcome_confirmed: true, participant_ids: ['ivan'], provenance: 'observation', sources: [ref('s1')], ...over } as unknown as Episode);
 const summary = (over: object = {}): Summary => ({ ...base, id: 'm1', analysis_id: 'an-1', content: 'За день: обсуждали озеро', episode_ids: ['e1'],
   period_start: T(0), period_end: T(9), sources: [ref('s1')], ...over } as unknown as Summary);
 const plan = (over: object = {}): ConsequencePlan => ({ ...base, id: 'plan-1', operation_type: 'memory.delete', consequences: 'Будут удалены текст, выдержки и индексы.',
   dependencies: [{ resource_id: 's1', version: 1 }, { resource_id: 'c1', version: 1 }], expires_at: T(50), ...over } as unknown as ConsequencePlan);
+
+test('immutable episodes need no version; mutable memory records still require one', () => {
+  assert.equal(episodes(page([episode()]), scope).items.length, 1);
+  assert.throws(() => episodes(page([episode({ version: 0 })]), scope));
+  assert.throws(() => episodes(page([episode({ scope: { ...scope, memory_mode: 'test' } })]), scope));
+  assert.throws(() => memorySources(page([source({ version: undefined })]), scope));
+  assert.throws(() => claims(page([claim({ version: undefined })]), scope));
+  assert.throws(() => summaries(page([summary({ version: undefined })]), scope));
+});
 
 test('memory pages from another partition or with impossible states are rejected before the cache', () => {
   assert.throws(() => memorySources(page([{ ...source(), scope: { ...scope, memory_mode: 'test' } }]), scope));
