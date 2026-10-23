@@ -35,6 +35,8 @@ class BridgeModel(WorkModel):
     async def __call__(self, request):
         body = json.loads(request.content)
         assert body["messages"][0]["content"].endswith(WORK_SESSION_PROTOCOL)
+        assert "/work/outputs/" in body["messages"][0]["content"]
+        assert "область projects" in body["messages"][0]["content"]
         assert '"StepDecision"' not in body["messages"][0]["content"]
         self.calls.append(("activity", body))
         assert "platform_workspace" in {t["function"]["name"] for t in body["tools"]}

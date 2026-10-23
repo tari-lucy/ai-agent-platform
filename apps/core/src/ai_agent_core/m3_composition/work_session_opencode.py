@@ -4,13 +4,20 @@ Does not prepare a host, register capabilities, grant rights or start an agent.
 The launcher supplies its verified template and the operator-selected output area.
 """
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
 from ai_agent_adapters.agent_harness import OpenCodeHarness
 from ai_agent_adapters.agent_harness.opencode import PREFIX
 from ai_agent_adapters.sandbox.docker import DockerTaskRunner
 from ai_agent_adapters.sandbox.policy import RunnerTemplate
-from ai_agent_application.agent_workplace.ports import ModelGateway, WorkAdmission, WorkspaceGateway
+from ai_agent_application.agent_workplace.ports import (
+    ModelGateway,
+    ModelReply,
+    ModelRequest,
+    WorkAdmission,
+    WorkspaceGateway,
+)
 from ai_agent_application.control.ports import ResourceTicket
 from ai_agent_contracts.agent_workplace import WRITABLE_AREAS
 from ai_agent_contracts.codec import ContractError
@@ -21,6 +28,39 @@ from .workplace import Attempts
 
 if TYPE_CHECKING:
     from .service import Execution, Runtime
+
+
+def environment_guide(output_area: str) -> str:
+    """Trusted adapter facts, separate from persona/canon and operator instructions."""
+    return (
+        "\n\n## Устройство этой рабочей среды\n"
+        "Управляемые области платформы не являются каталогами контейнера. "
+        "Их содержимое и права узнавай через объявленные workspace MCP операции; "
+        "не ищи каталог projects или knowledge на диске песочницы. "
+        "write_note сохраняет заметку в knowledge. "
+        "Для проектного результата используй объявленный файловый инструмент OpenCode: "
+        "создай текстовый файл в /work/outputs/ (или outputs/ относительно /work). "
+        "Имя файла должно быть коротким, lowercase ASCII без пробелов, например result.md; "
+        "русский заголовок и содержание размещай внутри файла. "
+        "Этот файл можно перечитать там же до окончания хода. "
+        f"После успешного хода владелец файлов опубликует outputs в область {output_area}; "
+        "название области задано настройкой, а не именем папки в контейнере. "
+        "Не утверждай, что файл уже опубликован или действие выполнено, без результата "
+        "инструмента. Пустой список файлов — корректный результат, а не запрос новых прав."
+    )
+
+
+class EnvironmentModels:
+    def __init__(self, delegate: ModelGateway, output_area: str) -> None:
+        self.delegate, self.guide = delegate, environment_guide(output_area)
+
+    async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
+        if not request.messages or request.messages[0].role != "system":
+            return ModelReply("not_admitted", "", "")
+        first = replace(request.messages[0], content=request.messages[0].content + self.guide)
+        return await self.delegate.generate(
+            admission, replace(request, messages=(first, *request.messages[1:]))
+        )
 
 
 class OpenCodeSessions:
@@ -171,7 +211,7 @@ class OpenCodeSessions:
             Release(rt),
             authorize=authorize,
             lifecycle=lifecycle,
-            models=models,
+            models=EnvironmentModels(models, self.output_area),
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
             else None,

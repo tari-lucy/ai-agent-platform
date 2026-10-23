@@ -5,6 +5,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -262,6 +263,10 @@ class DockerTaskRunner:
                             }
                             if len(json.dumps(answer).encode()) > task.limits.output_bytes:
                                 raise ValueError("RUNNER_MODEL_OUTPUT_LIMIT")
+                    else:
+                        logging.getLogger(__name__).warning(
+                            "Sandbox model call refused: MODEL_CALL_LIMIT"
+                        )
                     process.stdin.write(json.dumps(answer).encode() + b"\n")
                     await process.stdin.drain()
                 await process.wait()

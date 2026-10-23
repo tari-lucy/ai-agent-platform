@@ -83,7 +83,7 @@ class Workspace:
                     "summary": t.manifest.summary[:200],
                     "areas": t.manifest.areas,
                 }
-                for t in (await tools(rt, admission.scope))[:20]
+                for t in (await tools(rt, admission.scope, session=True))[:20]
             ]
         elif request.operation == "list_files":
             area = a.get("area", "")
