@@ -100,9 +100,9 @@ export const affectedResources: Record<PanelEvent['type'], readonly string[]> = 
   'memory.changed': ['sources', 'episodes', 'claims', 'summaries', 'memory-cycles', 'private-api-status'],
   'relationship.changed': ['people', 'relationships', 'topics', 'promises'],
   'arc.changed': ['arcs', 'opportunities'], 'change.changed': ['changes', 'character-states'],
-  'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities', 'permissions', 'capability-bindings', 'capability-manifests'],
+  'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities', 'permissions', 'capability-bindings', 'capability-manifests', 'work-session-transcript'],
   'usage.changed': ['llm-attempts', 'cost-calculations', 'private-api-status'],
-  'ticket.changed': ['tickets', 'ticket-messages'],
+  'ticket.changed': ['tickets', 'ticket-messages', 'work-session-transcript'],
   'work.changed': ['work-tasks', 'work-attempts'],
   'work-session.changed': ['work-sessions', 'work-session-messages', 'work-session-transcript'],
 };

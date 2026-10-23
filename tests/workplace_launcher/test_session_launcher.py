@@ -223,22 +223,23 @@ def test_refusal_is_not_reopened_and_stop_while_waiting_runs_nothing(tmp_path, m
     asyncio.run(scenario())
 
 
-def test_not_ready_host_keeps_conversations_waiting_with_the_reason(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reason", ["DOCKER_NOT_FOUND", "DOCKER_UNAVAILABLE"])
+def test_not_ready_host_keeps_conversations_waiting_with_the_reason(tmp_path, monkeypatch, reason):
     async def scenario():
         model = WorkModel()
         host = await configured(tmp_path, monkeypatch, model)
-        monkeypatch.setattr(work_sessions, "check", lambda settings, **unused: "DOCKER_NOT_FOUND")
+        monkeypatch.setattr(work_sessions, "check", lambda settings, **unused: reason)
         async with host.open():
             rt = host.runtime
             fast(rt)
-            assert rt.session_harness is None and rt.session_unavailable == "DOCKER_NOT_FOUND"
+            assert rt.session_harness is None and rt.session_unavailable == reason
             session = (await open_session(host, "open", "Разговор")).json()["resource_id"]
             assert (await say(host, "say", session, 1, "Вопрос.")).status_code == 200
             await host.start()
             await asyncio.sleep(1.5)
             view = await transcript(host, session)
             assert view["waiting_reason"] == "unavailable"
-            assert view["waiting_detail"] == "DOCKER_NOT_FOUND"
+            assert view["waiting_detail"] == reason
             assert not await tickets(rt, host.scope) and model.count() == 0
 
     asyncio.run(scenario())

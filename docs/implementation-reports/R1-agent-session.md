@@ -591,3 +591,13 @@ owner reset сессионного контекста, закрытое пере
 вызовов; Docker/Edge настоящие. Только новый opt-in тест и отчёт, local_host/
 launcher/shared-файлы Claude не менялись. Следующая проверка — его production
 wiring вместо test-only install; личный host по-прежнему не переключался.
+
+## 2026-10-23: Windows-проверка production launcher
+
+[Приёмка launcher и выдачи допуска в Edge](R5-windows-opencode-launcher.md):
+конфигурация из `f1115da`, настоящий OpenCode/Docker, синтетическая модель.
+Production serve.build подключает driver без test-only install. Реальный
+launcher-тест, browser ticket → grant → ответ → ACK → reload → STOP и две
+причины недоступности прошли. Исправлено обновление причины ожидания в панели
+по событиям тикета/прав. Личный host и helpers через launcher не включались;
+реальная модель и проверка двух CPU под нагрузкой остаются вне этой поставки.
