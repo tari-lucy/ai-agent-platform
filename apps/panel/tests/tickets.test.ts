@@ -99,3 +99,37 @@ test('a conversation is read from its ticket id and stops at the first foreign m
   assert.equal(nextConversationCursor({ items: own, complete: true, next_cursor: null }, 't-1'), undefined);
   assert.equal(nextConversationCursor({ items: [], complete: false, next_cursor: 'x' }, 't-1'), undefined);
 });
+
+test('plain actions: answer, finish and refuse are ticket replies; finishing grants nothing', async () => {
+  const { answerCommand, finishCommand, refuseCommand, statusText, FINISH_NOTE, REFUSE_NOTE } = await import('../src/ui/tickets/model.ts');
+  const open = ticket('t-1');
+  const outcome = (c: { arguments: unknown }) => (c.arguments as { data: { outcome: string; body: string } }).data;
+  assert.deepEqual(outcome(answerCommand(runScope, open, ' Да ', 'r')), { ticket_id: 't-1', body: 'Да', outcome: 'answer' });
+  assert.deepEqual(outcome(finishCommand(scope, open, '', 'r')), { ticket_id: 't-1', body: FINISH_NOTE, outcome: 'resolve' });
+  assert.deepEqual(outcome(refuseCommand(scope, open, 'Нет', 'r')), { ticket_id: 't-1', body: 'Нет', outcome: 'close' });
+  assert.equal(refuseCommand(scope, open, '', 'r').type, 'ticket.reply');
+  assert.equal(outcome(refuseCommand(scope, open, '', 'r')).body, REFUSE_NOTE);
+  assert.equal(statusText(open), 'Ждёт вашего ответа');
+  assert.equal(statusText(ticket('t', { state: 'in_progress', next_turn: 'agent' })), 'Агент работает над этим');
+  assert.equal(statusText(ticket('t', { kind: 'capability_request', state: 'closed_unfulfilled', next_turn: null })), 'Закрыто без выдачи доступа');
+  assert.equal(statusText(ticket('t', { state: 'resolved', next_turn: null })), 'Завершено');
+});
+
+test('an access request is filled from current records, never typed identifiers', async () => {
+  const { proposedBinding, proposedDecision, actionProblem } = await import('../src/ui/tickets/model.ts');
+  const binding = (id: string, state: string, at: string) => ({ id, binding_id: id, capability_id: 'cap', state, verified_at: at, updated_at: at }) as never;
+  const rows = [binding('old', 'ready', T(1)), binding('pending', 'pending', T(9)), binding('new', 'ready', T(5)), binding('gone', 'revoked', T(9))];
+  assert.equal((proposedBinding(rows, 'cap') as unknown as { id: string }).id, 'new');
+  assert.equal((proposedBinding([rows[1], rows[3]], 'cap') as unknown as { id: string }).id, 'pending');
+  assert.equal(proposedBinding([rows[3]], 'cap'), undefined);
+  const manifest = { capability_id: 'cap', areas: ['projects', 'inbox'], effect: 'local_write' } as never;
+  const request = (over = {}) => ticket('t', { kind: 'capability_request', request: { capability_id: 'cap', areas: [], constraints: 'Только своё.', ...over } as never });
+  assert.deepEqual(proposedDecision(request(), manifest, rows[2]),
+    { bindingId: 'new', level: 'automatic', days: 7, areas: ['projects', 'inbox'], constraints: 'Только своё.' });
+  const asked = proposedDecision(request({ areas: ['inbox', 'exports'], duration_seconds: 3 * 86400 }), manifest, rows[2]);
+  assert.deepEqual([asked.areas, asked.days], [['inbox'], 3]);  // outside the manifest is dropped
+  assert.equal(proposedDecision(request(), { ...(manifest as object), effect: 'public_output' } as never, rows[2]).level, 'operator_decision');
+  assert.match(actionProblem('VERSION_CONFLICT', 'x'), /Обновите карточку.*сохранён/);
+  assert.match(actionProblem('ACCESS_DENIED', 'x'), /потолок.*Подробностях решения/);
+  assert.equal(actionProblem('NETWORK', 'fallback'), 'fallback');
+});

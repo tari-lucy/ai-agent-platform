@@ -83,15 +83,16 @@ def test_configured_opencode_answers_after_browser_permission_and_visible_ack(pa
     page.get_by_role("list", name="Нужен мой ответ").get_by_role(
         "button", name="Для рабочего разговора требуется разрешение", exact=False
     ).click()
-    form = page.get_by_label("Решение по праву")
-    form.get_by_label("Подключение").click()
-    page.get_by_role("option", name="opencode · проверено").click()
-    form.get_by_text("Автоматически", exact=True).click()
-    form.get_by_role("button", name="Предпросмотр решения").click()
+    # Capability, binding and versions come from current records; the default is automatic.
+    form = page.get_by_label("Запрос доступа")
+    expect(form.get_by_text("Подключение: проверено")).to_be_visible(timeout=15000)
+    form.get_by_role("button", name="Разрешить…").click()
     form.get_by_label("Последствия решения").get_by_role(
-        "button", name="Подтвердить", exact=True
+        "button", name="Подтвердить выдачу доступа"
     ).click()
-    expect(form.get_by_role("status")).to_contain_text("Право выдано", timeout=15000)
+    expect(page.get_by_label("Карточка обращения").get_by_role("status")).to_contain_text(
+        "Доступ выдан", timeout=15000
+    )
 
     page.goto(origin + "/#/work")
     conversation = page.get_by_label("Разговор: Проверка launcher")
