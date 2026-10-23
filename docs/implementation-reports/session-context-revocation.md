@@ -1,7 +1,7 @@
 # Рабочий разговор при недоступном контексте
 
 Исполнитель: Claude Code. Ветка `claude/session-context-revocation`, base main `c966401`,
-слито с `382af58`. Окно: `m3_composition/work_session_runtime.py`, методы
+слито с `39d56f6`. Окно: `m3_composition/work_session_runtime.py`, методы
 `agent_activity/sessions.py`, проекция разговора и её UI; совместимые поля контракта.
 
 ## Причина
@@ -57,7 +57,9 @@
 
 ## Контракт
 
-Совместимые необязательные поля: `WorkSession.invalidated_reason`,
+Совместимые необязательные поля (согласованы с Codex): `WorkSession.invalidated_reason`,
 `WorkSessionTranscript.invalidated_reason` (`"message_unavailable"`), значение
-`waiting_reason="message_unavailable"`. Экспорт generated и `tsc` — после окна Codex
-(`api.py`/`catalogue.py`/generated).
+`waiting_reason="message_unavailable"`. Generated экспортирован поверх main `39d56f6`,
+`export --check` и `tests/contracts`+`tests/workplace_contracts` — 94 passed; панель — tsc,
+eslint, 205 node tests, build; браузер (разговор, ACK/отзыв, обращения) — 6 passed;
+повтор целевых сессий после слияния — 7 passed.
