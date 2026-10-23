@@ -15,11 +15,17 @@ from ai_agent_contracts import (
     memory,
     panel,
     persona,
+    workplace_access,
     workspace,
 )
 
 # Explicit list: accidentally importing a new class does not silently change wire exports.
 MODELS = (
+    workplace_access.InitialAccessArguments,
+    workplace_access.InitialAccessMember,
+    workplace_access.InitialAccessProof,
+    workplace_access.InitialAccessCapability,
+    workplace_access.InitialAccessStatus,
     agent_sessions.WorkSession,
     agent_sessions.WorkSessionMessage,
     agent_sessions.WorkSessionOpenArguments,

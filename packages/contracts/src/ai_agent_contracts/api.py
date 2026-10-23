@@ -170,6 +170,7 @@ class PlanCommand(CommandBase):
         "workspace.restore.preview",
         "llm.recalculate.preview",
         "permission.decision.preview",
+        "workplace.access.preview",
     ]
     arguments: ExtensionPayload
     expected_version: Version
@@ -189,6 +190,7 @@ class ExecutePlanCommand(CommandBase):
         "workspace.restore.execute",
         "llm.recalculate.execute",
         "permission.decision.execute",
+        "workplace.access.execute",
     ]
     arguments: ExecutePlanArguments
     expected_version: Version

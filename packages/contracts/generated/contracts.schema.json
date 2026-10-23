@@ -2431,7 +2431,8 @@
             "workspace.backup.execute",
             "workspace.restore.execute",
             "llm.recalculate.execute",
-            "permission.decision.execute"
+            "permission.decision.execute",
+            "workplace.access.execute"
           ],
           "title": "Type",
           "type": "string"
@@ -3030,6 +3031,320 @@
         "status"
       ],
       "title": "HelperRun",
+      "type": "object"
+    },
+    "InitialAccessArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "default": "",
+          "maxLength": 16000,
+          "title": "Constraints",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "maximum": 31536000,
+          "minimum": 60,
+          "title": "Duration Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "duration_seconds"
+      ],
+      "title": "InitialAccessArguments",
+      "type": "object"
+    },
+    "InitialAccessCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "summary": {
+          "maxLength": 16000,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "summary",
+        "areas",
+        "available",
+        "expires_at"
+      ],
+      "title": "InitialAccessCapability",
+      "type": "object"
+    },
+    "InitialAccessMember": {
+      "additionalProperties": false,
+      "properties": {
+        "areas": {
+          "items": {
+            "$ref": "#/$defs/WorkplaceArea"
+          },
+          "maxItems": 8,
+          "title": "Areas",
+          "type": "array"
+        },
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_version": {
+          "minimum": 1,
+          "title": "Binding Version",
+          "type": "integer"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "manifest_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "manifest_version": {
+          "minimum": 1,
+          "title": "Manifest Version",
+          "type": "integer"
+        },
+        "permission_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Permission Id",
+          "type": "string"
+        },
+        "permission_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Permission Version"
+        }
+      },
+      "required": [
+        "capability_id",
+        "manifest_id",
+        "manifest_version",
+        "binding_id",
+        "binding_version",
+        "permission_id",
+        "permission_version",
+        "areas"
+      ],
+      "title": "InitialAccessMember",
+      "type": "object"
+    },
+    "InitialAccessProof": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/InitialAccessArguments"
+        },
+        "executed_by": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executed By"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/InitialAccessMember"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Members",
+          "type": "array"
+        },
+        "operator_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operator Id",
+          "type": "string"
+        },
+        "plan_expires_at": {
+          "format": "date-time",
+          "title": "Plan Expires At",
+          "type": "string"
+        },
+        "policy_version": {
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "operator_id",
+        "capabilities",
+        "members",
+        "decision",
+        "policy_version",
+        "plan_expires_at",
+        "expires_at"
+      ],
+      "title": "InitialAccessProof",
+      "type": "object"
+    },
+    "InitialAccessStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "max_duration_seconds": {
+          "maximum": 31536000,
+          "minimum": 0,
+          "title": "Max Duration Seconds",
+          "type": "integer"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/InitialAccessCapability"
+          },
+          "maxItems": 8,
+          "title": "Members",
+          "type": "array"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable Reason"
+        }
+      },
+      "required": [
+        "scope",
+        "configured",
+        "ready",
+        "max_duration_seconds",
+        "members"
+      ],
+      "title": "InitialAccessStatus",
       "type": "object"
     },
     "Job": {
@@ -8026,6 +8341,8 @@
           "work.session.close": "#/$defs/EditCommand",
           "work.session.message": "#/$defs/EditCommand",
           "work.session.open": "#/$defs/CreateCommand",
+          "workplace.access.execute": "#/$defs/ExecutePlanCommand",
+          "workplace.access.preview": "#/$defs/PlanCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
           "workspace.backup.preview": "#/$defs/PlanCommand",
           "workspace.restore.execute": "#/$defs/ExecutePlanCommand",
@@ -8865,7 +9182,8 @@
             "workspace.backup.preview",
             "workspace.restore.preview",
             "llm.recalculate.preview",
-            "permission.decision.preview"
+            "permission.decision.preview",
+            "workplace.access.preview"
           ],
           "title": "Type",
           "type": "string"
@@ -15006,6 +15324,21 @@
     },
     "GmRuntimeStatePage": {
       "$ref": "#/$defs/Page_GmRuntimeState_"
+    },
+    "InitialAccessArguments": {
+      "$ref": "#/$defs/InitialAccessArguments"
+    },
+    "InitialAccessCapability": {
+      "$ref": "#/$defs/InitialAccessCapability"
+    },
+    "InitialAccessMember": {
+      "$ref": "#/$defs/InitialAccessMember"
+    },
+    "InitialAccessProof": {
+      "$ref": "#/$defs/InitialAccessProof"
+    },
+    "InitialAccessStatus": {
+      "$ref": "#/$defs/InitialAccessStatus"
     },
     "Job": {
       "$ref": "#/$defs/Job"

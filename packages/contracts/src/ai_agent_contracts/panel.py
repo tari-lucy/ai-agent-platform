@@ -285,6 +285,9 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("work.session-reply", SessionReplyOrigin)
     registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
+    from .workplace_access import InitialAccessArguments
+
+    registry.register("workplace.access-args", InitialAccessArguments)
     registry.register("workplace.permission-conditions", PermissionConditions)
     registry.register("workplace.permission-limits", PermissionLimits)
 
