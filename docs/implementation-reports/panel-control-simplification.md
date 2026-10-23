@@ -1,6 +1,6 @@
 # Панель управления: PUI-01/02
 
-Исполнитель: Claude Code. Ветка `claude/pui-01-02`, base main `4ae2627`. Бриф:
+Исполнитель: Claude Code. Ветка `claude/pui-01-02`, base main `4ae2627`, интегрировано поверх `5cdb1ae` (после rebase: обращения + оболочка — 16 passed). Бриф:
 [panel-control-claude-pool](../agent-tasks/panel-control-claude-pool.md). PUI-03/04 отложены до
 готовности OpenCode (старый вход не отключён).
 
