@@ -14620,6 +14620,47 @@
         "title": "WorkSessionMessageArguments",
         "type": "object"
       },
+      "WorkSessionModelCalls": {
+        "additionalProperties": false,
+        "description": "Confirmed model calls of the current turn, from the LLM journal: counts and time only.",
+        "properties": {
+          "completed": {
+            "minimum": 0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last At"
+          },
+          "running": {
+            "minimum": 0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "failed",
+          "running"
+        ],
+        "title": "WorkSessionModelCalls",
+        "type": "object"
+      },
       "WorkSessionOpenArguments": {
         "additionalProperties": false,
         "properties": {
@@ -14649,6 +14690,123 @@
           "title"
         ],
         "title": "WorkSessionOpenArguments",
+        "type": "object"
+      },
+      "WorkSessionProgress": {
+        "additionalProperties": false,
+        "description": "Read-only state of the conversation's current turn from SessionBook, WorkAttempt and Job.\n\n``waiting_start``: a stored message waits for an explicit START; ``queued``: accepted or\nwaiting for its turn; ``running``: its job runs; ``reply_ready``: a draft waits for\ndelivery; ``done``: the turn succeeded; ``failed``/``cancelled``/``unknown``: it ended\nwithout a reply (``unknown``: the outcome is not confirmed). ``since`` is a recorded time,\nnever a timer. ``error_code`` only when the owner recorded one.",
+        "properties": {
+          "attempt_no": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attempt No"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/WorkSessionResultFile"
+            },
+            "maxItems": 50,
+            "title": "Files",
+            "type": "array"
+          },
+          "model_calls": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkSessionModelCalls"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "waiting_start",
+              "queued",
+              "running",
+              "reply_ready",
+              "done",
+              "failed",
+              "cancelled",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "since"
+        ],
+        "title": "WorkSessionProgress",
+        "type": "object"
+      },
+      "WorkSessionResultFile": {
+        "additionalProperties": false,
+        "description": "A file the turn actually saved through the file owner (title and logical path only).",
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "file_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "File Id",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 512,
+            "title": "Path",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 512,
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_id",
+          "version",
+          "title",
+          "path",
+          "current"
+        ],
+        "title": "WorkSessionResultFile",
         "type": "object"
       },
       "WorkSessionTranscript": {
@@ -14716,6 +14874,17 @@
             "minimum": 0,
             "title": "Processed Sequence",
             "type": "integer"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkSessionProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"

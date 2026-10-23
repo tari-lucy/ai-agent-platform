@@ -1,4 +1,4 @@
-import type { CreateCommand, EditCommand, Scope, WorkSession, WorkSessionTranscript } from '../../shared/contracts.ts';
+import type { CreateCommand, EditCommand, Scope, WorkSession, WorkSessionProgress, WorkSessionTranscript } from '../../shared/contracts.ts';
 
 // Pure work-conversation logic: commands, whose turn and labels. No I/O.
 // One identity: the person answers here through its own working session, not a second assistant.
@@ -32,6 +32,8 @@ export function turn(transcript: WorkSessionTranscript, running: boolean): strin
   if (transcript.state === 'waiting') return 'Ждёт ответа на обращение';
     if (transcript.pending_reply) return transcript.pending_reply.withheld ? 'Ответ скрыт: основания недоступны' :
       transcript.pending_reply.acknowledgeable ? 'Ответ готов, ждёт получения' : 'Ответ подготовлен; подтверждение пока недоступно';
+  const ended = transcript.progress && endedStates.has(transcript.progress.state) ? progressLabels[transcript.progress.state] : null;
+  if (ended) return ended;
   if (transcript.entries.some((entry) => pending(transcript, entry.sequence, entry.speaker))) {
     // STOPPED: nothing runs anyway; the reason matters once the person could take the message.
     const notice = running ? waitingNotice(transcript) : null;
@@ -92,4 +94,45 @@ export const closeCommand = (scope: Scope, transcript: WorkSessionTranscript, re
 });
 export function newestFirst(rows: WorkSession[]): WorkSession[] {
   return [...rows].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.id.localeCompare(b.id));
+}
+
+// ---- the current turn, as the platform recorded it (never a timer, never a resend) -------------------
+type TurnState = WorkSessionProgress['state'];
+export const endedStates = new Set<TurnState>(['failed', 'cancelled', 'unknown']);
+export const progressLabels: Record<TurnState, string> = {
+  waiting_start: 'Сообщение сохранено и ждёт запуска агента',
+  queued: 'Сообщение принято: ход ждёт своей очереди',
+  running: 'Агент выполняет рабочий ход',
+  reply_ready: 'Ответ готов',
+  done: 'Рабочий ход завершён',
+  failed: 'Рабочий ход завершился ошибкой',
+  cancelled: 'Рабочий ход отменён',
+  unknown: 'Исход рабочего хода не подтверждён',
+};
+// What the operator can do next. A reload or reconnect never sends anything again.
+export const nextStep: Record<TurnState, string> = {
+  waiting_start: 'Нажмите START, когда будете готовы: до этого ничего не исполняется.',
+  queued: 'Ничего делать не нужно: ход начнётся, когда подойдёт очередь.',
+  running: 'Можно подождать или нажать STOP: поздний результат после STOP не применяется.',
+  reply_ready: 'Ответ появится в истории, как только вкладка его получит.',
+  done: 'Сохранённые файлы — в библиотеке.',
+  failed: 'Ответа нет. Повторно ничего само не отправится: напишите сообщение ещё раз или уточните задачу.',
+  cancelled: 'Ход остановлен (STOP или отзыв допуска), ответа нет. Чтобы продолжить, запустите агента и напишите сообщение снова.',
+  unknown: 'Платформа не повторяет такой ход вслепую. Проверьте файлы в библиотеке и при необходимости напишите сообщение снова.',
+};
+// Elapsed time between two recorded instants (the turn's own time and the server's check).
+export function elapsed(since: string, checkedAt: string): string | null {
+  const seconds = Math.floor((Date.parse(checkedAt) - Date.parse(since)) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return `${seconds} с`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes} мин ${seconds % 60} с` : `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}
+export function callsText(progress: WorkSessionProgress): string | null {
+  const calls = progress.model_calls;
+  if (!calls) return null;
+  const parts = [`завершено: ${calls.completed}`];
+  if (calls.running) parts.push(`выполняется: ${calls.running}`);
+  if (calls.failed) parts.push(`с ошибкой: ${calls.failed}`);
+  return 'Вызовы модели — ' + parts.join(', ');
 }

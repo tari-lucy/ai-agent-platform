@@ -95,14 +95,15 @@ export function eventsUrl(location: Pick<Location, 'protocol' | 'host'>): string
   return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/v1/events`;
 }
 export const affectedResources: Record<PanelEvent['type'], readonly string[]> = {
-  'run.changed': ['sessions'], 'job.changed': ['operations', 'jobs'],
+  // A conversation turn is reported from its job, model calls and attempts (confirmed changes only).
+  'run.changed': ['sessions'], 'job.changed': ['operations', 'jobs', 'work-session-transcript'],
   'utterance.changed': ['utterances'], 'delivery.changed': ['deliveries'],
   'memory.changed': ['sources', 'episodes', 'claims', 'summaries', 'memory-cycles', 'private-api-status'],
   'relationship.changed': ['people', 'relationships', 'topics', 'promises'],
   'arc.changed': ['arcs', 'opportunities'], 'change.changed': ['changes', 'character-states'],
   'check.changed': ['checks'], 'connection.changed': ['connections', 'capabilities', 'permissions', 'capability-bindings', 'capability-manifests', 'work-session-transcript'],
-  'usage.changed': ['llm-attempts', 'cost-calculations', 'private-api-status'],
+  'usage.changed': ['llm-attempts', 'cost-calculations', 'private-api-status', 'work-session-transcript'],
   'ticket.changed': ['tickets', 'ticket-messages', 'work-session-transcript'],
-  'work.changed': ['work-tasks', 'work-attempts'],
+  'work.changed': ['work-tasks', 'work-attempts', 'work-session-transcript'],
   'work-session.changed': ['work-sessions', 'work-session-messages', 'work-session-transcript'],
 };

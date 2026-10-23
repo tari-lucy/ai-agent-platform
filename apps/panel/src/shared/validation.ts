@@ -653,13 +653,27 @@ export function workSessions(value: unknown, selected: Scope): import('./contrac
     (row.state !== 'waiting' || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.length > 0)) && stopReason(row)));
   return value as import('./contracts.ts').WorkSessionPage;
 }
+const turnStates = new Set(['waiting_start', 'queued', 'running', 'reply_ready', 'done', 'failed', 'cancelled', 'unknown']);
+const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0;
+function turnProgress(value: unknown): boolean {
+  if (value == null) return true;
+  if (!object(value) || !turnStates.has(String(value.state)) || !date(value.since)) return false;
+  if (value.attempt_no != null && !(Number.isSafeInteger(value.attempt_no) && Number(value.attempt_no) >= 1)) return false;
+  if (value.error_code != null && !text(value.error_code, 512)) return false;
+  const calls = value.model_calls;
+  if (calls != null && !(object(calls) && count(calls.completed) && count(calls.failed) && count(calls.running) &&
+    (calls.last_at == null || date(calls.last_at)))) return false;
+  const files = value.files ?? [];
+  return Array.isArray(files) && files.length <= 50 && files.every((file: unknown) => object(file) && id(file.file_id) &&
+    version(file.version) && text(file.title, 512) && text(file.path, 512) && typeof file.current === 'boolean');
+}
 export function workSessionTranscript(value: unknown, selected: Scope, sessionId: string): import('./contracts.ts').WorkSessionTranscript {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.session_id === sessionId &&
     version(value.session_version) && sessionStates.has(String(value.state)) && text(value.title, 512) &&
     (value.processed_sequence === undefined || (Number.isSafeInteger(value.processed_sequence) && Number(value.processed_sequence) >= 0)) &&
     (value.waiting_reason == null || waitingReasons.has(String(value.waiting_reason))) &&
     (value.waiting_detail == null || text(value.waiting_detail, 512)) &&
-    (value.access_ticket_id == null || id(value.access_ticket_id)) && stopReason(value) &&
+    (value.access_ticket_id == null || id(value.access_ticket_id)) && stopReason(value) && turnProgress(value.progress) &&
     typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
   let last = 0;
   demand(value.entries.every((entry: unknown) => {

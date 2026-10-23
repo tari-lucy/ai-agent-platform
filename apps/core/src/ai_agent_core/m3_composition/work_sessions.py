@@ -178,6 +178,13 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         from .work_session_access import access
 
         waiting, ticket = await access(rt, scope)
+    from .work_session_progress import progress
+
+    turn = (
+        None
+        if session.state == "invalidated" or waiting == "message_unavailable"
+        else await progress(rt, session, entries, pending)
+    )
     return WorkSessionTranscript(
         scope=scope,
         session_id=session.id,
@@ -190,6 +197,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         waiting_detail=rt.session_unavailable if waiting == "unavailable" else None,
         access_ticket_id=None if ticket is None or waiting == "access_required" else ticket.id,
         invalidated_reason=session.invalidated_reason,
+        progress=turn,
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

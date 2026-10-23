@@ -106,3 +106,20 @@ test('an unavailable message stops the conversation with the reason and the way 
   assert.throws(() => workSessionTranscript(transcript({ invalidated_reason: 'message_unavailable' }), scope, 's-1'));
   assert.throws(() => workSessionTranscript(transcript({ state: 'invalidated', invalidated_reason: 'other' as never }), scope, 's-1'));
 });
+
+test('the current turn is told from recorded facts: state, elapsed time, steps, files, next step', async () => {
+  const { elapsed, callsText, progressLabels, nextStep } = await import('../src/ui/work/conversation.ts');
+  const failed = { state: 'failed', since: T(1), attempt_no: 1, model_calls: { completed: 3, failed: 1, running: 0 }, files: [] } as never;
+  assert.equal(turn(transcript({ progress: failed }), true), 'Рабочий ход завершился ошибкой');
+  assert.equal(turn(transcript({ progress: { state: 'unknown', since: T(1) } as never }), true), progressLabels.unknown);
+  assert.equal(turn(transcript({ progress: { state: 'running', since: T(1) } as never }), true), 'Сообщение сохранено и ожидает исполнения');
+  assert.equal(elapsed(T(1), T(3)), '2 мин 0 с');
+  assert.equal(elapsed(T(3), T(1)), null);
+  assert.equal(callsText(failed), 'Вызовы модели — завершено: 3, с ошибкой: 1');
+  assert.match(nextStep.failed, /ничего само не отправится/);
+  assert.match(nextStep.cancelled, /запустите агента/);
+  const done = { state: 'done', since: T(2), files: [{ file_id: 'f-1', version: 1, title: 'Итог', path: 'projects/итог.md', current: true }] };
+  assert.equal(workSessionTranscript(transcript({ progress: done as never }), scope, 's-1').progress?.files?.[0].title, 'Итог');
+  assert.throws(() => workSessionTranscript(transcript({ progress: { state: 'busy', since: T(1) } as never }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ progress: { state: 'done', since: T(1), files: [{ file_id: 'f' }] } as never }), scope, 's-1'));
+});

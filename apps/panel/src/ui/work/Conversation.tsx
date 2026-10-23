@@ -1,13 +1,14 @@
 import { Alert, Anchor, Badge, Button, Group, Paper, Select, Stack, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RunSession, Scope, WorkSessionDraft, WorkSessionTranscript } from '../../shared/contracts.ts';
+import type { RunSession, Scope, WorkSessionDraft, WorkSessionProgress, WorkSessionTranscript } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { useWorkSessions } from './sessions.ts';
 import {
-  closeCommand, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, openCommand, pending as awaiting, sessionStateLabels, stopNotice, titleProblem, turn, writable,
+  callsText, closeCommand, elapsed, endedStates, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, nextStep, openCommand, pending as awaiting, progressLabels,
+  sessionStateLabels, stopNotice, titleProblem, turn, writable,
 } from './conversation.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -91,6 +92,29 @@ function Start({ api, scope, onOpened }: { api: PanelApi; scope: Scope; onOpened
   </Group>;
 }
 
+// The current turn from recorded facts only: state, time since it was recorded, confirmed steps,
+// saved files and what to do next. Shown with the server's check time, never animated.
+function Turn({ progress, checkedAt }: { progress: WorkSessionProgress; checkedAt: string }) {
+  const ended = endedStates.has(progress.state);
+  const since = elapsed(progress.since, checkedAt);
+  const calls = callsText(progress);
+  return <Paper withBorder p="xs" mt="xs" aria-label="Ход выполнения" bg={ended ? 'orange.0' : 'gray.0'}>
+    <Text size="sm" fw={600} role={ended ? 'alert' : 'status'}>{progressLabels[progress.state]}
+      {since && <Text span size="xs" c="dimmed" fw={400}> · {progress.state === 'running' ? 'идёт' : 'прошло'} {since} (на {when(checkedAt)})</Text>}</Text>
+    {calls && <Text size="xs" c="dimmed">{calls}</Text>}
+    {!!progress.files?.length && <Stack gap={2} mt={4} aria-label="Сохранённые файлы">
+      <Text size="xs" fw={600}>Сохранено:</Text>
+      {progress.files.map((file) => <Text key={file.file_id + ':' + file.version} size="xs">
+        <Anchor href="#/library">{file.title}</Anchor> · {file.path}{file.current ? '' : ' (позже изменён)'}</Text>)}
+    </Stack>}
+    {progress.state === 'done' && !progress.files?.length && <Text size="xs" c="dimmed">Файлов этот ход не сохранил.</Text>}
+    <Text size="xs" mt={4}>{nextStep[progress.state]}</Text>
+    {progress.error_code && <details><summary>Подробности</summary><Text size="xs" c="dimmed">Код: {progress.error_code}
+      {progress.attempt_no ? ` · попытка ${progress.attempt_no}` : ''}</Text></details>}
+    <Text size="xs" c="dimmed">Обновление страницы ничего не отправляет повторно.</Text>
+  </Paper>;
+}
+
 function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Scope; transcript: WorkSessionTranscript; running: boolean }) {
   const cache = useQueryClient();
   const [text, setText] = useState('');
@@ -133,12 +157,13 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
       {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker === 'operator' ? 'gray.0' : 'blue.0'}>
-        <Text size="xs" c="dimmed">{speakerLabels[entry.speaker]} · {when(entry.at)}{awaiting(transcript, entry.sequence, entry.speaker) ? ' · сохранено, ждёт исполнения' : ''}</Text>
+        <Text size="xs" c="dimmed">{speakerLabels[entry.speaker]} · {when(entry.at)}{awaiting(transcript, entry.sequence, entry.speaker) ? (transcript.progress && endedStates.has(transcript.progress.state) ? ' · ответа нет' : ' · сохранено, ждёт исполнения') : ''}</Text>
         {entry.withheld ? <Text size="sm" c="dimmed">Скрыто: основание сообщения отозвано, истекло или удалено.</Text>
           : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{entry.text}</Text>}
       </Paper>)}
       {!transcript.entries.length && <Text size="sm" c="dimmed">Сообщений пока нет.</Text>}
     </Stack>
+    {transcript.progress && transcript.progress.state !== 'reply_ready' && <Turn progress={transcript.progress} checkedAt={transcript.checked_at} />}
     {transcript.pending_reply && <PendingReply key={transcript.pending_reply.utterance_id}
       api={api} draft={transcript.pending_reply} running={running} refresh={refresh} />}
     {writable(transcript) && <Stack gap={4} mt="sm">
@@ -168,7 +193,14 @@ export function Conversation({ api, scope, run, chosen, onSelect: setSelected }:
     queryKey: [...projectionKey('work-session-transcript', scope), selected],
     queryFn: ({ signal }) => api.workSessionTranscript(scope, selected!, signal),
     enabled: selected !== null,
-    refetchInterval: (query) => running && query.state.data?.pending_reply ? 1500 : false,
+    // Re-read recorded state while a draft waits or a turn is queued/running (no event marks a
+    // job start); the view itself never animates or resends anything.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!running || !data) return false;
+      if (data.pending_reply) return 1500;
+      return data.progress && (data.progress.state === 'queued' || data.progress.state === 'running') ? 3000 : false;
+    },
   });
   return <Stack gap="sm" aria-label="Разговор о работе">
     <Title order={2} size="h5">Разговор о работе</Title>

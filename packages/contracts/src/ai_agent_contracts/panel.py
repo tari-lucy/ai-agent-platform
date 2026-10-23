@@ -560,6 +560,52 @@ class WorkSessionDraft(Contract):
         return self
 
 
+class WorkSessionModelCalls(Contract):
+    """Confirmed model calls of the current turn, from the LLM journal: counts and time only."""
+
+    completed: int = Field(strict=True, ge=0)
+    failed: int = Field(strict=True, ge=0)
+    running: int = Field(strict=True, ge=0)
+    last_at: UTC | None = None
+
+
+class WorkSessionResultFile(Contract):
+    """A file the turn actually saved through the file owner (title and logical path only)."""
+
+    file_id: Id
+    version: Version
+    title: ShortText
+    path: ShortText
+    current: bool = Field(strict=True)
+
+
+class WorkSessionProgress(Contract):
+    """Read-only state of the conversation's current turn from SessionBook, WorkAttempt and Job.
+
+    ``waiting_start``: a stored message waits for an explicit START; ``queued``: accepted or
+    waiting for its turn; ``running``: its job runs; ``reply_ready``: a draft waits for
+    delivery; ``done``: the turn succeeded; ``failed``/``cancelled``/``unknown``: it ended
+    without a reply (``unknown``: the outcome is not confirmed). ``since`` is a recorded time,
+    never a timer. ``error_code`` only when the owner recorded one.
+    """
+
+    state: Literal[
+        "waiting_start",
+        "queued",
+        "running",
+        "reply_ready",
+        "done",
+        "failed",
+        "cancelled",
+        "unknown",
+    ]
+    since: UTC
+    attempt_no: int | None = Field(default=None, strict=True, ge=1)
+    model_calls: WorkSessionModelCalls | None = None
+    files: list[WorkSessionResultFile] = Field(default_factory=list, max_length=50)
+    error_code: ShortText | None = None
+
+
 class WorkSessionTranscript(Contract):
     """A bounded tail of one work conversation; ``complete`` is false if older ones are cut."""
 
@@ -590,6 +636,8 @@ class WorkSessionTranscript(Contract):
     # Set with state ``invalidated``: an unprocessed operator message became unavailable and was
     # not executed; the operator continues in a new conversation.
     invalidated_reason: Literal["message_unavailable"] | None = None
+    # The current turn, when there is one to report (read-only; never resends anything).
+    progress: WorkSessionProgress | None = None
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC
