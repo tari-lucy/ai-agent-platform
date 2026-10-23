@@ -1,0 +1,2 @@
+# Unified-diff context and mail signatures contain intentional trailing spaces.
+patches/*.patch text eol=lf -whitespace

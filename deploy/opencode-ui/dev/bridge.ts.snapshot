@@ -8,9 +8,6 @@ export const VIRTUAL_SERVER = location.origin
 const BRIDGE = "/api/v1/opencode"
 const VERSION = "1.19.3"
 
-export const awLog: { method: string; path: string; status?: number }[] = []
-;(globalThis as unknown as { __awLog: typeof awLog }).__awLog = awLog
-setTimeout(() => { (globalThis as any).__awFetch = awFetch }, 0) // AW-DEBUG (remove)
 
 type Scope = Record<string, string | null | undefined>
 type Agent = { directory: string; scope: Scope; label: string; profile_version: number; active_runtime: boolean }
@@ -145,7 +142,7 @@ function messages(view: Transcript) {
   const draft = view.pending_reply
   if (draft && !draft.withheld && draft.text) {
     rows.push(assistant(view, replyID(lastOperator), draft.text, view.checked_at, true))
-    if (draft.acknowledgeable) watchReceipt(draft)
+    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, replyID(lastOperator))
   } else if (view.progress && PROGRESS[view.progress.state]) {
     rows.push({ id: `status-${lastOperator}-${view.progress.state}`, type: "system", time: { created: ms(view.progress.since) }, text: PROGRESS[view.progress.state] })
   }
@@ -156,26 +153,78 @@ function messages(view: Transcript) {
 const running = (view: Transcript) => view.progress?.state === "running" || view.progress?.state === "queued"
 
 // ---- receipt: ACK only after the reply is really shown in a visible tab --------------------------
-const receipts = new Map<string, Draft>()
+type Receipt = { draft: Draft; sessionID: string; messageID: string }
+type RenderedReply = { directory: string; sessionID: string; messageID: string; text?: string }
+const renderedReplies = new Map<HTMLElement, () => RenderedReply>()
+const receipts = new Map<string, Receipt>()
+const attemptedReceipts = new Set<string>()
 let receiptTimer: ReturnType<typeof setInterval> | undefined
-function watchReceipt(draft: Draft) {
-  receipts.set(draft.utterance_id + ":" + draft.revision, draft)
-  receiptTimer ??= setInterval(() => void checkReceipts(), 1000)
+let checkingReceipts = false
+export function registerRenderedReply(element: HTMLElement, read: () => RenderedReply) {
+  renderedReplies.set(element, read)
+  return () => renderedReplies.delete(element)
 }
-async function checkReceipts() {
-  if (document.visibilityState !== "visible") return
-  const shown = document.body.innerText
-  for (const [key, draft] of receipts) {
-    if (!draft.text || !shown.includes(draft.text.slice(0, 120))) continue
-    receipts.delete(key)
-    const dir = (await agents()).find((agent) => agent.scope.memory_space_id === draft.scope.memory_space_id
-      && agent.scope.persona_id === draft.scope.persona_id)?.directory
-    if (!dir) continue
-    // The same request id for this exact revision: a retry replays, never a second receipt.
-    await bridge(`/agents/${dir}/commands`, {
-      type: "dialogue.acknowledge", request_id: `oc-receipt-${draft.utterance_id}-${draft.revision}`,
-      scope: draft.scope, target: draft.utterance_id, expected_version: draft.version, arguments: { revision: draft.revision },
-    }).catch(() => receipts.set(key, draft))
+export function resetReceiptState() {
+  if (receiptTimer !== undefined) clearInterval(receiptTimer)
+  receiptTimer = undefined
+  receipts.clear()
+  attemptedReceipts.clear()
+  renderedReplies.clear()
+}
+window.addEventListener("pagehide", resetReceiptState)
+function watchReceipt(draft: Draft, sessionID: string, messageID: string) {
+  const key = draft.utterance_id + ":" + draft.revision
+  if (draft.scope.memory_mode !== "work" || attemptedReceipts.has(key) || receipts.size >= 128) return
+  for (const [old, item] of receipts) if (item.draft.utterance_id === draft.utterance_id) receipts.delete(old)
+  receipts.set(key, { draft, sessionID, messageID })
+  receiptTimer ??= setInterval(() => void checkReceipts().catch(() => {}), 1000)
+}
+function visibleReply(element: HTMLElement): Promise<boolean> {
+  if (document.visibilityState !== "visible" || !element.isConnected
+    || element.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) === false) return Promise.resolve(false)
+  return new Promise(resolve => {
+    const finish = (value: boolean) => { clearTimeout(timer); observer.disconnect(); resolve(value) }
+    const observer = new IntersectionObserver(entries => finish(entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.6)), { threshold: [0, 0.6, 1] })
+    const timer = setTimeout(() => finish(false), 250)
+    observer.observe(element)
+  })
+}
+export async function checkReceipts() {
+  if (checkingReceipts || document.visibilityState !== "visible" || !receipts.size) return
+  checkingReceipts = true
+  try {
+    const allowed = await agents()
+    for (const [key, item] of receipts) {
+      const { draft, sessionID, messageID } = item
+      const dir = allowed.find(agent => ["workspace_id", "persona_id", "memory_space_id", "memory_mode"].every(field => agent.scope[field] === draft.scope[field]))?.directory
+      if (!dir || !draft.text) continue
+      for (const [element, read] of renderedReplies) {
+        if (!element.isConnected) { renderedReplies.delete(element); continue }
+        const matches = () => {
+          const shown = read()
+          return shown.directory === dir && shown.sessionID === sessionID && shown.messageID === messageID && shown.text === draft.text
+        }
+        if (!matches() || !await visibleReply(element)) continue
+        const fresh = await transcript(dir, sessionID)
+        const latest = fresh.pending_reply
+        if (receipts.get(key) !== item || !latest?.acknowledgeable || latest.withheld
+          || latest.utterance_id !== draft.utterance_id || latest.revision !== draft.revision
+          || latest.version !== draft.version || latest.text !== draft.text) continue
+        if (!matches() || !await visibleReply(element) || attemptedReceipts.has(key)) continue
+        attemptedReceipts.add(key)
+        if (attemptedReceipts.size > 512) attemptedReceipts.delete(attemptedReceipts.values().next().value!)
+        receipts.delete(key)
+        // One automatic attempt; request identity also makes an explicit replay idempotent.
+        // Failed/unknown ACK stays pending with the owner, never becomes delivered locally.
+        await bridge(`/agents/${dir}/commands`, {
+          type: "dialogue.acknowledge", request_id: `oc-receipt-${draft.utterance_id}-${draft.revision}`,
+          scope: latest.scope, target: latest.utterance_id, expected_version: latest.version, arguments: { revision: latest.revision },
+        }).catch(() => {})
+        break
+      }
+    }
+  } finally {
+    checkingReceipts = false
   }
 }
 
@@ -222,7 +271,7 @@ async function route(method: string, path: string, url: URL, body: () => Promise
     const view = await transcript(directory, sessionID)
     if (!one[2] && method === "GET") return json({ data: sessionInfo(directory, { id: sessionID, title: view.title }) })
     // Pages are newest first (the client reverses them into reading order).
-    if (one[2] === "/message" && method === "GET") return json({ data: messages(view).toReversed(), cursor: {} })
+    if (one[2] === "/message" && !one[3] && method === "GET") return json({ data: messages(view).toReversed(), cursor: {} })
     if (one[3] && method === "GET") {
       const found = messages(view).find((row) => row.id === decodeURIComponent(one[3]))
       return found ? json({ data: found }) : json({ name: "NotFound" }, 404)
@@ -264,12 +313,9 @@ export const awFetch: typeof globalThis.fetch = async (input, init) => {
   const url = new URL(request.url)
   if (url.origin !== VIRTUAL_SERVER || url.pathname.startsWith("/api/v1/")) return json({ error: "AW_OUTSIDE_BRIDGE" }, 403)
   const path = url.pathname
-  const entry: { method: string; path: string; status?: number } = { method: request.method, path: path + url.search }
-  awLog.push(entry)
   if (path === "/api/event") return events(request.signal)
   try {
     const response = await route(request.method, path, url, async () => (await request.json().catch(() => ({}))) as Record<string, unknown>)
-    entry.status = response.status
     return response
   } catch (error) {
     const status = (error as { status?: number }).status ?? 502

@@ -1,5 +1,9 @@
 # OC-03 рабочие заметки (черновик, не отчёт)
 
+Исторический снимок WIP Claude. Исправления загрузки/рендера, проверки ACK и итог
+Windows-сборки: [продолжение Codex](OC-03-render-diagnosis.md). Список «Открыто»
+ниже сохранён как исходное состояние исследования, не как текущий статус.
+
 Исходники: `~/projects/ai-pers2/opencode-src`, тег v1.19.3 (`e3c4eb2`), ветка патча `aw-bridge`.
 Сборка: bun 1.3.14 (`~/.bun/bin`, sha256 проверен), `bun install --filter '@opencode-ai/app'
 --ignore-scripts`, `bun x vite build --base /opencode/` в `packages/app` (~1 м 40 с, ~2.3 ГБ RSS).
