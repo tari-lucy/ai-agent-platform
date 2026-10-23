@@ -1,0 +1,103 @@
+From ce04aeb870df8022fb35e807bd01c1654dc33caa Mon Sep 17 00:00:00 2001
+From: Claude Code <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 18:58:25 +0000
+Subject: [PATCH 1/2] aw: route the native client through the platform bridge
+ adapter (WIP)
+
+---
+ packages/app/src/aw/bridge.ts           | 18 ++++++++++++++++++
+ packages/app/src/context/server-sdk.tsx | 12 ++----------
+ packages/app/src/entry.tsx              |  8 ++++++--
+ 3 files changed, 26 insertions(+), 12 deletions(-)
+ create mode 100644 packages/app/src/aw/bridge.ts
+
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+new file mode 100644
+index 0000000..a2b095b
+--- /dev/null
++++ b/packages/app/src/aw/bridge.ts
+@@ -0,0 +1,18 @@
++// AI Agent Platform adapter: the native client talks to the platform bridge `aw-opencode/1`
++// through this fetch. No request reaches a native OpenCode server; unknown routes are refused.
++export const VIRTUAL_SERVER = `${location.origin}/opencode-native`
++
++export const awLog: { method: string; path: string }[] = []
++;(globalThis as unknown as { __awLog: typeof awLog }).__awLog = awLog
++
++const json = (body: unknown, status = 200) =>
++  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
++
++export const awFetch: typeof globalThis.fetch = async (input, init) => {
++  const request = input instanceof Request ? input : new Request(input, init)
++  const url = new URL(request.url)
++  if (!url.href.startsWith(VIRTUAL_SERVER)) return json({ error: "AW_OUTSIDE_BRIDGE" }, 403)
++  const path = url.pathname.slice("/opencode-native".length) || "/"
++  awLog.push({ method: request.method, path: path + url.search })
++  return json({ error: "AW_NOT_AVAILABLE", path }, 501)
++}
+diff --git a/packages/app/src/context/server-sdk.tsx b/packages/app/src/context/server-sdk.tsx
+index 7dd2a6e..f48759a 100644
+--- a/packages/app/src/context/server-sdk.tsx
++++ b/packages/app/src/context/server-sdk.tsx
+@@ -188,16 +188,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
+   const platform = usePlatform()
+   const abort = new AbortController()
+ 
+-  const eventFetch = (() => {
+-    if (!platform.fetch || !server) return
+-    try {
+-      const url = new URL(server.http.url)
+-      const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1"
+-      if (url.protocol === "http:" && !loopback) return platform.fetch
+-    } catch {
+-      return
+-    }
+-  })()
++  // AW: events go through the platform adapter too (never straight to a native server).
++  const eventFetch = platform.fetch
+ 
+   const eventApi = createApiForServer({ server: server.http, fetch: eventFetch })
+   const eventSdk = createSdkForServer({
+diff --git a/packages/app/src/entry.tsx b/packages/app/src/entry.tsx
+index 6e5f63f..618fa95 100644
+--- a/packages/app/src/entry.tsx
++++ b/packages/app/src/entry.tsx
+@@ -11,6 +11,8 @@ import { dict as zh } from "@/i18n/zh"
+ import { authFromToken } from "@/utils/server"
+ import pkg from "../package.json"
+ import { ServerConnection } from "./context/server"
++import { awFetch, VIRTUAL_SERVER } from "@/aw/bridge"
++import { Router } from "@solidjs/router"
+ 
+ const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
+ 
+@@ -119,6 +121,7 @@ const clearAuthToken = () => {
+ const platform: Platform = {
+   platform: "web",
+   draftStore: createBrowserDraftStore(),
++  fetch: awFetch,
+   version: pkg.version,
+   openExternal,
+   restart,
+@@ -157,7 +160,7 @@ if (root instanceof HTMLElement) {
+       type: "http",
+       authToken: !!auth,
+       http: {
+-        url: getCurrentUrl(),
++        url: VIRTUAL_SERVER,
+         ...auth,
+       },
+     }
+@@ -166,7 +169,8 @@ if (root instanceof HTMLElement) {
+         <PlatformProvider value={platform}>
+           <AppBaseProviders locale={locale}>
+             <AppInterface
+-              defaultServer={ServerConnection.Key.make(getDefaultUrl())}
++              defaultServer={ServerConnection.Key.make(VIRTUAL_SERVER)}
++              router={(routerProps: Parameters<typeof Router>[0]) => <Router {...routerProps} base="/opencode" />}
+               canonicalLocalServer={ServerConnection.key(server)}
+               servers={[server]}
+               disableHealthCheck
+-- 
+2.43.0
+
