@@ -391,6 +391,43 @@ class DockerTaskRunner:
             self._busy = False
             self._idle.set()
 
+    async def _watch(
+        self,
+        attached: asyncio.Task[bytes],
+        admission: WorkAdmission,
+        attempt: WorkAttempt,
+        stopped: asyncio.Event,
+        deadline: float,
+    ) -> RunnerOutcome | None:
+        # A slow read-only proof is not evidence of an unknown container outcome.
+        # Keep one proof in flight, while epoch/lease cancellation and the existing
+        # total deadline remain independently observable. Action boundaries and
+        # result release still require their own complete verification.
+        proof: asyncio.Task[None] | None = None
+        try:
+            while not attached.done():
+                try:
+                    current(admission)
+                    if stopped.is_set():
+                        return RunnerOutcome("cancelled", None, (), "")
+                    if proof is not None and proof.done():
+                        await proof
+                        proof = None
+                except ContractError:
+                    return RunnerOutcome("cancelled", None, (), "")
+                if time.monotonic() >= deadline:
+                    return RunnerOutcome("timeout", None, (), "")
+                if proof is None:
+                    proof = asyncio.create_task(self._verify(admission, attempt))
+                # Do not let an immediately completed proof create a busy loop
+                # or repeatedly contend with the operation owner's SQLite lock.
+                await asyncio.wait({attached}, timeout=0.1)
+            return None
+        finally:
+            if proof is not None:
+                proof.cancel()
+                await asyncio.gather(proof, return_exceptions=True)
+
     async def _run(self, admission: WorkAdmission, task: RunnerTask) -> RunnerOutcome:
         template = self.templates.get(task.template_id)
         if template is None:
@@ -458,19 +495,9 @@ class DockerTaskRunner:
                 self._attach(name, payload, task, admission, attempt, template, wire_cap)
             )
             deadline = time.monotonic() + task.limits.wall_seconds + 2
-            while not attached.done():
-                if stopped.is_set():
-                    result = RunnerOutcome("cancelled", None, (), "")
-                    break
-                if time.monotonic() >= deadline:
-                    result = RunnerOutcome("timeout", None, (), "")
-                    break
-                try:
-                    await asyncio.wait_for(self._verify(admission, attempt), timeout=1)
-                except ContractError:
-                    result = RunnerOutcome("cancelled", None, (), "")
-                    break
-                await asyncio.wait({attached}, timeout=0.1)
+            interrupted = await self._watch(attached, admission, attempt, stopped, deadline)
+            if interrupted is not None:
+                result = interrupted
             else:
                 result, contents = self._decode(await attached, task)
                 state = json.loads(await cli("inspect", "--format", "{{json .State}}", name))
