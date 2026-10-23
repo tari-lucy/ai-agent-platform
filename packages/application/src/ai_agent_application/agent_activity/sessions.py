@@ -8,6 +8,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from typing import Literal
 
 from ai_agent_contracts.agent_sessions import (
     SessionReplyRef,
@@ -79,10 +80,12 @@ class SessionBook:
     async def reset_context(
         self, scope: Scope, session_id: str, request_id: str, *, expected_version: int
     ) -> None:
-        """Trusted offline restore: retain history/progress, discard stale runtime context.
+        """Trusted reset: retain history/progress/tasks, discard stale runtime context.
 
-        No message is marked delivered or processed, and uncertain attempts stay uncertain.
-        The caller's fence must prove exclusive offline ownership; not a model tool.
+        Used by offline restore and by the session driver when part of the stored context
+        (an undelivered draft's basis) became unavailable. No message is marked delivered or
+        processed, and uncertain attempts stay uncertain. The caller's fence proves its
+        ownership (exclusive offline host or current runtime); not a model tool.
         """
         scope = area(scope)
         request = MessageCommand(
@@ -121,9 +124,71 @@ class SessionBook:
                     )
                 )
 
-    async def messages(
+    async def invalidate(
+        self,
+        scope: Scope,
+        session_id: str,
+        request_id: str,
+        *,
+        expected_version: int,
+        reason: Literal["message_unavailable"],
+    ) -> Receipt:
+        """Terminal stop: an unprocessed operator message is no longer available.
+
+        It is never executed and no later input is accepted here; the operator continues in a
+        new conversation. Draft, checkpoint and runtime context are discarded, tasks stay.
+        Called by trusted composition (session driver), not a model tool; replay is a no-op.
+        """
+        scope = area(scope)
+        request = MessageCommand(
+            request_id=request_id,
+            scope=scope,
+            target=session_id,
+            type="dialogue.message",
+            arguments=MessageArguments(text="invalidate " + reason),
+        )
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, request) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                current = await self.get(scope, session_id)
+                if current is None or current.state in ("closed", "invalidated"):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if current.version != expected_version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                revised = current.model_copy(
+                    update={
+                        "version": current.version + 1,
+                        "updated_at": self.clock(),
+                        "state": "invalidated",
+                        "invalidated_reason": reason,
+                        "generation": current.generation + 1,
+                        "waiting_ticket_ids": [],
+                        "checkpoint": None,
+                        "pending_reply": None,
+                        "context_sources": [],
+                        "context_files": [],
+                    }
+                )
+                await unit.put(revised, expected_version=current.version)
+                receipt = Receipt(
+                    request_id=request_id,
+                    scope=scope,
+                    status="completed",
+                    resource_id=current.id,
+                    version=revised.version,
+                )
+                await unit.complete(receipt)
+                return receipt
+
+    async def entries(
         self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
-    ) -> list[WorkSessionMessage]:
+    ) -> list[tuple[int, WorkSessionMessage | None]]:
+        """Like ``messages``, but a row hidden by its source's lifecycle is an explicit gap.
+
+        ``None`` at a sequence: the row is not readable (its source was deleted or expired).
+        It is never an end of history; the caller decides to drop or to stop on it.
+        """
         if (
             type(after_sequence) is not int
             or after_sequence < 0
@@ -135,12 +200,24 @@ class SessionBook:
         if session is None or session.state == "invalidated":
             raise ContractError(ErrorCode.ACCESS_DENIED)
         repo = self.store.repository(WorkSessionMessage, self.principal, area(scope))
-        rows: list[WorkSessionMessage] = []
+        rows: list[tuple[int, WorkSessionMessage | None]] = []
         for sequence in range(
             after_sequence + 1, min(session.last_sequence, after_sequence + limit) + 1
         ):
             row = await repo.get(message_id(scope, session_id, sequence))
-            if row is None or row.session_id != session_id or row.sequence != sequence:
+            if row is not None and (row.session_id != session_id or row.sequence != sequence):
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            rows.append((sequence, row))
+        return rows
+
+    async def messages(
+        self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
+    ) -> list[WorkSessionMessage]:
+        rows: list[WorkSessionMessage] = []
+        for _, row in await self.entries(
+            scope, session_id, after_sequence=after_sequence, limit=limit
+        ):
+            if row is None:
                 raise ContractError(ErrorCode.ACCESS_DENIED)  # a missing row is not end of history
             rows.append(row)
         return rows

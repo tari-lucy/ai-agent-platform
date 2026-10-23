@@ -7,7 +7,7 @@ the person's replies are appended by the session driver (R1) under a current adm
 transcript gives the panel each message's text through the release gate, or ``withheld``.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.agent_activity.sessions import SessionBook
 from ai_agent_application.control.ports import ControlAuthority
@@ -27,6 +27,7 @@ from .workplace_experience import ticket_release
 
 if TYPE_CHECKING:
     from .service import Runtime
+    from .work_session_access import Waiting
 
 SOURCE_TYPE = "work-session-message"
 ADAPTER = "workplace-session"
@@ -136,10 +137,14 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         raise ContractError(ErrorCode.ACCESS_DENIED)
     start = max(0, session.last_sequence - MAX_TRANSCRIPT)
     entries: list[WorkSessionEntry] = []
+    gone = False  # an unprocessed row hidden by its source's lifecycle (deleted/expired)
     if session.state != "invalidated":
         release, mem = ticket_release(rt), memory(rt)
-        rows = await book.messages(stable, session_id, after_sequence=start, limit=MAX_TRANSCRIPT)
-        for row in rows:
+        rows = await book.entries(stable, session_id, after_sequence=start, limit=MAX_TRANSCRIPT)
+        for sequence, row in rows:
+            if row is None:
+                gone = gone or sequence > session.processed_sequence
+                continue  # its speaker and text are not readable any more
             text = None
             if await release.bases_open(stable, (row.source,), (), "api_transfer"):
                 source = await mem.get_source(stable, row.source.source_id, purpose="api_transfer")
@@ -157,14 +162,15 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
     from .work_session_delivery import draft
 
     pending = await draft(rt, session)
-    waiting = ticket = None
-    if (
-        pending is None
-        and session.state in ("open", "waiting")
-        and any(
-            e.speaker == "operator" and e.sequence > session.processed_sequence for e in entries
-        )
-    ):
+    waiting: Waiting | Literal["message_unavailable"] | None = None
+    ticket = None
+    unprocessed = [
+        e for e in entries if e.speaker == "operator" and e.sequence > session.processed_sequence
+    ]
+    if session.state in ("open", "waiting") and (gone or any(e.withheld for e in unprocessed)):
+        # Not executed; the session driver stops this conversation on its next check.
+        waiting = "message_unavailable"
+    elif pending is None and session.state in ("open", "waiting") and unprocessed:
         from .work_session_access import access
 
         waiting, ticket = await access(rt, scope)
@@ -179,6 +185,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         waiting_reason=waiting,
         waiting_detail=rt.session_unavailable if waiting == "unavailable" else None,
         access_ticket_id=None if ticket is None or waiting == "access_required" else ticket.id,
+        invalidated_reason=session.invalidated_reason,
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

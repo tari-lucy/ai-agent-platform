@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.agent_activity.book import area, session_attempt_id
 from ai_agent_application.agent_activity.session_context import ReleasedSessionContext
@@ -19,12 +19,19 @@ from ai_agent_application.agent_workplace.ports import (
 )
 from ai_agent_application.memory import derived_id
 from ai_agent_application.storage import Owner, ReadPurpose
-from ai_agent_contracts.agent_sessions import SessionReplyOrigin, SessionReplyRef, WorkSession
+from ai_agent_contracts.agent_sessions import (
+    SessionReplyOrigin,
+    SessionReplyRef,
+    WorkSession,
+    WorkSessionMessage,
+)
+from ai_agent_contracts.agent_workplace import WorkAttempt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import ArtifactRef, Scope, SourceRef
 from ai_agent_contracts.control import Delivery, Utterance
 from ai_agent_contracts.states import DeliveryState, ErrorCode
 
+from .dialogue import memory
 from .schemas import TaskInput
 from .state import PRINCIPALS, extension, put, record
 from .work_session_tickets import updates as ticket_updates
@@ -57,13 +64,148 @@ class Release:
             raise ContractError(ErrorCode.STALE_CONTEXT)
 
 
+async def _open(rt: Runtime, scope: Scope, row: WorkSessionMessage) -> bool:
+    """The message's text may still go to the model: rights, version, TTL, ledger."""
+    if not await ticket_release(rt).bases_open(scope, (row.source,), (), "api_transfer"):
+        return False
+    source = await memory(rt).get_source(scope, row.source.source_id, purpose="api_transfer")
+    return (
+        source is not None and source.version == row.source.version and source.content is not None
+    )
+
+
+class OpenHistory:
+    """Session history without closed rows the person already took (a droppable context part).
+
+    An unprocessed operator message is never dropped: the context build refuses it and the
+    driver stops the conversation instead of answering without it.
+    """
+
+    def __init__(self, rt: Runtime, inner: SessionBook, session: WorkSession) -> None:
+        self.rt, self.inner, self.session = rt, inner, session
+
+    async def get(self, scope: Scope, session_id: str) -> WorkSession | None:
+        return await self.inner.get(scope, session_id)
+
+    async def messages(
+        self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
+    ) -> list[WorkSessionMessage]:
+        kept: list[WorkSessionMessage] = []
+        for sequence, row in await self.inner.entries(
+            scope, session_id, after_sequence=after_sequence, limit=limit
+        ):
+            taken = sequence <= self.session.processed_sequence
+            if row is None:
+                if not taken:
+                    raise ContractError(ErrorCode.ACCESS_DENIED)  # a pending row is gone
+                continue
+            if (row.speaker == "operator" and not taken) or await _open(self.rt, scope, row):
+                kept.append(row)
+        return kept
+
+
+async def unavailable(rt: Runtime, session: WorkSession) -> Literal["message", "context"] | None:
+    """What of an open conversation's basis is closed now, checked without a model call.
+
+    ``message``: an unprocessed operator message (or its row) is revoked/expired/deleted.
+    ``context``: only the undelivered draft's basis is closed; the draft is discarded and the
+    context is rebuilt. Closed earlier history is simply dropped by ``OpenHistory``.
+    """
+    from .work_session_delivery import draft
+    from .work_sessions import sessions as history
+
+    rows = await history(rt).entries(
+        session.scope, session.id, after_sequence=session.processed_sequence, limit=200
+    )
+    for _, row in rows:
+        # A hidden row's speaker is unknown: never answer around it.
+        if row is None or (row.speaker == "operator" and not await _open(rt, session.scope, row)):
+            return "message"
+    pending = await draft(rt, session)
+    if pending is not None and pending.withheld:
+        return "context"
+    return None
+
+
+async def settle_basis(
+    rt: Runtime,
+    session: WorkSession,
+    found: Literal["message", "context"],
+    authorize: Callable[[Scope], None],
+) -> None:
+    """Owner transition for a closed basis; never runs a model and never grants anything."""
+    from .work_sessions import sessions as history
+
+    book = SessionBook(
+        rt.store,
+        PRINCIPALS[Owner.ACTIVITY],
+        rt.supervisor.clock.utc,
+        authorize=authorize,
+        verify_source=history(rt).verify_source,
+        readers=rt.readers,
+    )
+    key = f"{session.id}-{session.version}"
+    try:
+        if found == "message":
+            await book.invalidate(
+                session.scope,
+                session.id,
+                "invalidate-session-" + key,
+                expected_version=session.version,
+                reason="message_unavailable",
+            )
+        else:
+            await book.reset_context(
+                session.scope, session.id, "reset-session-" + key, expected_version=session.version
+            )
+    except ContractError as error:
+        if error.error.code not in (ErrorCode.VERSION_CONFLICT, ErrorCode.ACCESS_DENIED):
+            raise
+        return  # a concurrent change; the next tick looks again
+    latest = await book.get(session.scope, session.id)
+    if latest is not None:
+        rt.notify("work-session.changed", session.scope, session.id, latest.version)
+
+
+async def _superseded(rt: Runtime, session: WorkSession, attempt: WorkAttempt) -> bool:
+    """A produced draft the owner discarded on reset (older generation) does not block."""
+    from .work_session_delivery import origin
+
+    if attempt.result_id is None:
+        return False
+    utterance = await rt.store.repository(Utterance, PRINCIPALS[Owner.GATEWAY], session.scope).get(
+        attempt.result_id
+    )
+    if utterance is None:
+        return False
+    try:
+        details = origin(rt, utterance)
+    except ContractError:
+        return False
+    return details.session_id == session.id and details.generation < session.generation
+
+
 async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     """One bounded session submission; undelivered drafts do not trigger another model call."""
     from .activity import TERMINAL_JOB, book, tools
 
-    sessions = await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], area(scope)).list(
-        limit=200
-    )
+    repo = rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], area(scope))
+    sessions = await repo.list(limit=200)
+
+    def authorize(stable: Scope) -> None:
+        if stable.partition != rt.supervisor.snapshot.scope.partition:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    # A closed basis is settled by its owner first, before any job, model call or access request.
+    settled = False
+    for session in sessions:
+        if session.state in ("open", "waiting"):
+            found = await unavailable(rt, session)
+            if found is not None:
+                await settle_basis(rt, session, found, authorize)
+                settled = True
+    if settled:
+        sessions = await repo.list(limit=200)
     if rt.session_harness is None or rt.session_capability is None:
         return None
     manifests = {
@@ -81,9 +223,7 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     for session in sorted(sessions, key=lambda s: (s.updated_at, s.id)):
         if session.state not in ("open", "waiting") or session.pending_reply is not None:
             continue
-        rows = await rt.store.repository(WorkSession, PRINCIPALS[Owner.ACTIVITY], area(scope)).get(
-            session.id
-        )
+        rows = await repo.get(session.id)
         if rows is None or rows != session:
             continue
         # Character replies never wake themselves; new operator input or ticket answers do.
@@ -114,6 +254,8 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
                 await owner.settle(attempt, state)  # type: ignore[arg-type]
             else:
                 state = attempt.state
+            if state == "succeeded" and await _superseded(rt, session, attempt):
+                continue
             if state in ("unknown", "succeeded"):
                 blocked = True  # no blind replay of an uncertain or already produced result
         if blocked:
@@ -145,7 +287,6 @@ async def perform(ex: Execution) -> list[str]:
     from ai_agent_application.agent_workplace.ports import HarnessTurn
 
     from .activity import ExecutionModelGateway, admission, book, tools
-    from .dialogue import memory
     from .work_sessions import sessions as history
 
     rt, scope, request = ex.runtime, ex.command.scope, ex.args.request
@@ -175,15 +316,35 @@ async def perform(ex: Execution) -> list[str]:
         dict.fromkeys([*(ref.ticket_id for ref in answered), *session.waiting_ticket_ids])
     )
     context_session = session.model_copy(update={"waiting_ticket_ids": requested})
-    context = await ReleasedSessionContext(reader, provider, memory(rt), guard).build(
-        gate, context_session, max_messages=40, max_chars=16000
-    )
     owner = book(rt)
     number = request.work_session_attempt
     if number is None:
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
     if request.trigger_id != session_attempt_id(scope, session.id, session.last_sequence, number):
         raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    def fence(stable: Scope) -> None:
+        ex.guard()
+        if stable.partition != scope.partition:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    try:
+        context = await ReleasedSessionContext(
+            OpenHistory(rt, reader, session), provider, memory(rt), guard
+        ).build(gate, context_session, max_messages=40, max_chars=16000)
+    except ContractError as error:
+        if error.error.code in (ErrorCode.ACCESS_DENIED, ErrorCode.RESOURCE_BUSY):
+            found = await unavailable(rt, session)
+            if found is not None:
+                await settle_basis(rt, session, found, fence)
+            if found != "message":
+                # Record the refused step: the same trigger is never replayed tick after tick,
+                # the next one counts against the attempt limit and cooldown. No model call.
+                failed = await owner.prepare_session(
+                    session, number, ex.command.operation_id, scope, ex.command.freshness, [], []
+                )
+                await owner.settle(failed, "failed")
+        raise
     attempt = await owner.prepare_session(
         session,
         number,

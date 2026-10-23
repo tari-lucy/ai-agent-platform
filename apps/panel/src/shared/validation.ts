@@ -642,12 +642,15 @@ export function workAttempts(value: unknown, selected: Scope): import('./contrac
 // released transcript, never in a session or message record.
 const sessionStates = new Set(['open', 'waiting', 'closed', 'invalidated']);
 const speakers = new Set(['operator', 'character']);
-const waitingReasons = new Set(['unavailable', 'access_required', 'access_requested', 'access_refused']);
+const waitingReasons = new Set(['unavailable', 'access_required', 'access_requested', 'access_refused', 'message_unavailable']);
+const invalidatedReasons = new Set(['message_unavailable']);
+const stopReason = (value: Record<string, unknown>) => value.invalidated_reason == null ||
+  (value.state === 'invalidated' && invalidatedReasons.has(String(value.invalidated_reason)));
 export function workSessions(value: unknown, selected: Scope): import('./contracts.ts').WorkSessionPage {
   page(value, selected);
   demand(value.items.every((row) => text(row.title, 512) && sessionStates.has(String(row.state)) &&
     Number.isSafeInteger(row.last_sequence) && Number(row.last_sequence) >= 0 &&
-    (row.state !== 'waiting' || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.length > 0))));
+    (row.state !== 'waiting' || (Array.isArray(row.waiting_ticket_ids) && row.waiting_ticket_ids.length > 0)) && stopReason(row)));
   return value as import('./contracts.ts').WorkSessionPage;
 }
 export function workSessionTranscript(value: unknown, selected: Scope, sessionId: string): import('./contracts.ts').WorkSessionTranscript {
@@ -656,7 +659,7 @@ export function workSessionTranscript(value: unknown, selected: Scope, sessionId
     (value.processed_sequence === undefined || (Number.isSafeInteger(value.processed_sequence) && Number(value.processed_sequence) >= 0)) &&
     (value.waiting_reason == null || waitingReasons.has(String(value.waiting_reason))) &&
     (value.waiting_detail == null || text(value.waiting_detail, 512)) &&
-    (value.access_ticket_id == null || id(value.access_ticket_id)) &&
+    (value.access_ticket_id == null || id(value.access_ticket_id)) && stopReason(value) &&
     typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
   let last = 0;
   demand(value.entries.every((entry: unknown) => {
