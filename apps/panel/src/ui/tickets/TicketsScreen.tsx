@@ -39,10 +39,11 @@ function useSend(api: PanelApi, scope: Scope) {
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const pending = useRef<string | null>(null);
+  // Re-read before acting again: the action stays busy until fresh records arrive.
   const refresh = () => {
-    for (const resource of ['tickets', 'ticket-messages', 'permissions', 'capability-bindings', 'capability-manifests']) {
-      void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
-    }
+    setBusy(true); setStale(false); setProblem(null);
+    void Promise.all(['tickets', 'ticket-messages', 'permissions', 'capability-bindings', 'capability-manifests']
+      .map((resource) => cache.refetchQueries({ queryKey: projectionKey(resource, scope) }))).finally(() => setBusy(false));
   };
   async function send(make: (requestId: string) => Parameters<PanelApi['command']>[0]): Promise<boolean> {
     setProblem(null); setStale(false); setBusy(true);
@@ -56,7 +57,10 @@ function useSend(api: PanelApi, scope: Scope) {
       if (code === 'VERSION_CONFLICT') { pending.current = null; setStale(true); }
       setProblem(actionProblem(code, failureMessage(error) + ' Повторная отправка использует тот же запрос и не создаст дубль.'));
       return false;
-    } finally { setBusy(false); refresh(); }
+    } finally {
+      setBusy(false);
+      for (const resource of ['tickets', 'ticket-messages', 'permissions']) void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
+    }
   }
   return { problem, stale, busy, send, refresh, reset: () => { pending.current = null; } };
 }
@@ -135,10 +139,12 @@ function usePlan(api: PanelApi, scope: Scope) {
     setStale(code === 'VERSION_CONFLICT');
     return actionProblem(code, failureMessage(error));
   };
+  const reload = () => Promise.all(['permissions', 'tickets', 'ticket-messages', 'capability-bindings', 'capability-manifests']
+    .map((resource) => cache.refetchQueries({ queryKey: projectionKey(resource, scope) })));
+  // After a conflict the card is read again before a new preview can be made from it.
   const refresh = () => {
-    for (const resource of ['permissions', 'tickets', 'ticket-messages', 'capability-bindings', 'capability-manifests']) {
-      void cache.invalidateQueries({ queryKey: projectionKey(resource, scope) });
-    }
+    setBusy(true); setStale(false); setProblem(null); setPlan(null);
+    void reload().finally(() => setBusy(false));
   };
   async function preview(command: Parameters<PanelApi['command']>[0]) {
     setProblem(null); setStale(false); setBusy(true); executing.current = null;
@@ -156,17 +162,25 @@ function usePlan(api: PanelApi, scope: Scope) {
       await api.command(executeDecision(scope, capabilityId, plan.id, executing.current));
       setPlan(null); executing.current = null;
       return true;
-    } catch (error) { setProblem(explain(error) + ' Повтор использует тот же запрос.'); return false; }
-    finally { setBusy(false); refresh(); }
+    } catch (error) {
+      const message = explain(error);
+      if (error instanceof ApiFailure && error.code === 'VERSION_CONFLICT') {
+        // The plan was for a version that no longer exists: it cannot be confirmed any more.
+        setPlan(null); executing.current = null; setProblem(message);
+      } else setProblem(message + ' Повтор использует тот же запрос.');
+      return false;
+    }
+    finally { setBusy(false); void reload(); }
   }
   return { plan, problem, stale, busy, preview, confirm, refresh, cancel: () => { setPlan(null); executing.current = null; } };
 }
 
-function PlanView({ state, capabilityId, confirmLabel, onDone }: {
-  state: ReturnType<typeof usePlan>; capabilityId: string; confirmLabel: string; onDone: () => void;
+function PlanView({ state, capabilityId, confirmLabel, onDone, summary }: {
+  state: ReturnType<typeof usePlan>; capabilityId: string; confirmLabel: string; onDone: () => void; summary?: ReactNode;
 }) {
   return <>
     {state.plan && <Paper withBorder p="sm" aria-label="Последствия решения">
+      {summary}
       <Text size="sm" fw={600}>Что произойдёт</Text>
       <Text size="sm" className="plain-text">{state.plan.consequences}</Text>
       <Group mt="xs"><Button size="compact-sm" color="orange" loading={state.busy}
@@ -216,7 +230,14 @@ function AccessRequest({ api, scope, ticket, onResult, waiting }: { api: PanelAp
         onClick={() => void grant.preview(grantPreview(scope, ticket, decision, crypto.randomUUID()))}>Разрешить…</Button></Group>}
     {problem && <Alert color="orange" role="alert" mt={4}>{problem}</Alert>}
     <PlanView state={grant} capabilityId={request.capability_id} confirmLabel="Подтвердить выдачу доступа"
-      onDone={() => onResult(`Доступ выдан до ${when(until.toISOString())}. Агента это не запускает.`)} />
+      onDone={() => onResult(`Доступ выдан до ${when(until.toISOString())}. Агента это не запускает.`)}
+      summary={<Stack gap={2} mb={6} aria-label="Что вы разрешаете">
+        <Text size="sm" fw={600}>Что вы разрешаете</Text>
+        <Text size="sm">Возможность: {manifest.summary}</Text>
+        <Text size="sm">Области: {decision.areas.length ? areaList(decision.areas) : 'без доступа к файлам'}</Text>
+        <Text size="sm">Срок: {decision.days} дн., до {when(until.toISOString())} · уровень: {levelLabels[decision.level]}</Text>
+        <Text size="sm" className="plain-text">Ограничения: {decision.constraints.trim() || 'не указаны'}</Text>
+      </Stack>} />
     <Details summary="Подробности решения">
       <Text size="xs" c="dimmed">Возможность: {request.capability_id} · эффект: {manifest.effect} · подключение: {binding ? `${binding.binding_id} (${binding.adapter_id}, ${binding.state})` : 'нет'} · обращение версии {ticket.version}</Text>
       <SegmentedControl size="xs" value={decision.level} onChange={(value) => set({ level: value as Level })}
@@ -248,18 +269,23 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
   // Marking as read changes the ticket version: actions wait until the card is read again,
   // so a quick click is not sent against the version just replaced.
   const [reading, setReading] = useState(false);
+  const [readFailed, setReadFailed] = useState<string | null>(null);
   const marked = useRef<string | null>(null);
+  const versionKey = ticket.id + ':' + ticket.version;
   useEffect(() => {
     // Opening an unread ticket records that this exact version was seen, once per version.
-    const key = ticket.id + ':' + ticket.version;
-    if (!unread(ticket) || marked.current === key) return;
-    marked.current = key;
+    if (!unread(ticket) || marked.current === versionKey) return;
+    marked.current = versionKey;
     setReading(true);
     api.command(readCommand(scope, ticket, crypto.randomUUID()))
-      .catch(() => {})
-      .then(() => cache.invalidateQueries({ queryKey: projectionKey('tickets', scope) }))
+      .catch(() => setReadFailed(versionKey))
+      // A fresh read (cancelling any read already in flight) before actions are released,
+      // so they never use the version the read mark has just replaced.
+      .then(() => cache.refetchQueries({ queryKey: projectionKey('tickets', scope) }))
       .finally(() => setReading(false));
-  }, [api, cache, scope, ticket]);
+  }, [api, cache, scope, ticket, versionKey]);
+  // Also before the effect runs: an unread version is about to change by the read mark.
+  const settling = reading || (unread(ticket) && readFailed !== versionKey);
   const access = ticket.kind === 'capability_request' && !!ticket.request;
   return <Paper withBorder p="md" radius="lg" aria-label="Карточка обращения">
     <Group gap="xs"><Badge variant="light">{kindLabels[ticket.kind]}</Badge>
@@ -272,7 +298,7 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
         <Text size="sm" className="plain-text">{ticket.request!.constraints}</Text></div>}
       {ticket.resolution != null && <Text size="sm" className="plain-text">Итог: {ticket.resolution}</Text>}
       {result && <Alert color="teal" role="status">{result}</Alert>}
-      {access && !terminal(ticket) && <AccessRequest api={api} scope={scope} ticket={ticket} onResult={setResult} waiting={reading} />}
+      {access && !terminal(ticket) && <AccessRequest api={api} scope={scope} ticket={ticket} onResult={setResult} waiting={settling} />}
       <Details summary="Подробности обращения">
         <Text size="xs">Что уже попробовано: {ticket.attempted}</Text>
         <Text size="xs" c="dimmed">{turnLabel(ticket)} · состояние: {stateLabels[ticket.state]} · оценка агента: {priorityLabels[ticket.agent_priority] ?? ticket.agent_priority}
@@ -287,8 +313,8 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
     <ol className="memory-list" aria-label="Сообщения обращения">{messages.map((message) => <li key={message.id}>
       <Paper withBorder p="xs" mb={4}><Text size="xs" c="dimmed">{partyLabels[message.author]} · {when(message.created_at)}</Text>
         <Text size="sm" className="plain-text">{message.body}</Text></Paper></li>)}</ol>
-    <Answer key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} onResult={setResult} waiting={reading} />
-    {!terminal(ticket) && <Group mt="xs"><Closing api={api} scope={scope} ticket={ticket} onResult={setResult} refuse={access} waiting={reading} /></Group>}
+    <Answer key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} onResult={setResult} waiting={settling} />
+    {!terminal(ticket) && <Group mt="xs"><Closing api={api} scope={scope} ticket={ticket} onResult={setResult} refuse={access} waiting={settling} /></Group>}
   </Paper>;
 }
 
@@ -312,7 +338,10 @@ export function TicketsScreen({ api, scope, run }: { api: PanelApi; scope: Scope
   const failed = tickets.isError ? tickets : undefined;
   return <Stack gap="md">
     <div><Title order={1} size="h3">Обращения</Title>
-      <Text size="sm" c="dimmed">Вопросы, проблемы, идеи и запросы доступа от агента. Ответить можно и когда агент остановлен.</Text></div>
+      <Text size="sm" c="dimmed">Вопросы, проблемы, идеи и запросы доступа от агента. Ответить можно и когда агент остановлен;
+        открытие карточки и ответ сами агента не запускают и модель не вызывают.</Text>
+      <Text size="sm" mt={4} aria-label="Профиль обращений">Профиль: <strong>{scope.persona_id}</strong> ·
+        {scope.memory_mode === 'test' ? ' тестовая память' : ' рабочая память'} ({scope.memory_space_id})</Text></div>
     {failed && <Alert color="orange" title="Часть данных недоступна">{failureMessage(failed.error)}</Alert>}
     {tickets.isPending ? <Text size="sm">Получаем обращения…</Text> : <Group align="flex-start" grow wrap="wrap">
       <Stack gap="md" style={{ flex: '1 1 18rem' }}>
