@@ -23,9 +23,9 @@ from ai_agent_core.local_host.layout import HostError
 
 BASE = "/opencode"
 MANIFEST = "platform-ui-manifest.json"
-MAX_FILES = 512
+MAX_FILES = 1024
 MAX_FILE = 8 * 1024 * 1024
-MAX_TOTAL = 32 * 1024 * 1024
+MAX_TOTAL = 48 * 1024 * 1024
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*")
 PAGE = re.compile(r"[A-Za-z0-9_-]{1,256}/session(?:/[A-Za-z0-9_.:-]{1,128})?")
 EXTENSIONS = frozenset(
