@@ -18,6 +18,7 @@ from test_activity import WorkModel, fast, prepared, until
 from test_live import answer
 from test_work_sessions_http import open_session, say, transcript
 
+from ai_agent_core.local_host.activity import configure_activity
 from ai_agent_core.local_host.provider import WORK_SESSION_PROTOCOL
 from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
@@ -64,6 +65,25 @@ class BridgeModel(WorkModel):
             )
         elif number == 4:
             assert "ticket_id" in json.dumps(body["messages"][-1])
+            if body.get("stream") is False:
+                return httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "Synthetic note saved; access requested.",
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 30,
+                            "completion_tokens": 8,
+                        },
+                    },
+                )
             return httpx.Response(
                 200,
                 content=answer("Synthetic note saved; access requested."),
@@ -80,6 +100,26 @@ class BridgeModel(WorkModel):
                 arguments=json.dumps(dict(operation=operation, arguments=arguments)),
             ),
         )
+        if body.get("stream") is False:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [{k: v for k, v in call.items() if k != "index"}],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 30,
+                        "completion_tokens": 8,
+                    },
+                },
+            )
         rows = [
             {"choices": [{"delta": {"tool_calls": [call]}}]},
             {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
@@ -94,10 +134,12 @@ class BridgeModel(WorkModel):
         )
 
 
-def test_real_workspace_bridge_note_read_ticket_lineage_ack(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stream_tools", [True, False])
+def test_real_workspace_bridge_note_read_ticket_lineage_ack(tmp_path, monkeypatch, stream_tools):
     async def scenario():
         model = BridgeModel()
         host = await prepared(tmp_path, monkeypatch, model)
+        await configure_activity(host.root, stream_tools=stream_tools)
         await enable_recovery(
             host.root, store_dir=tmp_path / "backups", ledger_path=tmp_path / "ledger/events.sqlite"
         )

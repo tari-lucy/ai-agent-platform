@@ -13,6 +13,7 @@ MAX_TOOL_JSON = 64000
 
 
 class ToolRejection(StrEnum):
+    MISSING = "TOOL_MISSING_CALLS"
     INDICES = "TOOL_INDICES"
     SHAPE = "TOOL_CALL_SHAPE"
     ARGUMENTS = "TOOL_ARGUMENTS_INVALID"
@@ -96,7 +97,9 @@ class ToolBuffer:
             raise ValueError("TOOL_OUTPUT_LIMIT")
 
     def finish(self, allowed: set[str]) -> tuple[ToolCall, ...]:
-        if not self.parts or set(self.parts) != set(range(len(self.parts))):
+        if not self.parts:
+            raise ToolProtocolError(ToolRejection.MISSING)
+        if set(self.parts) != set(range(len(self.parts))):
             raise ToolProtocolError(ToolRejection.INDICES)
         result = []
         for _, part in sorted(self.parts.items()):

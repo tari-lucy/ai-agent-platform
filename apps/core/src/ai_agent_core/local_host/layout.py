@@ -54,6 +54,7 @@ class ActivityConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     enabled: bool = Field(default=False, strict=True)
     daily_calls: int = Field(default=20, strict=True, ge=1, le=1000)
+    stream_tools: bool = Field(default=True, strict=True)
     cooldown_minutes: int = Field(default=10, strict=True, ge=1, le=1440)
     own_goals: bool = Field(default=False, strict=True)
     own_goal_daily: int = Field(default=2, strict=True, ge=0, le=24)

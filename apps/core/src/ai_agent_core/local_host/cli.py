@@ -157,6 +157,13 @@ def parser() -> argparse.ArgumentParser:
     goals.add_argument("--own-goals", action="store_true")
     goals.add_argument("--no-own-goals", action="store_true")
     activity.add_argument("--daily-calls", type=int)
+    tool_mode = activity.add_mutually_exclusive_group()
+    tool_mode.add_argument(
+        "--stream-tools", action="store_const", const=True, dest="stream_tools", default=None
+    )
+    tool_mode.add_argument(
+        "--complete-tools", action="store_const", const=False, dest="stream_tools"
+    )
     activity.add_argument("--cooldown-minutes", type=int)
     activity.add_argument("--own-goal-daily", type=int)
     activity.add_argument("--max-open-tasks", type=int)
@@ -248,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "configure-activity":
             changes = {}
+            if arguments.stream_tools is not None:
+                changes["stream_tools"] = arguments.stream_tools
             if arguments.enable or arguments.disable:
                 changes["enabled"] = bool(arguments.enable)
             if arguments.own_goals or arguments.no_own_goals:

@@ -8,7 +8,7 @@ credential cannot leave for another host. Tool fragments remain data, never exec
 
 import json
 import math
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlsplit
@@ -174,10 +174,15 @@ class OpenAICompatibleProvider:
     """``LLMProvider`` for Chat Completions with ``stream=true`` and ``include_usage``."""
 
     def __init__(
-        self, settings: Mapping[str, str], client: httpx.AsyncClient | None = None
+        self,
+        settings: Mapping[str, str],
+        client: httpx.AsyncClient | None = None,
+        *,
+        stream_tools: bool = True,
     ) -> None:
         self._settings = settings
         self._client = client
+        self.stream_tools = stream_tools
 
     def _http(self, timeout: float) -> tuple[httpx.AsyncClient, bool]:
         if self._client is not None:
@@ -218,6 +223,11 @@ class OpenAICompatibleProvider:
                 }
                 for tool in call.tools
             ]
+            if not self.stream_tools:
+                # A complete tool_calls array has authoritative positions; do not guess
+                # missing/offset streamed indices from an aggregator's content blocks.
+                body["stream"] = False
+                del body["stream_options"]
         if parameters.temperature is not None:
             body["temperature"] = parameters.temperature
         if parameters.top_p is not None:
@@ -225,6 +235,31 @@ class OpenAICompatibleProvider:
         headers = {"Authorization": f"Bearer {credential}", "Accept": "text/event-stream"}
         client, owned = self._http(parameters.timeout_seconds)
         try:
+            if body["stream"] is False:
+                headers["Accept"] = "application/json"
+                async with client.stream("POST", url, json=body, headers=headers) as response:
+                    if response.status_code != 200:
+                        raise ProviderError(
+                            failure_for_status(response.status_code), _retry_after(response)
+                        )
+                    if (
+                        not response.headers.get("content-type", "")
+                        .lower()
+                        .startswith("application/json")
+                    ):
+                        raise ProviderError(Failure.PROTOCOL)
+                    data = bytearray()
+                    async for part in response.aiter_bytes():
+                        data.extend(part)
+                        if len(data) > MAX_EVENT_BYTES:
+                            raise ProviderError(Failure.PROTOCOL)
+                    try:
+                        document = json.loads(data)
+                    except ValueError, RecursionError:
+                        raise ProviderError(Failure.PROTOCOL) from None
+                    for event in self._complete_events(document):
+                        yield event
+                return
             async with aconnect_sse(client, "POST", url, json=body, headers=headers) as source:
                 response = source.response
                 if response.status_code != 200:
@@ -251,6 +286,33 @@ class OpenAICompatibleProvider:
         finally:
             if owned:
                 await client.aclose()
+
+    @staticmethod
+    def _complete_events(document: Any) -> Iterator[ProviderEvent]:
+        if not isinstance(document, dict) or "error" in document:
+            raise ProviderError(Failure.PROTOCOL)
+        choices = document.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+            raise ProviderError(Failure.PROTOCOL)
+        choice = choices[0]
+        message, reason = choice.get("message"), choice.get("finish_reason")
+        if not isinstance(message, dict) or not isinstance(reason, str):
+            raise ProviderError(Failure.PROTOCOL)
+        content = message.get("content")
+        if content is not None and not isinstance(content, str):
+            raise ProviderError(Failure.PROTOCOL)
+        model = document.get("model")
+        yield Started(model[:128] if isinstance(model, str) and model else None)
+        if content:
+            yield Delta(content)
+        if "tool_calls" in message:
+            calls = message["tool_calls"]
+            if not isinstance(calls, list) or any(not isinstance(c, dict) for c in calls):
+                raise ProviderError(Failure.PROTOCOL)
+            yield from _tool_events([dict(call, index=i) for i, call in enumerate(calls)])
+        if document.get("usage") is not None:
+            yield UsageReported(usage_from(document["usage"]))
+        yield Finished(_REASONS.get(reason, "other"))  # type: ignore[arg-type]
 
     async def _events(self, source: Any) -> AsyncIterator[ProviderEvent]:
         count = 0

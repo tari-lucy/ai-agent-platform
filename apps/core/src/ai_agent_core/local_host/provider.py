@@ -267,6 +267,7 @@ def provider_factory(
                 {"AI_PLATFORM_LLM_ENDPOINT": endpoint, "AI_PLATFORM_LLM_API_KEY": credential}
             ),
         )
+        actual.provider.stream_tools = live.activity.stream_tools
 
     def build(adapter_id: str) -> MockProvider | PrivateLiveProvider:
         if adapter_id == "mock":
