@@ -47,6 +47,22 @@ ProviderCall теперь получает result_model из доверенно�
 внутри общего 300; резерв памяти сохранён. Предел меняется штатной offline-командой
 configure-activity --daily-calls N, а не новой константой в коде.
 
-Перед обновлением выполнен штатный STOP. Применение на личном deployment и
-итоговые read-only проверки фиксируются ниже после завершения.
+Перед обновлением выполнен штатный STOP, serve завершён, штатная manual-копия
+создана и проверена (verified=true). Чистый deployment fast-forward обновлён
+с c966401 до e2458e4. Зависимости и миграции не менялись; установки не было.
+Включены также принятые исправление отзыва контекста и UI обращений Claude.
+
+Штатный configure-activity установил daily_calls=200. Assets собранной панели
+перенесены до index.html; прежние assets сохранены. Launcher запущен обычным
+scripts/start-panel.ps1, адрес остаётся прежним loopback.
+
+После запуска API подтвердил STOPPED, activity_daily_calls=200, attempt_limit=300,
+memory_daily_calls=8 и три прежних automatic Permission рабочего места.
+sessions/work-sessions/tickets/workplace-library/private-api-status/permissions/
+capability-bindings/llm-attempts вернули 200. HTTP index и JS побайтово совпали
+с подготовленной сборкой. START и дополнительная живая проба модели не выполнялись.
+Старые сообщения не переписывались; исправление действует на следующие ходы.
+
+Настоящий браузерный путь новой формы обращений проверен Claude на Linux;
+в этом обновлении Windows повторно проверены сборка и выдача assets, не полный UI journey.
 Личные сообщения, идентификаторы host, пароли, ключи и endpoint в отчёт не входят.
