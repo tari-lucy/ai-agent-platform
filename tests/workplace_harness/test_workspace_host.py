@@ -18,6 +18,7 @@ from test_activity import WorkModel, fast, prepared, until
 from test_live import answer
 from test_work_sessions_http import open_session, say, transcript
 
+from ai_agent_core.local_host.provider import WORK_SESSION_PROTOCOL
 from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
 from ai_agent_core.m3_composition.state import PRINCIPALS
@@ -32,6 +33,8 @@ CAPABILITY = "workplace.opencode-session"
 class BridgeModel(WorkModel):
     async def __call__(self, request):
         body = json.loads(request.content)
+        assert body["messages"][0]["content"].endswith(WORK_SESSION_PROTOCOL)
+        assert '"StepDecision"' not in body["messages"][0]["content"]
         self.calls.append(("activity", body))
         assert "platform_workspace" in {t["function"]["name"] for t in body["tools"]}
         number = len(self.calls)

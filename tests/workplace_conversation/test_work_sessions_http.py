@@ -67,14 +67,19 @@ def test_conversation_intake_replay_conflict_release_and_close(tmp_path, monkeyp
             session_id = opened.json()["resource_id"]
             assert (await open_session(host, "open-1")).json() == opened.json()  # replay
 
+            deferred = rt.supervisor.clock.elapsed() + 3600
+            rt.autonomous_activity.next_check = deferred
             first = await say(host, "say-1", session_id, 1, "Давай начнём с оглавления.")
             assert first.status_code == 200, first.text
+            assert rt.autonomous_activity.next_check < deferred  # wake; still no START or model
             again = await say(host, "say-1", session_id, 1, "Давай начнём с оглавления.")
             assert again.json() == first.json()  # a lost reply retried: one message
             changed = await say(host, "say-1", session_id, 1, "Другой текст.")
             assert changed.status_code == 409, changed.text
+            rt.autonomous_activity.next_check = deferred
             stale = await say(host, "say-2", session_id, 1, "Устаревший вид.")
             assert stale.status_code == 409, stale.text
+            assert rt.autonomous_activity.next_check == deferred  # refused input does not wake
             # The refused message left no loose text in memory: its source was retired
             # (an expired source keeps no content and is not listed).
             stored = {

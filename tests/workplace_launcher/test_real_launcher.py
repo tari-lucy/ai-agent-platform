@@ -18,6 +18,7 @@ from test_live import answer
 from test_session_launcher import AREAS, grant, stop, tickets
 from test_work_sessions_http import open_session, say, transcript
 
+from ai_agent_core.local_host.provider import WORK_SESSION_PROTOCOL
 from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.work_sessions import enable_work_sessions
 from ai_agent_core.local_host.workplace_files import enable_workplace_files
@@ -32,6 +33,8 @@ class OpenCodeModel(WorkModel):
     async def __call__(self, request):
         body = json.loads(request.content)
         assert body["model"] == "fixture-model" and body.get("tools")
+        assert body["messages"][0]["content"].endswith(WORK_SESSION_PROTOCOL)
+        assert '"StepDecision"' not in body["messages"][0]["content"]
         self.calls.append(("activity", body))
         assert len(self.calls) <= 2, "unscripted model call"
         return httpx.Response(

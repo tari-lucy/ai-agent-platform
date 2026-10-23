@@ -136,6 +136,9 @@ class ProviderCall:
     assignment: ResolvedAssignment
     messages: tuple[ChatMessage, ...]
     tools: tuple[ToolDefinition, ...] = ()
+    # Trusted call contract, independent of the shared accounting role. A workspace
+    # harness uses text/tool_calls, while the activity planner requires StepDecision.
+    result_model: type[BaseModel] | None = None
 
 
 def prompt_size(messages: tuple[ChatMessage, ...], tools: tuple[ToolDefinition, ...] = ()) -> int:

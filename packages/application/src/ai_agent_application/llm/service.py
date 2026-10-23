@@ -297,7 +297,12 @@ class LLMGateway:
                 raise ProviderError(Failure.NOT_ADMITTED)
             provider: LLMProvider = self._providers(assignment.adapter_id)
             events = provider.stream(
-                ProviderCall(assignment=assignment, messages=request.messages, tools=request.tools)
+                ProviderCall(
+                    assignment=assignment,
+                    messages=request.messages,
+                    tools=request.tools,
+                    result_model=request.result_model,
+                )
             )
             async with asyncio.timeout(assignment.parameters.timeout_seconds):
                 await self._consume(events, outcome, cancel, on_delta, request)

@@ -123,6 +123,10 @@ async def mutate(
     else:
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
     assert receipt.resource_id is not None
+    if request.type == "work.session.message":
+        # Reconsider durable operator input on the next runtime tick. This is only a
+        # scheduling hint: START, admission, foreground priority and budget still apply.
+        rt.autonomous_activity.next_check = 0.0
     rt.notify("work-session.changed", area(request.scope), receipt.resource_id, receipt.version)
     return receipt
 
