@@ -92,7 +92,7 @@ def test_local_host_browser_login_dialogue_stop_and_restart(page, tmp_path):
         page.goto("about:blank")
     with Server(root, port, log, panel_dir=build) as server:
         login(server.origin)
-        page.get_by_role("link", name="Диалог", exact=True).click()
+        page.get_by_role("link", name="Диалог · временно", exact=True).click()
         expect(page.get_by_role("list", name="Лента диалога")).to_contain_text(
             "Вымышленный ответ технического mock-режима."
         )

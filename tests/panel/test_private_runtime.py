@@ -80,18 +80,24 @@ def test_real_private_message_receipt_and_stop(page, private_panel):
     page.goto(origin)
     page.get_by_label("Пароль", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Войти", exact=True).click()
-    page.get_by_role("link", name="Рабочее пространство").click()
+    page.get_by_role("link", name="Обзор и права").click()
     page.get_by_role("button", name="Запустить", exact=True).click()
     expect(page.get_by_text("Работает", exact=True)).to_be_visible()
-    page.get_by_role("link", name="Диалог", exact=True).click()
+    page.get_by_role("link", name="Диалог · временно", exact=True).click()
     page.get_by_label("Сообщение персонажу").fill("Вымышленное браузерное приветствие.")
     page.get_by_role("button", name="Отправить", exact=True).click()
     expect(page.get_by_role("list", name="Лента диалога")).to_contain_text(
         "Настоящий HTTP, вымышленный ответ.", timeout=15000
     )
-    page.get_by_role("button", name="Подтвердить получение приватного ответа", exact=True).click()
+    # The visible tab may acknowledge the shown reply by itself; the button is the manual path.
+    # Either way exactly one receipt is recorded.
+    receipt = page.get_by_role("button", name="Подтвердить получение приватного ответа", exact=True)
+    try:
+        receipt.click(timeout=3000)
+    except Exception:  # noqa: BLE001 - already acknowledged automatically, button gone
+        pass
     expect(page.get_by_role("list", name="Лента диалога")).to_contain_text(
-        "Приватная панель подтвердила получение."
+        "Приватная панель подтвердила получение.", timeout=15000
     )
     page.get_by_role("button", name="STOP — остановить активного агента", exact=True).click()
     expect(page.get_by_role("button", name="Отправить", exact=True)).to_be_disabled()

@@ -20,19 +20,9 @@ import { LibraryScreen } from './library/LibraryScreen.tsx';
 import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
+import { groups, screens } from './areas.ts';
 
-const screens = [
-  { path: 'dialogue', label: 'Диалог', mark: '01', title: 'Место для разговора', detail: 'Разговор, текущая цель и вводные появятся после подключения диалогового контроллера.', task: 'M4-02' },
-  { path: 'persona', label: 'Персонаж', mark: '02', title: 'Характер и его история', detail: 'Редактирование канона, стиля и версий профиля будет доступно в разделе персонажа.', task: 'M4-03' },
-  { path: 'memory', label: 'Память и люди', mark: '03', title: 'Опыт, который остаётся', detail: 'Здесь будут источники, встречи, отношения, темы и обещания выбранной личности.', task: 'M4-03 / M4-04' },
-  { path: 'development', label: 'Сюжет и развитие', mark: '04', title: 'Путь персонажа', detail: 'Линии, изменения и их основания появятся после подключения гейммастера и развития.', task: 'M4-05' },
-  { path: 'laboratory', label: 'Лаборатория', mark: '05', title: 'Проверить в безопасной среде', detail: 'Сценарии будут выполняться в отдельной тестовой памяти. Открытие этого экрана не запускает тест.', task: 'M4-06' },
-  { path: 'workspace', label: 'Рабочее пространство', mark: '06', title: 'Состояние рабочего пространства', detail: 'Текущее состояние получено от ядра. Настройка прав, подключений и восстановления появится отдельно.', task: 'M4-07' },
-  { path: 'llm', label: 'LLM и расходы', mark: '07', title: 'Понятный учёт', detail: 'Модели, токены и расходы появятся после подключения учёта. Отсутствие данных не означает нулевой расход.', task: 'M4-08' },
-  { path: 'tickets', label: 'Обращения', mark: '08', title: 'Обращения агента', detail: 'Вопросы и запросы агента к оператору.', task: 'AW-01' },
-  { path: 'library', label: 'Библиотека', mark: '09', title: 'Навыки и знания', detail: 'Навыки, заметки и гипотезы агента.', task: 'AW-03' },
-  { path: 'work', label: 'Работа', mark: '10', title: 'Занятия агента', detail: 'Поручения, собственные цели, шаги и результаты.', task: 'AW-07' },
-] as const;
+
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
 const connectionLabels: Record<ConnectionState, string> = {
   connecting: 'Подключение событий', connected: 'События подключены', reconnecting: 'Связь прервана · переподключение',
@@ -160,12 +150,13 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
-    <aside className="sidebar"><Text className="eyebrow" mb="md">Рабочие области</Text><nav aria-label="Разделы панели">
-      {screens.map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
-        className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}>
-        <span className="nav-number" aria-hidden="true">{screen.mark}</span><span>{screen.label}</span>
-      </NavLink>)}</nav>
-      <div className="sidebar-note"><Text size="xs" c="dimmed">Один активный агент.<br />Рабочая и тестовая память разделены.</Text></div>
+    <aside className="sidebar"><nav aria-label="Разделы панели">
+      {groups.map((group) => <div key={group.id} className="nav-group" role="group" aria-label={group.title}>
+        <Text className="eyebrow nav-group-title" aria-hidden="true">{group.title}</Text>
+        {screens.filter((screen) => screen.group === group.id).map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
+          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{screen.label}</span></NavLink>)}
+      </div>)}</nav>
+      <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
     <main id="content" tabIndex={-1} className="main-content">
       {errors && <Alert color="orange" mb="lg" title="Часть состояния недоступна">
@@ -188,7 +179,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         const Screen = screenComponents[screen.path];
         return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} connection={connections[scopeKey(scope)] ?? 'connecting'} />} />;
       })}
-        <Route path="*" element={<Navigate to="/dialogue" replace />} /></Routes>
+        <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
     </main>
   </div>;
 }
