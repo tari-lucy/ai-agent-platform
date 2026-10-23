@@ -63,7 +63,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       body.get("max_tokens", payload["max_model_tokens"]))})
             answer = replies.get(timeout=cap["wall_seconds"])
             if answer.get("status") != "completed":
-                self.send_json(429, {"error": "MODEL_NOT_ADMITTED"})
+                # A final refused/incomplete/unknown result must not induce SDK 429 retries.
+                # The host gateway already owns bounded retries and the cost journal.
+                denied = answer.get("status") in ("not_admitted", "cancelled")
+                self.send_json(403 if denied else 400, {
+                    "error": "MODEL_NOT_ADMITTED" if denied else "MODEL_RESULT_UNAVAILABLE"
+                })
                 return
             text = answer["text"]
             message = {"role": "assistant", "content": text}

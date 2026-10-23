@@ -9,6 +9,7 @@ reported once to the attempt sink, including cancelled ones; a missing usage sta
 import asyncio
 import contextlib
 import json
+import logging
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -38,7 +39,7 @@ from .model import (
     UsageReported,
 )
 from .ports import Admission, AttemptJournal, AttemptSink, LLMProvider, ProviderFactory
-from .tools import ToolBuffer, ToolCall
+from .tools import ToolBuffer, ToolCall, ToolProtocolError
 
 MAX_RETRY_PAUSE_SECONDS = 30.0
 MAX_RESULT_BYTES = 256_000
@@ -321,6 +322,12 @@ class LLMGateway:
                 with contextlib.suppress(BaseException):
                     await asyncio.shield(events.aclose())
             self._settle(outcome)
+            if outcome.failure is not None:
+                # Enum values only. Do not log operation/model ids, previews or exceptions.
+                logging.getLogger(__name__).warning(
+                    "LLM attempt ended: status=%s failure=%s",
+                    outcome.status, outcome.failure.value,
+                )
             report = AttemptReport(
                 operation_id=request.operation_id,
                 attempt_id=f"{request.operation_id}.a{number}",
@@ -412,11 +419,18 @@ class LLMGateway:
                 outcome.tool_calls = outcome.tool_buffer.finish(
                     {tool.name for tool in request.tools}
                 )
+            except ToolProtocolError as error:
+                logging.getLogger(__name__).warning("LLM tool rejected: %s", error.code.value)
+                raise ProviderError(Failure.MALFORMED_RESULT) from None
             except ValueError, RecursionError:
+                # Every ToolProtocolError is constructed from a closed enum. No remote text.
+                # The fallback code covers unexpected validation failures without their input.
+                logging.getLogger(__name__).warning("LLM tool rejected: TOOL_CALL_INVALID")
                 raise ProviderError(Failure.MALFORMED_RESULT) from None
             outcome.status = "completed"
             return
         if outcome.tool_buffer.parts:
+            logging.getLogger(__name__).warning("LLM tool rejected: TOOL_TERMINAL_MISMATCH")
             raise ProviderError(Failure.PROTOCOL)
         outcome.failure = {
             "stop": None,

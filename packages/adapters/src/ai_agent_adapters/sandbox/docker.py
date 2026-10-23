@@ -245,6 +245,9 @@ class DockerTaskRunner:
                                 call_id=f"sandbox-{calls}",
                             ),
                         )
+                        if reply.status != "completed":
+                            # Preserve the terminal status; this is not an upstream rate limit.
+                            answer = {"status": reply.status, "text": ""}
                         await self._verify(admission, attempt)
                         await self.guard.verify(
                             admission, attempt.inputs, attempt.input_files, "api_transfer"

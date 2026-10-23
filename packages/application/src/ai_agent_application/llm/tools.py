@@ -1,6 +1,7 @@
 """Bounded provider-neutral tool descriptions and completed proposals, never executors."""
 
 import json
+from enum import StrEnum
 from typing import Any, Self
 
 from ai_agent_contracts.common import Contract
@@ -9,6 +10,22 @@ from pydantic import Field, model_validator
 MAX_TOOLS = 64
 MAX_TOOL_CALLS = 32
 MAX_TOOL_JSON = 64000
+
+
+class ToolRejection(StrEnum):
+    INDICES = "TOOL_INDICES"
+    SHAPE = "TOOL_CALL_SHAPE"
+    ARGUMENTS = "TOOL_ARGUMENTS_INVALID"
+    UNDECLARED = "TOOL_UNDECLARED_NAME"
+    DUPLICATE = "TOOL_DUPLICATE_ID"
+
+
+class ToolProtocolError(ValueError):
+    """Fixed diagnostic code only; never includes provider ids, names or arguments."""
+
+    def __init__(self, code: ToolRejection) -> None:
+        self.code = code
+        super().__init__(code.value)
 
 
 def object_json(value: str) -> dict[str, Any]:
@@ -80,13 +97,21 @@ class ToolBuffer:
 
     def finish(self, allowed: set[str]) -> tuple[ToolCall, ...]:
         if not self.parts or set(self.parts) != set(range(len(self.parts))):
-            raise ValueError("TOOL_INDICES")
-        result = tuple(
-            ToolCall(id=part[0], name=part[1], arguments=part[2])
-            for _, part in sorted(self.parts.items())
-        )
-        if len({call.id for call in result}) != len(result) or any(
-            call.name not in allowed for call in result
-        ):
-            raise ValueError("TOOL_UNDECLARED_OR_DUPLICATE")
-        return result
+            raise ToolProtocolError(ToolRejection.INDICES)
+        result = []
+        for _, part in sorted(self.parts.items()):
+            try:
+                # Validate JSON separately so diagnostics need not render Pydantic's input.
+                object_json(part[2])
+            except ValueError, RecursionError:
+                raise ToolProtocolError(ToolRejection.ARGUMENTS) from None
+            try:
+                call = ToolCall(id=part[0], name=part[1], arguments=part[2])
+            except ValueError:
+                raise ToolProtocolError(ToolRejection.SHAPE) from None
+            if call.name not in allowed:
+                raise ToolProtocolError(ToolRejection.UNDECLARED)
+            result.append(call)
+        if len({call.id for call in result}) != len(result):
+            raise ToolProtocolError(ToolRejection.DUPLICATE)
+        return tuple(result)
