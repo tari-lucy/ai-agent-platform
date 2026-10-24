@@ -238,6 +238,8 @@ def test_stop_during_a_turn_is_told_as_cancelled_and_no_reply_appears(page, prog
     page.get_by_role("button", name="START — запустить агента").click()
     turn = turn_of(page, "STOP хода")
     expect(turn).to_contain_text("Агент выполняет рабочий ход", timeout=30000)
+    # STOP during the turn: only once its model call is made (the job may still be starting).
+    asyncio.run_coroutine_threadsafe(plan["entered"].wait(), plan["loop"]).result(30)
     page.get_by_role("button", name="STOP — остановить активного агента").click()
     release(plan)  # the result arrives after STOP: it is not applied
     expect(turn).to_contain_text("Рабочий ход отменён", timeout=30000)

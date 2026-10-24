@@ -127,8 +127,11 @@ async def progress(
     if attempt is None:
         if pending is not None or not waiting or session.state not in ("open", "waiting"):
             return None
-        run = rt.supervisor.snapshot.state.value
-        state = "queued" if run == "ACTIVE" else "waiting_start"
+        # Queued only when the active executor is this conversation's person/area; another
+        # person's message waits for its own activation, never for someone else's run.
+        run = rt.supervisor.snapshot
+        mine = run.state.value == "ACTIVE" and run.scope.partition == session.scope.partition
+        state = "queued" if mine else "waiting_start"
         return WorkSessionProgress(state=state, since=waiting[-1].at)
     if pending is not None:
         state = "reply_ready"

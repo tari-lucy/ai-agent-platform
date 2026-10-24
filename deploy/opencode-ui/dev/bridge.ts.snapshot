@@ -123,7 +123,7 @@ const assistant = (view: Transcript, id: string, text: string, at: string, done:
 })
 // The platform's own words about the current turn: a system note, never the person's text.
 const PROGRESS: Record<string, string> = {
-  waiting_start: "Сообщение сохранено и ждёт запуска агента (START в панели).",
+  waiting_start: "Сообщение сохранено и ждёт, пока эта личность будет запущена (START в панели).",
   queued: "Сообщение принято: ход ждёт своей очереди.",
   running: "Агент выполняет рабочий ход.",
   failed: "Рабочий ход завершился ошибкой. Повторно ничего само не отправится: напишите сообщение ещё раз.",
