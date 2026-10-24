@@ -93,17 +93,17 @@ class Workspace:
             if area not in WRITABLE_AREAS | {"reference", "guide"}:
                 # Missing names, host paths and combined names are malformed input,
                 # not evidence that the operator withheld a capability.
-                LOG.info("workspace_list_refused reason=invalid_area")
+                LOG.warning("workspace_list_refused reason=invalid_area")
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
             if area not in await granted_areas(rt, admission.scope, attempt.capability_id):
-                LOG.info("workspace_list_refused reason=area_permission area=%s", area)
+                LOG.warning("workspace_list_refused reason=area_permission area=%s", area)
                 raise ContractError(ErrorCode.ACCESS_DENIED)
             entries = await place.files.list(admission.scope, area, limit=10)
             for entry in entries:
                 try:
                     await guard.verify(admission, (), (entry.reference,), "api_transfer")
                 except ContractError as error:
-                    LOG.info("workspace_list_refused reason=file_release code=%s", error.error.code)
+                    LOG.warning("workspace_list_refused reason=file_release code=%s", error.error.code)
                     raise
             files = [entry.reference for entry in entries]
             result = [
