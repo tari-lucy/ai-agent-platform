@@ -1,6 +1,7 @@
 """Owner calls for one admitted session; no SQL writes, alternate memory, or host paths."""
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from ai_agent_application.agent_knowledge import NoteDraft
@@ -8,7 +9,7 @@ from ai_agent_application.agent_workplace.ports import WorkAdmission, WorkspaceR
 from ai_agent_application.memory import derived_id
 from ai_agent_application.tickets import TicketDraft
 from ai_agent_contracts.agent_sessions import SessionTicketRef
-from ai_agent_contracts.agent_workplace import CapabilityRequest, TicketKind
+from ai_agent_contracts.agent_workplace import WRITABLE_AREAS, CapabilityRequest, TicketKind
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
@@ -21,6 +22,8 @@ from .workplace_experience import ticket_release
 
 if TYPE_CHECKING:
     from .service import Execution
+
+LOG = logging.getLogger(__name__)
 
 
 class Workspace:
@@ -87,11 +90,21 @@ class Workspace:
             ]
         elif request.operation == "list_files":
             area = a.get("area", "")
+            if area not in WRITABLE_AREAS | {"reference", "guide"}:
+                # Missing names, host paths and combined names are malformed input,
+                # not evidence that the operator withheld a capability.
+                LOG.info("workspace_list_refused reason=invalid_area")
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
             if area not in await granted_areas(rt, admission.scope, attempt.capability_id):
+                LOG.info("workspace_list_refused reason=area_permission area=%s", area)
                 raise ContractError(ErrorCode.ACCESS_DENIED)
             entries = await place.files.list(admission.scope, area, limit=10)
             for entry in entries:
-                await guard.verify(admission, (), (entry.reference,), "api_transfer")
+                try:
+                    await guard.verify(admission, (), (entry.reference,), "api_transfer")
+                except ContractError as error:
+                    LOG.info("workspace_list_refused reason=file_release code=%s", error.error.code)
+                    raise
             files = [entry.reference for entry in entries]
             result = [
                 {"id": e.id, "title": e.title, "path": e.path, "version": e.version}
