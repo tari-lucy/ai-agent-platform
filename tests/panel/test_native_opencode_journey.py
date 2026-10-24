@@ -150,6 +150,10 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     control.goto(origin + "/")
     control.get_by_role("button", name="START — запустить агента").click()
     expect(control.locator(".active-run")).to_contain_text("Работает", timeout=20000)
+    # Edge backgrounds the native tab when the operator opens the control panel.
+    # ACK requires the operator to return to the conversation, not just DOM visibility.
+    page.bring_to_front()
+    assert page.evaluate("document.visibilityState") == "visible"
     expect(page.get_by_text(CLARIFY, exact=True).first).to_be_visible(timeout=60000)
     delivered(2)  # the visible reply was acknowledged once
     assert len(asked) == 1  # the person asked the operator in a ticket during the turn
@@ -170,6 +174,8 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     card.get_by_label("Ваш ответ").fill(ANSWER)
     card.get_by_role("button", name="Отправить ответ").click()
     expect(card.get_by_role("status")).to_contain_text("Ответ отправлен", timeout=15000)
+    page.bring_to_front()
+    assert page.evaluate("document.visibilityState") == "visible"
     expect(page.get_by_text(CONTINUED, exact=True).first).to_be_visible(timeout=60000)
     view = delivered(3)
     assert view["open_ticket_ids"] == []  # answered: nothing waits for the operator now
