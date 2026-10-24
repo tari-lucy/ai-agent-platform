@@ -72,6 +72,46 @@ def prompt(model):
     return model.last("activity")["messages"][-1]["content"]
 
 
+def test_transcript_handles_invalidation_between_its_two_owner_reads(tmp_path, monkeypatch):
+    async def scenario():
+        from ai_agent_application.agent_activity.sessions import SessionBook
+
+        from ai_agent_core.m3_composition.work_session_runtime import settle_basis
+
+        model = WorkModel()
+        host = await prepared(tmp_path, monkeypatch, model)
+        async with host.open():
+            rt, scope = host.runtime, host.scope
+            sid = (await open_session(host, "invalidation-read-race")).json()["resource_id"]
+            await say(host, "race-input", sid, 1, "Synthetic removed question")
+            ref = (await rows(rt, sid))[0].source
+            await memory(rt).delete_source(
+                command(scope, "remove-race"), ref.source_id, ref.version
+            )
+            session = await work_sessions.sessions(rt).get(scope, sid)
+            original = SessionBook.entries
+            changed = False
+
+            def authorize(selected):
+                assert selected.partition == scope.partition
+
+            async def raced(book, selected, identifier, **kwargs):
+                nonlocal changed
+                if identifier == sid and not changed:
+                    changed = True
+                    await settle_basis(rt, session, "message", authorize)
+                return await original(book, selected, identifier, **kwargs)
+
+            monkeypatch.setattr(SessionBook, "entries", raced)
+            view = await transcript(host, sid)
+            assert changed and view["state"] == "invalidated"
+            assert view["invalidated_reason"] == "message_unavailable"
+            assert view["entries"] == [] and view["pending_reply"] is None
+            assert model.count() == 0
+
+    asyncio.run(scenario())
+
+
 def test_closed_context_is_rebuilt_and_a_closed_message_stops_the_conversation(
     tmp_path, monkeypatch
 ):

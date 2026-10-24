@@ -1,5 +1,6 @@
 """Current permissions, pinned bindings and source rights; no model can grant them."""
 
+import asyncio
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -52,8 +53,15 @@ class Policy:
         self.transfers = TransferJournal(state)
 
     async def context(self, scope: Scope) -> Context:
-        profile = await self.store.repository(Profile, PRINCIPALS[Owner.PERSONA], scope).get(
-            scope.persona_id
+        # The same owner/ACL/TTL queries remain fresh on every admission. They
+        # do not depend on one another, so avoid four serial database round trips.
+        profile, states, workspace, gm = await asyncio.gather(
+            self.store.repository(Profile, PRINCIPALS[Owner.PERSONA], scope).get(scope.persona_id),
+            self.store.repository(CharacterState, PRINCIPALS[Owner.PERSONA], scope).list(limit=2),
+            self.store.repository(Workspace, PRINCIPALS[Owner.WORKSPACE], scope).get(
+                scope.workspace_id
+            ),
+            self.state.gm(scope),
         )
         # PersonaService uses a deterministic profile id, not necessarily persona_id.
         if profile is None:
@@ -61,13 +69,6 @@ class Policy:
                 limit=2
             )
             profile = rows[0] if len(rows) == 1 else None
-        states = await self.store.repository(CharacterState, PRINCIPALS[Owner.PERSONA], scope).list(
-            limit=2
-        )
-        workspace = await self.store.repository(Workspace, PRINCIPALS[Owner.WORKSPACE], scope).get(
-            scope.workspace_id
-        )
-        gm = await self.state.gm(scope)
         if (
             profile is None
             or len(states) != 1
@@ -97,9 +98,10 @@ class Policy:
             args.rules_version,
         ):
             raise ContractError(ErrorCode.STALE_CONTEXT)
-        gm = await self.state.gm(command.scope)
-        if args.request.kind == "gm" and gm.intensity != args.gm_intensity:
-            raise ContractError(ErrorCode.STALE_CONTEXT)
+        if args.request.kind == "gm":
+            gm = await self.state.gm(command.scope)
+            if gm.intensity != args.gm_intensity:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
         capability, permission, _ = await self.permit(command.scope, args.request.kind)
         if (capability.id, capability.version, permission.id, permission.version) != (
             command.capability_id,
@@ -139,12 +141,10 @@ class Policy:
         return ExecutionPolicy(command.id, command.scope, True, self.supervisor.clock.elapsed() + 2)
 
     async def permit(self, scope: Scope, kind: str) -> tuple[Capability, Permission, PermitLimits]:
-        capability = await self.store.repository(
-            Capability, PRINCIPALS[Owner.WORKSPACE], scope
-        ).get("m3." + kind)
-        permissions = await self.store.repository(
-            Permission, PRINCIPALS[Owner.WORKSPACE], scope
-        ).list(limit=200)
+        capability, permissions = await asyncio.gather(
+            self.store.repository(Capability, PRINCIPALS[Owner.WORKSPACE], scope).get("m3." + kind),
+            self.store.repository(Permission, PRINCIPALS[Owner.WORKSPACE], scope).list(limit=200),
+        )
         candidates = [
             p
             for p in permissions

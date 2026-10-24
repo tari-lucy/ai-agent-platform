@@ -138,7 +138,8 @@ class OpenCodeSessions:
         async def authorize(gate: WorkAdmission, capability: str) -> None:
             if gate != admission or capability != self.template.id:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
-            # The runner polls this fence every 100 ms, including DURING model IO.
+            # The runner periodically checks this fence, including DURING model IO;
+            # its cheap epoch/STOP check remains independent at 100 ms.
             # Full JobOwner proof stays at create/model/file boundaries; acquiring its
             # lock again here can contend with that same admitted operation.
             execution.guard()

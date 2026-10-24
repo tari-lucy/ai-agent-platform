@@ -133,6 +133,12 @@ def parser() -> argparse.ArgumentParser:
     sessions.add_argument("--area", action="append", required=True, dest="areas")
     sessions.add_argument("--output-area", required=True)
     sessions.add_argument(
+        "--monitor-interval-seconds",
+        type=float,
+        default=1.0,
+        help="background full-proof spacing, 0.1..1.0 s; STOP polling stays 0.1 s",
+    )
+    sessions.add_argument(
         "--ceiling-days",
         type=int,
         help="let the operator grant the capability up to N days",
@@ -336,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
                     image_id=arguments.image_id,
                     areas=arguments.areas,
                     output_area=arguments.output_area,
+                    monitor_interval_seconds=arguments.monitor_interval_seconds,
                     ceiling_days=arguments.ceiling_days,
                     **limits,
                 )

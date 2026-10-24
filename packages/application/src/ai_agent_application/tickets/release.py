@@ -11,6 +11,7 @@ see that a ticket exists and answer or close it. Nothing here deletes data: phys
 the retention owner's; this only gates what is shown to the panel or a model.
 """
 
+import asyncio
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -66,19 +67,27 @@ class TicketRelease:
         blocked: set[str] = set()
         if self.ledger is not None and sources:
             blocked = {entry.source_id for entry in await self.ledger.entries(scope)}
-        for ref in sources:
-            if ref.source_id in blocked or ref.scope.partition != scope.partition:
-                return False
-            source = await self.sources.get_source(scope, ref.source_id)
-            if (
-                source is None
-                or source.availability != "available"
-                or source.version != ref.version
-                or not source.read_allowed
-                or (purpose == "api_transfer" and not source.api_transfer_allowed)
-                or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
-            ):
-                return False
+        if any(
+            ref.source_id in blocked or ref.scope.partition != scope.partition for ref in sources
+        ):
+            return False
+        # Bounded independent reads. Every invocation asks the owner again: no
+        # cached source/permission, unbounded task fan-out or shortened history.
+        for start in range(0, len(sources), 4):
+            refs = sources[start : start + 4]
+            rows = await asyncio.gather(
+                *(self.sources.get_source(scope, ref.source_id) for ref in refs)
+            )
+            for ref, source in zip(refs, rows, strict=True):
+                if (
+                    source is None
+                    or source.availability != "available"
+                    or source.version != ref.version
+                    or not source.read_allowed
+                    or (purpose == "api_transfer" and not source.api_transfer_allowed)
+                    or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
+                ):
+                    return False
         if materials:
             if self.files is None:
                 return False  # a material that cannot be checked is not released

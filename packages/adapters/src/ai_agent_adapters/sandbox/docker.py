@@ -404,6 +404,8 @@ class DockerTaskRunner:
         # total deadline remain independently observable. Action boundaries and
         # result release still require their own complete verification.
         proof: asyncio.Task[None] | None = None
+        next_proof = 0.0
+        interval = self.templates[attempt.capability_id].monitor_interval_seconds
         try:
             while not attached.done():
                 try:
@@ -413,11 +415,15 @@ class DockerTaskRunner:
                     if proof is not None and proof.done():
                         await proof
                         proof = None
+                        # The monitor does not need to saturate SQLite between IO
+                        # boundaries. No proof is reused to authorize an action:
+                        # model/tool/file/result boundaries still call _verify fresh.
+                        next_proof = time.monotonic() + interval
                 except ContractError:
                     return RunnerOutcome("cancelled", None, (), "")
                 if time.monotonic() >= deadline:
                     return RunnerOutcome("timeout", None, (), "")
-                if proof is None:
+                if proof is None and time.monotonic() >= next_proof:
                     proof = asyncio.create_task(self._verify(admission, attempt))
                 # Do not let an immediately completed proof create a busy loop
                 # or repeatedly contend with the operation owner's SQLite lock.

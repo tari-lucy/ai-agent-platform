@@ -7,6 +7,7 @@ i.e. the shared attempt journal and the activity share of the daily limit. Nothi
 by itself: the tick submits work only while the run is ACTIVE/OPEN/autonomous and enabled.
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
@@ -131,9 +132,12 @@ async def tools(rt: Runtime, scope: Scope, *, session: bool = False) -> list[Too
     """Manifests with their current usability: an automatic right, ready binding, executor."""
     owner = PRINCIPALS[Owner.WORKSPACE]
     now = rt.supervisor.clock.utc()
-    manifests = await rt.store.repository(CapabilityManifest, owner, scope).list(limit=200)
-    bindings = await rt.store.repository(CapabilityBinding, owner, scope).list(limit=200)
-    rights = await rt.store.repository(Permission, owner, scope).list(limit=200)
+    # Independent authoritative reads, not cached permission decisions.
+    manifests, bindings, rights = await asyncio.gather(
+        rt.store.repository(CapabilityManifest, owner, scope).list(limit=200),
+        rt.store.repository(CapabilityBinding, owner, scope).list(limit=200),
+        rt.store.repository(Permission, owner, scope).list(limit=200),
+    )
     found: list[Tool] = []
     for manifest in manifests:
         ready = {

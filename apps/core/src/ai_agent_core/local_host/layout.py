@@ -217,6 +217,7 @@ class WorkSessionsConfig(BaseModel):
     max_prompt_chars: int = Field(default=100000, strict=True, ge=1000, le=100000)
     max_model_tokens: int = Field(default=1024, strict=True, ge=64, le=65536)
     max_workspace_calls: int = Field(default=16, strict=True, ge=0, le=64)
+    monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
 
     @model_validator(mode="after")
     def bounds(self) -> Self:

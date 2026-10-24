@@ -108,6 +108,7 @@ def template(settings: WorkSessionsConfig) -> RunnerTemplate:
         max_prompt_chars=settings.max_prompt_chars,
         max_model_tokens=settings.max_model_tokens,
         max_workspace_calls=settings.max_workspace_calls,
+        monitor_interval_seconds=settings.monitor_interval_seconds,
     )
 
 
@@ -134,7 +135,7 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
 
 async def enable_work_sessions(
     root: Path, *, image_id: str, areas: list[str], output_area: str,
-    ceiling_days: int | None = None, **limits: int,
+    ceiling_days: int | None = None, monitor_interval_seconds: float = 1.0, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
     if not root.is_dir():
@@ -148,7 +149,13 @@ async def enable_work_sessions(
             raise HostError("WORK_SESSIONS_ACTIVITY_REQUIRED")
         try:
             settings = WorkSessionsConfig.model_validate(
-                dict(image_id=image_id, areas=tuple(areas), output_area=output_area, **limits)
+                dict(
+                    image_id=image_id,
+                    areas=tuple(areas),
+                    output_area=output_area,
+                    monitor_interval_seconds=monitor_interval_seconds,
+                    **limits,
+                )
             )
             template(settings)  # the runner's own bounds, before anything is written
         except ValidationError, ValueError:

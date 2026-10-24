@@ -166,7 +166,19 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
     gone = False  # an unprocessed row hidden by its source's lifecycle (deleted/expired)
     if session.state != "invalidated":
         release, mem = ticket_release(rt), memory(rt)
-        rows = await book.entries(stable, session_id, after_sequence=start, limit=MAX_TRANSCRIPT)
+        try:
+            rows = await book.entries(
+                stable, session_id, after_sequence=start, limit=MAX_TRANSCRIPT
+            )
+        except ContractError as error:
+            if error.error.code != ErrorCode.ACCESS_DENIED:
+                raise
+            latest = await book.get(stable, session_id)
+            if latest is None or latest.state != "invalidated":
+                raise  # a genuine scope/access failure must stay a refusal
+            # The owner invalidated this conversation between our two reads.
+            # Show only the terminal metadata; no earlier message body is reused.
+            session, rows = latest, []
         for sequence, row in rows:
             if row is None:
                 gone = gone or sequence > session.processed_sequence

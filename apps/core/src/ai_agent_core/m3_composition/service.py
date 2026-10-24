@@ -1225,11 +1225,16 @@ class Execution:
         await self.runtime.jobs.verify(self.runtime.worker, self.lease)
         from .state import OPERATOR
 
-        for ref in self.extra_sources:
-            source = await self.runtime.store.repository(Source, OPERATOR, self.command.scope).get(
-                ref.source_id, purpose="api_transfer"
+        for start in range(0, len(self.extra_sources), 4):
+            repo = self.runtime.store.repository(Source, OPERATOR, self.command.scope)
+            refs = self.extra_sources[start : start + 4]
+            sources = await asyncio.gather(
+                *(repo.get(ref.source_id, purpose="api_transfer") for ref in refs)
             )
-            if source is None or source.version != ref.version:
+            if any(
+                source is None or source.version != ref.version
+                for ref, source in zip(refs, sources, strict=True)
+            ):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
         self.guard()
 

@@ -5,6 +5,8 @@ transfer right, an expired or deleted source, a ledger block and a closed materi
 withhold it; the operator's own words stay. Old bases are never dropped to make room.
 """
 
+import asyncio
+
 import pytest
 from ai_agent_application.storage import Grant, Owner, Principal, RecordAccess
 from ai_agent_application.tickets import TicketDraft, TicketRelease, TicketService
@@ -25,6 +27,38 @@ class MemorySources:
 
     async def get_source(self, scope, source_id):
         return await self.world.memory.get_source(scope, source_id)
+
+
+def test_multiple_bases_use_bounded_fresh_owner_reads_and_ledger(tmp_path):
+    async def scenario(world):
+        _, release = await owners(world)
+        refs = [await world.source() for _ in range(9)]
+        active, peak = 0, 0
+        read_ids = []
+        original = release.sources.get_source
+
+        async def observed(scope, identifier):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0.005)
+                read_ids.append(identifier)
+                return await original(scope, identifier)
+            finally:
+                active -= 1
+
+        release.sources.get_source = observed
+        assert await release.bases_open(AREA, refs, (), "api_transfer")
+        assert 1 < peak <= 4
+        assert sorted(read_ids) == sorted(ref.source_id for ref in refs)
+        read_ids.clear()
+        assert await release.bases_open(AREA, refs, (), "api_transfer")
+        assert len(read_ids) == len(refs)  # success is not cached across invocations
+        await world.ledger.block(AREA, refs[-1].source_id, 1, "rights_revoked", world.now)
+        assert not await release.bases_open(AREA, refs, (), "api_transfer")
+
+    run(tmp_path, scenario)
 
 
 async def owners(world: World):
