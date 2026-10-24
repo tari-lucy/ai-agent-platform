@@ -1225,15 +1225,14 @@ class Execution:
         await self.runtime.jobs.verify(self.runtime.worker, self.lease)
         from .state import OPERATOR
 
-        for start in range(0, len(self.extra_sources), 4):
-            repo = self.runtime.store.repository(Source, OPERATOR, self.command.scope)
-            refs = self.extra_sources[start : start + 4]
-            sources = await asyncio.gather(
-                *(repo.get(ref.source_id, purpose="api_transfer") for ref in refs)
-            )
+        if self.extra_sources:
+            sources = await self.runtime.store.repository(
+                Source, OPERATOR, self.command.scope
+            ).get_many([r.source_id for r in self.extra_sources], purpose="api_transfer")
+            found = {row.id: row for row in sources}
             if any(
-                source is None or source.version != ref.version
-                for ref, source in zip(refs, sources, strict=True)
+                ref.source_id not in found or found[ref.source_id].version != ref.version
+                for ref in self.extra_sources
             ):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
         self.guard()
@@ -1279,8 +1278,10 @@ class Execution:
 
     async def _begin(self, report: AttemptReport) -> None:
         self.current_attempt = report.attempt_id
-        await self.verify()
-        _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
+        with self.runtime.policy.action_read(self.command) as read:
+            await self.verify()
+            checked = read.take(self.command, self.runtime.supervisor.clock.elapsed())
+        limits = checked.limits
         ledger = UsageLedger(
             self.runtime.store,
             PRINCIPALS[Owner.LLM],
@@ -1359,16 +1360,16 @@ class Execution:
         cancel: asyncio.Event | None = None,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> Generation:
-        await self.verify()
+        with self.runtime.policy.action_read(self.command) as read:
+            await self.verify()
+            checked = read.take(self.command, self.runtime.supervisor.clock.elapsed())
         if request.role_id == "reflection" and self.args.request.kind == "post_session":
             from .memory_cycles import reflection_input
 
             request = await reflection_input(self, request)
-        rows = await self.runtime.state.roles(self.command.scope)
-        if request.role_id not in ROLES[self.args.request.kind] or request.role_id not in rows:
+        if request.role_id not in checked.bindings:
             raise ContractError(ErrorCode.ACCESS_DENIED)
-        binding = await self.runtime.state.binding(self.command.scope, rows[request.role_id])
-        _, _, limits = await self.runtime.policy.permit(self.command.scope, self.args.request.kind)
+        binding, limits = checked.bindings[request.role_id], checked.limits
         if binding.parameters.max_output_tokens > limits.max_output_tokens:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         budget = self.runtime.private_api_budget

@@ -12,7 +12,7 @@ the retention owner's; this only gates what is shown to the panel or a model.
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
 
 from ai_agent_contracts.agent_workplace import Ticket, TicketMessage
@@ -53,8 +53,10 @@ class TicketRelease:
         *,
         ledger: DeletionLedger | None = None,
         files: FileGuard | None = None,
+        bulk_sources: Callable[[Scope, Sequence[str]], Awaitable[list[Source]]] | None = None,
     ) -> None:
         self.sources, self.ledger, self.files = sources, ledger, files
+        self.bulk_sources = bulk_sources
 
     async def bases_open(
         self,
@@ -71,23 +73,30 @@ class TicketRelease:
             ref.source_id in blocked or ref.scope.partition != scope.partition for ref in sources
         ):
             return False
-        # Bounded independent reads. Every invocation asks the owner again: no
-        # cached source/permission, unbounded task fan-out or shortened history.
-        for start in range(0, len(sources), 4):
-            refs = sources[start : start + 4]
-            rows = await asyncio.gather(
-                *(self.sources.get_source(scope, ref.source_id) for ref in refs)
-            )
-            for ref, source in zip(refs, rows, strict=True):
-                if (
-                    source is None
-                    or source.availability != "available"
-                    or source.version != ref.version
-                    or not source.read_allowed
-                    or (purpose == "api_transfer" and not source.api_transfer_allowed)
-                    or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
-                ):
-                    return False
+        if self.bulk_sources is not None and sources:
+            found = {
+                s.id: s for s in await self.bulk_sources(scope, [r.source_id for r in sources])
+            }
+            pairs = [(ref, found.get(ref.source_id)) for ref in sources]
+        else:
+            # Non-batched implementations remain bounded and fresh too.
+            pairs = []
+            for start in range(0, len(sources), 4):
+                refs = sources[start : start + 4]
+                rows = await asyncio.gather(
+                    *(self.sources.get_source(scope, ref.source_id) for ref in refs)
+                )
+                pairs.extend(zip(refs, rows, strict=True))
+        for ref, source in pairs:
+            if (
+                source is None
+                or source.availability != "available"
+                or source.version != ref.version
+                or not source.read_allowed
+                or (purpose == "api_transfer" and not source.api_transfer_allowed)
+                or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
+            ):
+                return False
         if materials:
             if self.files is None:
                 return False  # a material that cannot be checked is not released

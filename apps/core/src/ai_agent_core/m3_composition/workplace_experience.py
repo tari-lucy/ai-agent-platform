@@ -67,8 +67,10 @@ def ticket_release(rt: Runtime) -> TicketRelease:
     workplace files a ticket with materials is not released, since they cannot be checked.
     """
     ledger = getattr(rt.maintenance, "ledger", None)
+    owner = memory(rt)
     return TicketRelease(
-        memory(rt),
+        owner,
+        bulk_sources=owner.get_sources,
         ledger=ledger,
         files=None if rt.workplace is None else rt.workplace.files.guard,
     )

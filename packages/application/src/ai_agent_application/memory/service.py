@@ -150,6 +150,14 @@ class MemoryService:
             source_id, purpose=purpose
         )
 
+    async def get_sources(
+        self, scope: Scope, source_ids: Sequence[str], *, purpose: ReadPurpose = "private"
+    ) -> list[Source]:
+        """Latest owner-visible sources; closed or missing ids are omitted."""
+        return await self.storage.repository(Source, self.principal, scope).get_many(
+            source_ids, purpose=purpose
+        )
+
     def _record[R: Any](self, model: type[R], payload: dict[str, Any]) -> R:
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
         return from_wire(TypeAdapter(model), encoded, extensions=self.extensions)

@@ -81,6 +81,12 @@ class RecordRepository[T: Record](Protocol):
         self, record_id: str, *, purpose: ReadPurpose = "private", version: int | None = None
     ) -> T | None: ...
 
+    async def get_many(
+        self, record_ids: Sequence[str], *, purpose: ReadPurpose = "private"
+    ) -> list[T]:
+        """At most 200 ids, latest visible revisions; invisible/missing rows are omitted."""
+        ...
+
     async def list(
         self, *, limit: int = 50, after_id: str | None = None, purpose: ReadPurpose = "private"
     ) -> list[T]: ...

@@ -2,9 +2,13 @@
 
 import asyncio
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
+from typing import cast
 
 from ai_agent_adapters.storage import schema as db
 from ai_agent_adapters.storage.database import SQLiteStore
@@ -12,6 +16,7 @@ from ai_agent_adapters.storage.policy import base_visible, scope_key, stamp
 from ai_agent_application.control import Supervisor
 from ai_agent_application.control.ports import ContextApproval
 from ai_agent_application.jobs.ports import ExecutionPolicy
+from ai_agent_application.llm import ResolvedAssignment, resolve_assignment
 from ai_agent_application.storage import Owner
 from ai_agent_contracts.api import Permission
 from ai_agent_contracts.codec import ContractError
@@ -25,6 +30,7 @@ from ai_agent_contracts.workspace import Capability, Workspace
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from .action_read import ActionRead, CheckedAction
 from .schemas import JobArguments, PermitLimits
 from .settings import TransferJournal
 from .state import OPERATOR, PRINCIPALS, ROLES, State
@@ -51,6 +57,17 @@ class Policy:
         self.store, self.state, self.supervisor = store, state, supervisor
         self.allowed_adapters = allowed_adapters
         self.transfers = TransferJournal(state)
+        self._action_read: ContextVar[ActionRead | None] = ContextVar("action_read", default=None)
+
+    @contextmanager
+    def action_read(self, command: ExecutionCommand) -> Iterator[ActionRead]:
+        read = ActionRead(command)
+        token = self._action_read.set(read)
+        try:
+            yield read
+        finally:
+            read.close()
+            self._action_read.reset(token)
 
     async def context(self, scope: Scope) -> Context:
         # The same owner/ACL/TTL queries remain fresh on every admission. They
@@ -102,7 +119,7 @@ class Policy:
             gm = await self.state.gm(command.scope)
             if gm.intensity != args.gm_intensity:
                 raise ContractError(ErrorCode.STALE_CONTEXT)
-        capability, permission, _ = await self.permit(command.scope, args.request.kind)
+        capability, permission, limits = await self.permit(command.scope, args.request.kind)
         if (capability.id, capability.version, permission.id, permission.version) != (
             command.capability_id,
             command.capability_version,
@@ -116,35 +133,55 @@ class Policy:
             args.roles
         ) != len(needed):
             raise ContractError(ErrorCode.STALE_CONTEXT)
+        connections = await self.store.repository(
+            Connection, PRINCIPALS[Owner.WORKSPACE], command.scope
+        ).get_many([current[role].connection_id for role in needed])
+        by_id = {row.id: row for row in connections}
+        bindings: dict[str, ResolvedAssignment] = {}
         for role in needed:
             assignment = current[role]
-            binding = await self.state.binding(command.scope, assignment)
-            conn = await self.store.repository(
-                Connection, PRINCIPALS[Owner.WORKSPACE], command.scope
-            ).get(binding.connection_id)
+            conn = by_id.get(assignment.connection_id)
             if (
                 conn is None
                 or args.connections.get(conn.id) != conn.version
-                or binding.adapter_id not in self.allowed_adapters
                 or assignment.fallback_assignment_id is not None
             ):
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-        for ref in command.sources:
-            source = await self.store.repository(
+            binding = resolve_assignment(assignment, conn, self.state.registry)
+            if binding.adapter_id not in self.allowed_adapters:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            bindings[role] = binding
+        if command.sources:
+            rows = await self.store.repository(
                 Source, PRINCIPALS[Owner.MEMORY], command.scope
-            ).get(ref.source_id, purpose="api_transfer")
-            if source is None or source.version != ref.version:
+            ).get_many([ref.source_id for ref in command.sources], purpose="api_transfer")
+            sources = {row.id: row for row in rows}
+            if any(
+                ref.source_id not in sources or sources[ref.source_id].version != ref.version
+                for ref in command.sources
+            ):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
         self.supervisor.resolve(
             command.cancellation_id, scope=command.scope, freshness=command.freshness
         )
-        return ExecutionPolicy(command.id, command.scope, True, self.supervisor.clock.elapsed() + 2)
+        proof = ExecutionPolicy(
+            command.id, command.scope, True, self.supervisor.clock.elapsed() + 2
+        )
+        capture = self._action_read.get()
+        if capture is not None:
+            capture.record(command, proof, CheckedAction(MappingProxyType(bindings), limits))
+        return proof
 
     async def permit(self, scope: Scope, kind: str) -> tuple[Capability, Permission, PermitLimits]:
-        capability, permissions = await asyncio.gather(
-            self.store.repository(Capability, PRINCIPALS[Owner.WORKSPACE], scope).get("m3." + kind),
-            self.store.repository(Permission, PRINCIPALS[Owner.WORKSPACE], scope).list(limit=200),
+        group = await self.store.read_group(
+            (Capability, Permission),
+            PRINCIPALS[Owner.WORKSPACE],
+            scope,
+            ids={Capability: ["m3." + kind]},
         )
+        capabilities = cast(list[Capability], group[Capability])
+        capability = capabilities[0] if capabilities else None
+        permissions = cast(list[Permission], group[Permission])
         candidates = [
             p
             for p in permissions

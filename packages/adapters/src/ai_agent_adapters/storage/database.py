@@ -1,7 +1,7 @@
 """Core-only SQLite adapter. No startup migration, live env, model or network access."""
 
 import builtins
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any
 from ai_agent_application.storage import Grant, Owner, Principal, ReadPurpose, Storage
 from ai_agent_contracts.api import CommandBase, PanelCommand, ServiceCommand
 from ai_agent_contracts.codec import ContractError, from_wire, to_wire
-from ai_agent_contracts.common import ExtensionPayload, Record, Scope, SourceRef
+from ai_agent_contracts.common import ExtensionPayload, Id, Record, Scope, SourceRef
 from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.persona import Opportunity
 from ai_agent_contracts.states import ErrorCode
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy import (
     URL,
     and_,
@@ -32,6 +32,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 
 from . import schema as db
@@ -41,6 +42,18 @@ from .policy import check_principal, scope_key, source_refs, stamp, unexpired, v
 
 if TYPE_CHECKING:
     from .unit_of_work import SQLiteUnitOfWork
+
+
+IDS = TypeAdapter(list[Id])
+
+
+def bounded_ids(values: Sequence[str]) -> list[str]:
+    try:
+        if len(values) > 200:
+            raise ValueError()
+        return list(dict.fromkeys(IDS.validate_python(values)))
+    except ValidationError, ValueError, TypeError:
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
 
 
 class SQLiteStore(Storage):
@@ -225,6 +238,61 @@ class SQLiteStore(Storage):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         return Repository(self, model, principal, scope)
 
+    async def read_group(
+        self,
+        models: Sequence[type[Record]],
+        principal: Principal,
+        scope: Scope,
+        *,
+        limit: int = 200,
+        purpose: ReadPurpose = "private",
+        ids: Mapping[type[Record], Sequence[str]] | None = None,
+    ) -> dict[type[Record], list[Record]]:
+        """Bounded owner read-set in one SQL statement/snapshot; no permission decision cache."""
+        check_principal(principal)
+        if (
+            not 1 <= len(models) <= 4
+            or len(set(models)) != len(models)
+            or type(limit) is not int
+            or not 1 <= limit <= 200
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        repos = {model: self.repository(model, principal, scope) for model in models}
+        if ids is not None and not set(ids) <= set(repos):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        selected_ids = {} if ids is None else {model: bounded_ids(v) for model, v in ids.items()}
+        await self.check_schema()
+        now = stamp(self.clock())
+        # One policy expression for all requested kinds, not one repeated SQL
+        # subtree per model. If any kind overflows, the entire read-set fails.
+        query = next(iter(repos.values()))._visible_query(
+            now, version=None, purpose=purpose, kinds=[model.__name__ for model in models]
+        )
+        if selected_ids:
+            query = query.where(
+                or_(
+                    *(
+                        and_(
+                            db.records.c.kind == model.__name__,
+                            db.records.c.id.in_(selected_ids[model]),
+                        )
+                        if model in selected_ids
+                        else db.records.c.kind == model.__name__
+                        for model in models
+                    )
+                )
+            )
+        query = query.order_by(db.records.c.kind, db.records.c.id).limit(limit * len(models) + 1)
+        async with self.connection() as connection:
+            rows = (await connection.execute(query)).mappings().all()
+            result: dict[type[Record], list[Record]] = {}
+            for model, repo in repos.items():
+                payloads = [row["payload"] for row in rows if row["kind"] == model.__name__]
+                if len(payloads) > limit:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                result[model] = await repo._project_rows(payloads, connection, now)
+            return result
+
     @asynccontextmanager
     async def transaction(
         self,
@@ -263,10 +331,51 @@ class Repository[T: Record]:
     ) -> None:
         self.store, self.model, self.principal, self.scope = store, model, principal, scope
 
+    def _visible_query(
+        self,
+        now: str,
+        *,
+        version: int | None,
+        purpose: ReadPurpose,
+        lifecycle: bool = False,
+        kinds: Sequence[str] | None = None,
+    ) -> Select[Any]:
+        revision = db.revisions
+        return (
+            select(db.records.c.kind, revision.c.payload)
+            .select_from(
+                db.records.join(
+                    revision,
+                    and_(
+                        db.records.c.scope_id == revision.c.scope_id,
+                        db.records.c.kind == revision.c.kind,
+                        db.records.c.id == revision.c.id,
+                    ),
+                )
+            )
+            .where(
+                db.records.c.scope_id == scope_key(self.scope),
+                db.records.c.kind.in_(kinds)
+                if kinds is not None
+                else db.records.c.kind == self.model.__name__,
+                revision.c.version == (version if version is not None else db.records.c.version),
+                literal(True) if lifecycle else unexpired(revision.c.expires_at, now),
+                visible(
+                    db.records,
+                    revision.c.version,
+                    self.principal,
+                    purpose,
+                    now,
+                    lifecycle=lifecycle,
+                ),
+            )
+        )
+
     async def _rows(
         self,
         *,
         record_id: str | None = None,
+        record_ids: Sequence[str] | None = None,
         version: int | None = None,
         purpose: ReadPurpose = "private",
         limit: int = 50,
@@ -294,35 +403,11 @@ class Repository[T: Record]:
         await self.store.check_schema()
         now = stamp(self.store.clock())
         revision = db.revisions
-        query = (
-            select(revision.c.payload)
-            .select_from(
-                db.records.join(
-                    revision,
-                    and_(
-                        db.records.c.scope_id == revision.c.scope_id,
-                        db.records.c.kind == revision.c.kind,
-                        db.records.c.id == revision.c.id,
-                    ),
-                )
-            )
-            .where(
-                db.records.c.scope_id == scope_key(self.scope),
-                db.records.c.kind == self.model.__name__,
-                revision.c.version == (version if version is not None else db.records.c.version),
-                literal(True) if lifecycle else unexpired(revision.c.expires_at, now),
-                visible(
-                    db.records,
-                    revision.c.version,
-                    self.principal,
-                    purpose,
-                    now,
-                    lifecycle=lifecycle,
-                ),
-            )
-        )
+        query = self._visible_query(now, version=version, purpose=purpose, lifecycle=lifecycle)
         if record_id is not None:
             query = query.where(db.records.c.id == record_id)
+        if record_ids is not None:
+            query = query.where(db.records.c.id.in_(record_ids))
         if after_id is not None:
             query = query.where(db.records.c.id > after_id)
         if utterance_id is not None:
@@ -370,43 +455,48 @@ class Repository[T: Record]:
         ordering = (moment.desc(), db.records.c.id.desc()) if newest else (db.records.c.id,)
         async with self.store.connection() as connection:
             result = await connection.execute(query.order_by(*ordering).limit(limit))
-            decoded = [self._decode(row["payload"]) for row in result.mappings()]
-            ref_ids = {
-                ref.source_id
-                for item in decoded
-                for ref in source_refs(item, self.store.extensions)
-            }
-            expired: set[tuple[str, int]] = set()
-            for start in range(0, len(ref_ids), 200):
-                batch = sorted(ref_ids)[start : start + 200]
-                entries = (
-                    await connection.execute(
-                        select(
-                            db.revisions.c.id,
-                            db.revisions.c.version,
-                        )
-                        .select_from(
-                            db.revisions.join(
-                                db.records,
-                                and_(
-                                    db.records.c.scope_id == db.revisions.c.scope_id,
-                                    db.records.c.kind == db.revisions.c.kind,
-                                    db.records.c.id == db.revisions.c.id,
-                                ),
-                            )
-                        )
-                        .where(
-                            db.records.c.scope_id == scope_key(self.scope),
-                            db.records.c.kind == "Source",
-                            db.records.c.id.in_(batch),
-                            (db.records.c.expires_at <= now)
-                            | (db.revisions.c.expires_at <= now)
-                            | (db.records.c.available.is_(False)),
+            return await self._project_rows(
+                [row["payload"] for row in result.mappings()], connection, now
+            )
+
+    async def _project_rows(
+        self, payloads: Sequence[str], connection: AsyncConnection, now: str
+    ) -> list[T]:
+        decoded = [self._decode(payload) for payload in payloads]
+        ref_ids = {
+            ref.source_id for item in decoded for ref in source_refs(item, self.store.extensions)
+        }
+        expired: set[tuple[str, int]] = set()
+        for start in range(0, len(ref_ids), 200):
+            batch = sorted(ref_ids)[start : start + 200]
+            entries = (
+                await connection.execute(
+                    select(
+                        db.revisions.c.id,
+                        db.revisions.c.version,
+                    )
+                    .select_from(
+                        db.revisions.join(
+                            db.records,
+                            and_(
+                                db.records.c.scope_id == db.revisions.c.scope_id,
+                                db.records.c.kind == db.revisions.c.kind,
+                                db.records.c.id == db.revisions.c.id,
+                            ),
                         )
                     )
-                ).all()
-                expired.update((str(entry[0]), int(entry[1])) for entry in entries)
-            return [self._project_expiry(item, expired) for item in decoded]
+                    .where(
+                        db.records.c.scope_id == scope_key(self.scope),
+                        db.records.c.kind == "Source",
+                        db.records.c.id.in_(batch),
+                        (db.records.c.expires_at <= now)
+                        | (db.revisions.c.expires_at <= now)
+                        | (db.records.c.available.is_(False)),
+                    )
+                )
+            ).all()
+            expired.update((str(entry[0]), int(entry[1])) for entry in entries)
+        return [self._project_expiry(item, expired) for item in decoded]
 
     def _decode(self, payload: str) -> T:
         return from_wire(
@@ -453,6 +543,16 @@ class Repository[T: Record]:
     ) -> T | None:
         rows = await self._rows(record_id=record_id, version=version, purpose=purpose, limit=1)
         return rows[0] if rows else None
+
+    async def get_many(
+        self, record_ids: Sequence[str], *, purpose: ReadPurpose = "private"
+    ) -> list[T]:
+        """Latest visible rows only; missing/inaccessible ids are omitted, never substituted."""
+        check_principal(self.principal)
+        identifiers = bounded_ids(record_ids)
+        if not identifiers:
+            return []
+        return await self._rows(record_ids=identifiers, purpose=purpose, limit=len(identifiers))
 
     async def list(
         self,

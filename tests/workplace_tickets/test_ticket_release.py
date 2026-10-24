@@ -29,6 +29,30 @@ class MemorySources:
         return await self.world.memory.get_source(scope, source_id)
 
 
+def test_bulk_owner_release_checks_every_version_and_ledger_without_single_reads(tmp_path):
+    async def scenario(world):
+        await owners(world)
+        refs = [await world.source() for _ in range(9)]
+
+        class NoSingleRead:
+            async def get_source(self, scope, identifier):
+                raise AssertionError("bulk-enabled release must use the owner's batch port")
+
+        release = TicketRelease(
+            NoSingleRead(),
+            bulk_sources=world.memory.get_sources,
+            ledger=world.ledger,
+            files=world.guard,
+        )
+        assert await release.bases_open(AREA, refs, (), "api_transfer")
+        wrong = refs[-1].model_copy(update={"version": 2})
+        assert not await release.bases_open(AREA, [*refs[:-1], wrong], (), "api_transfer")
+        await world.ledger.block(AREA, refs[-1].source_id, 1, "rights_revoked", world.now)
+        assert not await release.bases_open(AREA, refs, (), "api_transfer")
+
+    run(tmp_path, scenario)
+
+
 def test_multiple_bases_use_bounded_fresh_owner_reads_and_ledger(tmp_path):
     async def scenario(world):
         _, release = await owners(world)

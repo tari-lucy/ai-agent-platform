@@ -70,7 +70,11 @@ class FileReleaseGuard:
                 raise ContractError(ErrorCode.RESOURCE_BUSY)
             repo = self.storage.repository(ManagedFile, self.principal, area)
             latest = await repo.get(ref.artifact_id)
-            selected = await repo.get(ref.artifact_id, version=ref.version)
+            selected = (
+                latest
+                if latest is not None and latest.version == ref.version
+                else await repo.get(ref.artifact_id, version=ref.version)
+            )
             for entry in (latest, selected):
                 if entry is None or entry.state != "active":
                     raise ContractError(ErrorCode.ACCESS_DENIED)
@@ -96,21 +100,23 @@ class FileReleaseGuard:
         if len(refs) > 200:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         blocked = {entry.source_id for entry in await self.ledger.entries(area)}
-        checked: set[tuple[str, int]] = set()
         for source_ref in refs.values():
             if (
                 source_ref.scope.partition != area.partition
                 or source_ref.availability != "available"
+                or source_ref.source_id in blocked
             ):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
-            if source_ref.source_id in blocked:
-                raise ContractError(ErrorCode.ACCESS_DENIED)
-            if (source_ref.source_id, source_ref.version) in checked:
-                continue
-            checked.add((source_ref.source_id, source_ref.version))
-            source = await self.storage.repository(Source, self.principal, area).get(
-                source_ref.source_id, purpose=purpose
+        source_rows = (
+            await self.storage.repository(Source, self.principal, area).get_many(
+                [ref.source_id for ref in refs.values()], purpose=purpose
             )
+            if refs
+            else []
+        )
+        found = {row.id: row for row in source_rows}
+        for source_ref in refs.values():
+            source = found.get(source_ref.source_id)
             if source is None or source.availability != "available":
                 raise ContractError(ErrorCode.ACCESS_DENIED)
             if source.version != source_ref.version:
