@@ -156,5 +156,16 @@ class WorkSessionMessageArguments(Contract):
         return self
 
 
+class WorkSessionRenameArguments(Contract):
+    session_id: Id
+    title: ShortText = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def not_blank(self) -> Self:
+        if not self.title.strip():
+            raise ValueError("EMPTY_TITLE")
+        return self
+
+
 class WorkSessionCloseArguments(Contract):
     session_id: Id

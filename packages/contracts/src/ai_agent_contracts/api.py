@@ -156,6 +156,7 @@ class EditCommand(CommandBase):
         "work.abandon",
         "work.session.message",
         "work.session.close",
+        "work.session.rename",
     ]
     arguments: ExtensionPayload
     expected_version: Version

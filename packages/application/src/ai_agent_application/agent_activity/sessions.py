@@ -18,6 +18,7 @@ from ai_agent_contracts.agent_sessions import (
     WorkSessionMessage,
     WorkSessionMessageArguments,
     WorkSessionOpenArguments,
+    WorkSessionRenameArguments,
 )
 from ai_agent_contracts.api import (
     CreateCommand,
@@ -33,7 +34,7 @@ from ai_agent_contracts.states import ErrorCode
 from ai_agent_application.memory import derived_id
 from ai_agent_application.storage import Owner, Principal, RecordAccess, Storage
 
-from .book import area
+from .book import ActivityBook, area
 
 
 def message_id(scope: Scope, session_id: str, sequence: int) -> str:
@@ -535,6 +536,52 @@ class SessionBook:
                 receipt = Receipt(
                     request_id=request_id,
                     scope=scope,
+                    status="completed",
+                    resource_id=session.id,
+                    version=revised.version,
+                )
+                await unit.complete(receipt)
+                return receipt
+
+    async def rename(self, request: EditCommand) -> Receipt:
+        """Operator metadata only; does not append input or wake the character."""
+        args = WorkSessionRenameArguments.model_validate(request.arguments.data)
+        if (
+            request.type != "work.session.rename"
+            or request.target != args.session_id
+            or request.arguments.schema_id != "work.session.rename-args"
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        scope = area(request.scope)
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, request) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                session = await self.get(scope, args.session_id)
+                if session is None:
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if session.version != request.expected_version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                # Changing the version of an executing turn would invalidate its final CAS.
+                attempts = await ActivityBook(
+                    self.store, self.clock, principal=self.principal
+                ).session_attempts(scope, session.id)
+                if any(
+                    a.session_id == session.id and a.state in ("prepared", "submitted")
+                    for a in attempts
+                ):
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                revised = session.model_copy(
+                    update={
+                        "version": session.version + 1,
+                        "updated_at": self.clock(),
+                        "title": args.title.strip(),
+                    }
+                )
+                await unit.put(revised, expected_version=session.version)
+                receipt = Receipt(
+                    request_id=request.request_id,
+                    scope=request.scope,
                     status="completed",
                     resource_id=session.id,
                     version=revised.version,

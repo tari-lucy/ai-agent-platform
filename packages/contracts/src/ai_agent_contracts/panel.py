@@ -277,11 +277,13 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
         WorkSessionCloseArguments,
         WorkSessionMessageArguments,
         WorkSessionOpenArguments,
+        WorkSessionRenameArguments,
     )
 
     registry.register("work.session.open-args", WorkSessionOpenArguments)
     registry.register("work.session.message-args", WorkSessionMessageArguments)
     registry.register("work.session.close-args", WorkSessionCloseArguments)
+    registry.register("work.session.rename-args", WorkSessionRenameArguments)
     registry.register("work.session-reply", SessionReplyOrigin)
     registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
@@ -612,6 +614,8 @@ class WorkSessionTranscript(Contract):
     scope: Scope
     session_id: Id
     session_version: Version
+    created_at: UTC | None = None
+    updated_at: UTC | None = None
     state: Literal["open", "waiting", "closed", "invalidated"]
     title: ShortText
     # Messages up to here were taken by the person's session; later ones are stored and wait.

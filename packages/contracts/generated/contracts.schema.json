@@ -2116,7 +2116,8 @@
             "ticket.read",
             "work.abandon",
             "work.session.message",
-            "work.session.close"
+            "work.session.close",
+            "work.session.rename"
           ],
           "title": "Type",
           "type": "string"
@@ -8341,6 +8342,7 @@
           "work.session.close": "#/$defs/EditCommand",
           "work.session.message": "#/$defs/EditCommand",
           "work.session.open": "#/$defs/CreateCommand",
+          "work.session.rename": "#/$defs/EditCommand",
           "workplace.access.execute": "#/$defs/ExecutePlanCommand",
           "workplace.access.preview": "#/$defs/PlanCommand",
           "workspace.backup.execute": "#/$defs/ExecutePlanCommand",
@@ -14708,6 +14710,30 @@
       "title": "WorkSessionProgress",
       "type": "object"
     },
+    "WorkSessionRenameArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "title"
+      ],
+      "title": "WorkSessionRenameArguments",
+      "type": "object"
+    },
     "WorkSessionResultFile": {
       "additionalProperties": false,
       "description": "A file the turn actually saved through the file owner (title and logical path only).",
@@ -14776,6 +14802,19 @@
         "complete": {
           "title": "Complete",
           "type": "boolean"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
         },
         "entries": {
           "items": {
@@ -14866,6 +14905,19 @@
           "maxLength": 512,
           "title": "Title",
           "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
         },
         "waiting_detail": {
           "anyOf": [
@@ -15972,6 +16024,9 @@
     },
     "WorkSessionProgress": {
       "$ref": "#/$defs/WorkSessionProgress"
+    },
+    "WorkSessionRenameArguments": {
+      "$ref": "#/$defs/WorkSessionRenameArguments"
     },
     "WorkSessionResultFile": {
       "$ref": "#/$defs/WorkSessionResultFile"

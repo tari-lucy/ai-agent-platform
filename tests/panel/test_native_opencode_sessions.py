@@ -130,7 +130,14 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
         page.locator('[data-action="prompt-submit"]').click()
     assert accepted.value.status == 200
     expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
+    page.get_by_role("heading", name="Синтетическая сессия", exact=True).click()
+    title = page.locator('input[data-slot="session-title-child"]')
+    title.fill("Освоение рабочего места")
+    title.press("Enter")
+    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible()
     page.reload()
+    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible()
+
     expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
     assert model.count("activity") == 0
 

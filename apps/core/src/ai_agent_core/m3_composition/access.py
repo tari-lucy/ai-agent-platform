@@ -42,6 +42,7 @@ class Mutations:
             "work.session.open",
             "work.session.message",
             "work.session.close",
+            "work.session.rename",
             "persona.create",
             "persona.copy",
             "persona.apply",
@@ -157,6 +158,7 @@ class Mutations:
             "work.session.open",
             "work.session.message",
             "work.session.close",
+            "work.session.rename",
         ):
             from .work_sessions import mutate as session_mutate
 

@@ -19,7 +19,7 @@ Origin/Host и CSRF прежние. Bridge не вводит пароль, OAuth
 | Метод/путь | Ответ/поведение |
 | --- | --- |
 | GET `/agents` | `Catalogue`: protocol, items, complete=true. Не больше 8 уже разрешённых оператору областей с читаемым Profile. Карточка: directory, scope, profile_id/profile_version, label, active_runtime |
-| GET `/agents/{directory}/sessions?limit=50&cursor=...` | `SessionPage`, прежний ограниченный cursor владельца. В карточке только id, scope, title, version, generation, state, last_sequence, processed_sequence. Контекст/refs/checkpoint не выдаются |
+| GET `/agents/{directory}/sessions?limit=50&cursor=...` | `SessionPage`, прежний ограниченный cursor владельца. В карточке только id, scope, title, version, generation, state, last_sequence, processed_sequence, created_at, updated_at. Контекст/refs/checkpoint не выдаются |
 | GET `/agents/{directory}/sessions/{session_id}` | Прежний `WorkSessionTranscript`: release/withheld, generation через owner, entries, pending_reply, progress и причины ожидания. Частичная история обозначена complete=false |
 | GET `/agents/{directory}/run` | Прежний `RunSessionPage`: пустой items у неактивной области. Не подставлять активного агента вместо выбранного |
 | GET `/agents/{directory}/files` | Прежняя `WorkplaceLibrary`, только разрешённые owner-проекции |
@@ -48,7 +48,7 @@ owner scope, а не фактом знания alias.
 
 ## Команды, квитанции и доставка
 
-Разрешены только `work.session.open`, `work.session.message`, `work.session.close`,
+Разрешены только `work.session.open`, `work.session.message`, `work.session.close`, `work.session.rename`,
 `agent.start`, `dialogue.acknowledge`. Тело/ExtensionPayload/ожидаемая версия —
 ровно из `packages/contracts/generated/contracts.ts` и прежнего API.
 Bridge не переписывает request_id, scope, expected_version или revision.
@@ -56,6 +56,9 @@ Bridge не переписывает request_id, scope, expected_version или 
 - Open/message/close используют stable Scope и существующий SessionBook/Source.
   При STOPPED сообщение сохраняется, inference не выполняется. В уже разрешённой
   и подготовленной неактивной области intake также допустим; это не активация.
+- Rename меняет только заголовок с CAS/replay, без нового сообщения, модели и START.
+  Во время подготовленного/выполняемого хода возвращает RESOURCE_BUSY, чтобы не сбить
+  текущий ответ. Даты карточки/расшифровки — сохранённые даты owner-записи, не время GET.
 - Request ID удерживается для той же отправки, в том числе при потере ответа.
   Replay возвращает прежнюю квитанцию; другой текст с тем же ID даёт 409.
   Устаревший expected_version даёт 409, черновик остаётся у оператора.

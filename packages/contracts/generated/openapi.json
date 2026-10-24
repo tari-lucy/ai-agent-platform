@@ -2176,7 +2176,8 @@
               "ticket.read",
               "work.abandon",
               "work.session.message",
-              "work.session.close"
+              "work.session.close",
+              "work.session.rename"
             ],
             "title": "Type",
             "type": "string"
@@ -8401,6 +8402,7 @@
             "work.session.close": "#/components/schemas/EditCommand",
             "work.session.message": "#/components/schemas/EditCommand",
             "work.session.open": "#/components/schemas/CreateCommand",
+            "work.session.rename": "#/components/schemas/EditCommand",
             "workplace.access.execute": "#/components/schemas/ExecutePlanCommand",
             "workplace.access.preview": "#/components/schemas/PlanCommand",
             "workspace.backup.execute": "#/components/schemas/ExecutePlanCommand",
@@ -14768,6 +14770,30 @@
         "title": "WorkSessionProgress",
         "type": "object"
       },
+      "WorkSessionRenameArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "title"
+        ],
+        "title": "WorkSessionRenameArguments",
+        "type": "object"
+      },
       "WorkSessionResultFile": {
         "additionalProperties": false,
         "description": "A file the turn actually saved through the file owner (title and logical path only).",
@@ -14836,6 +14862,19 @@
           "complete": {
             "title": "Complete",
             "type": "boolean"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created At"
           },
           "entries": {
             "items": {
@@ -14926,6 +14965,19 @@
             "maxLength": 512,
             "title": "Title",
             "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Updated At"
           },
           "waiting_detail": {
             "anyOf": [

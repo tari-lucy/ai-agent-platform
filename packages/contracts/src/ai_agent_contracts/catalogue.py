@@ -31,6 +31,7 @@ MODELS = (
     agent_sessions.WorkSessionOpenArguments,
     agent_sessions.WorkSessionMessageArguments,
     agent_sessions.WorkSessionCloseArguments,
+    agent_sessions.WorkSessionRenameArguments,
     panel.PrivateApiStatus,
     panel.WorkSessionEntry,
     panel.WorkSessionModelCalls,

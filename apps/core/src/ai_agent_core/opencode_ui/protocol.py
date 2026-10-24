@@ -5,7 +5,7 @@ import json
 from typing import Literal
 
 from ai_agent_contracts.api import Page, PanelEvent
-from ai_agent_contracts.common import Contract, Id, Scope, ShortText, Version
+from ai_agent_contracts.common import UTC, Contract, Id, Scope, ShortText, Version
 from pydantic import Field
 
 PREFIX = "/api/v1/opencode"
@@ -14,6 +14,7 @@ COMMANDS = frozenset(
         "work.session.open",
         "work.session.message",
         "work.session.close",
+        "work.session.rename",
         "agent.start",
         "dialogue.acknowledge",
     }
@@ -43,6 +44,8 @@ class Catalogue(Contract):
 
 
 class SessionCard(Contract):
+    created_at: UTC
+    updated_at: UTC
     id: Id
     scope: Scope
     title: ShortText

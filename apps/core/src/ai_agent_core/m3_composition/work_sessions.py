@@ -118,6 +118,8 @@ async def mutate(
                     made.version,
                 )
             raise
+    elif isinstance(request, EditCommand) and request.type == "work.session.rename":
+        receipt = await book.rename(request)
     elif isinstance(request, EditCommand) and request.type == "work.session.close":
         receipt = await book.close(request)
     else:
@@ -209,6 +211,8 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         scope=scope,
         session_id=session.id,
         session_version=session.version,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
         state=session.state,
         title=session.title,
         processed_sequence=session.processed_sequence,

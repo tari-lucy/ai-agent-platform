@@ -275,3 +275,60 @@ def test_bridge_real_owners_one_answer_ack_replay_and_stale_run(tmp_path, monkey
             assert (await command(host, {**start, "request_id": "stale-start"})).status_code == 409
 
     asyncio.run(scenario())
+
+
+def test_session_rename_is_owner_cas_and_timestamps_survive_refetch(tmp_path, monkeypatch):
+    async def scenario():
+        model = WorkModel()
+        host = await prepared(tmp_path, monkeypatch, model)
+        async with host.open():
+            first = await command(host, opened(host.scope, "rename-open"))
+            identifier = first.json()["resource_id"]
+            payload = dict(
+                type="work.session.rename",
+                request_id="rename-once",
+                target=identifier,
+                scope=host.scope.model_dump(mode="json"),
+                expected_version=1,
+                arguments=dict(
+                    schema_id="work.session.rename-args",
+                    data={"session_id": identifier, "title": "A clear title"},
+                ),
+            )
+            renamed = await command(host, payload)
+            assert renamed.status_code == 200, renamed.text
+            assert (await command(host, payload)).json() == renamed.json()
+            conflict = await command(host, dict(payload, request_id="rename-stale"))
+            assert conflict.status_code == 409
+            one = await host.env.client.get(base(host.scope) + "/sessions")
+            two = await host.env.client.get(base(host.scope) + "/sessions")
+            assert one.json() == two.json()
+            card = one.json()["items"][0]
+            assert card["title"] == "A clear title"
+            detail = await view(host, identifier)
+            assert detail["created_at"] == card["created_at"]
+            assert detail["updated_at"] == card["updated_at"]
+            assert detail["entries"] == [] and detail["processed_sequence"] == 0
+            from ai_agent_contracts.control import Freshness
+
+            from ai_agent_core.m3_composition.activity import book
+            from ai_agent_core.m3_composition.work_sessions import sessions
+
+            await command(host, message(host.scope, identifier, version=2))
+            session = await sessions(host.runtime).get(host.scope, identifier)
+            run_scope = host.scope.model_copy(update={"agent_id": "fixture", "run_id": "run"})
+            await book(host.runtime).prepare_session(
+                session,
+                1,
+                "synthetic-active-turn",
+                run_scope,
+                Freshness(run_id="run", control_epoch=1, profile_version=1, policy_version=1),
+                [],
+                [],
+            )
+            busy = await command(host, dict(payload, request_id="busy", expected_version=3))
+            assert busy.status_code == 429 and busy.json()["code"] == "RESOURCE_BUSY"
+            assert (await view(host, identifier))["title"] == "A clear title"
+            assert model.count() == 0 and host.runtime.supervisor.snapshot.state.value == "STOPPED"
+
+    asyncio.run(scenario())
