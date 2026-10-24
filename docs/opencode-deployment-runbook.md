@@ -5,6 +5,10 @@ OpenCode в Docker не означают, что родной Web UI уже по
 Требуются клиентская поставка OC-03, общий сценарий OC-06 и узкий cross-review
 изменённых границ по doc27 §8. Личный launcher переключается последним.
 
+Подготовленный 2026-10-24 preview-кандидат уже имеет настоящий native dist и
+проходит технический preflight: [OC-07 launch staging](implementation-reports/OC-07-launch-staging.md).
+Он ещё не заменяет личный deployment и не закрывает независимую приёмку.
+
 ## Проверка без запуска
 
 Из checkout с установленным locked-окружением:
