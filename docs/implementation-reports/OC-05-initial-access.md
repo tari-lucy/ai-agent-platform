@@ -79,7 +79,7 @@ Windows/Docker для OC-05 не прогонялся (затронуты тол
 
 ## Передача (2026-10-24, Claude уходит)
 
-- HEAD: `claude/oc-05-initial-access` = этот коммит (поверх `f809a6a`), в main **не сведён**;
+- HEAD: `claude/oc-05-initial-access` `56e1b41`, сведён в main fast-forward (после хвоста gate);
   main `9e7f268`. Ревью Codex: `codex/oc-05-cross-review` `d40fec4` — reviewed.
 - Gate (`check_combined.py` без ruff и `tests/probes`): mypy strict 302 файла OK, границы
   импортов OK, generated OK. pytest дошёл до 86% (1296 из 1493), обрыв сессии. Упали 6 тестов

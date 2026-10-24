@@ -355,7 +355,7 @@ async function route(method: string, path: string, url: URL, body: () => Promise
   return unavailable(path)
 }
 
-export const awFetch: typeof globalThis.fetch = async (input, init) => {
+async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = input instanceof Request ? input : new Request(input, init)
   const url = new URL(request.url)
   if (url.origin !== VIRTUAL_SERVER || url.pathname.startsWith("/api/v1/")) return json({ error: "AW_OUTSIDE_BRIDGE" }, 403)
@@ -369,6 +369,10 @@ export const awFetch: typeof globalThis.fetch = async (input, init) => {
     return json({ name: "AW_BRIDGE_ERROR", data: { status } }, status === 409 ? 409 : status)
   }
 }
+
+// Platform.fetch is `typeof fetch`, which under Bun types also carries `preconnect`. The bridge opens
+// no connections of its own, so preconnect is a deliberate no-op rather than a cast or a looser type.
+export const awFetch: typeof globalThis.fetch = Object.assign(bridgeFetch, { preconnect: () => {} })
 
 // ---- events: owner notifications become "refetch" signals for the native store ------------------
 function events(signal: AbortSignal): Response {
