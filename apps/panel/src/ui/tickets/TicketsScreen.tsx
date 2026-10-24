@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Checkbox, Group, NumberInput, Paper, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 import type { ConsequencePlan, Permission, RunSession, Scope, Ticket } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
@@ -331,7 +332,9 @@ function List({ title, rows, selected, onSelect, empty }: { title: string; rows:
 
 export function TicketsScreen({ api, scope, run }: { api: PanelApi; scope: Scope; run?: RunSession }) {
   const tickets = useAll(scope, 'tickets', (cursor, signal) => api.tickets(scope, signal, cursor));
-  const [selected, setSelected] = useState<string | null>(null);
+  // A link like #/tickets?ticket=<id> (from a conversation) opens that exact card.
+  const [params] = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(() => params.get('ticket'));
   const rows = tickets.data?.pages.flatMap((page) => page.items) ?? [];
   const { mine, working, done } = groups(rows);
   const ticket = rows.find((row) => row.id === selected) ?? null;

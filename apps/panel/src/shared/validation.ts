@@ -674,6 +674,7 @@ export function workSessionTranscript(value: unknown, selected: Scope, sessionId
     (value.waiting_reason == null || waitingReasons.has(String(value.waiting_reason))) &&
     (value.waiting_detail == null || text(value.waiting_detail, 512)) &&
     (value.access_ticket_id == null || id(value.access_ticket_id)) && stopReason(value) && turnProgress(value.progress) &&
+    (value.open_ticket_ids == null || (Array.isArray(value.open_ticket_ids) && value.open_ticket_ids.length <= 20 && value.open_ticket_ids.every(id))) &&
     typeof value.complete === 'boolean' && date(value.checked_at) && Array.isArray(value.entries) && value.entries.length <= 200);
   let last = 0;
   demand(value.entries.every((entry: unknown) => {

@@ -14,7 +14,7 @@ from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.memory import SourceDraft, derived_id
 from ai_agent_application.storage import Owner
 from ai_agent_application.tickets import area
-from ai_agent_contracts.agent_sessions import WorkSessionMessageArguments
+from ai_agent_contracts.agent_sessions import WorkSession, WorkSessionMessageArguments
 from ai_agent_contracts.api import CreateCommand, EditCommand, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
@@ -134,6 +134,23 @@ async def mutate(
     return receipt
 
 
+async def waiting_for_operator(rt: Runtime, session: WorkSession) -> list[str]:
+    """The conversation's linked tickets that wait for the operator now (owner state)."""
+    if rt.tickets is None or session.state in ("closed", "invalidated"):
+        return []
+    found: list[str] = []
+    for identifier in session.waiting_ticket_ids[:20]:
+        ticket = await rt.tickets.get(session.scope, identifier)
+        if (
+            ticket is not None
+            and ticket.scope.partition == session.scope.partition
+            and ticket.state not in ("resolved", "closed_unfulfilled")
+            and ticket.next_turn == "operator"
+        ):
+            found.append(ticket.id)
+    return found
+
+
 async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionTranscript:
     """The last messages of one conversation; each text through its source's release gate."""
     _enabled(rt)
@@ -201,6 +218,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         access_ticket_id=None if ticket is None or waiting == "access_required" else ticket.id,
         invalidated_reason=session.invalidated_reason,
         progress=turn,
+        open_ticket_ids=await waiting_for_operator(rt, session),
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),

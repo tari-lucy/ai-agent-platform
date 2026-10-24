@@ -153,6 +153,8 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
     </Group>
     <Text size="sm" c="dimmed">Чей ход: {turn(transcript, running)}</Text>
     {transcript.access_ticket_id && <Text size="sm">Запрос разрешения: <Anchor href="#/tickets">открыть обращения</Anchor></Text>}
+    {!!transcript.open_ticket_ids?.length && <Text size="sm">Агент ждёт вашего ответа в обращении: {transcript.open_ticket_ids.map((id, index) =>
+      <Anchor key={id} href={'#/tickets?ticket=' + encodeURIComponent(id)}>{index ? ', ' : ''}открыть</Anchor>)}</Text>}
     {stopNotice(transcript) && <Text size="sm" c="orange.8" role="status">{stopNotice(transcript)}</Text>}
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>

@@ -14858,6 +14858,17 @@
             "default": null,
             "title": "Invalidated Reason"
           },
+          "open_ticket_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Open Ticket Ids",
+            "type": "array"
+          },
           "pending_reply": {
             "anyOf": [
               {

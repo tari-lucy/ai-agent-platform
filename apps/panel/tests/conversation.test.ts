@@ -123,3 +123,9 @@ test('the current turn is told from recorded facts: state, elapsed time, steps, 
   assert.throws(() => workSessionTranscript(transcript({ progress: { state: 'busy', since: T(1) } as never }), scope, 's-1'));
   assert.throws(() => workSessionTranscript(transcript({ progress: { state: 'done', since: T(1), files: [{ file_id: 'f' }] } as never }), scope, 's-1'));
 });
+
+test('open tickets of a conversation are accepted only as bounded ticket ids', () => {
+  assert.deepEqual(workSessionTranscript(transcript({ open_ticket_ids: ['ticket-1'] }), scope, 's-1').open_ticket_ids, ['ticket-1']);
+  assert.throws(() => workSessionTranscript(transcript({ open_ticket_ids: 'ticket-1' as never }), scope, 's-1'));
+  assert.throws(() => workSessionTranscript(transcript({ open_ticket_ids: Array.from({ length: 21 }, (_, i) => 't-' + i) }), scope, 's-1'));
+});

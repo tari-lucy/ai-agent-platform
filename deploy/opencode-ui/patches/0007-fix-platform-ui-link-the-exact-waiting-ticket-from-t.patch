@@ -1,0 +1,47 @@
+From 833575628a87c896e47f15b69f75ce8e44176518 Mon Sep 17 00:00:00 2001
+From: Claude Code <noreply@anthropic.com>
+Date: Sat, 24 Oct 2026 12:49:46 +0000
+Subject: [PATCH] fix(platform-ui): link the exact waiting ticket from the
+ conversation
+
+---
+ packages/app/src/aw/bridge.ts | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index 5a75931..23edc12 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -22,6 +22,7 @@ type Transcript = {
+   scope: Scope; session_id: string; session_version: number; state: string; title: string
+   processed_sequence?: number; pending_reply?: Draft | null; entries: Entry[]; checked_at: string
+   progress?: Progress | null; waiting_reason?: string | null; invalidated_reason?: string | null
++  open_ticket_ids?: string[]
+ }
+ 
+ const json = (body: unknown, status = 200) =>
+@@ -161,9 +162,9 @@ function messages(view: Transcript) {
+     rows.push(notice(view, `stopped-${view.session_version}-notice`, STOPPED, view.checked_at))
+   } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
+     rows.push(notice(view, next, STOPPED, view.checked_at))
+-  } else if (view.state === "waiting") {
++  } else if (view.open_ticket_ids?.length) {
+     // The person asked the operator in a ticket; answers and decisions live in the panel.
+-    rows.push(notice(view, next, WAITING_TICKET, view.checked_at))
++    rows.push(notice(view, next, waitingTicket(view.open_ticket_ids[0]), view.checked_at))
+   } else if (view.progress && NOTICE.has(view.progress.state) && PROGRESS[view.progress.state]) {
+     // A platform notice in the reply's place (never the person's words); a later reply for
+     // the same operator message takes this place. Queued/running use the native busy state.
+@@ -172,7 +173,8 @@ function messages(view: Transcript) {
+   return rows
+ }
+ const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
+-const WAITING_TICKET = `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets — разговор продолжится сам.`
++const waitingTicket = (ticketID: string) =>
++  `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets?ticket=${encodeURIComponent(ticketID)} — разговор продолжится сам.`
+ const STOPPED = "Платформа: разговор остановлен — сообщение оператора отозвано, удалено или истекло и не исполнялось. Начните новый разговор."
+ const notice = (view: Transcript, id: string, text: string, at: string) => ({
+   id, type: "assistant", agent: view.scope.persona_id ?? "", model, time: { created: ms(at), completed: ms(at) },
+-- 
+2.43.0
+

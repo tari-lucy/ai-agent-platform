@@ -4,12 +4,12 @@ boundaries of the native surface. Production host owners, synthetic model, packa
 Not repeated here (see test_native_opencode_sessions.py): reload STOPPED/ACTIVE, hidden or
 clipped reply without ACK, exact visible ACK, no duplicate after reload, STOP.
 
-Checked: the person asks the operator in a ticket during a conversation; the operator answers
-in the panel in plain text; the same conversation continues in the native window without a new
-operator message. After STOP a new
-message whose basis is revoked is never executed and the native window says so. Native
-OpenCode APIs/PTY are not served, a foreign directory is refused, and the page talks to the
-platform only through its own assets and the bridge.
+Checked: the person asks the operator in a ticket during a conversation; the native window
+says it waits and links the exact ticket card in the panel; the operator answers there in plain
+text; the same conversation continues in the native window without a new operator message.
+After STOP a new message whose basis is revoked is never executed and the native window says
+so. Native OpenCode APIs/PTY are not served, a foreign directory is refused, and the page
+talks to the platform only through its own assets and the bridge.
 """
 
 import asyncio
@@ -153,19 +153,26 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     expect(page.get_by_text(CLARIFY, exact=True).first).to_be_visible(timeout=60000)
     delivered(2)  # the visible reply was acknowledged once
     assert len(asked) == 1  # the person asked the operator in a ticket during the turn
-    # (The transcript does not expose the session's open tickets, so the native window cannot
-    # point to the exact card yet: a reported gap, not simulated here.)
+    # The conversation now waits for the operator on exactly that ticket; the native window
+    # says so and points to the exact card in the panel (it does not answer itself).
+    assert owner_view()["open_ticket_ids"] == asked
+    page.reload()
+    expect(page.get_by_text("Агент ждёт вашего ответа в обращении", exact=False)).to_be_visible(
+        timeout=30000
+    )
+    expect(page.get_by_text("/#/tickets?ticket=" + asked[0], exact=False)).to_be_visible()
 
     # The operator answers in the panel in plain text; the same conversation continues.
     model.queues["activity"].append({"reply": CONTINUED})
-    control.goto(origin + "/#/tickets")
-    control.get_by_role("list", name="Нужен мой ответ").get_by_role("button").first.click()
+    control.goto(origin + "/#/tickets?ticket=" + asked[0])  # the exact card, no list search
     card = control.get_by_label("Карточка обращения")
+    expect(card.get_by_text("Какой формат наброска?")).to_be_visible(timeout=15000)
     card.get_by_label("Ваш ответ").fill(ANSWER)
     card.get_by_role("button", name="Отправить ответ").click()
     expect(card.get_by_role("status")).to_contain_text("Ответ отправлен", timeout=15000)
     expect(page.get_by_text(CONTINUED, exact=True).first).to_be_visible(timeout=60000)
     view = delivered(3)
+    assert view["open_ticket_ids"] == []  # answered: nothing waits for the operator now
     assert [e["speaker"] for e in view["entries"]] == ["operator", "character", "character"]
     assert model.count("activity") == 2
     assert ANSWER in json.dumps(model.last("activity"), ensure_ascii=False)

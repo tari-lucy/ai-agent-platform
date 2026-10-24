@@ -638,6 +638,9 @@ class WorkSessionTranscript(Contract):
     invalidated_reason: Literal["message_unavailable"] | None = None
     # The current turn, when there is one to report (read-only; never resends anything).
     progress: WorkSessionProgress | None = None
+    # Tickets linked to this conversation that now wait for the operator's answer (current
+    # ticket owner state, this scope only). Answers and decisions are made in the panel.
+    open_ticket_ids: list[Id] = Field(default_factory=list, max_length=20)
     entries: list[WorkSessionEntry] = Field(max_length=200)
     complete: bool = Field(strict=True)
     checked_at: UTC
