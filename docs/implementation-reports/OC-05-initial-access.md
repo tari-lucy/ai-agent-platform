@@ -76,3 +76,19 @@ Windows/Docker для OC-05 не прогонялся (затронуты тол
 обычных права, пакет их не перевыдаёт. Cross-review Codex — `fe04cac`, замечания выше исправлены;
 отметку reviewed ставит рецензент.
 Дальше у Claude: PUI-03/04 после приёмки родного окна.
+
+## Передача (2026-10-24, Claude уходит)
+
+- HEAD: `claude/oc-05-initial-access` = этот коммит (поверх `f809a6a`), в main **не сведён**;
+  main `9e7f268`. Ревью Codex: `codex/oc-05-cross-review` `d40fec4` — reviewed.
+- Gate (`check_combined.py` без ruff и `tests/probes`): mypy strict 302 файла OK, границы
+  импортов OK, generated OK. pytest дошёл до 86% (1296 из 1493), обрыв сессии. Упали 6 тестов
+  вектора памяти (`tests/memory/test_index.py` 2, `test_recall.py` 4) — **так же на чистом main
+  9e7f268**: в venv нет `sqlite_vec`, индекс degraded; к OC-05 не относятся. Хвост с 1296-го
+  теста перезапущен отдельно; к моменту передачи 54 прошли/skip, падений нет, не завершён.
+  Дозапуск хвоста (из корня checkout, venv `integration-local-host`): скрипт собирает
+  `--co`-список того же набора тестов и запускает `ids[1294:]` с `-rfE`.
+- TS2741: в этой ветке не встречался; `tsc --noEmit` панели чистый, отдельного исправления
+  TS2741 здесь нет.
+- Shared-файлы окна OC-05 (access.py, views.py, access/surface.py, panel shared api/
+  validation/contracts, ui/workspace) **освобождены**; правок в них вне ветки нет.
