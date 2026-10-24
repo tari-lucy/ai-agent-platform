@@ -71,7 +71,9 @@ if ($LASTEXITCODE) { throw 'Bundle validation failed' }
 ```
 
 Допуск поставки в main: **1024 файла / 48 МиБ**. Проверенный кандидат: **938 файлов /
-34 350 700 байт** без manifest. Упаковка создаёт `platform-ui-manifest.json` с размерами
+34 352 204 байта** без manifest (семь патчей; Windows-проверка:
+[OC-07](../../docs/implementation-reports/OC-07-seven-patch.md)).
+Упаковка создаёт `platform-ui-manifest.json` с размерами
 и SHA-256. `dist`, зависимости и временные host в Git не входят.
 
 ## Проверки без платных вызовов
