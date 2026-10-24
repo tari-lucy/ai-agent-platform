@@ -21,6 +21,7 @@ from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
 from .llm_panel import prepare_llm_panel
 from .memory import enable_memory
+from .personas import add_persona
 from .recovery import enable_recovery
 from .serve import permissions_expired, serve
 from .social import enable_social
@@ -45,6 +46,10 @@ SESSION_LIMITS = (
 def parser() -> argparse.ArgumentParser:
     main = argparse.ArgumentParser(prog="ai_agent_core.local_host")
     commands = main.add_subparsers(dest="command", required=True)
+    persona = commands.add_parser("add-persona", help="offline independent inactive work profile")
+    persona.add_argument("--root", type=Path, required=True)
+    persona.add_argument("--persona-id", required=True)
+    persona.add_argument("--profile-file", type=Path, help="Markdown; default: neutral reference")
     llm_panel = commands.add_parser(
         "prepare-llm-panel", help="offline operator read access to connections and assignments"
     )
@@ -217,6 +222,18 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         os.umask(0o077)  # databases, WAL files, indexes and reports are owner-only from creation
     try:
+        if arguments.command == "add-persona":
+            asyncio.run(
+                add_persona(
+                    arguments.root,
+                    persona_id=arguments.persona_id,
+                    profile_markdown=read_profile(arguments.profile_file),
+                )
+            )
+            print(
+                "independent persona prepared; active runtime unchanged; no execution right granted"
+            )
+            return 0
         if arguments.command == "prepare-llm-panel":
             asyncio.run(prepare_llm_panel(arguments.root))
             print("LLM metadata prepared for the panel; agent stays STOPPED")
