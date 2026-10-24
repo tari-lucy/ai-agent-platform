@@ -143,7 +143,9 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
         raise AssertionError(owner_view())
 
     send(QUESTION)
-    expect(page.get_by_text("ждёт, пока эта личность будет запущена", exact=False)).to_be_visible(timeout=20000)
+    expect(page.get_by_text("ждёт, пока эта личность будет запущена", exact=False)).to_be_visible(
+        timeout=20000
+    )
 
     model.queues["activity"].append({"reply": CLARIFY})
     control = page.context.new_page()

@@ -102,7 +102,9 @@ def test_two_persons_in_the_native_window_keep_their_own_conversations(page, wor
     session_b = open_session(b, "open-b", "Разговор с Б")
     page.goto(url(b, session_b))
     send(FOR_B, b)
-    expect(page.get_by_text("ждёт, пока эта личность будет запущена", exact=False)).to_be_visible(timeout=20000)
+    expect(page.get_by_text("ждёт, пока эта личность будет запущена", exact=False)).to_be_visible(
+        timeout=20000
+    )
 
     # A: a message, then START — only A, the active executor, answers.
     session_a = open_session(a, "open-a", "Разговор с А")
@@ -114,6 +116,9 @@ def test_two_persons_in_the_native_window_keep_their_own_conversations(page, wor
     control.get_by_role("button", name="START — запустить агента").click()
     expect(control.locator(".active-run")).to_contain_text("Работает", timeout=20000)
     control.close()
+    # The operator returns to the conversation (a background tab never acknowledges).
+    page.bring_to_front()
+    assert page.evaluate("document.visibilityState") == "visible"
     expect(page.get_by_text(REPLY_A, exact=True).first).to_be_visible(timeout=60000)
     assert model.count("activity") == 1
     request = json.dumps(model.last("activity"), ensure_ascii=False)
