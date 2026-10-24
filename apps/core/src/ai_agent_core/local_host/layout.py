@@ -22,6 +22,7 @@ IDENTIFIER = r"^[A-Za-z0-9_-]{1,64}$"
 MAX_TEST_SCOPES = 7  # the runtime accepts at most 8 scopes including the work scope
 MAX_CONFIG_BYTES = 64 * 1024
 GM_PENDING = "GM-CHANGE-PENDING"
+PERSONA_PENDING = "PERSONA-ADD-PENDING"
 
 
 class HostError(Exception):
@@ -229,6 +230,15 @@ class WorkSessionsConfig(BaseModel):
         return self
 
 
+class InactivePersona(BaseModel):
+    """Prepared work partition, never an additional executor or model assignment."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    persona_id: str = Field(pattern=IDENTIFIER)
+    work_space_id: str = Field(pattern=IDENTIFIER)
+    profile_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -237,6 +247,9 @@ class HostConfig(BaseModel):
     workspace_id: str = Field(pattern=IDENTIFIER)
     persona_id: str = Field(pattern=IDENTIFIER)
     work_space_id: str = Field(pattern=IDENTIFIER)
+    additional_personas: tuple[InactivePersona, ...] = Field(
+        default=(), max_length=7, exclude_if=lambda value: not value
+    )
     test_space_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_TEST_SCOPES)
     port: int = Field(ge=1024, le=65535)
     permission_expires_at: str
@@ -283,9 +296,40 @@ class HostConfig(BaseModel):
         spaces = [self.work_space_id, *self.test_space_ids]
         if self.settings_space_id is not None:
             spaces.append(self.settings_space_id)
-        if len(spaces) > MAX_TEST_SCOPES + 1 or len(set(spaces)) != len(spaces):
+        spaces.extend(p.work_space_id for p in self.additional_personas)
+        people = [self.persona_id, *(p.persona_id for p in self.additional_personas)]
+        if (
+            len(spaces) > MAX_TEST_SCOPES + 1
+            or len(set(spaces)) != len(spaces)
+            or len(set(people)) != len(people)
+        ):
             raise ValueError("SCOPE_LAYOUT")
         return self
+
+
+def host_scopes(config: HostConfig) -> tuple[Scope, ...]:
+    """All operator partitions (at most eight); only the first is the runtime's work scope."""
+    work = Scope(
+        workspace_id=config.workspace_id,
+        persona_id=config.persona_id,
+        memory_space_id=config.work_space_id,
+        memory_mode="work",
+    )
+    tests = (
+        *config.test_space_ids,
+        *((config.settings_space_id,) if config.settings_space_id else ()),
+    )
+    return (
+        work,
+        *(
+            work.model_copy(update={"memory_space_id": space, "memory_mode": "test"})
+            for space in tests
+        ),
+        *(
+            work.model_copy(update={"persona_id": p.persona_id, "memory_space_id": p.work_space_id})
+            for p in config.additional_personas
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -445,8 +489,16 @@ def read_secret(path: Path) -> str:
 
 
 def load_config(
-    host: HostPaths, *, allow_memory_pending: bool = False, allow_gm_pending: bool = False
+    host: HostPaths,
+    *,
+    allow_memory_pending: bool = False,
+    allow_gm_pending: bool = False,
+    allow_persona_pending: bool = False,
 ) -> HostConfig:
+    if not allow_persona_pending and (
+        (host.root / PERSONA_PENDING).exists() or (host.root / PERSONA_PENDING).is_symlink()
+    ):
+        raise HostError("PERSONA_ADD_INCOMPLETE")
     if (host.root / "RECOVERY-ENABLE-PENDING").exists():
         raise HostError("RECOVERY_ENABLE_INCOMPLETE")
     if not allow_memory_pending and (host.root / "MEMORY-ENABLE-PENDING").exists():

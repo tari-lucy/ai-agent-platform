@@ -34,8 +34,16 @@ from ai_agent_core.opencode_ui.assets import load as load_opencode
 from ai_agent_core.opencode_ui.assets import mount as mount_opencode
 
 from . import rights
-from .init import test_scope, work_scope
-from .layout import HostConfig, HostError, HostPaths, load_config, paths, read_secret
+from .layout import (
+    PERSONA_PENDING,
+    HostConfig,
+    HostError,
+    HostPaths,
+    host_scopes,
+    load_config,
+    paths,
+    read_secret,
+)
 from .maintenance import HostMaintenance
 from .panel import mount, validate
 from .process import exclusive_host, loopback_socket, open_when_ready
@@ -76,6 +84,8 @@ def _prepare(
     panel_dir: Path | None,
     env_file: Path | None,
 ) -> tuple[ProviderFactory, Path | None, str, int]:
+    if (host.root / PERSONA_PENDING).exists() or (host.root / PERSONA_PENDING).is_symlink():
+        raise HostError("PERSONA_ADD_INCOMPLETE")
     if (host.root / "RESTORE-PENDING").exists():
         raise HostError("RESTORE_INCOMPLETE")
     if port is not None and not 1024 <= port <= 65535:
@@ -98,10 +108,7 @@ def _build(
     ui: Bundle | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     factory, panel, secret, number = prepared
-    work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
-    scopes = (work, *(test_scope(work, space) for space in config.test_space_ids))
-    if config.settings_space_id is not None:
-        scopes += (test_scope(work, config.settings_space_id),)
+    scopes = host_scopes(config)
     registry = new_registry()
     store = SQLiteStore(host.database, extensions=registry)
     opened: dict[Path, RecallIndex] = {}
