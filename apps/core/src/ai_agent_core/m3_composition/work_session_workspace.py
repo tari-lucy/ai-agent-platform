@@ -103,7 +103,9 @@ class Workspace:
                 try:
                     await guard.verify(admission, (), (entry.reference,), "api_transfer")
                 except ContractError as error:
-                    LOG.warning("workspace_list_refused reason=file_release code=%s", error.error.code)
+                    LOG.warning(
+                        "workspace_list_refused reason=file_release code=%s", error.error.code
+                    )
                     raise
             files = [entry.reference for entry in entries]
             result = [
