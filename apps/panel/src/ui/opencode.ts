@@ -17,7 +17,8 @@ export function useNative(api: PanelApi): Native {
     queryKey: ['native-entry'], staleTime: 60000, retry: false,
     queryFn: async ({ signal }) => (await api.nativeWindow(signal)) ? { agents: await api.nativeAgents(signal) } : null,
   });
-  return query.data ?? null;
+  // A failed refetch must not keep a formerly successful probe's cached read-only mode.
+  return query.isError ? null : query.data ?? null;
 }
 
 // The native address of a person (and one of its conversations): base64url of the directory.

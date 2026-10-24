@@ -80,3 +80,11 @@ def test_panel_points_conversation_and_work_to_opencode_and_keeps_reading(page, 
     expect(page.locator('[data-component="prompt-input"]')).to_be_visible(timeout=30000)
 
     assert model.count("activity") == 0
+
+    # If readiness cannot be confirmed, the panel keeps its legacy input available.
+    # This is a fresh panel load, not a native API fallback or an automatic START.
+    page.route("**/opencode/", lambda route: route.abort())
+    page.goto(origin + "/#/dialogue")
+    expect(page.get_by_label("Сообщение персонажу")).to_be_visible(timeout=15000)
+    expect(page.get_by_role("link", name="Открыть OpenCode")).to_have_count(0)
+    assert model.count("activity") == 0
