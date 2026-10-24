@@ -14,6 +14,10 @@ from test_live import answer
 from test_work_conversation_ack_browser import work_host as work_host
 
 from ai_agent_core.local_host.layout import paths
+from ai_agent_core.local_host.provider import WORK_SESSION_PROTOCOL
+from ai_agent_core.local_host.recovery import enable_recovery
+from ai_agent_core.local_host.work_sessions import enable_work_sessions
+from ai_agent_core.local_host.workplace_files import enable_workplace_files
 from ai_agent_core.opencode_ui.protocol import PREFIX, directory
 
 pytestmark = pytest.mark.skipif(
@@ -24,13 +28,17 @@ REPLY = "Синтетический ответ: рабочая сессия до
 
 
 @pytest.fixture(autouse=True)
-def native_distribution(monkeypatch):
+def native_distribution(monkeypatch, tmp_path):
     original = support.build
+    real_image = os.getenv("AW_OPENCODE_IMAGE_ID")
 
     class NativeModel(support.WorkModel):
         async def __call__(self, request):
             body = json.loads(request.content)
-            if self.role(body) != "activity":
+            native_request = bool(real_image and body.get("tools"))
+            if native_request:
+                assert body["messages"][0]["content"].endswith(WORK_SESSION_PROTOCOL)
+            if not native_request and self.role(body) != "activity":
                 return await super().__call__(request)
             self.calls.append(("activity", body))
             assert self.queues["activity"], "unscripted work-session model call"
@@ -49,6 +57,32 @@ def native_distribution(monkeypatch):
 
     monkeypatch.setattr(support, "build", build)
     monkeypatch.setattr(support, "WorkModel", NativeModel)
+    if real_image:
+        prepare = support.prepared
+
+        async def prepared(directory, patch, model):
+            host = await prepare(directory, patch, model)
+            await enable_recovery(
+                host.root,
+                store_dir=tmp_path / "backups",
+                ledger_path=tmp_path / "ledger/events.sqlite",
+            )
+            await enable_workplace_files(host.root)
+            await enable_work_sessions(
+                host.root,
+                image_id=real_image,
+                areas=["projects", "inbox"],
+                output_area="projects",
+                ceiling_days=7,
+            )
+            return host
+
+        async def observe_only(rt, scope):
+            # Ordinary serve installs the actual Docker harness; no synthetic Permission.
+            assert rt.session_harness is not None and rt.session_unavailable is None
+
+        monkeypatch.setattr(support, "prepared", prepared)
+        monkeypatch.setattr(support, "install", observe_only)
 
 
 def test_native_reload_stopped_active_reply_and_stop(page, work_host):
@@ -83,16 +117,18 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
         "work",
         dict(schema_id="work.session.open-args", data={"title": "Синтетическая сессия"}),
     )["resource_id"]
-    command(
-        "work.session.message",
-        "native-message",
-        opened,
-        dict(schema_id="work.session.message-args", data={"session_id": opened, "text": MESSAGE}),
-        1,
-    )
     slug = base64.urlsafe_b64encode(selected.encode()).decode().rstrip("=")
     url = origin + "/opencode/" + slug + "/session/" + opened
     page.goto(url)
+    prompt = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+    prompt.fill(MESSAGE)
+    expect(page.locator('[data-action="prompt-submit"]')).to_be_enabled()
+    with page.expect_response(
+        lambda response: response.url == target + "/commands" and response.request.method == "POST",
+        timeout=20000,
+    ) as accepted:
+        page.locator('[data-action="prompt-submit"]').click()
+    assert accepted.value.status == 200
     expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
     page.reload()
     expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
@@ -105,11 +141,28 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     control = page.context.new_page()
     control.goto(origin + "/")
     control.get_by_role("button", name="START — запустить агента").click()
+    if os.getenv("AW_OPENCODE_IMAGE_ID"):
+        # First access is an explicit operator decision on this temporary host.
+        control.goto(origin + "/#/tickets")
+        control.get_by_role("list", name="Нужен мой ответ").get_by_role(
+            "button", name="Для рабочего разговора требуется разрешение", exact=False
+        ).click(timeout=30000)
+        form = control.get_by_label("Запрос доступа")
+        expect(form.get_by_text("Подключение: проверено")).to_be_visible(timeout=15000)
+        form.get_by_role("button", name="Разрешить…").click()
+        form.get_by_label("Последствия решения").get_by_role(
+            "button", name="Подтвердить выдачу доступа"
+        ).click()
+        expect(control.get_by_label("Карточка обращения").get_by_role("status")).to_contain_text(
+            "Доступ выдан", timeout=15000
+        )
     control.close()
     page.reload()
     try:
         expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
-        expect(page.get_by_text(REPLY, exact=True).first).to_be_visible(timeout=30000)
+        expect(page.get_by_text(REPLY, exact=True).first).to_be_visible(
+            timeout=180000 if os.getenv("AW_OPENCODE_IMAGE_ID") else 30000
+        )
     except AssertionError:
         view = page.request.get(target + "/sessions/" + opened).json()
         print(
@@ -121,7 +174,6 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
                 "speakers": [entry["speaker"] for entry in view["entries"]],
             },
         )
-        print("NATIVE_GATE_STATES", page.evaluate("() => globalThis.__awGateStates ?? {}"))
         print("NATIVE_BODY", page.inner_text("body")[:1600])
         raise
     view = page.request.get(target + "/sessions/" + opened).json()
