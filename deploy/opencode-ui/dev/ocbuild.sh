@@ -9,6 +9,6 @@ cd $S/ocdist || exit 1
 [ "$(pwd)" = "$S/ocdist" ] || exit 1
 find . -type f \( -name "*.aac" -o -name "*.mp4" -o -name "_headers" -o -name "*.map" \) -delete
 echo "files $(find . -type f | wc -l) size $(du -sh . | cut -f1)"
-cd ~/projects/ai-pers2/ocdev
+cd ~/projects/ai-pers2/ocx
 V=~/projects/ai-pers2/integration-local-host/.venv/bin/python
 PYTHONPATH=$($V -c "import sys; sys.path.insert(0,'scripts'); import check_combined as c, os; print(os.pathsep.join(str(c.ROOT/p) for p in c.SOURCES))") $V scripts/package_opencode_ui.py --build-dir $S/ocdist | tail -1
