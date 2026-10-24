@@ -133,6 +133,21 @@ class Mutations:
                     if isinstance(request, PlanCommand)
                     else decide(runtime, authority, request)
                 )
+        if isinstance(request, (PlanCommand, ExecutePlanCommand)) and request.type in (
+            "workplace.access.preview",
+            "workplace.access.execute",
+        ):
+            from .initial_access import execute as grant_initial
+            from .initial_access import preview as propose_initial
+
+            if runtime.permission_ceiling is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            async with runtime._lock:
+                return await (
+                    propose_initial(runtime, authority, request)
+                    if isinstance(request, PlanCommand)
+                    else grant_initial(runtime, authority, request)
+                )
         if isinstance(request, CreateCommand) and request.type == "work.assign":
             from .activity import assign
 

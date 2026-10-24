@@ -136,6 +136,10 @@ class Views:
             from .work_sessions import transcript
 
             return await transcript(self.runtime, scope, identifier)
+        if resource == "workplace-access" and identifier is None:
+            from .initial_access import status
+
+            return await status(self.runtime, scope)
         if resource == "workplace-library" and identifier is None:
             from .workplace import library
 

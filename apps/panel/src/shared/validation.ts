@@ -598,6 +598,18 @@ const fileKinds = new Set(['material', 'note', 'hypothesis', 'method', 'script',
 const fileProvenance = new Set(['read', 'generated', 'assumption', 'verified']);
 const artifactRef = (ref: unknown, selected: Scope) => object(ref) && id(ref.artifact_id) && version(ref.version) &&
   isScope(ref.scope) && samePartition(selected, ref.scope) && typeof ref.checksum === 'string' && Number.isSafeInteger(ref.size_bytes);
+// One initial access decision for the configured set (OC-05): members and their current state.
+export function initialAccessStatus(value: unknown, selected: Scope): import('./contracts.ts').InitialAccessStatus {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    typeof value.configured === 'boolean' && typeof value.ready === 'boolean' &&
+    Number.isSafeInteger(value.max_duration_seconds) && Number(value.max_duration_seconds) >= 0 &&
+    (value.unavailable_reason == null || id(value.unavailable_reason)) &&
+    Array.isArray(value.members) && value.members.length <= 8);
+  demand(value.members.every((row: unknown) => object(row) && id(row.capability_id) && text(row.summary) &&
+    Array.isArray(row.areas) && row.areas.length <= 8 && row.areas.every((item: unknown) => fileAreas.has(String(item))) &&
+    typeof row.available === 'boolean' && (row.expires_at == null || date(row.expires_at))));
+  return value as import('./contracts.ts').InitialAccessStatus;
+}
 export function workplaceLibrary(value: unknown, selected: Scope): import('./contracts.ts').WorkplaceLibrary {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && typeof value.complete === 'boolean' &&
     date(value.checked_at) && Array.isArray(value.skills) && value.skills.length <= 200 && Array.isArray(value.files) && value.files.length <= 800);

@@ -1,12 +1,13 @@
 import { formatTime } from '../time.ts';
 import { Alert, Badge, Button, Checkbox, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import type { Capability, OperationProjection, Permission, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
+import { useRef, useState } from 'react';
+import type { Capability, ConsequencePlan, OperationProjection, Permission, Receipt, RunSession, RunSessionPage, Scope } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import {
+  accessBlocked, accessExecute, accessPreview, DAY,
   afterControl, backupIdPattern, cancelCommand, canCancel, controlAvailability, controlCommand, controlLabels, degradation, effectLabels,
   healthLabels, indicators, levelLabels, levels, needsReconciliation, operationLabels, orderOperations, overdue, permissionCommand,
   permissionState, permissionWarning, recoveryExecute, recoveryPreview, recoveryProblem, restoreBlocked, runNotice, verificationLabels,
@@ -150,6 +151,74 @@ function Services({ api, scope }: { api: PanelApi; scope: Scope }) {
   </Paper>;
 }
 
+// OC-05: one initial access for the configured set; a capability added later is not covered.
+// The owner answers with its own receipt (no background operation), so the card confirms in place.
+function InitialAccess({ api, scope }: { api: PanelApi; scope: Scope }) {
+  const cache = useQueryClient();
+  const status = useRead(scope, 'workplace-access', (signal) => api.workplaceAccess(scope, signal));
+  const ceiling = Math.floor((status.data?.max_duration_seconds ?? 0) / DAY);
+  const [days, setDays] = useState<string | null>(null);
+  const [constraints, setConstraints] = useState('');
+  const [plan, setPlan] = useState<ConsequencePlan | null>(null);
+  const [understood, setUnderstood] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const executing = useRef<string | null>(null);
+  const chosen = Number(days ?? ceiling);
+  const blocked = accessBlocked(status.data, chosen);
+  const reload = () => Promise.all(['permissions', 'tickets', 'workplace-access']
+    .map((resource) => cache.invalidateQueries({ queryKey: projectionKey(resource, scope) })));
+  async function preview() {
+    setBusy(true); setProblem(null); setDone(false); setUnderstood(false); executing.current = null;
+    try {
+      const receipt = await api.command(accessPreview(scope, chosen, constraints.trim(), crypto.randomUUID()));
+      if (!receipt.resource_id) throw new ApiFailure('NETWORK');
+      setPlan(await api.plan(scope, receipt.resource_id));
+    } catch (error) { setPlan(null); setProblem(failureMessage(error)); } finally { setBusy(false); }
+  }
+  async function confirm(current: ConsequencePlan) {
+    if (Date.parse(current.expires_at) <= Date.now()) { setPlan(null); setProblem('Срок плана истёк. Подготовьте его заново.'); return; }
+    setBusy(true); setProblem(null);
+    executing.current ??= crypto.randomUUID(); // a retry repeats the same request: the owner replays its receipt
+    try {
+      await api.command(accessExecute(scope, current, executing.current));
+      setPlan(null); setDone(true); executing.current = null;
+    } catch (error) {
+      if (error instanceof ApiFailure && error.code === 'VERSION_CONFLICT') {
+        setPlan(null); executing.current = null; setProblem(failureMessage(error) + ' Набор изменился: подготовьте план заново.');
+      } else setProblem(failureMessage(error) + ' Повтор использует тот же запрос.');
+    } finally { setBusy(false); void reload(); }
+  }
+  return <Paper withBorder p="md" radius="lg"><Title order={2} size="h4" mb="sm">Начальный доступ</Title>
+    {status.isError ? <Text size="sm" c="orange.8" role="status">Сведения о наборе недоступны: {failureMessage(status.error)}</Text> : !status.data ? <Text c="dimmed">Загружаем набор…</Text> :
+      !status.data.configured ? <Text c="dimmed">Набор начального доступа на этом хосте не настроен.</Text> : <Stack gap="xs">
+        <Text size="sm" c="dimmed">Одно решение на весь набор. Возможность, добавленная позже, этот допуск не получает. Отозвать можно каждое право отдельно.</Text>
+        {status.data.members.map((member) => <Group key={member.capability_id} gap="xs" role="listitem" aria-label={member.capability_id}>
+          <Badge variant="light" color={member.available ? 'teal' : 'gray'}>{member.available ? 'Разрешено' : 'Не выдано'}</Badge>
+          <Text size="sm">{member.summary}</Text>
+          {member.expires_at && <Text size="xs" c="dimmed">до {when(member.expires_at)}</Text>}</Group>)}
+        <Group gap="sm" align="end">
+          <Select label="Срок, дней" w={140} value={String(chosen)} allowDeselect={false} disabled={!!plan}
+            onChange={(value) => { setDays(value); setDone(false); }} data={Array.from({ length: ceiling }, (_, index) => String(index + 1))} />
+          <TextInput label="Условия (необязательно)" maxLength={500} value={constraints} style={{ flex: 1 }} disabled={!!plan}
+            onChange={(event) => setConstraints(event.currentTarget.value)} /></Group>
+        {!plan && <Group><Button variant="light" loading={busy} disabled={!!blocked} onClick={() => void preview()}>Подготовить начальный доступ</Button></Group>}
+        {!plan && blocked && <Text size="xs" c="orange.8" role="status">{blocked}</Text>}
+        {plan && <Paper withBorder p="sm" aria-label="План последствий">
+          <Text fw={600}>План: начальный доступ</Text>
+          <Text className="plain-text" size="sm" mt={4}>{plan.consequences}</Text>
+          <Text size="sm" mt={4}>Действует до {when(plan.expires_at)}</Text>
+          <Checkbox mt="xs" label="Я понимаю: агент получит все перечисленные возможности на выбранный срок" checked={understood}
+            onChange={(event) => setUnderstood(event.currentTarget.checked)} />
+          <Group mt="xs"><Button loading={busy} disabled={!understood} onClick={() => void confirm(plan)}>Выдать доступ</Button>
+            <Button variant="subtle" color="gray" onClick={() => { setPlan(null); executing.current = null; }}>Отмена</Button></Group></Paper>}
+        {done && <Alert color="teal" role="status">Права выданы; прежние запросы этих возможностей закрыты.</Alert>}
+        {problem && <Alert color="orange" role="alert">{problem}</Alert>}
+      </Stack>}
+  </Paper>;
+}
+
 function Recovery({ api, scope, run }: { api: PanelApi; scope: Scope; run: RunSession | undefined }) {
   const workspace = useRead(scope, 'workspaces', (signal) => api.workspaces(scope, signal));
   const [backupId, setBackupId] = useState('');
@@ -202,6 +271,7 @@ export function WorkspaceScreen({ api, scope }: { api: PanelApi; scope: Scope })
     </Paper>
     <Operations api={api} scope={scope} run={run} />
     <Services api={api} scope={scope} />
+    <InitialAccess api={api} scope={scope} />
     <Rights api={api} scope={scope} run={run} />
     <Recovery api={api} scope={scope} run={run} />
   </Stack>;

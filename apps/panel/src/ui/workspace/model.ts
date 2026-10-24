@@ -1,6 +1,6 @@
 import type {
   Capability, Connection, ConsequencePlan, ControlCommand, EditCommand, ExecutePlanCommand, OperationProjection,
-  Permission, PlanCommand, Receipt, RunSession, Scope,
+  InitialAccessStatus, Permission, PlanCommand, Receipt, RunSession, Scope,
 } from '../../shared/contracts.ts';
 
 // Pure workspace logic: run indicators and controls, operations, rights, recovery plans. No I/O.
@@ -129,6 +129,23 @@ export function recoveryExecute(scope: Scope, target: string, kind: Recovery, pl
 export function recoveryProblem(plan: ConsequencePlan, kind: Recovery, backupId: string, now: number): string | null {
   if (kind === 'restore' && !plan.dependencies.some((dep) => dep.resource_id === backupId)) return 'План не содержит выбранную копию. Подготовьте его заново.';
   if (Date.parse(plan.expires_at) <= now) return 'Срок плана истёк. Подготовьте его заново.';
+  return null;
+}
+// OC-05: one decision for the whole configured set; the owner re-checks ceiling and versions.
+export const DAY = 86400;
+export function accessPreview(scope: Scope, days: number, constraints: string, requestId: string): PlanCommand {
+  return { type: 'workplace.access.preview', request_id: requestId, scope, target: 'initial-access', expected_version: 1,
+    arguments: { schema_id: 'workplace.access-args', data: { duration_seconds: days * DAY, constraints } } };
+}
+export function accessExecute(scope: Scope, plan: ConsequencePlan, requestId: string): ExecutePlanCommand {
+  return { type: 'workplace.access.execute', request_id: requestId, scope, target: 'initial-access', expected_version: 1,
+    arguments: { plan_id: plan.id, plan_version: plan.version } };
+}
+export function accessBlocked(status: InitialAccessStatus | undefined, days: number): string | null {
+  if (!status) return 'Сведения о наборе ещё не получены.';
+  if (!status.configured) return 'Набор начального доступа на этом хосте не настроен.';
+  if (!status.ready) return 'Не все возможности набора готовы к работе: допуск сейчас выдать нельзя.';
+  if (!Number.isSafeInteger(days) || days < 1 || days * DAY > status.max_duration_seconds) return 'Срок вне потолка хоста.';
   return null;
 }
 export function restoreBlocked(run: RunSession | undefined, backupId: string): string | null {

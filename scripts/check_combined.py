@@ -57,6 +57,7 @@ HELPERS = (
     "tests/workplace_harness",
     "tests/workplace_journey",
     "tests/workplace_launcher",
+    "tests/workplace_access",
 )
 TESTS = (
     "tests/opencode_ui",
@@ -106,6 +107,7 @@ TESTS = (
     "tests/workplace_harness",
     "tests/workplace_journey",
     "tests/workplace_launcher",
+    "tests/workplace_access",
 )
 
 

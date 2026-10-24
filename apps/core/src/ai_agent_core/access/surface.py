@@ -492,7 +492,7 @@ class Surface:
             )
         custom = re.fullmatch(
             r"/api/v1/(api-limits|private-api-status|laboratory-catalogue|laboratory-runs|"
-            r"persona-markdown|settings-transfer-status|workplace-library|"
+            r"persona-markdown|settings-transfer-status|workplace-library|workplace-access|"
             r"work-session-transcript|workplace-file)(?:/([^/]+))?",
             path,
         )
@@ -557,6 +557,7 @@ class Surface:
                 "persona-markdown": "ProfileMarkdown",
                 "settings-transfer-status": "SettingsTransferStatus",
                 "workplace-library": "WorkplaceLibrary",
+                "workplace-access": "InitialAccessStatus",
                 "work-session-transcript": "WorkSessionTranscript",
                 "workplace-file": "WorkplaceFileContent",
             }[resource]

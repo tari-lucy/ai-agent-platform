@@ -14,6 +14,7 @@ from ai_agent_contracts import (
     memory,
     panel,
     persona,
+    workplace_access,
     workspace,
 )
 from ai_agent_contracts.common import Record
@@ -84,6 +85,7 @@ SPECS = {
     "Ticket": Spec(agent_workplace.Ticket, Owner.TICKETS),
     "TicketMessage": Spec(agent_workplace.TicketMessage, Owner.TICKETS),
     "PermissionDecisionProof": Spec(agent_workplace.PermissionDecisionProof, Owner.WORKSPACE),
+    "InitialAccessProof": Spec(workplace_access.InitialAccessProof, Owner.WORKSPACE),
 }
 
 
