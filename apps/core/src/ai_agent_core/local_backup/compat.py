@@ -17,8 +17,7 @@ from ai_agent_application.backup import Issue, Manifest
 from ai_agent_application.backup.model import DATABASE
 from pydantic import ValidationError
 
-from ai_agent_core.local_host.init import test_scope, work_scope
-from ai_agent_core.local_host.layout import MAX_CONFIG_BYTES, HostConfig, HostPaths
+from ai_agent_core.local_host.layout import MAX_CONFIG_BYTES, HostConfig, HostPaths, host_scopes
 
 from .layout import ALLOWED_EXTRA, HOST_CONFIG
 
@@ -64,6 +63,7 @@ IDENTITY = (
     "workspace_id",
     "persona_id",
     "work_space_id",
+    "additional_personas",
     "test_space_ids",
     "operator_controls",
     "settings_space_id",
@@ -150,12 +150,10 @@ def _read_config(path: Path) -> HostConfig | None:
 
 
 def _expected_scopes(config: HostConfig) -> list[tuple[str, str, str, str]]:
-    work = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
-    spaces = [*config.test_space_ids]
-    if config.settings_space_id is not None:
-        spaces.append(config.settings_space_id)
-    every = (work, *(test_scope(work, space) for space in spaces))
-    return sorted((s.workspace_id, s.persona_id, s.memory_space_id, s.memory_mode) for s in every)
+    return sorted(
+        (s.workspace_id, s.persona_id, s.memory_space_id, s.memory_mode)
+        for s in host_scopes(config)
+    )
 
 
 class HostCompatibility:
