@@ -119,6 +119,14 @@ def test_one_decision_grants_the_configured_set_atomically_and_closes_its_reques
             assert (await post(env, execute_command(host, "grant-1", plan_id))).json() == (
                 done.json()
             )  # replay: the same receipt, no second write
+            # Replay needs only the durable receipt: a member later removed from the host
+            # ceiling does not break it, and nothing is granted or extended again.
+            configured = rt.permission_ceiling
+            rt.permission_ceiling = {k: v for k, v in configured.items() if k != "workplace.skills"}
+            replayed = await post(env, execute_command(host, "grant-1", plan_id))
+            assert replayed.status_code == 200, replayed.text
+            assert replayed.json() == done.json()
+            rt.permission_ceiling = configured
             again = await post(env, execute_command(host, "grant-2", plan_id))
             assert again.status_code == 409  # an executed plan is not executed twice
             assert {r.version for r in (await rights(rt, scope)).values()} == {1}
@@ -188,5 +196,43 @@ def test_one_decision_grants_the_configured_set_atomically_and_closes_its_reques
                 ).list()
                 if t.state not in ("resolved", "closed_unfulfilled")
             ]
+
+    asyncio.run(scenario())
+
+
+def test_grounds_changed_after_the_check_refuse_the_commit(tmp_path, monkeypatch):
+    """A binding changed between the pre-check and the write transaction writes nothing."""
+    from ai_agent_contracts.agent_workplace import CapabilityBinding
+
+    from ai_agent_core.m3_composition import initial_access
+    from ai_agent_core.m3_composition.state import put
+
+    async def scenario():
+        model = WorkModel()
+        host = await prepared(tmp_path, monkeypatch, model)
+        await enable_recovery(
+            host.root, store_dir=tmp_path / "backups", ledger_path=tmp_path / "ledger/events.sqlite"
+        )
+        await enable_workplace_files(host.root, ceiling_days=7)
+        async with host.open():
+            rt, scope, env = host.runtime, host.scope, host.env
+            planned = await post(env, preview_command(host, "plan-1", WEEK))
+            plan_id = planned.json()["resource_id"]
+            # The pre-check sees the grounds as they were; the binding changes right after it.
+            stale = await initial_access.members(rt, scope)
+            owner = PRINCIPALS[Owner.WORKSPACE]
+            rows = await rt.store.repository(CapabilityBinding, owner, scope).list(limit=50)
+            row = next(b for b in rows if b.capability_id == "workplace.skills")
+            bumped = row.model_copy(update={"version": row.version + 1})
+            await put(rt.store, rt.registry, Owner.WORKSPACE, scope, "race", bumped, row.version)
+
+            async def before_change(_rt, _scope):
+                return stale
+
+            monkeypatch.setattr(initial_access, "members", before_change)
+            conflict = await post(env, execute_command(host, "grant-1", plan_id))
+            assert conflict.status_code == 409, conflict.text
+            assert not await rights(rt, scope)  # all or none: no member was granted
+            assert model.count() == 0
 
     asyncio.run(scenario())
