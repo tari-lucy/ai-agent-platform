@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from ai_agent_adapters.storage import schema as db
+from ai_agent_adapters.storage.policy import scope_key
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.memory import derived_id
 from ai_agent_application.storage import Owner
@@ -43,6 +45,8 @@ from ai_agent_contracts.workplace_access import (
     InitialAccessStatus,
 )
 from ai_agent_contracts.workspace import Workspace
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .permission_decisions import HOLDER, PLAN_MINUTES
 from .state import PRINCIPALS, extension, record
@@ -285,6 +289,61 @@ def _unchanged(proof: InitialAccessProof, rows: list[Member], workspace: Workspa
     return workspace.policy_version == proof.policy_version
 
 
+class _Bases:
+    """The grounds of the decision, re-checked inside the write transaction (all or none).
+
+    Runs on the same SQLite snapshot under the write reservation, so a manifest, binding,
+    workspace or right changed after the pre-check refuses the commit instead of racing it.
+    The host ceiling lives in configuration, so it is re-checked by the fence as well.
+    """
+
+    def __init__(
+        self,
+        rt: Runtime,
+        scope: Scope,
+        proof: InitialAccessProof,
+        rows: list[Member],
+        workspace: Workspace,
+    ) -> None:
+        self.rt, self.scope, self.proof = rt, scope, proof
+        self.entered = False
+        self.pinned: list[tuple[str, str, int | None]] = [
+            ("Workspace", workspace.id, workspace.version)
+        ]
+        for m in rows:
+            assert m.binding is not None  # _unchanged refused a member without a ready binding
+            self.pinned.append(("CapabilityManifest", m.manifest.id, m.manifest.version))
+            self.pinned.append(("CapabilityBinding", m.binding.id, m.binding.version))
+        for pin in proof.members:
+            self.pinned.append(("Permission", pin.permission_id, pin.permission_version))
+
+    def ceiling(self) -> None:
+        ceiling = self.rt.permission_ceiling or {}
+        for capability in self.proof.capabilities:
+            limit = ceiling.get(capability)
+            if limit is None or limit.level != "automatic":
+                raise ContractError(ErrorCode.VERSION_CONFLICT)
+            if self.proof.decision.duration_seconds > limit.seconds:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+
+    async def check(self, connection: AsyncConnection) -> None:
+        row = db.records
+        for kind, identifier, version in self.pinned:
+            if self.entered and kind == "Permission":
+                continue  # written by this transaction itself (its own CAS pins them)
+            current = await connection.scalar(
+                select(row.c.version).where(
+                    row.c.scope_id == scope_key(self.scope),
+                    row.c.kind == kind,
+                    row.c.id == identifier,
+                    row.c.deleted.is_(False),
+                )
+            )
+            if current != version:  # None pinned: the right must still not exist
+                raise ContractError(ErrorCode.VERSION_CONFLICT)
+        self.entered = True
+
+
 async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlanCommand) -> Receipt:
     guard(rt, authority, request)
     owner = PRINCIPALS[Owner.WORKSPACE]
@@ -299,19 +358,26 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
         or request.expected_version != 1
     ):
         raise ContractError(ErrorCode.STALE_CONTEXT)
+    if proof.executed_by is not None:
+        if proof.executed_by != request.request_id:
+            raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
+        # Replay depends only on the durable receipt, never on the set as configured now.
+        with rt.store.fence(lambda: guard(rt, authority, request), owner=Owner.WORKSPACE):
+            async with rt.store.transaction(owner, request.scope, request) as unit:
+                if unit.replay is None:
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+                receipt = unit.replay
+        await close_requests(rt, authority, request, proof)
+        return receipt
     now = rt.supervisor.clock.utc()
-    if proof.executed_by is None:
-        if now >= proof.plan_expires_at:
-            raise ContractError(ErrorCode.EXPIRED)
-        rows = await members(rt, request.scope)
-        if not _unchanged(proof, rows, await _workspace(rt, request.scope)):
-            raise ContractError(ErrorCode.VERSION_CONFLICT)
-        if proof.decision.duration_seconds > _max_seconds(rt, rows):
-            raise ContractError(ErrorCode.ACCESS_DENIED)  # the host ceiling was lowered
-    elif proof.executed_by != request.request_id:
-        raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
-    else:
-        rows = await members(rt, request.scope)
+    if now >= proof.plan_expires_at:
+        raise ContractError(ErrorCode.EXPIRED)
+    rows = await members(rt, request.scope)
+    workspace = await _workspace(rt, request.scope)
+    if not _unchanged(proof, rows, workspace):
+        raise ContractError(ErrorCode.VERSION_CONFLICT)
+    if proof.decision.duration_seconds > _max_seconds(rt, rows):
+        raise ContractError(ErrorCode.ACCESS_DENIED)  # the host ceiling was lowered
     by_capability = {m.manifest.capability_id: m for m in rows}
     rights: list[tuple[Permission, int | None]] = []
     for pin in proof.members:
@@ -356,7 +422,16 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
     done = proof.model_copy(
         update={"version": 2, "updated_at": now, "executed_by": request.request_id}
     )
-    with rt.store.fence(lambda: guard(rt, authority, request), owner=Owner.WORKSPACE):
+    pins = _Bases(rt, request.scope, proof, rows, workspace)
+
+    def fence() -> None:
+        guard(rt, authority, request)
+        pins.ceiling()
+
+    with (
+        rt.store.fence(fence, owner=Owner.WORKSPACE),
+        rt.store.authorize_writes(pins.check, owners=frozenset({Owner.WORKSPACE})),
+    ):
         async with rt.store.transaction(owner, request.scope, request) as unit:
             if unit.replay is not None:
                 receipt = unit.replay
