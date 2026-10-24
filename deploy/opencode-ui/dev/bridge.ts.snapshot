@@ -114,7 +114,7 @@ const personAgent = (agent: Agent) => ({
   description: "Личность платформы: её память, права и бюджет", request: { settings: {}, headers: {}, body: {} },
 })
 // A reply keeps one id from draft to delivered entry: "reply-<operator message it answers>".
-const replyID = (sequence: number) => `reply-${sequence}`
+const replyID = (sequence: number, n = 1) => (n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
 const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
   id, type: "assistant", agent: view.scope.persona_id ?? "", model,
   time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
@@ -134,28 +134,46 @@ const clientIDs = new Map<string, string>()
 function messages(view: Transcript) {
   const rows: Record<string, unknown>[] = []
   let lastOperator = 0
+  const replies = new Map<number, number>()
   for (const entry of view.entries) {
     const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
     if (entry.speaker === "operator") {
       lastOperator = entry.sequence
       rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? `msg-${entry.sequence}`, type: "user", time: { created: ms(entry.at) }, text })
-    } else rows.push(assistant(view, replyID(entry.reply_to_sequence ?? entry.sequence), text, entry.at, true))
+    } else {
+      const answered = entry.reply_to_sequence ?? entry.sequence
+      const n = (replies.get(answered) ?? 0) + 1
+      replies.set(answered, n)
+      rows.push(assistant(view, replyID(answered, n), text, entry.at, true))
+    }
   }
+  // A reply after a ticket answer is a further reply to the same operator message.
+  const next = replyID(lastOperator, (replies.get(lastOperator) ?? 0) + 1)
   const draft = view.pending_reply
   if (draft && !draft.withheld && draft.text) {
-    rows.push(assistant(view, replyID(lastOperator), draft.text, view.checked_at, true))
-    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, replyID(lastOperator))
-  } else if (view.invalidated_reason) {
-    rows.push(notice(view, replyID(lastOperator), STOPPED, view.checked_at))
+    rows.push(assistant(view, next, draft.text, view.checked_at, true))
+    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, next)
+  } else if (view.invalidated_reason && !lastOperator) {
+    // The stopped conversation's history is no longer shown: a platform placeholder in the
+    // operator's place and the stop notice in the reply's place (both platform words).
+    rows.push({ id: `stopped-${view.session_version}`, type: "user", time: { created: ms(view.checked_at) },
+      text: "Сообщения этого разговора больше не показываются." })
+    rows.push(notice(view, `stopped-${view.session_version}-notice`, STOPPED, view.checked_at))
+  } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
+    rows.push(notice(view, next, STOPPED, view.checked_at))
+  } else if (view.state === "waiting") {
+    // The person asked the operator in a ticket; answers and decisions live in the panel.
+    rows.push(notice(view, next, WAITING_TICKET, view.checked_at))
   } else if (view.progress && NOTICE.has(view.progress.state) && PROGRESS[view.progress.state]) {
     // A platform notice in the reply's place (never the person's words); a later reply for
     // the same operator message takes this place. Queued/running use the native busy state.
-    rows.push(notice(view, replyID(lastOperator), PROGRESS[view.progress.state], view.progress.since))
+    rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since))
   }
   return rows
 }
 const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
-const STOPPED = "Разговор остановлен: сообщение оператора недоступно и не исполнялось. Начните новый разговор."
+const WAITING_TICKET = `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets — разговор продолжится сам.`
+const STOPPED = "Платформа: разговор остановлен — сообщение оператора отозвано, удалено или истекло и не исполнялось. Начните новый разговор."
 const notice = (view: Transcript, id: string, text: string, at: string) => ({
   id, type: "assistant", agent: view.scope.persona_id ?? "", model, time: { created: ms(at), completed: ms(at) },
   finish: "error", content: [], error: { type: "PlatformNotice", message: text },
@@ -292,13 +310,27 @@ async function route(method: string, path: string, url: URL, body: () => Promise
       const requestID = String(input.id ?? uuid())
       // The owner stores it under the next sequence (CAS on expected_version). The client already
       // shows it under its own id: keep that id for this page, so it is not shown twice.
-      const sequence = Math.max(0, ...view.entries.map((entry) => entry.sequence)) + 1
-      const id = input.id ? requestID : `msg-${sequence}`
-      await bridge(`/agents/${directory}/commands`, {
-        type: "work.session.message", request_id: requestID, scope: stable(view.scope), target: sessionID,
-        expected_version: view.session_version,
+      const send = (current: Transcript, request: string) => bridge(`/agents/${directory}/commands`, {
+        type: "work.session.message", request_id: request, scope: stable(current.scope), target: sessionID,
+        expected_version: current.session_version,
         arguments: { schema_id: "work.session.message-args", data: { session_id: sessionID, text } },
       })
+      const last = (current: Transcript) => Math.max(0, ...current.entries.map((entry) => entry.sequence))
+      let sequence = last(view) + 1
+      try {
+        await send(view, requestID)
+      } catch (error) {
+        if ((error as { status?: number }).status !== 409) throw error
+        // The session moved (e.g. a receipt landed) between reading and sending. Read again:
+        // if the message is already stored, do not send it twice; else one retry, new version.
+        const fresh = await transcript(directory, sessionID)
+        const stored = fresh.entries.findLast((entry) => entry.speaker === "operator")
+        if (!(stored && stored.sequence >= sequence && stored.text === text)) {
+          await send(fresh, `${requestID}:v${fresh.session_version}`)
+          sequence = last(fresh) + 1
+        } else sequence = stored.sequence
+      }
+      const id = input.id ? requestID : `msg-${sequence}`
       clientIDs.set(`${sessionID}:${sequence}`, id)
       return json({ data: { admittedSeq: 0, id, sessionID, timeCreated: Date.now(), type: "user", data: { text }, delivery: "queue" } })
     }

@@ -141,6 +141,8 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     control = page.context.new_page()
     control.goto(origin + "/")
     control.get_by_role("button", name="START — запустить агента").click()
+    # Closing the control page before the core confirms START can drop the command.
+    expect(control.locator(".active-run")).to_contain_text("Работает", timeout=20000)
     if os.getenv("AW_OPENCODE_IMAGE_ID"):
         # First access is an explicit operator decision on this temporary host.
         control.goto(origin + "/#/tickets")
