@@ -19,7 +19,7 @@ test('the bridge catalogue is accepted only with stable directories and at most 
 
 test('native addresses use the base64url directory and pick the person by partition', () => {
   const slug = Buffer.from(directory).toString('base64url');
-  assert.equal(nativeHref(directory), '/opencode/' + slug + '/');
+  assert.equal(nativeHref(directory), '/opencode/' + slug + '/session');
   assert.equal(nativeHref(directory, 'ses 1'), '/opencode/' + slug + '/session/ses%201');
   const native = { agents: nativeAgents({ items: [agent] }) };
   assert.equal(nativeAgent(native, { ...scope, run_id: 'r1' } as Scope)?.directory, directory);

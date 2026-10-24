@@ -24,7 +24,7 @@ export function useNative(api: PanelApi): Native {
 // The native address of a person (and one of its conversations): base64url of the directory.
 export function nativeHref(directory: string, session?: string): string {
   const slug = btoa(directory).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return '/opencode/' + slug + '/' + (session ? 'session/' + encodeURIComponent(session) : '');
+  return '/opencode/' + slug + '/session' + (session ? '/' + encodeURIComponent(session) : '');
 }
 export function nativeAgent(native: Native, scope: Scope): NativeAgent | undefined {
   return native?.agents.find((agent) => samePartition(agent.scope, scope));

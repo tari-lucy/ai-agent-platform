@@ -42,7 +42,8 @@ def test_panel_points_conversation_and_work_to_opencode_and_keeps_reading(page, 
 
     # The header links the viewed person in the native window.
     link = page.get_by_role("link", name="Открыть OpenCode")
-    expect(link).to_have_attribute("href", "/opencode/" + slug + "/", timeout=15000)
+    expect(link).to_have_attribute("href", "/opencode/" + slug + "/session", timeout=15000)
+    assert page.request.get(origin + link.get_attribute("href")).status == 200
 
     # "Диалог" is reading only: no composer and no briefing form.
     nav = page.get_by_role("navigation", name="Разделы панели")
