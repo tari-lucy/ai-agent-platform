@@ -1,0 +1,105 @@
+From 7806f8e95ec957d8263ec750faa20e8c5396c861 Mon Sep 17 00:00:00 2001
+From: tari-lucy <tari.gpt2025@gmail.com>
+Date: Sat, 24 Oct 2026 19:45:48 +0300
+Subject: [PATCH] fix(platform-ui): scope message ids to their conversation
+
+---
+ packages/app/src/aw/bridge.test.ts | 18 +++++++++++++-----
+ packages/app/src/aw/bridge.ts      | 15 ++++++++-------
+ 2 files changed, 21 insertions(+), 12 deletions(-)
+
+diff --git a/packages/app/src/aw/bridge.test.ts b/packages/app/src/aw/bridge.test.ts
+index 562616c..913ae39 100644
+--- a/packages/app/src/aw/bridge.test.ts
++++ b/packages/app/src/aw/bridge.test.ts
+@@ -12,8 +12,8 @@ globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: Request
+   if (path.endsWith("/auth/session")) return json({ csrf_token: "synthetic" })
+   if (path.endsWith("/agents")) return json({ items: [{ directory: "aw_fixture", scope, label: "Fixture" }] })
+   if (path.endsWith("/commands")) { acknowledgements.push(JSON.parse(String(init?.body))); return json({ resource_id: "synthetic-ack" }) }
+-  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }] })
+-  if (path.endsWith("/sessions/session")) return json({ scope, session_id: "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
++  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }, { id: "other", title: "Other", version: 1 }] })
++  if (path.endsWith("/sessions/session") || path.endsWith("/sessions/other")) return json({ scope, session_id: path.endsWith("/other") ? "other" : "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
+     { sequence: 1, speaker: "operator", text: "Synthetic user", at: "2026-01-01T00:00:01Z" },
+     { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Synthetic reply", at: "2026-01-01T00:00:02Z" },
+   ] })
+@@ -45,7 +45,7 @@ test("ACK requires exact registered reply, visibility and current owner revision
+     await awFetch("http://fixture.invalid/api/session/session/message")
+     await checkReceipts()
+     expect(acknowledgements).toHaveLength(0) // Body text alone is not proof of rendering.
+-    const release = registerRenderedReply(element, () => ({ directory: "aw_fixture", sessionID: "session", messageID: "reply-1-2", text: "Synthetic exact reply" }))
++    const release = registerRenderedReply(element, () => ({ directory: "aw_fixture", sessionID: "session", messageID: "session-reply-1-2", text: "Synthetic exact reply" }))
+     await checkReceipts()
+     expect(acknowledgements).toHaveLength(0) // Less than 60% visible.
+     ratio = 1
+@@ -73,9 +73,17 @@ test("ACK requires exact registered reply, visibility and current owner revision
+ })
+ 
+ test("single-message GET returns one object, not the message page", async () => {
+-  const result = await awFetch("http://fixture.invalid/api/session/session/message/reply-1")
++  const result = await awFetch("http://fixture.invalid/api/session/session/message/session-reply-1")
+   expect(result.status).toBe(200)
+   const body = await result.json()
+   expect(Array.isArray(body.data)).toBe(false)
+-  expect(body.data).toMatchObject({ id: "reply-1", type: "assistant", content: [{ type: "text", text: "Synthetic reply" }] })
++  expect(body.data).toMatchObject({ id: "session-reply-1", type: "assistant", content: [{ type: "text", text: "Synthetic reply" }] })
++})
++
++
++test("message ids are disjoint between conversations of the same person", async () => {
++  const a = await (await awFetch("http://fixture.invalid/api/session/session/message")).json()
++  const b = await (await awFetch("http://fixture.invalid/api/session/other/message")).json()
++  const ids = new Set(a.data.map((row: { id: string }) => row.id))
++  expect(b.data.some((row: { id: string }) => ids.has(row.id))).toBe(false)
+ })
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index 1f65a62..b3761b5 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -114,8 +114,9 @@ const personAgent = (agent: Agent) => ({
+   id: agent.label, name: agent.label, model, mode: "primary", hidden: false, permissions: [],
+   description: "Личность платформы: её память, права и бюджет", request: { settings: {}, headers: {}, body: {} },
+ })
+-// A reply keeps one id from draft to delivered entry: "reply-<operator message it answers>".
+-const replyID = (sequence: number, n = 1) => (n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
++// Native part caches are shared across sessions of a directory: every owner id is session-scoped.
++const scopedID = (view: Transcript, id: string) => `${view.session_id}-${id}`
++const replyID = (view: Transcript, sequence: number, n = 1) => scopedID(view, n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
+ const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
+   id, type: "assistant", agent: view.scope.persona_id ?? "", model,
+   time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
+@@ -140,16 +141,16 @@ function messages(view: Transcript) {
+     const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
+     if (entry.speaker === "operator") {
+       lastOperator = entry.sequence
+-      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? `msg-${entry.sequence}`, type: "user", time: { created: ms(entry.at) }, text })
++      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
+     } else {
+       const answered = entry.reply_to_sequence ?? entry.sequence
+       const n = (replies.get(answered) ?? 0) + 1
+       replies.set(answered, n)
+-      rows.push(assistant(view, replyID(answered, n), text, entry.at, true))
++      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
+     }
+   }
+   // A reply after a ticket answer is a further reply to the same operator message.
+-  const next = replyID(lastOperator, (replies.get(lastOperator) ?? 0) + 1)
++  const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
+   const draft = view.pending_reply
+   if (draft && !draft.withheld && draft.text) {
+     rows.push(assistant(view, next, draft.text, view.checked_at, true))
+@@ -157,9 +158,9 @@ function messages(view: Transcript) {
+   } else if (view.invalidated_reason && !lastOperator) {
+     // The stopped conversation's history is no longer shown: a platform placeholder in the
+     // operator's place and the stop notice in the reply's place (both platform words).
+-    rows.push({ id: `stopped-${view.session_version}`, type: "user", time: { created: ms(view.checked_at) },
++    rows.push({ id: scopedID(view, `stopped-${view.session_version}`), type: "user", time: { created: ms(view.checked_at) },
+       text: "Сообщения этого разговора больше не показываются." })
+-    rows.push(notice(view, `stopped-${view.session_version}-notice`, STOPPED, view.checked_at))
++    rows.push(notice(view, scopedID(view, `stopped-${view.session_version}-notice`), STOPPED, view.checked_at))
+   } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
+     rows.push(notice(view, next, STOPPED, view.checked_at))
+   } else if (view.open_ticket_ids?.length) {
+-- 
+2.53.0.windows.2
+

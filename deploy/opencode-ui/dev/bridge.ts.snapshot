@@ -114,8 +114,9 @@ const personAgent = (agent: Agent) => ({
   id: agent.label, name: agent.label, model, mode: "primary", hidden: false, permissions: [],
   description: "Личность платформы: её память, права и бюджет", request: { settings: {}, headers: {}, body: {} },
 })
-// A reply keeps one id from draft to delivered entry: "reply-<operator message it answers>".
-const replyID = (sequence: number, n = 1) => (n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
+// Native part caches are shared across sessions of a directory: every owner id is session-scoped.
+const scopedID = (view: Transcript, id: string) => `${view.session_id}-${id}`
+const replyID = (view: Transcript, sequence: number, n = 1) => scopedID(view, n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
 const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
   id, type: "assistant", agent: view.scope.persona_id ?? "", model,
   time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
@@ -140,16 +141,16 @@ function messages(view: Transcript) {
     const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
     if (entry.speaker === "operator") {
       lastOperator = entry.sequence
-      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? `msg-${entry.sequence}`, type: "user", time: { created: ms(entry.at) }, text })
+      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
     } else {
       const answered = entry.reply_to_sequence ?? entry.sequence
       const n = (replies.get(answered) ?? 0) + 1
       replies.set(answered, n)
-      rows.push(assistant(view, replyID(answered, n), text, entry.at, true))
+      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
     }
   }
   // A reply after a ticket answer is a further reply to the same operator message.
-  const next = replyID(lastOperator, (replies.get(lastOperator) ?? 0) + 1)
+  const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
   const draft = view.pending_reply
   if (draft && !draft.withheld && draft.text) {
     rows.push(assistant(view, next, draft.text, view.checked_at, true))
@@ -157,9 +158,9 @@ function messages(view: Transcript) {
   } else if (view.invalidated_reason && !lastOperator) {
     // The stopped conversation's history is no longer shown: a platform placeholder in the
     // operator's place and the stop notice in the reply's place (both platform words).
-    rows.push({ id: `stopped-${view.session_version}`, type: "user", time: { created: ms(view.checked_at) },
+    rows.push({ id: scopedID(view, `stopped-${view.session_version}`), type: "user", time: { created: ms(view.checked_at) },
       text: "Сообщения этого разговора больше не показываются." })
-    rows.push(notice(view, `stopped-${view.session_version}-notice`, STOPPED, view.checked_at))
+    rows.push(notice(view, scopedID(view, `stopped-${view.session_version}-notice`), STOPPED, view.checked_at))
   } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
     rows.push(notice(view, next, STOPPED, view.checked_at))
   } else if (view.open_ticket_ids?.length) {
