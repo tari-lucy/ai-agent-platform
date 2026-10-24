@@ -6,6 +6,8 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { useWorkSessions } from './sessions.ts';
+import { nativeHref } from '../opencode.ts';
+import type { NativeAgent } from '../../shared/validation.ts';
 import {
   callsText, closeCommand, elapsed, endedStates, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, nextStep, openCommand, pending as awaiting, progressLabels,
   sessionStateLabels, stopNotice, titleProblem, turn, writable,
@@ -115,7 +117,9 @@ function Turn({ progress, checkedAt }: { progress: WorkSessionProgress; checkedA
   </Paper>;
 }
 
-function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Scope; transcript: WorkSessionTranscript; running: boolean }) {
+function Thread({ api, scope, transcript, running, native }: {
+  api: PanelApi; scope: Scope; transcript: WorkSessionTranscript; running: boolean; native?: NativeAgent | null;
+}) {
   const cache = useQueryClient();
   const [text, setText] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -168,7 +172,8 @@ function Thread({ api, scope, transcript, running }: { api: PanelApi; scope: Sco
     {transcript.progress && transcript.progress.state !== 'reply_ready' && <Turn progress={transcript.progress} checkedAt={transcript.checked_at} />}
     {transcript.pending_reply && <PendingReply key={transcript.pending_reply.utterance_id}
       api={api} draft={transcript.pending_reply} running={running} refresh={refresh} />}
-    {writable(transcript) && <Stack gap={4} mt="sm">
+    {native !== undefined ? native && <Anchor mt="sm" display="block" href={nativeHref(native.directory, transcript.session_id)}>Открыть в OpenCode</Anchor> :
+      writable(transcript) && <Stack gap={4} mt="sm">
       <Textarea label="Сообщение агенту" autosize minRows={2} maxLength={MAX_MESSAGE} value={text}
         onChange={(event) => { setText(event.currentTarget.value); pending.current = null; }} />
       {problem && <Text size="sm" c="red.8" role="alert">{problem}</Text>}
@@ -184,8 +189,10 @@ type ConversationProps = {
   api: PanelApi; scope: Scope; run?: RunSession;
   // Owned by the work screen, so a task card can open its conversation here.
   chosen: string | null; onSelect: (id: string | null) => void;
+  // PUI-03: undefined — no native window (old forms); null/agent — read-only, OpenCode link.
+  native?: NativeAgent | null;
 };
-export function Conversation({ api, scope, run, chosen, onSelect: setSelected }: ConversationProps) {
+export function Conversation({ api, scope, run, chosen, onSelect: setSelected, native }: ConversationProps) {
   const sessions = useWorkSessions(api, scope);
   const rows = newestFirst(sessions.data?.items ?? []);
   // The newest conversation is shown until the operator picks another one.
@@ -204,15 +211,17 @@ export function Conversation({ api, scope, run, chosen, onSelect: setSelected }:
       return data.progress && (data.progress.state === 'queued' || data.progress.state === 'running') ? 3000 : false;
     },
   });
-  return <Stack gap="sm" aria-label="Разговор о работе">
-    <Title order={2} size="h5">Разговор о работе</Title>
-    <Text size="sm" c="dimmed">Обсудите поручение с самим агентом: уточните цель, передайте материалы, ответьте на вопросы.
-      Писать можно и когда агент остановлен: сообщение сохранится и будет ждать исполнения.</Text>
+  const reading = native !== undefined;
+  return <Stack gap="sm" aria-label={reading ? 'Разговоры о работе' : 'Разговор о работе'}>
+    <Title order={2} size="h5">{reading ? 'Разговоры о работе · чтение' : 'Разговор о работе'}</Title>
+    {reading ? <Text size="sm" c="dimmed">Прежние и текущие разговоры для чтения; писать — в OpenCode.</Text> :
+      <Text size="sm" c="dimmed">Обсудите поручение с самим агентом: уточните цель, передайте материалы, ответьте на вопросы.
+        Писать можно и когда агент остановлен: сообщение сохранится и будет ждать исполнения.</Text>}
     {sessions.isError && <Alert color="orange" title="Разговоры недоступны">{failureMessage(sessions.error)}</Alert>}
-    <Start api={api} scope={scope} onOpened={setSelected} />
+    {!reading && <Start api={api} scope={scope} onOpened={setSelected} />}
     {rows.length > 0 && <Select label="Разговор" data={rows.map((row) => ({ value: row.id, label: `${row.title} — ${sessionStateLabels[row.state ?? 'open']}` }))}
       value={selected} onChange={setSelected} allowDeselect={false} />}
     {transcript.isError && <Alert color="orange" title="Разговор недоступен">{failureMessage(transcript.error)}</Alert>}
-    {transcript.data && <Thread key={transcript.data.session_id} api={api} scope={scope} transcript={transcript.data} running={running} />}
+    {transcript.data && <Thread key={transcript.data.session_id} api={api} scope={scope} transcript={transcript.data} running={running} native={native} />}
   </Stack>;
 }

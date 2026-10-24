@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Select, Text } from '@mantine/core';
+import { Alert, Anchor, Button, Group, Select, Text } from '@mantine/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
@@ -21,6 +21,7 @@ import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 import { groups, screens } from './areas.ts';
+import { NativeEntry, nativeAgent, nativeHref, useNative } from './opencode.ts';
 
 
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
@@ -88,6 +89,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const recordConnection = useCallback((key: string, state: ConnectionState) => {
     setConnections((previous) => previous[key] === state ? previous : { ...previous, [key]: state });
   }, []);
+  const native = useNative(api);
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -133,7 +135,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
     try { await onLogout(); } catch (error) { setLogoutError(failureMessage(error)); }
     finally { setLogoutBusy(false); }
   }
-  return <div className="workspace">
+  return <NativeEntry.Provider value={native}><div className="workspace">
     <a className="skip-link" href="#content">Перейти к содержимому</a>
     <header ref={header} className="workspace-header">
       <div className="header-brand"><Text className="brand">AI Agent Platform</Text><Text size="xs" c="dimmed">Пространство: {scope.workspace_id}</Text></div>
@@ -147,6 +149,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       </div>
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
+        {nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
@@ -154,7 +157,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {groups.map((group) => <div key={group.id} className="nav-group" role="group" aria-label={group.title}>
         <Text className="eyebrow nav-group-title" aria-hidden="true">{group.title}</Text>
         {screens.filter((screen) => screen.group === group.id).map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
-          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{screen.label}</span></NavLink>)}
+          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{native && screen.path === 'dialogue' ? 'Прежний диалог · чтение' : screen.label}</span></NavLink>)}
       </div>)}</nav>
       <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
@@ -181,5 +184,5 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       })}
         <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
     </main>
-  </div>;
+  </div></NativeEntry.Provider>;
 }

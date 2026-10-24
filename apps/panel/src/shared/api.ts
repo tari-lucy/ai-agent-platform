@@ -10,7 +10,7 @@ import {
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
-  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent,
+  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, nativeAgents, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent,
   characterStates, costCalculations, encounters, laboratoryReports, people, promises, relationships, topics, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
@@ -143,6 +143,16 @@ export class PanelApi {
     } finally {
       clearTimeout(timer); signal?.removeEventListener('abort', abort); this.#requests.delete(controller);
     }
+  }
+  // PUI-03: whether this host serves the native OpenCode window (a fixed same-origin page, no
+  // redirects or other sites), and the bridge catalogue that maps each person to its directory.
+  async nativeWindow(signal?: AbortSignal): Promise<boolean> {
+    const response = await this.fetcher('/opencode/', { method: 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal });
+    await response.body?.cancel();
+    return response.ok;
+  }
+  async nativeAgents(signal?: AbortSignal): Promise<import('./validation.ts').NativeAgent[]> {
+    return nativeAgents(await this.#request('/api/v1/opencode/agents', undefined, signal));
   }
   async restore(): Promise<OperatorSession> { return session(await this.#request('/api/v1/auth/session')); }
   async login(password: string): Promise<OperatorSession> {

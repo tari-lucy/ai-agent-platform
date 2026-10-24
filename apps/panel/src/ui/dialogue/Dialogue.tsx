@@ -1,6 +1,6 @@
 import type { ConnectionState } from '../../shared/events.ts';
 import { formatTime } from '../time.ts';
-import { Alert, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Group, Paper, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Briefing, OperationProjection, Receipt, RunSession, RunSessionPage, Scope, Utterance } from '../../shared/contracts.ts';
@@ -15,6 +15,7 @@ import {
 } from './model.ts';
 import { historyNote, PAGE_BUDGET, PAGE_BUDGET_MAX, walk, type Page } from './history.ts';
 import { Timeline } from './Timeline.tsx';
+import { nativeAgent, nativeHref, useNativeEntry } from '../opencode.ts';
 
 const when = (value: string) => formatTime(value, 'medium');
 
@@ -186,6 +187,8 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
   const online = useReconnect(scope);
+  const native = useNativeEntry();
+  const agent = nativeAgent(native, scope);
   const [budget, setBudget] = useState(PAGE_BUDGET);
   const [watching, setWatching] = useState(false);
   useEffect(() => {
@@ -319,10 +322,14 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
       <Text size="xs" mt={4}>Начатые неудачные попытки тоже учитываются. Денежный расход показывается отдельно.</Text>
     </Alert>}
     {budgetStatus.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
+    {native ? <Alert color="blue" title="Разговор теперь в OpenCode">
+      Здесь — только чтение прежнего диалога. Новое сообщение напишите в{' '}
+      {agent ? <Anchor href={nativeHref(agent.directory)}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
+    </Alert> : <>
     <Composer api={api} run={run} scope={scope} operationRows={operationRows} utteranceRows={utteranceRows}
       onSent={() => setWatching(true)}
       budgetBlocked={budgetStatus.data?.enabled === true && (budgetStatus.data.dialogue_remaining ?? budgetStatus.data.attempts_remaining) === 0} />
     <MemoryStatus api={api} scope={scope} enabled={budgetStatus.data?.memory_processing === true} />
-    <BriefingPanel api={api} scope={scope} run={run} />
+    <BriefingPanel api={api} scope={scope} run={run} /></>}
   </Stack>;
 }

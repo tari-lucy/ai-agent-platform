@@ -6,6 +6,7 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { Conversation } from './Conversation.tsx';
+import { nativeAgent, nativeHref, useNativeEntry } from '../opencode.ts';
 import { useWorkSessions } from './sessions.ts';
 import { discussTitle, openCommand, sessionFor } from './conversation.ts';
 import {
@@ -136,7 +137,7 @@ function Discuss({ api, scope, task, sessions, onOpen }: {
 
 type Lists = {
   tickets: Parameters<typeof turn>[1]; attempts: Parameters<typeof attemptsOf>[1]; episodes: Parameters<typeof experienceOf>[1]; running: boolean;
-  sessions: WorkSession[]; openSession: (id: string) => void;
+  sessions: WorkSession[]; openSession: (id: string) => void; native: boolean;
 };
 function Task({ api, scope, task, lists }: { api: PanelApi; scope: Scope; task: WorkTask; lists: Lists }) {
   const tries = attemptsOf(task, lists.attempts);
@@ -162,7 +163,7 @@ function Task({ api, scope, task, lists }: { api: PanelApi; scope: Scope; task: 
     {experience.length > 0 && <Text size="sm">Стало опытом: {experience.length} {experience.length === 1 ? 'эпизод' : 'эпиз.'} — <Anchor href="#/memory">в памяти</Anchor></Text>}
     {task.outcome && <Text size="sm" mt={4}>{task.outcome}</Text>}
     {!finished(task) && <Group mt={4} align="flex-start">
-      <Discuss api={api} scope={scope} task={task} sessions={lists.sessions} onOpen={lists.openSession} />
+      {!lists.native && <Discuss api={api} scope={scope} task={task} sessions={lists.sessions} onOpen={lists.openSession} />}
       <Abandon api={api} scope={scope} task={task} />
     </Group>}
   </Paper>;
@@ -185,12 +186,14 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
   const off = tasks.query.error instanceof ApiFailure && tasks.query.error.code === 'ACCESS_DENIED';
   const running = run?.state === 'ACTIVE';
   const sessions = useWorkSessions(api, scope);
+  const native = useNativeEntry();
+  const agent = nativeAgent(native, scope);
   const [chosen, setChosen] = useState<string | null>(null);
   const talk = useRef<HTMLDivElement>(null);
   const openSession = (id: string) => { setChosen(id); talk.current?.scrollIntoView({ block: 'start' }); };
   const lists: Lists = {
     tickets: tickets.rows, attempts: attempts.rows, episodes: episodes.rows, running,
-    sessions: sessions.data?.items ?? [], openSession,
+    sessions: sessions.data?.items ?? [], openSession, native: !!native,
   };
   const { mine, working, done } = groups(tasks.rows, tickets.rows);
   const partial = [tasks, attempts, tickets, episodes].some((list) => list.query.isError || (list.query.data && !list.complete));
@@ -203,8 +206,12 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
       {!running && <Text size="sm" c="orange.8">Агент не работает: шаги начнутся только после явного запуска.</Text>}
     </div>
     {off ? <Paper withBorder p="md"><Text size="sm">Контур деятельности не включён на этом хосте (офлайн-команда configure-activity).</Text></Paper> : <>
-      <div ref={talk}><Conversation api={api} scope={scope} run={run} chosen={chosen} onSelect={setChosen} /></div>
-      <Assign api={api} scope={scope} />
+      <div ref={talk}><Conversation api={api} scope={scope} run={run} chosen={chosen} onSelect={setChosen} native={agent ?? (native ? null : undefined)} /></div>
+      {native ? <Alert color="blue" title="Поручения и разговор — в OpenCode">
+        Новое поручение и разговор с агентом ведите в{' '}
+        {agent ? <Anchor href={nativeHref(agent.directory)}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
+        Здесь — ход работы, результаты и прежние разговоры для чтения.
+      </Alert> : <Assign api={api} scope={scope} />}
       {partial && <Text size="sm" c="orange.8">Часть данных недоступна или не дочитана — список может быть неполным.</Text>}
       {tasks.query.isError && !off && <Alert color="orange" title="Задачи недоступны">{failureMessage(tasks.query.error)}</Alert>}
       {tasks.query.isPending ? <Text size="sm">Получаем задачи…</Text> : <>
