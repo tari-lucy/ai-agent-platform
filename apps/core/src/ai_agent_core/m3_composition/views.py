@@ -226,3 +226,20 @@ class Views:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         async with self.runtime._lock:
             return await preview(self.runtime, authority, request)
+
+    async def operator_upload(
+        self,
+        authority: ControlAuthority,
+        scope: Scope,
+        area: str,
+        name: str,
+        title: str,
+        media_type: str,
+        content: bytes,
+    ) -> Contract:
+        """Trusted operator upload; the access boundary has already authenticated the session."""
+        if scope.partition not in {s.partition for s in self.runtime.scopes}:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        from .workplace import operator_upload as upload
+
+        return await upload(self.runtime, scope, area, name, title, media_type, content)

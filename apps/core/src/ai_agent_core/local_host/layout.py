@@ -180,7 +180,7 @@ class WorkplaceFilesConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     blob_dir: str = Field(min_length=1, max_length=4096)
-    max_file_bytes: int = Field(default=1048576, strict=True, ge=1024, le=67108864)
+    max_file_bytes: int = Field(default=1048576, strict=True, ge=1024, le=104857600)
     max_scope_bytes: int = Field(default=268435456, strict=True, ge=1048576, le=17179869184)
     max_files: int = Field(default=2000, strict=True, ge=10, le=100000)
     max_versions: int = Field(default=20000, strict=True, ge=10, le=1000000)

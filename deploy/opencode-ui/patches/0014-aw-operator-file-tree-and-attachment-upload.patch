@@ -1,0 +1,2115 @@
+From 9948b265fdabdd73ebdaf9299f872dc8d0e70616 Mon Sep 17 00:00:00 2001
+From: tari-lucy <tari.gpt2025@gmail.com>
+Date: Sun, 25 Oct 2026 22:17:19 +0300
+Subject: [PATCH] aw: operator file tree, content and attachment upload through
+ the platform bridge
+
+---
+ packages/app/src/aw/bridge.test.ts            |  485 +++----
+ packages/app/src/aw/bridge.ts                 | 1152 +++++++++--------
+ .../components/prompt-input/attachments.ts    |  448 ++++---
+ 3 files changed, 1146 insertions(+), 939 deletions(-)
+
+diff --git a/packages/app/src/aw/bridge.test.ts b/packages/app/src/aw/bridge.test.ts
+index 3a45604..f1fe433 100644
+--- a/packages/app/src/aw/bridge.test.ts
++++ b/packages/app/src/aw/bridge.test.ts
+@@ -1,216 +1,269 @@
+-import { afterAll, expect, test } from "bun:test"
+-
+-const originalFetch = globalThis.fetch
+-const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location")
+-Object.defineProperty(globalThis, "location", { configurable: true, value: new URL("http://fixture.invalid") })
+-const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } })
+-const scope = { workspace_id: "fixture", persona_id: "person", memory_space_id: "work", memory_mode: "work" }
+-let pendingReply: any = null
+-const acknowledgements: any[] = []
+-globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+-  const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin).pathname
+-  if (path.endsWith("/auth/session")) return json({ csrf_token: "synthetic" })
+-  if (path.endsWith("/agents")) return json({ items: [{ directory: "aw_fixture", scope, label: "Fixture" }] })
+-  if (path.endsWith("/commands")) { acknowledgements.push(JSON.parse(String(init?.body))); return json({ resource_id: "synthetic-ack" }) }
+-  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }, { id: "other", title: "Other", version: 1 }] })
+-  if (path.endsWith("/sessions/session") || path.endsWith("/sessions/other")) return json({ scope, session_id: path.endsWith("/other") ? "other" : "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
+-    { sequence: 1, speaker: "operator", text: "Synthetic user", at: "2026-01-01T00:00:01Z" },
+-    { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Synthetic reply", at: "2026-01-01T00:00:02Z" },
+-  ] })
+-  throw Error("Unexpected fixture route")
+-}, { preconnect: () => {} })
+-const { awFetch, registerRenderedReply, checkReceipts, resetReceiptState, watchSession, refreshViewedSession } = await import("./bridge")
+-afterAll(() => {
+-  resetReceiptState()
+-  globalThis.fetch = originalFetch
+-  if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation)
+-})
+-
+-test("ACK requires exact registered reply, visibility and current owner revision", async () => {
+-  const originalObserver = globalThis.IntersectionObserver
+-  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState")
+-  let ratio = 0.2
+-  globalThis.IntersectionObserver = class {
+-    constructor(private callback: any) {}
+-    observe() { queueMicrotask(() => this.callback([{ isIntersecting: ratio > 0, intersectionRatio: ratio }])) }
+-    disconnect() {}
+-  } as unknown as typeof IntersectionObserver
+-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" })
+-  pendingReply = { scope, utterance_id: "utterance", version: 1, revision: 1, text: "Synthetic exact reply", acknowledgeable: true, withheld: false }
+-  const element = document.createElement("div")
+-  element.textContent = pendingReply.text
+-  element.checkVisibility = () => true
+-  document.body.append(element)
+-  try {
+-    await awFetch("http://fixture.invalid/api/session/session/message")
+-    await checkReceipts()
+-    expect(acknowledgements).toHaveLength(0) // Body text alone is not proof of rendering.
+-    const release = registerRenderedReply(element, () => ({ directory: "aw_fixture", sessionID: "session", messageID: "session-reply-1-2", text: "Synthetic exact reply" }))
+-    await checkReceipts()
+-    expect(acknowledgements).toHaveLength(0) // Less than 60% visible.
+-    ratio = 1
+-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" })
+-    await checkReceipts()
+-    expect(acknowledgements).toHaveLength(0)
+-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" })
+-    pendingReply = { ...pendingReply, revision: 2 }
+-    await checkReceipts()
+-    expect(acknowledgements).toHaveLength(0) // Current owner revision differs from the shown candidate.
+-    pendingReply = { ...pendingReply, revision: 1 }
+-    await checkReceipts()
+-    await checkReceipts()
+-    expect(acknowledgements).toHaveLength(1)
+-    expect(acknowledgements[0].arguments.revision).toBe(1)
+-    release()
+-  } finally {
+-    resetReceiptState()
+-    element.remove()
+-    pendingReply = null
+-    globalThis.IntersectionObserver = originalObserver
+-    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility)
+-    else delete (document as any).visibilityState
+-  }
+-})
+-
+-test("single-message GET returns one object, not the message page", async () => {
+-  const result = await awFetch("http://fixture.invalid/api/session/session/message/session-reply-1")
+-  expect(result.status).toBe(200)
+-  const body = await result.json()
+-  expect(Array.isArray(body.data)).toBe(false)
+-  expect(body.data).toMatchObject({ id: "session-reply-1", type: "assistant", content: [{ type: "text", text: "Synthetic reply" }] })
+-})
+-
+-
+-test("message ids are disjoint between conversations of the same person", async () => {
+-  const a = await (await awFetch("http://fixture.invalid/api/session/session/message")).json()
+-  const b = await (await awFetch("http://fixture.invalid/api/session/other/message")).json()
+-  const ids = new Set(a.data.map((row: { id: string }) => row.id))
+-  expect(b.data.some((row: { id: string }) => ids.has(row.id))).toBe(false)
+-})
+-
+-
+-test("session clocks stay stable on detail and list refetch; rename uses the owner command", async () => {
+-  const first = await (await awFetch("http://fixture.invalid/api/session/session")).json()
+-  await new Promise((resolve) => setTimeout(resolve, 10))
+-  const second = await (await awFetch("http://fixture.invalid/api/session/session")).json()
+-  expect(first.data.time).toEqual(second.data.time)
+-  const list = await (await awFetch("http://fixture.invalid/api/session?directory=aw_fixture")).json()
+-  expect(list.data[0].time).toEqual(first.data.time)
+-  const before = acknowledgements.length
+-  const renamed = await awFetch("http://fixture.invalid/api/session/session/rename", {
+-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "A clear title" }),
+-  })
+-  expect(renamed.status).toBe(204)
+-  expect(acknowledgements[before].type).toBe("work.session.rename")
+-  expect(acknowledgements[before].expected_version).toBe(1)
+-  expect(acknowledgements[before].arguments.data).toEqual({ session_id: "session", title: "A clear title" })
+-  acknowledgements.splice(before)
+-})
+-
+-
+-test("owner bursts have one refresh in flight and only read the viewed conversation", async () => {
+-  const savedFetch = globalThis.fetch
+-  const savedSource = globalThis.EventSource
+-  const sources: Array<{ emit: (value: unknown) => void; closed: boolean }> = []
+-  const bodies: string[] = []
+-  let hold = false, active = 0, peak = 0, lists = 0
+-  let unblock: () => void = () => {}
+-  let held = Promise.resolve()
+-  globalThis.EventSource = class {
+-    listeners = new Map<string, EventListener>()
+-    closed = false
+-    constructor() { sources.push(this) }
+-    addEventListener(name: string, listener: EventListener) { this.listeners.set(name, listener) }
+-    close() { this.closed = true }
+-    emit(value: unknown) { this.listeners.get("refetch")?.({ data: JSON.stringify(value) } as MessageEvent) }
+-  } as unknown as typeof EventSource
+-  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+-    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin).pathname
+-    if (path.endsWith("/sessions")) lists++
+-    if (/\/sessions\/(session|other)$/.test(path)) {
+-      bodies.push(path.endsWith("/other") ? "other" : "session")
+-      peak = Math.max(peak, ++active)
+-      try { if (hold) await held; return await savedFetch(input, init) }
+-      finally { active-- }
+-    }
+-    return savedFetch(input, init)
+-  }, { preconnect: () => {} })
+-  const wait = async (done: () => boolean) => {
+-    for (let i = 0; i < 100 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 5))
+-    expect(done()).toBe(true)
+-  }
+-  const abort = new AbortController()
+-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+-  let releaseView = watchSession("aw_fixture", "session")
+-  try {
+-    await awFetch("http://fixture.invalid/api/session/session/message")
+-    bodies.length = 0
+-    const response = await awFetch("http://fixture.invalid/api/event", { signal: abort.signal })
+-    reader = response.body!.getReader()
+-    await reader.read() // connected
+-    await wait(() => sources.length === 1)
+-    hold = true
+-    held = new Promise(resolve => { unblock = resolve })
+-    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
+-    await wait(() => bodies.length === 1)
+-    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "source.changed", resource_id: "basis" })
+-    expect(peak).toBe(1)
+-    hold = false; unblock()
+-    await wait(() => bodies.length === 2 && active === 0)
+-    await new Promise(resolve => setTimeout(resolve, 10))
+-    expect(bodies).toEqual(["session", "session"])
+-    const before = bodies.length, oldLists = lists
+-    sources[0].emit({ owner_event: "work-session.changed", resource_id: "other" })
+-    await wait(() => lists > oldLists)
+-    await new Promise(resolve => setTimeout(resolve, 10))
+-    expect(bodies.length).toBe(before) // metadata update of a non-viewed conversation
+-    // A prefetch must not change the actual viewed A.
+-    await awFetch("http://fixture.invalid/api/session/other/message")
+-    bodies.length = 0
+-    sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
+-    await wait(() => bodies.length === 1 && active === 0)
+-    expect(bodies).toEqual(["session"])
+-    releaseView(); releaseView = watchSession("aw_fixture", "other")
+-    bodies.length = 0
+-    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-basis" })
+-    await wait(() => bodies.length === 1 && active === 0)
+-    expect(bodies).toEqual(["other"]) // source invalidation still rechecks the viewed text
+-    releaseView(); releaseView = watchSession("aw_fixture", "session") // cached return A
+-    bodies.length = 0
+-    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-a" })
+-    await wait(() => bodies.length === 1 && active === 0)
+-    expect(bodies).toEqual(["session"])
+-    await reader.cancel()
+-    expect(sources[0].closed).toBe(true)
+-    const after = lists
+-    sources[0].emit({ owner_event: "source.changed", resource_id: "late" })
+-    await new Promise(resolve => setTimeout(resolve, 10))
+-    expect(lists).toBe(after)
+-  } finally {
+-    releaseView(); unblock(); await reader?.cancel().catch(() => {}); abort.abort()
+-    globalThis.fetch = savedFetch
+-    globalThis.EventSource = savedSource
+-  }
+-})
+-
+-
+-test("cached route return settles a pre-revocation prefetch before a fresh owner read", async () => {
+-  let finishOld: () => void = () => {}
+-  const old = new Promise<void>(resolve => { finishOld = resolve })
+-  const phases: string[] = []
+-  let allowed = true
+-  const refreshing = refreshViewedSession(async force => {
+-    if (!force) { phases.push("join-old"); await old; return "old private body" }
+-    phases.push("fresh-owner")
+-    return allowed ? "body" : "withheld"
+-  })
+-  expect(phases).toEqual(["join-old"])
+-  allowed = false
+-  finishOld()
+-  expect(await refreshing).toBe("withheld")
+-  expect(phases).toEqual(["join-old", "fresh-owner"])
+-  await expect(refreshViewedSession(async force => {
+-    if (force) throw Error("owner unavailable")
+-    return "old body"
+-  })).rejects.toThrow("owner unavailable")
+-})
++import { afterAll, expect, test } from "bun:test"
++
++const originalFetch = globalThis.fetch
++const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location")
++Object.defineProperty(globalThis, "location", { configurable: true, value: new URL("http://fixture.invalid") })
++const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } })
++const scope = { workspace_id: "fixture", persona_id: "person", memory_space_id: "work", memory_mode: "work" }
++let pendingReply: any = null
++const acknowledgements: any[] = []
++const uploads: { area: string | null; name: string | null; body: Uint8Array }[] = []
++globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
++  const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin).pathname
++  if (path.endsWith("/auth/session")) return json({ csrf_token: "synthetic" })
++  if (path.endsWith("/agents")) return json({ items: [{ directory: "aw_fixture", scope, label: "Fixture" }] })
++  if (path.endsWith("/commands")) { acknowledgements.push(JSON.parse(String(init?.body))); return json({ resource_id: "synthetic-ack" }) }
++  if (path.endsWith("/workplace-files/upload")) {
++    const query = new URL(String(input), location.origin).searchParams
++    uploads.push({ area: query.get("area"), name: query.get("name"), body: init?.body instanceof ArrayBuffer ? new Uint8Array(init.body) : new Uint8Array(await new Response(init?.body).arrayBuffer()) })
++    return json({ id: "operator-file-1", version: uploads.length })
++  }
++  if (path.endsWith("/agents/aw_fixture/files")) return json({ files: uploads.length ? [
++    { id: "operator-file-1", area: uploads[0].area, path: uploads[0].name, title: "Fixture upload", version: 1, reference: { checksum: "a".repeat(64), size_bytes: uploads[0].body.length, media_type: "text/plain" } },
++  ] : [] })
++  if (path.endsWith("/files/operator-file-1")) return json({ text: "Synthetic material body", withheld: false, truncated: false, media_type: "text/plain" })
++  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }, { id: "other", title: "Other", version: 1 }] })
++  if (path.endsWith("/sessions/session") || path.endsWith("/sessions/other")) return json({ scope, session_id: path.endsWith("/other") ? "other" : "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
++    { sequence: 1, speaker: "operator", text: "Synthetic user", at: "2026-01-01T00:00:01Z" },
++    { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Synthetic reply", at: "2026-01-01T00:00:02Z" },
++  ] })
++  throw Error("Unexpected fixture route")
++}, { preconnect: () => {} })
++const { awFetch, registerRenderedReply, checkReceipts, resetReceiptState, watchSession, refreshViewedSession, awUploadFile } = await import("./bridge")
++afterAll(() => {
++  resetReceiptState()
++  globalThis.fetch = originalFetch
++  if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation)
++})
++
++test("ACK requires exact registered reply, visibility and current owner revision", async () => {
++  const originalObserver = globalThis.IntersectionObserver
++  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState")
++  let ratio = 0.2
++  globalThis.IntersectionObserver = class {
++    constructor(private callback: any) {}
++    observe() { queueMicrotask(() => this.callback([{ isIntersecting: ratio > 0, intersectionRatio: ratio }])) }
++    disconnect() {}
++  } as unknown as typeof IntersectionObserver
++  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" })
++  pendingReply = { scope, utterance_id: "utterance", version: 1, revision: 1, text: "Synthetic exact reply", acknowledgeable: true, withheld: false }
++  const element = document.createElement("div")
++  element.textContent = pendingReply.text
++  element.checkVisibility = () => true
++  document.body.append(element)
++  try {
++    await awFetch("http://fixture.invalid/api/session/session/message")
++    await checkReceipts()
++    expect(acknowledgements).toHaveLength(0) // Body text alone is not proof of rendering.
++    const release = registerRenderedReply(element, () => ({ directory: "aw_fixture", sessionID: "session", messageID: "session-reply-1-2", text: "Synthetic exact reply" }))
++    await checkReceipts()
++    expect(acknowledgements).toHaveLength(0) // Less than 60% visible.
++    ratio = 1
++    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" })
++    await checkReceipts()
++    expect(acknowledgements).toHaveLength(0)
++    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" })
++    pendingReply = { ...pendingReply, revision: 2 }
++    await checkReceipts()
++    expect(acknowledgements).toHaveLength(0) // Current owner revision differs from the shown candidate.
++    pendingReply = { ...pendingReply, revision: 1 }
++    await checkReceipts()
++    await checkReceipts()
++    expect(acknowledgements).toHaveLength(1)
++    expect(acknowledgements[0].arguments.revision).toBe(1)
++    release()
++  } finally {
++    resetReceiptState()
++    element.remove()
++    pendingReply = null
++    globalThis.IntersectionObserver = originalObserver
++    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility)
++    else delete (document as any).visibilityState
++  }
++})
++
++test("single-message GET returns one object, not the message page", async () => {
++  const result = await awFetch("http://fixture.invalid/api/session/session/message/session-reply-1")
++  expect(result.status).toBe(200)
++  const body = await result.json()
++  expect(Array.isArray(body.data)).toBe(false)
++  expect(body.data).toMatchObject({ id: "session-reply-1", type: "assistant", content: [{ type: "text", text: "Synthetic reply" }] })
++})
++
++
++test("message ids are disjoint between conversations of the same person", async () => {
++  const a = await (await awFetch("http://fixture.invalid/api/session/session/message")).json()
++  const b = await (await awFetch("http://fixture.invalid/api/session/other/message")).json()
++  const ids = new Set(a.data.map((row: { id: string }) => row.id))
++  expect(b.data.some((row: { id: string }) => ids.has(row.id))).toBe(false)
++})
++
++
++test("session clocks stay stable on detail and list refetch; rename uses the owner command", async () => {
++  const first = await (await awFetch("http://fixture.invalid/api/session/session")).json()
++  await new Promise((resolve) => setTimeout(resolve, 10))
++  const second = await (await awFetch("http://fixture.invalid/api/session/session")).json()
++  expect(first.data.time).toEqual(second.data.time)
++  const list = await (await awFetch("http://fixture.invalid/api/session?directory=aw_fixture")).json()
++  expect(list.data[0].time).toEqual(first.data.time)
++  const before = acknowledgements.length
++  const renamed = await awFetch("http://fixture.invalid/api/session/session/rename", {
++    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "A clear title" }),
++  })
++  expect(renamed.status).toBe(204)
++  expect(acknowledgements[before].type).toBe("work.session.rename")
++  expect(acknowledgements[before].expected_version).toBe(1)
++  expect(acknowledgements[before].arguments.data).toEqual({ session_id: "session", title: "A clear title" })
++  acknowledgements.splice(before)
++})
++
++
++test("owner bursts have one refresh in flight and only read the viewed conversation", async () => {
++  const savedFetch = globalThis.fetch
++  const savedSource = globalThis.EventSource
++  const sources: Array<{ emit: (value: unknown) => void; closed: boolean }> = []
++  const bodies: string[] = []
++  let hold = false, active = 0, peak = 0, lists = 0
++  let unblock: () => void = () => {}
++  let held = Promise.resolve()
++  globalThis.EventSource = class {
++    listeners = new Map<string, EventListener>()
++    closed = false
++    constructor() { sources.push(this) }
++    addEventListener(name: string, listener: EventListener) { this.listeners.set(name, listener) }
++    close() { this.closed = true }
++    emit(value: unknown) { this.listeners.get("refetch")?.({ data: JSON.stringify(value) } as MessageEvent) }
++  } as unknown as typeof EventSource
++  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
++    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin).pathname
++    if (path.endsWith("/sessions")) lists++
++    if (/\/sessions\/(session|other)$/.test(path)) {
++      bodies.push(path.endsWith("/other") ? "other" : "session")
++      peak = Math.max(peak, ++active)
++      try { if (hold) await held; return await savedFetch(input, init) }
++      finally { active-- }
++    }
++    return savedFetch(input, init)
++  }, { preconnect: () => {} })
++  const wait = async (done: () => boolean) => {
++    for (let i = 0; i < 100 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 5))
++    expect(done()).toBe(true)
++  }
++  const abort = new AbortController()
++  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
++  let releaseView = watchSession("aw_fixture", "session")
++  try {
++    await awFetch("http://fixture.invalid/api/session/session/message")
++    bodies.length = 0
++    const response = await awFetch("http://fixture.invalid/api/event", { signal: abort.signal })
++    reader = response.body!.getReader()
++    await reader.read() // connected
++    await wait(() => sources.length === 1)
++    hold = true
++    held = new Promise(resolve => { unblock = resolve })
++    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
++    await wait(() => bodies.length === 1)
++    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "source.changed", resource_id: "basis" })
++    expect(peak).toBe(1)
++    hold = false; unblock()
++    await wait(() => bodies.length === 2 && active === 0)
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(bodies).toEqual(["session", "session"])
++    const before = bodies.length, oldLists = lists
++    sources[0].emit({ owner_event: "work-session.changed", resource_id: "other" })
++    await wait(() => lists > oldLists)
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(bodies.length).toBe(before) // metadata update of a non-viewed conversation
++    // A prefetch must not change the actual viewed A.
++    await awFetch("http://fixture.invalid/api/session/other/message")
++    bodies.length = 0
++    sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["session"])
++    releaseView(); releaseView = watchSession("aw_fixture", "other")
++    bodies.length = 0
++    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-basis" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["other"]) // source invalidation still rechecks the viewed text
++    releaseView(); releaseView = watchSession("aw_fixture", "session") // cached return A
++    bodies.length = 0
++    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-a" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["session"])
++    await reader.cancel()
++    expect(sources[0].closed).toBe(true)
++    const after = lists
++    sources[0].emit({ owner_event: "source.changed", resource_id: "late" })
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(lists).toBe(after)
++  } finally {
++    releaseView(); unblock(); await reader?.cancel().catch(() => {}); abort.abort()
++    globalThis.fetch = savedFetch
++    globalThis.EventSource = savedSource
++  }
++})
++
++
++test("cached route return settles a pre-revocation prefetch before a fresh owner read", async () => {
++  let finishOld: () => void = () => {}
++  const old = new Promise<void>(resolve => { finishOld = resolve })
++  const phases: string[] = []
++  let allowed = true
++  const refreshing = refreshViewedSession(async force => {
++    if (!force) { phases.push("join-old"); await old; return "old private body" }
++    phases.push("fresh-owner")
++    return allowed ? "body" : "withheld"
++  })
++  expect(phases).toEqual(["join-old"])
++  allowed = false
++  finishOld()
++  expect(await refreshing).toBe("withheld")
++  expect(phases).toEqual(["join-old", "fresh-owner"])
++  await expect(refreshViewedSession(async force => {
++    if (force) throw Error("owner unavailable")
++    return "old body"
++  })).rejects.toThrow("owner unavailable")
++})
++
++test("operator file tree lists areas, files and content through the bridge", async () => {
++  const originalPrompt = window.prompt
++  window.prompt = () => "inbox"
++  const rootResponse = await awFetch("http://fixture.invalid/file?directory=aw_fixture&path=")
++  const rootText = await rootResponse.text()
++  console.log("ROOT STATUS", rootResponse.status, "BODY", rootText.slice(0, 240))
++  const root = JSON.parse(rootText)
++  expect(root.map((row: any) => row.name)).toContain("inbox")
++  expect(root.every((row: any) => row.type === "directory")).toBe(true)
++
++  await awUploadFile("Quarterly Report.pdf", "application/pdf", new Blob(["PDFDATA"]))
++  expect(uploads).toHaveLength(1)
++  expect(uploads[0].area).toBe("inbox")
++  expect(uploads[0].name).toBe("quarterly-report.pdf")
++  expect(new TextDecoder().decode(uploads[0].body)).toBe("PDFDATA")
++
++  const listed = JSON.parse(await (await awFetch("http://fixture.invalid/file?directory=aw_fixture&path=inbox")).text())
++  expect(listed).toEqual([{ name: "quarterly-report.pdf", path: "/inbox/quarterly-report.pdf", absolute: "/inbox/quarterly-report.pdf", type: "file", ignored: false }])
++
++  const text = JSON.parse(await (await awFetch("http://fixture.invalid/file/content?directory=aw_fixture&path=inbox/quarterly-report.pdf")).text())
++  expect(text).toEqual({ type: "text", content: "Synthetic material body", mimeType: "text/plain" })
++
++  const found = JSON.parse(await (await awFetch("http://fixture.invalid/api/fs/find?location[directory]=aw_fixture&query=quarterly&limit=5")).text())
++  expect(found.data).toEqual([{ path: "/inbox/quarterly-report.pdf", type: "file" }])
++
++  const missing = await awFetch("http://fixture.invalid/file/content?directory=aw_fixture&path=inbox/absent.bin")
++  expect(missing.status).toBe(404)
++  window.prompt = originalPrompt
++})
++
++test("awUploadFile refuses an unknown area and honours a cancelled dialog", async () => {
++  const originalPrompt = window.prompt
++  window.prompt = () => "exports"
++  try {
++    expect(await awUploadFile("x.bin", "application/octet-stream", new Blob(["x"]))).toBeNull()
++    window.prompt = () => null
++    expect(await awUploadFile("y.bin", "application/octet-stream", new Blob(["y"]))).toBeNull()
++    expect(uploads).toHaveLength(1) // nothing new was uploaded
++  } finally {
++    window.prompt = originalPrompt
++  }
++})
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index b8de65e..b2eeea0 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -1,510 +1,642 @@
+-// AI Agent Platform adapter: the native client talks to the platform bridge `aw-opencode/1`
+-// (/api/v1/opencode) through this fetch. No request reaches a native OpenCode server; routes
+-// the platform does not offer answer empty or "not available". Ordinary conversation only:
+-// tickets and permission decisions stay in the platform panel (`/`).
+-// The native client resolves absolute paths against its server URL: it is this origin, and
+-// every request of the native SDK is answered here (platform.fetch), never sent over the network.
+-export const VIRTUAL_SERVER = location.origin
+-const BRIDGE = "/api/v1/opencode"
+-const VERSION = "1.19.3"
+-
+-
+-type Scope = Record<string, string | null | undefined>
+-type Agent = { directory: string; scope: Scope; label: string; profile_version: number; active_runtime: boolean }
+-type SessionRow = {
+-  id: string; scope: Scope; title: string; version: number; state: string
+-  last_sequence: number; processed_sequence: number; created_at?: string; updated_at?: string
+-}
+-type Entry = { sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null }
+-type Progress = { state: string; since: string }
+-type Draft = { scope: Scope; utterance_id: string; version: number; revision: number; text: string | null; withheld: boolean; acknowledgeable: boolean }
+-type Transcript = {
+-  scope: Scope; session_id: string; session_version: number; state: string; title: string
+-  created_at?: string; updated_at?: string
+-  processed_sequence?: number; pending_reply?: Draft | null; entries: Entry[]; checked_at: string
+-  progress?: Progress | null; waiting_reason?: string | null; invalidated_reason?: string | null
+-  open_ticket_ids?: string[]
+-}
+-
+-const json = (body: unknown, status = 200) =>
+-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+-const unavailable = (path: string) => json({ name: "AW_NOT_AVAILABLE", data: { message: "Недоступно в рабочем окне платформы", path } }, 501)
+-const refused = (message: string) => json({ name: "AW_REFUSED", data: { message } }, 403)
+-const ms = (value?: string | null) => {
+-  const parsed = value ? Date.parse(value) : 0
+-  return Number.isFinite(parsed) ? parsed : 0
+-}
+-const stable = (scope: Scope): Scope => ({
+-  workspace_id: scope.workspace_id, persona_id: scope.persona_id, memory_space_id: scope.memory_space_id, memory_mode: scope.memory_mode,
+-})
+-const uuid = () => crypto.randomUUID()
+-
+-// ---- platform session (operator login lives in the panel) --------------------------------------
+-let csrf: Promise<string> | null = null
+-function token(): Promise<string> {
+-  csrf ??= fetch("/api/v1/auth/session", { credentials: "same-origin", cache: "no-store" }).then(async (response) => {
+-    if (response.status === 401) {
+-      location.assign("/")
+-      throw new Error("AW_LOGIN_REQUIRED")
+-    }
+-    const body = (await response.json()) as { csrf_token: string }
+-    return body.csrf_token
+-  })
+-  return csrf
+-}
+-async function bridge<T>(path: string, body?: unknown): Promise<T> {
+-  const headers: Record<string, string> = { accept: "application/json" }
+-  if (body !== undefined) {
+-    headers["content-type"] = "application/json"
+-    headers["x-csrf-token"] = await token()
+-  } else await token()
+-  const response = await fetch(BRIDGE + path, {
+-    method: body === undefined ? "GET" : "POST", credentials: "same-origin", cache: "no-store", headers,
+-    body: body === undefined ? undefined : JSON.stringify(body),
+-  })
+-  if (response.status === 401) { csrf = null; location.assign("/") }
+-  if (!response.ok) throw Object.assign(new Error("AW_BRIDGE_" + response.status), { status: response.status, body: await response.text() })
+-  return (await response.json()) as T
+-}
+-
+-// ---- owner projections, read fresh each time (no browser persistence) ---------------------------
+-async function agents(): Promise<Agent[]> {
+-  // Only work memory: ordinary conversation happens there. Test areas stay in the panel
+-  // (laboratory); they are not deleted, just not offered in this window.
+-  return (await bridge<{ items: Agent[] }>("/agents")).items.filter((agent) => agent.scope.memory_mode === "work")
+-}
+-const isTest = (agent: Agent) => agent.scope.memory_mode === "test"
+-async function agentOf(directory: string | null | undefined): Promise<Agent | undefined> {
+-  const all = await agents()
+-  return all.find((agent) => agent.directory === directory) ?? (directory ? undefined : all[0])
+-}
+-const sessionOwner = new Map<string, string>() // session id -> directory, learnt from owner lists
+-async function sessions(directory: string): Promise<SessionRow[]> {
+-  const rows = (await bridge<{ items: SessionRow[] }>(`/agents/${directory}/sessions?limit=50`)).items
+-  for (const row of rows) sessionOwner.set(row.id, directory)
+-  return rows
+-}
+-async function directoryOf(sessionID: string): Promise<string | undefined> {
+-  if (sessionOwner.has(sessionID)) return sessionOwner.get(sessionID)
+-  for (const agent of await agents()) if ((await sessions(agent.directory)).some((row) => row.id === sessionID)) return agent.directory
+-  return undefined
+-}
+-const activeSessions = new Map<string, { id: string; token: symbol }>()
+-// Bound to the rendered route, never to GET/prefetch. No authority or body cache.
+-export function watchSession(directory: string, id?: string) {
+-  const token = Symbol()
+-  if (id) activeSessions.set(directory, { id, token })
+-  return () => { if (activeSessions.get(directory)?.token === token) activeSessions.delete(directory) }
+-}
+-// Settle an older prefetch before the owner's fresh route-entry read.
+-export async function refreshViewedSession(reload: (force: boolean) => Promise<unknown> | void) {
+-  try { await reload(false) } catch { /* The fresh read below owns the displayed outcome. */ }
+-  return reload(true)
+-}
+-const transcript = (directory: string, sessionID: string) =>
+-  bridge<Transcript>(`/agents/${directory}/sessions/${encodeURIComponent(sessionID)}`)
+-
+-// ---- native shapes ------------------------------------------------------------------------------
+-const project = (agent: Agent) => ({
+-  id: agent.directory, worktree: agent.directory, name: isTest(agent) ? `${agent.label} · тест` : agent.label,
+-  time: { created: 0, updated: 0 }, sandboxes: [],
+-})
+-const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+-const sessionInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
+-  id: row.id, projectID: directory, title: row.title, cost: 0, tokens,
+-  time: { created: ms(row.created_at), updated: ms(row.updated_at) }, location: { directory },
+-})
+-// Session events still carry the legacy (v1) session shape.
+-const sessionEventInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
+-  id: row.id, slug: row.id, projectID: directory, directory, title: row.title, version: VERSION,
+-  time: { created: ms(row.created_at), updated: ms(row.updated_at) },
+-})
+-const model = { id: "platform", providerID: "aw" }
+-const GATEWAY_PROVIDER = { id: "aw", name: "AI Agent Platform", package: "aw" }
+-const GATEWAY_MODEL = {
+-  id: "platform", modelID: "platform", providerID: "aw", name: "Модель платформы",
+-  capabilities: { tools: false, input: ["text"], output: ["text"] }, variants: [], time: { released: 0 },
+-  cost: [], status: "active", enabled: true, limit: { context: 16000, output: 1024 },
+-}
+-const personAgent = (agent: Agent) => ({
+-  id: agent.label, name: agent.label, model, mode: "primary", hidden: false, permissions: [],
+-  description: "Личность платформы: её память, права и бюджет", request: { settings: {}, headers: {}, body: {} },
+-})
+-// Native part caches are shared across sessions of a directory: every owner id is session-scoped.
+-const scopedID = (view: Transcript, id: string) => `${view.session_id}-${id}`
+-const replyID = (view: Transcript, sequence: number, n = 1) => scopedID(view, n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
+-const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
+-  id, type: "assistant", agent: view.scope.persona_id ?? "", model,
+-  time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
+-  content: [{ type: "text", text }],
+-})
+-// The platform's own words about the current turn: a system note, never the person's text.
+-const PROGRESS: Record<string, string> = {
+-  waiting_start: "Сообщение сохранено и ждёт, пока эта личность будет запущена (START в панели).",
+-  queued: "Сообщение принято: ход ждёт своей очереди.",
+-  running: "Агент выполняет рабочий ход.",
+-  failed: "Рабочий ход завершился ошибкой. Повторно ничего само не отправится: напишите сообщение ещё раз.",
+-  cancelled: "Рабочий ход отменён (STOP или отзыв допуска). Ответа нет.",
+-  unknown: "Исход рабочего хода не подтверждён; платформа не повторяет его вслепую.",
+-}
+-// Client message ids of messages sent from this page (page lifetime only, never persisted).
+-const clientIDs = new Map<string, string>()
+-function messages(view: Transcript) {
+-  const rows: Record<string, unknown>[] = []
+-  let lastOperator = 0
+-  const replies = new Map<number, number>()
+-  for (const entry of view.entries) {
+-    const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
+-    if (entry.speaker === "operator") {
+-      lastOperator = entry.sequence
+-      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
+-    } else {
+-      const answered = entry.reply_to_sequence ?? entry.sequence
+-      const n = (replies.get(answered) ?? 0) + 1
+-      replies.set(answered, n)
+-      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
+-    }
+-  }
+-  // A reply after a ticket answer is a further reply to the same operator message.
+-  const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
+-  const draft = view.pending_reply
+-  if (draft && !draft.withheld && draft.text) {
+-    rows.push(assistant(view, next, draft.text, view.checked_at, true))
+-    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, next)
+-  } else if (view.invalidated_reason && !lastOperator) {
+-    // The stopped conversation's history is no longer shown: a platform placeholder in the
+-    // operator's place and the stop notice in the reply's place (both platform words).
+-    rows.push({ id: scopedID(view, `stopped-${view.session_version}`), type: "user", time: { created: ms(view.checked_at) },
+-      text: "Сообщения этого разговора больше не показываются." })
+-    rows.push(notice(view, scopedID(view, `stopped-${view.session_version}-notice`), STOPPED, view.checked_at))
+-  } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
+-    rows.push(notice(view, next, STOPPED, view.checked_at))
+-  } else if (view.open_ticket_ids?.length) {
+-    // The person asked the operator in a ticket; answers and decisions live in the panel.
+-    rows.push(notice(view, next, waitingTicket(view.open_ticket_ids[0]), view.checked_at))
+-  } else if (view.progress && NOTICE.has(view.progress.state) && PROGRESS[view.progress.state]) {
+-    // A platform notice in the reply's place (never the person's words); a later reply for
+-    // the same operator message takes this place. Queued/running use the native busy state.
+-    rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since))
+-  }
+-  return rows
+-}
+-const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
+-const waitingTicket = (ticketID: string) =>
+-  `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets?ticket=${encodeURIComponent(ticketID)} — разговор продолжится сам.`
+-const STOPPED = "Платформа: разговор остановлен — сообщение оператора отозвано, удалено или истекло и не исполнялось. Начните новый разговор."
+-const notice = (view: Transcript, id: string, text: string, at: string) => ({
+-  id, type: "assistant", agent: view.scope.persona_id ?? "", model, time: { created: ms(at), completed: ms(at) },
+-  finish: "error", content: [], error: { type: "PlatformNotice", message: text },
+-})
+-const running = (view: Transcript) => view.progress?.state === "running" || view.progress?.state === "queued"
+-
+-// ---- receipt: ACK only after the reply is really shown in a visible tab --------------------------
+-type Receipt = { draft: Draft; sessionID: string; messageID: string }
+-type RenderedReply = { directory: string; sessionID: string; messageID: string; text?: string }
+-const renderedReplies = new Map<HTMLElement, () => RenderedReply>()
+-const receipts = new Map<string, Receipt>()
+-const attemptedReceipts = new Set<string>()
+-let receiptTimer: ReturnType<typeof setInterval> | undefined
+-let checkingReceipts = false
+-export function registerRenderedReply(element: HTMLElement, read: () => RenderedReply) {
+-  renderedReplies.set(element, read)
+-  return () => renderedReplies.delete(element)
+-}
+-export function resetReceiptState() {
+-  if (receiptTimer !== undefined) clearInterval(receiptTimer)
+-  receiptTimer = undefined
+-  receipts.clear()
+-  attemptedReceipts.clear()
+-  renderedReplies.clear()
+-}
+-window.addEventListener("pagehide", resetReceiptState)
+-function watchReceipt(draft: Draft, sessionID: string, messageID: string) {
+-  const key = draft.utterance_id + ":" + draft.revision
+-  if (draft.scope.memory_mode !== "work" || attemptedReceipts.has(key) || receipts.size >= 128) return
+-  for (const [old, item] of receipts) if (item.draft.utterance_id === draft.utterance_id) receipts.delete(old)
+-  receipts.set(key, { draft, sessionID, messageID })
+-  receiptTimer ??= setInterval(() => void checkReceipts().catch(() => {}), 1000)
+-}
+-function visibleReply(element: HTMLElement): Promise<boolean> {
+-  if (document.visibilityState !== "visible" || !element.isConnected
+-    || element.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) === false) return Promise.resolve(false)
+-  return new Promise(resolve => {
+-    const finish = (value: boolean) => { clearTimeout(timer); observer.disconnect(); resolve(value) }
+-    const observer = new IntersectionObserver(entries => finish(entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.6)), { threshold: [0, 0.6, 1] })
+-    const timer = setTimeout(() => finish(false), 250)
+-    observer.observe(element)
+-  })
+-}
+-export async function checkReceipts() {
+-  if (checkingReceipts || document.visibilityState !== "visible" || !receipts.size) return
+-  checkingReceipts = true
+-  try {
+-    const allowed = await agents()
+-    for (const [key, item] of receipts) {
+-      const { draft, sessionID, messageID } = item
+-      const dir = allowed.find(agent => ["workspace_id", "persona_id", "memory_space_id", "memory_mode"].every(field => agent.scope[field] === draft.scope[field]))?.directory
+-      if (!dir || !draft.text) continue
+-      for (const [element, read] of renderedReplies) {
+-        if (!element.isConnected) { renderedReplies.delete(element); continue }
+-        const matches = () => {
+-          const shown = read()
+-          return shown.directory === dir && shown.sessionID === sessionID && shown.messageID === messageID && shown.text === draft.text
+-        }
+-        if (!matches() || !await visibleReply(element)) continue
+-        const fresh = await transcript(dir, sessionID)
+-        const latest = fresh.pending_reply
+-        if (receipts.get(key) !== item || !latest?.acknowledgeable || latest.withheld
+-          || latest.utterance_id !== draft.utterance_id || latest.revision !== draft.revision
+-          || latest.version !== draft.version || latest.text !== draft.text) continue
+-        if (!matches() || !await visibleReply(element) || attemptedReceipts.has(key)) continue
+-        attemptedReceipts.add(key)
+-        if (attemptedReceipts.size > 512) attemptedReceipts.delete(attemptedReceipts.values().next().value!)
+-        receipts.delete(key)
+-        // One automatic attempt; request identity also makes an explicit replay idempotent.
+-        // Failed/unknown ACK stays pending with the owner, never becomes delivered locally.
+-        await bridge(`/agents/${dir}/commands`, {
+-          type: "dialogue.acknowledge", request_id: `oc-receipt-${draft.utterance_id}-${draft.revision}`,
+-          scope: latest.scope, target: latest.utterance_id, expected_version: latest.version, arguments: { revision: latest.revision },
+-        }).catch(() => {})
+-        break
+-      }
+-    }
+-  } finally {
+-    checkingReceipts = false
+-  }
+-}
+-
+-// ---- routes -------------------------------------------------------------------------------------
+-const EMPTY_LISTS = new Set(["/api/agent", "/api/command", "/api/model", "/api/model/default", "/api/provider", "/api/mcp",
+-  "/api/mcp/resource", "/api/plugin", "/api/pty", "/api/permission/request", "/api/question/request", "/api/form/request",
+-  "/api/reference", "/api/integration"])
+-function queryDirectory(url: URL): string | null {
+-  for (const [key, value] of url.searchParams) if (key === "directory" || key.endsWith("directory]") || key.endsWith(".directory")) return value
+-  return null
+-}
+-async function route(method: string, path: string, url: URL, body: () => Promise<Record<string, unknown>>): Promise<Response> {
+-  if (path === "/global/health") return json({}, 404) // not the legacy protocol
+-  if (path === "/api/health") return json({ healthy: true, version: VERSION, pid: 0 })
+-  if (path === "/api/project" && method === "GET") return json((await agents()).map(project))
+-  if (path === "/api/project/current") {
+-    const agent = await agentOf(url.searchParams.get("directory"))
+-    return agent ? json({ id: agent.directory, directory: agent.directory }) : json({ name: "NotFound" }, 404)
+-  }
+-  if (path === "/api/session" && method === "GET") {
+-    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+-    if (!directory) return json({ data: [], cursor: {} })
+-    return json({ data: (await sessions(directory)).map((row) => sessionInfo(directory, row)), cursor: {} })
+-  }
+-  if (path === "/api/session" && method === "POST") {
+-    const input = await body()
+-    const location = input.location as { directory?: string } | undefined
+-    const agent = await agentOf(location?.directory ?? url.searchParams.get("directory"))
+-    if (!agent) return json({ name: "NotFound" }, 404)
+-    if (isTest(agent)) return refused("Рабочий разговор ведётся только в рабочей памяти личности. Выберите её проект без пометки «тест».")
+-    const receipt = await bridge<{ resource_id: string }>(`/agents/${agent.directory}/commands`, {
+-      type: "work.session.open", request_id: uuid(), scope: stable(agent.scope), target: "work",
+-      arguments: { schema_id: "work.session.open-args", data: { title: "Новый разговор" } },
+-    })
+-    sessionOwner.set(receipt.resource_id, agent.directory)
+-    return json({ data: sessionInfo(agent.directory, { id: receipt.resource_id, title: "Новый разговор" }) })
+-  }
+-  if (method === "GET" && path === "/api/session/active") return json({ data: {} })
+-  const one = /^\/api\/session\/([^/]+)(\/message|\/prompt|\/rename)?(?:\/([^/]+))?$/.exec(path)
+-  if (one) {
+-    const sessionID = decodeURIComponent(one[1])
+-    const directory = await directoryOf(sessionID)
+-    if (!directory) return json({ name: "NotFound" }, 404)
+-    if (!one[2] && method === "GET") {
+-      const row = (await sessions(directory)).find(row => row.id === sessionID)
+-      return row ? json({ data: sessionInfo(directory, row) }) : json({ name: "NotFound" }, 404)
+-    }
+-    const view = await transcript(directory, sessionID)
+-    if (one[2] === "/rename" && method === "POST") {
+-      const input = await body()
+-      if (Object.keys(input).some((key) => key !== "title") || typeof input.title !== "string" || !input.title.trim() || input.title.length > 512)
+-        return json({ name: "AW_INVALID_TITLE" }, 400)
+-      await bridge(`/agents/${directory}/commands`, {
+-        type: "work.session.rename", request_id: uuid(), scope: stable(view.scope), target: sessionID,
+-        expected_version: view.session_version,
+-        arguments: { schema_id: "work.session.rename-args", data: { session_id: sessionID, title: input.title } },
+-      })
+-      return new Response(null, { status: 204 })
+-    }
+-    // Pages are newest first (the client reverses them into reading order).
+-    if (one[2] === "/message" && !one[3] && method === "GET") return json({ data: messages(view).toReversed(), cursor: {} })
+-    if (one[3] && method === "GET") {
+-      const found = messages(view).find((row) => row.id === decodeURIComponent(one[3]))
+-      return found ? json({ data: found }) : json({ name: "NotFound" }, 404)
+-    }
+-    if (one[2] === "/prompt" && method === "POST") {
+-      const input = await body()
+-      const text = String(input.text ?? "")
+-      const requestID = String(input.id ?? uuid())
+-      // The owner stores it under the next sequence (CAS on expected_version). The client already
+-      // shows it under its own id: keep that id for this page, so it is not shown twice.
+-      const send = (current: Transcript, request: string) => bridge(`/agents/${directory}/commands`, {
+-        type: "work.session.message", request_id: request, scope: stable(current.scope), target: sessionID,
+-        expected_version: current.session_version,
+-        arguments: { schema_id: "work.session.message-args", data: { session_id: sessionID, text } },
+-      })
+-      const last = (current: Transcript) => Math.max(0, ...current.entries.map((entry) => entry.sequence))
+-      let sequence = last(view) + 1
+-      try {
+-        await send(view, requestID)
+-      } catch (error) {
+-        if ((error as { status?: number }).status !== 409) throw error
+-        // The session moved (e.g. a receipt landed) between reading and sending. Read again:
+-        // if the message is already stored, do not send it twice; else one retry, new version.
+-        const fresh = await transcript(directory, sessionID)
+-        const stored = fresh.entries.findLast((entry) => entry.speaker === "operator")
+-        if (!(stored && stored.sequence >= sequence && stored.text === text)) {
+-          await send(fresh, `${requestID}:v${fresh.session_version}`)
+-          sequence = last(fresh) + 1
+-        } else sequence = stored.sequence
+-      }
+-      const id = input.id ? requestID : `msg-${sequence}`
+-      clientIDs.set(`${sessionID}:${sequence}`, id)
+-      return json({ data: { admittedSeq: 0, id, sessionID, timeCreated: Date.now(), type: "user", data: { text }, delivery: "queue" } })
+-    }
+-  }
+-  // Lists the platform does not provide answer empty, never a native fallback.
+-  if (method === "GET" && path === "/lsp") return json([])
+-  if (method === "GET" && EMPTY_LISTS.has(path)) {
+-    const agent = await agentOf(queryDirectory(url))
+-    const directory = agent?.directory ?? ""
+-    const location = { directory, project: { id: directory, directory } }
+-    // The one "agent" is the selected platform person itself (never Build/Plan); the one
+-    // "model" is the platform gateway, whose real assignment stays in the platform.
+-    if (path === "/api/agent") return json({ location, data: agent ? [personAgent(agent)] : [] })
+-    if (path === "/api/model") return json({ location, data: [GATEWAY_MODEL] })
+-    if (path === "/api/model/default") return json({ location, data: GATEWAY_MODEL })
+-    if (path === "/api/provider") return json({ location, data: [GATEWAY_PROVIDER] })
+-    if (path === "/api/mcp/resource") return json({ location, data: { resources: [], templates: [] } })
+-    return json({ location, data: [] })
+-  }
+-  return unavailable(path)
+-}
+-
+-async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+-  const request = input instanceof Request ? input : new Request(input, init)
+-  const url = new URL(request.url)
+-  if (url.origin !== VIRTUAL_SERVER || url.pathname.startsWith("/api/v1/")) return json({ error: "AW_OUTSIDE_BRIDGE" }, 403)
+-  const path = url.pathname
+-  if (path === "/api/event") return events(request.signal)
+-  try {
+-    const response = await route(request.method, path, url, async () => (await request.json().catch(() => ({}))) as Record<string, unknown>)
+-    return response
+-  } catch (error) {
+-    const status = (error as { status?: number }).status ?? 502
+-    return json({ name: "AW_BRIDGE_ERROR", data: { status } }, status === 409 ? 409 : status)
+-  }
+-}
+-
+-// Platform.fetch is `typeof fetch`, which under Bun types also carries `preconnect`. The bridge opens
+-// no connections of its own, so preconnect is a deliberate no-op rather than a cast or a looser type.
+-export const awFetch: typeof globalThis.fetch = Object.assign(bridgeFetch, { preconnect: () => {} })
+-
+-// ---- events: owner notifications become "refetch" signals for the native store ------------------
+-type RefetchHint = { owner_event?: string; resource_id?: string }
+-function events(signal: AbortSignal): Response {
+-  const encoder = new TextEncoder()
+-  const sources: EventSource[] = []
+-  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
+-  const running = new Set<string>()
+-  let closed = false
+-  const drain = async (directory: string, send: (event: unknown) => void) => {
+-    if (running.has(directory) || closed) return
+-    running.add(directory)
+-    try {
+-      while (!closed && pending.has(directory)) {
+-        const hint = pending.get(directory)!
+-        pending.delete(directory)
+-        try { await refresh(directory, send, hint.all ? undefined : hint.ids) }
+-        catch { /* Continue the already queued tail; never replay a command. */ }
+-      }
+-    }
+-    finally { running.delete(directory) }
+-  }
+-  const stop = () => {
+-    closed = true
+-    pending.clear()
+-    sources.forEach((source) => source.close())
+-  }
+-  const stream = new ReadableStream<Uint8Array>({
+-    async start(controller) {
+-      const send = (event: unknown) => {
+-        if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+-      }
+-      send({ id: uuid(), type: "server.connected", data: {} })
+-      for (const agent of await agents().catch(() => [] as Agent[])) {
+-        if (closed) break
+-        const source = new EventSource(`${BRIDGE}/agents/${agent.directory}/events`, { withCredentials: true })
+-        source.addEventListener("refetch", (event) => {
+-          if (closed) return
+-          let hint: RefetchHint = {}
+-          try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
+-          const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
+-            ? hint.resource_id : undefined
+-          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
+-          if (!target || queued.ids.size >= 200) queued.all = true
+-          else queued.ids.add(target)
+-          pending.set(agent.directory, queued)
+-          // Microtask batches an event burst; one request sequence per directory is in flight.
+-          queueMicrotask(() => void drain(agent.directory, send))
+-        })
+-        sources.push(source)
+-      }
+-      signal.addEventListener("abort", () => { if (!closed) { stop(); controller.close() } }, { once: true })
+-      if (signal.aborted && !closed) { stop(); controller.close() }
+-    },
+-    cancel() { stop() },
+-  })
+-  return new Response(stream, { headers: { "content-type": "text/event-stream" } })
+-}
+-// Ids already announced per session: a refetch announces only new ones; the client then
+-// fetches each by id from the owner view (no synthesized token stream, no replay of commands).
+-const announced = new Map<string, Set<string>>()
+-async function refresh(directory: string, send: (event: unknown) => void, targets?: Set<string>) {
+-  for (const row of await sessions(directory).catch(() => [] as SessionRow[])) {
+-    const base = { created: Date.now(), location: { directory }, durable: { aggregateID: row.id, seq: row.version, version: 1 } }
+-    send({ ...base, id: uuid(), type: "session.updated", data: { sessionID: row.id, info: sessionEventInfo(directory, row) } })
+-    if (activeSessions.get(directory)?.id !== row.id || (targets && !targets.has(row.id))) continue
+-    const view = await transcript(directory, row.id).catch(() => undefined)
+-    if (!view) continue
+-    const known = announced.get(row.id) ?? new Set<string>()
+-    announced.set(row.id, known)
+-    for (const message of messages(view)) {
+-      const id = String(message.id)
+-      const key = id + ":" + JSON.stringify(message).length
+-      if (known.has(key)) continue
+-      known.add(key)
+-      send({ ...base, id: uuid(), type: "session.input.promoted", data: { sessionID: row.id, inputID: id } })
+-    }
+-    send({ ...base, id: uuid(), type: running(view) ? "session.execution.started" : "session.execution.succeeded", data: { sessionID: row.id } })
+-  }
+-}
+-
+-// ---- no private browser persistence: history/context/settings live only in this page ---------
+-class PageStorage implements Storage {
+-  #map = new Map<string, string>()
+-  get length() { return this.#map.size }
+-  clear() { this.#map.clear() }
+-  getItem(key: string) { return this.#map.get(key) ?? null }
+-  key(index: number) { return [...this.#map.keys()][index] ?? null }
+-  removeItem(key: string) { this.#map.delete(key) }
+-  setItem(key: string, value: string) { this.#map.set(String(key), String(value)) }
+-}
+-export const pageStorage: Storage = new PageStorage()
+-const blobs = new Map<string, Blob>()
+-export const pageDraftDriver = {
+-  get: async (key: string) => pageStorage.getItem("draft:" + key),
+-  set: async (key: string, value: string) => pageStorage.setItem("draft:" + key, value),
+-  remove: async (key: string) => pageStorage.removeItem("draft:" + key),
+-  putBlob: async (blob: Blob) => { const id = uuid(); blobs.set(id, blob); return id },
+-  getBlob: async (id: string) => blobs.get(id) ?? null,
+-}
+-// The platform catalogue is the list of projects: every allowed agent, never a local folder.
+-export async function catalogueDirectories(): Promise<string[]> {
+-  return (await agents()).map((agent) => agent.directory)
+-}
++// AI Agent Platform adapter: the native client talks to the platform bridge `aw-opencode/1`
++// (/api/v1/opencode) through this fetch. No request reaches a native OpenCode server; routes
++// the platform does not offer answer empty or "not available". Ordinary conversation only:
++// tickets and permission decisions stay in the platform panel (`/`).
++// The native client resolves absolute paths against its server URL: it is this origin, and
++// every request of the native SDK is answered here (platform.fetch), never sent over the network.
++export const VIRTUAL_SERVER = location.origin
++const BRIDGE = "/api/v1/opencode"
++const VERSION = "1.19.3"
++
++
++type Scope = Record<string, string | null | undefined>
++type Agent = { directory: string; scope: Scope; label: string; profile_version: number; active_runtime: boolean }
++type SessionRow = {
++  id: string; scope: Scope; title: string; version: number; state: string
++  last_sequence: number; processed_sequence: number; created_at?: string; updated_at?: string
++}
++type Entry = { sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null }
++type Progress = { state: string; since: string }
++type Draft = { scope: Scope; utterance_id: string; version: number; revision: number; text: string | null; withheld: boolean; acknowledgeable: boolean }
++type Transcript = {
++  scope: Scope; session_id: string; session_version: number; state: string; title: string
++  created_at?: string; updated_at?: string
++  processed_sequence?: number; pending_reply?: Draft | null; entries: Entry[]; checked_at: string
++  progress?: Progress | null; waiting_reason?: string | null; invalidated_reason?: string | null
++  open_ticket_ids?: string[]
++}
++
++const json = (body: unknown, status = 200) =>
++  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
++const unavailable = (path: string) => json({ name: "AW_NOT_AVAILABLE", data: { message: "Недоступно в рабочем окне платформы", path } }, 501)
++const refused = (message: string) => json({ name: "AW_REFUSED", data: { message } }, 403)
++const ms = (value?: string | null) => {
++  const parsed = value ? Date.parse(value) : 0
++  return Number.isFinite(parsed) ? parsed : 0
++}
++const stable = (scope: Scope): Scope => ({
++  workspace_id: scope.workspace_id, persona_id: scope.persona_id, memory_space_id: scope.memory_space_id, memory_mode: scope.memory_mode,
++})
++const uuid = () => crypto.randomUUID()
++
++// ---- platform session (operator login lives in the panel) --------------------------------------
++let csrf: Promise<string> | null = null
++function token(): Promise<string> {
++  csrf ??= fetch("/api/v1/auth/session", { credentials: "same-origin", cache: "no-store" }).then(async (response) => {
++    if (response.status === 401) {
++      location.assign("/")
++      throw new Error("AW_LOGIN_REQUIRED")
++    }
++    const body = (await response.json()) as { csrf_token: string }
++    return body.csrf_token
++  })
++  return csrf
++}
++async function bridge<T>(path: string, body?: unknown): Promise<T> {
++  const headers: Record<string, string> = { accept: "application/json" }
++  if (body !== undefined) {
++    headers["content-type"] = "application/json"
++    headers["x-csrf-token"] = await token()
++  } else await token()
++  const response = await fetch(BRIDGE + path, {
++    method: body === undefined ? "GET" : "POST", credentials: "same-origin", cache: "no-store", headers,
++    body: body === undefined ? undefined : JSON.stringify(body),
++  })
++  if (response.status === 401) { csrf = null; location.assign("/") }
++  if (!response.ok) throw Object.assign(new Error("AW_BRIDGE_" + response.status), { status: response.status, body: await response.text() })
++  return (await response.json()) as T
++}
++
++// ---- owner projections, read fresh each time (no browser persistence) ---------------------------
++async function agents(): Promise<Agent[]> {
++  // Only work memory: ordinary conversation happens there. Test areas stay in the panel
++  // (laboratory); they are not deleted, just not offered in this window.
++  return (await bridge<{ items: Agent[] }>("/agents")).items.filter((agent) => agent.scope.memory_mode === "work")
++}
++const isTest = (agent: Agent) => agent.scope.memory_mode === "test"
++async function agentOf(directory: string | null | undefined): Promise<Agent | undefined> {
++  const all = await agents()
++  return all.find((agent) => agent.directory === directory) ?? (directory ? undefined : all[0])
++}
++const sessionOwner = new Map<string, string>() // session id -> directory, learnt from owner lists
++async function sessions(directory: string): Promise<SessionRow[]> {
++  const rows = (await bridge<{ items: SessionRow[] }>(`/agents/${directory}/sessions?limit=50`)).items
++  for (const row of rows) sessionOwner.set(row.id, directory)
++  return rows
++}
++async function directoryOf(sessionID: string): Promise<string | undefined> {
++  if (sessionOwner.has(sessionID)) return sessionOwner.get(sessionID)
++  for (const agent of await agents()) if ((await sessions(agent.directory)).some((row) => row.id === sessionID)) return agent.directory
++  return undefined
++}
++const activeSessions = new Map<string, { id: string; token: symbol }>()
++// Bound to the rendered route, never to GET/prefetch. No authority or body cache.
++export function watchSession(directory: string, id?: string) {
++  const token = Symbol()
++  if (id) activeSessions.set(directory, { id, token })
++  return () => { if (activeSessions.get(directory)?.token === token) activeSessions.delete(directory) }
++}
++// Settle an older prefetch before the owner's fresh route-entry read.
++export async function refreshViewedSession(reload: (force: boolean) => Promise<unknown> | void) {
++  try { await reload(false) } catch { /* The fresh read below owns the displayed outcome. */ }
++  return reload(true)
++}
++const transcript = (directory: string, sessionID: string) =>
++  bridge<Transcript>(`/agents/${directory}/sessions/${encodeURIComponent(sessionID)}`)
++
++// ---- operator file space: a virtual tree over the managed files owner ---------------------------
++// Path space is /<area>/<logical path> of the platform catalogue. No host path is ever shown or
++// resolved; every read goes through the same owner projection and release checks as the panel.
++const AREAS = ["inbox", "knowledge", "projects", "skills", "exports"] as const
++const UPLOAD_AREAS = ["inbox", "knowledge", "projects"] as const
++type LibraryFile = {
++  id: string; area: string; path: string; title: string; version: number
++  reference: { checksum: string; size_bytes: number; media_type: string }
++}
++const libraryCache = new Map<string, { at: number; files: Promise<LibraryFile[]> }>()
++function library(directory: string): Promise<LibraryFile[]> {
++  const cached = libraryCache.get(directory)
++  if (cached && Date.now() - cached.at < 5000) return cached.files
++  const files = bridge<{ files: LibraryFile[] }>(`/agents/${directory}/files`).then((view) => view.files)
++  libraryCache.set(directory, { at: Date.now(), files })
++  files.catch(() => libraryCache.delete(directory))
++  return files
++}
++const treeNode = (name: string, full: string, type: "file" | "directory") => ({
++  name, path: full, absolute: full, type, ignored: false,
++})
++function treeNodes(files: LibraryFile[], dir: string) {
++  const clean = dir.replace(/^\/+|\/+$/g, "")
++  if (!clean) return AREAS.map((area) => treeNode(area, "/" + area, "directory"))
++  const segments = clean.split("/")
++  const [area, ...rest] = segments
++  const wanted = rest.join("/")
++  const dirs = new Set<string>()
++  const rows: ReturnType<typeof treeNode>[] = []
++  for (const file of files) {
++    if (file.area !== area) continue
++    const inner = wanted ? (file.path.startsWith(wanted + "/") ? file.path.slice(wanted.length + 1) : null) : file.path
++    if (inner === null) continue
++    const slash = inner.indexOf("/")
++    if (slash === -1) rows.push(treeNode(inner, "/" + file.area + "/" + file.path, "file"))
++    else if (!dirs.has(inner.slice(0, slash))) {
++      const name = inner.slice(0, slash)
++      dirs.add(name)
++      rows.push(treeNode(name, "/" + file.area + "/" + file.path.slice(0, file.path.length - inner.length + slash), "directory"))
++    }
++  }
++  return rows.sort((a, b) => a.name.localeCompare(b.name))
++}
++const locationOf = (directory: string) => ({ directory, project: { id: directory, directory } })
++async function fileContent(directory: string, virtualPath: string): Promise<Response> {
++  const clean = virtualPath.replace(/^\/+/, "")
++  const slash = clean.indexOf("/")
++  const area = slash === -1 ? "" : clean.slice(0, slash)
++  const filePath = slash === -1 ? "" : clean.slice(slash + 1)
++  const found = (await library(directory)).find((f) => f.area === area && f.path === filePath)
++  if (!found) return json({ name: "NotFound" }, 404)
++  const view = await bridge<{ text: string | null; withheld: boolean; truncated: boolean; media_type: string }>(
++    `/agents/${directory}/files/${encodeURIComponent(found.id)}`,
++  )
++  if (view.withheld || view.text === null) {
++    // A closed basis or a non-text file: the viewer shows the card facts, never raw bytes.
++    return json({ type: "binary", content: "", mimeType: found.reference.media_type })
++  }
++  return json({
++    type: "text",
++    content: view.truncated
++      ? view.text + "\n\n… платформа: текст обрезан, полный файл — у владельца."
++      : view.text,
++    mimeType: found.reference.media_type,
++  })
++}
++const uploadName = (value: string) =>
++  value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 200) || "file"
++export type UploadedFile = { area: string; path: string; file_id: string; version: number }
++// Attachments of the operator: uploaded into the chosen platform area before sending. The message
++// itself references the file; the person reads it with its own file tools under its own rights.
++export async function awUploadFile(name: string, mime: string, bytes: Blob): Promise<UploadedFile | null> {
++  const area = window.prompt(`Область платформы для «${name}»: ${UPLOAD_AREAS.join(" / ")}`, "inbox")?.trim().toLowerCase()
++  if (!area) return null
++  if (!UPLOAD_AREAS.includes(area as (typeof UPLOAD_AREAS)[number])) {
++    window.alert(`Недопустимая область «${area}». Доступны: ${UPLOAD_AREAS.join(", ")}.`)
++    return null
++  }
++  const agent = await agentOf(undefined)
++  if (!agent) return null
++  const query = new URLSearchParams({
++    workspace_id: String(agent.scope.workspace_id ?? ""),
++    persona_id: String(agent.scope.persona_id ?? ""),
++    memory_space_id: String(agent.scope.memory_space_id ?? ""),
++    memory_mode: String(agent.scope.memory_mode ?? ""),
++    area,
++    name: uploadName(name),
++    title: name,
++    media_type: mime || "application/octet-stream",
++  })
++  const response = await fetch(`/api/v1/workplace-files/upload?${query}`, {
++    method: "POST", credentials: "same-origin", cache: "no-store",
++    headers: { "content-type": "application/octet-stream", "x-csrf-token": await token() },
++    body: bytes,
++  })
++  if (response.status === 401) { csrf = null; location.assign("/"); return null }
++  if (!response.ok) throw Object.assign(new Error("AW_UPLOAD_" + response.status), { status: response.status })
++  const card = (await response.json()) as { id: string; version: number }
++  libraryCache.delete(agent.directory)
++  return { area, path: uploadName(name), file_id: card.id, version: card.version }
++}
++
++// ---- native shapes ------------------------------------------------------------------------------
++const project = (agent: Agent) => ({
++  id: agent.directory, worktree: agent.directory, name: isTest(agent) ? `${agent.label} · тест` : agent.label,
++  time: { created: 0, updated: 0 }, sandboxes: [],
++})
++const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
++const sessionInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
++  id: row.id, projectID: directory, title: row.title, cost: 0, tokens,
++  time: { created: ms(row.created_at), updated: ms(row.updated_at) }, location: { directory },
++})
++// Session events still carry the legacy (v1) session shape.
++const sessionEventInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
++  id: row.id, slug: row.id, projectID: directory, directory, title: row.title, version: VERSION,
++  time: { created: ms(row.created_at), updated: ms(row.updated_at) },
++})
++const model = { id: "platform", providerID: "aw" }
++const GATEWAY_PROVIDER = { id: "aw", name: "AI Agent Platform", package: "aw" }
++const GATEWAY_MODEL = {
++  id: "platform", modelID: "platform", providerID: "aw", name: "Модель платформы",
++  capabilities: { tools: false, input: ["text"], output: ["text"] }, variants: [], time: { released: 0 },
++  cost: [], status: "active", enabled: true, limit: { context: 16000, output: 1024 },
++}
++const personAgent = (agent: Agent) => ({
++  id: agent.label, name: agent.label, model, mode: "primary", hidden: false, permissions: [],
++  description: "Личность платформы: её память, права и бюджет", request: { settings: {}, headers: {}, body: {} },
++})
++// Native part caches are shared across sessions of a directory: every owner id is session-scoped.
++const scopedID = (view: Transcript, id: string) => `${view.session_id}-${id}`
++const replyID = (view: Transcript, sequence: number, n = 1) => scopedID(view, n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
++const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
++  id, type: "assistant", agent: view.scope.persona_id ?? "", model,
++  time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
++  content: [{ type: "text", text }],
++})
++// The platform's own words about the current turn: a system note, never the person's text.
++const PROGRESS: Record<string, string> = {
++  waiting_start: "Сообщение сохранено и ждёт, пока эта личность будет запущена (START в панели).",
++  queued: "Сообщение принято: ход ждёт своей очереди.",
++  running: "Агент выполняет рабочий ход.",
++  failed: "Рабочий ход завершился ошибкой. Повторно ничего само не отправится: напишите сообщение ещё раз.",
++  cancelled: "Рабочий ход отменён (STOP или отзыв допуска). Ответа нет.",
++  unknown: "Исход рабочего хода не подтверждён; платформа не повторяет его вслепую.",
++}
++// Client message ids of messages sent from this page (page lifetime only, never persisted).
++const clientIDs = new Map<string, string>()
++function messages(view: Transcript) {
++  const rows: Record<string, unknown>[] = []
++  let lastOperator = 0
++  const replies = new Map<number, number>()
++  for (const entry of view.entries) {
++    const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
++    if (entry.speaker === "operator") {
++      lastOperator = entry.sequence
++      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
++    } else {
++      const answered = entry.reply_to_sequence ?? entry.sequence
++      const n = (replies.get(answered) ?? 0) + 1
++      replies.set(answered, n)
++      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
++    }
++  }
++  // A reply after a ticket answer is a further reply to the same operator message.
++  const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
++  const draft = view.pending_reply
++  if (draft && !draft.withheld && draft.text) {
++    rows.push(assistant(view, next, draft.text, view.checked_at, true))
++    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, next)
++  } else if (view.invalidated_reason && !lastOperator) {
++    // The stopped conversation's history is no longer shown: a platform placeholder in the
++    // operator's place and the stop notice in the reply's place (both platform words).
++    rows.push({ id: scopedID(view, `stopped-${view.session_version}`), type: "user", time: { created: ms(view.checked_at) },
++      text: "Сообщения этого разговора больше не показываются." })
++    rows.push(notice(view, scopedID(view, `stopped-${view.session_version}-notice`), STOPPED, view.checked_at))
++  } else if (view.invalidated_reason || view.waiting_reason === "message_unavailable") {
++    rows.push(notice(view, next, STOPPED, view.checked_at))
++  } else if (view.open_ticket_ids?.length) {
++    // The person asked the operator in a ticket; answers and decisions live in the panel.
++    rows.push(notice(view, next, waitingTicket(view.open_ticket_ids[0]), view.checked_at))
++  } else if (view.progress && NOTICE.has(view.progress.state) && PROGRESS[view.progress.state]) {
++    // A platform notice in the reply's place (never the person's words); a later reply for
++    // the same operator message takes this place. Queued/running use the native busy state.
++    rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since))
++  }
++  return rows
++}
++const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
++const waitingTicket = (ticketID: string) =>
++  `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets?ticket=${encodeURIComponent(ticketID)} — разговор продолжится сам.`
++const STOPPED = "Платформа: разговор остановлен — сообщение оператора отозвано, удалено или истекло и не исполнялось. Начните новый разговор."
++const notice = (view: Transcript, id: string, text: string, at: string) => ({
++  id, type: "assistant", agent: view.scope.persona_id ?? "", model, time: { created: ms(at), completed: ms(at) },
++  finish: "error", content: [], error: { type: "PlatformNotice", message: text },
++})
++const running = (view: Transcript) => view.progress?.state === "running" || view.progress?.state === "queued"
++
++// ---- receipt: ACK only after the reply is really shown in a visible tab --------------------------
++type Receipt = { draft: Draft; sessionID: string; messageID: string }
++type RenderedReply = { directory: string; sessionID: string; messageID: string; text?: string }
++const renderedReplies = new Map<HTMLElement, () => RenderedReply>()
++const receipts = new Map<string, Receipt>()
++const attemptedReceipts = new Set<string>()
++let receiptTimer: ReturnType<typeof setInterval> | undefined
++let checkingReceipts = false
++export function registerRenderedReply(element: HTMLElement, read: () => RenderedReply) {
++  renderedReplies.set(element, read)
++  return () => renderedReplies.delete(element)
++}
++export function resetReceiptState() {
++  if (receiptTimer !== undefined) clearInterval(receiptTimer)
++  receiptTimer = undefined
++  receipts.clear()
++  attemptedReceipts.clear()
++  renderedReplies.clear()
++}
++window.addEventListener("pagehide", resetReceiptState)
++function watchReceipt(draft: Draft, sessionID: string, messageID: string) {
++  const key = draft.utterance_id + ":" + draft.revision
++  if (draft.scope.memory_mode !== "work" || attemptedReceipts.has(key) || receipts.size >= 128) return
++  for (const [old, item] of receipts) if (item.draft.utterance_id === draft.utterance_id) receipts.delete(old)
++  receipts.set(key, { draft, sessionID, messageID })
++  receiptTimer ??= setInterval(() => void checkReceipts().catch(() => {}), 1000)
++}
++function visibleReply(element: HTMLElement): Promise<boolean> {
++  if (document.visibilityState !== "visible" || !element.isConnected
++    || element.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) === false) return Promise.resolve(false)
++  return new Promise(resolve => {
++    const finish = (value: boolean) => { clearTimeout(timer); observer.disconnect(); resolve(value) }
++    const observer = new IntersectionObserver(entries => finish(entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.6)), { threshold: [0, 0.6, 1] })
++    const timer = setTimeout(() => finish(false), 250)
++    observer.observe(element)
++  })
++}
++export async function checkReceipts() {
++  if (checkingReceipts || document.visibilityState !== "visible" || !receipts.size) return
++  checkingReceipts = true
++  try {
++    const allowed = await agents()
++    for (const [key, item] of receipts) {
++      const { draft, sessionID, messageID } = item
++      const dir = allowed.find(agent => ["workspace_id", "persona_id", "memory_space_id", "memory_mode"].every(field => agent.scope[field] === draft.scope[field]))?.directory
++      if (!dir || !draft.text) continue
++      for (const [element, read] of renderedReplies) {
++        if (!element.isConnected) { renderedReplies.delete(element); continue }
++        const matches = () => {
++          const shown = read()
++          return shown.directory === dir && shown.sessionID === sessionID && shown.messageID === messageID && shown.text === draft.text
++        }
++        if (!matches() || !await visibleReply(element)) continue
++        const fresh = await transcript(dir, sessionID)
++        const latest = fresh.pending_reply
++        if (receipts.get(key) !== item || !latest?.acknowledgeable || latest.withheld
++          || latest.utterance_id !== draft.utterance_id || latest.revision !== draft.revision
++          || latest.version !== draft.version || latest.text !== draft.text) continue
++        if (!matches() || !await visibleReply(element) || attemptedReceipts.has(key)) continue
++        attemptedReceipts.add(key)
++        if (attemptedReceipts.size > 512) attemptedReceipts.delete(attemptedReceipts.values().next().value!)
++        receipts.delete(key)
++        // One automatic attempt; request identity also makes an explicit replay idempotent.
++        // Failed/unknown ACK stays pending with the owner, never becomes delivered locally.
++        await bridge(`/agents/${dir}/commands`, {
++          type: "dialogue.acknowledge", request_id: `oc-receipt-${draft.utterance_id}-${draft.revision}`,
++          scope: latest.scope, target: latest.utterance_id, expected_version: latest.version, arguments: { revision: latest.revision },
++        }).catch(() => {})
++        break
++      }
++    }
++  } finally {
++    checkingReceipts = false
++  }
++}
++
++// ---- routes -------------------------------------------------------------------------------------
++const EMPTY_LISTS = new Set(["/api/agent", "/api/command", "/api/model", "/api/model/default", "/api/provider", "/api/mcp",
++  "/api/mcp/resource", "/api/plugin", "/api/pty", "/api/permission/request", "/api/question/request", "/api/form/request",
++  "/api/reference", "/api/integration"])
++function queryDirectory(url: URL): string | null {
++  for (const [key, value] of url.searchParams) if (key === "directory" || key.endsWith("directory]") || key.endsWith(".directory")) return value
++  return null
++}
++async function route(method: string, path: string, url: URL, body: () => Promise<Record<string, unknown>>): Promise<Response> {
++  if (path === "/global/health") return json({}, 404) // not the legacy protocol
++  if (path === "/api/health") return json({ healthy: true, version: VERSION, pid: 0 })
++  if (path === "/api/project" && method === "GET") return json((await agents()).map(project))
++  if (path === "/api/project/current") {
++    const agent = await agentOf(url.searchParams.get("directory"))
++    return agent ? json({ id: agent.directory, directory: agent.directory }) : json({ name: "NotFound" }, 404)
++  }
++  if (path === "/api/session" && method === "GET") {
++    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
++    if (!directory) return json({ data: [], cursor: {} })
++    return json({ data: (await sessions(directory)).map((row) => sessionInfo(directory, row)), cursor: {} })
++  }
++  if (path === "/api/session" && method === "POST") {
++    const input = await body()
++    const location = input.location as { directory?: string } | undefined
++    const agent = await agentOf(location?.directory ?? url.searchParams.get("directory"))
++    if (!agent) return json({ name: "NotFound" }, 404)
++    if (isTest(agent)) return refused("Рабочий разговор ведётся только в рабочей памяти личности. Выберите её проект без пометки «тест».")
++    const receipt = await bridge<{ resource_id: string }>(`/agents/${agent.directory}/commands`, {
++      type: "work.session.open", request_id: uuid(), scope: stable(agent.scope), target: "work",
++      arguments: { schema_id: "work.session.open-args", data: { title: "Новый разговор" } },
++    })
++    sessionOwner.set(receipt.resource_id, agent.directory)
++    return json({ data: sessionInfo(agent.directory, { id: receipt.resource_id, title: "Новый разговор" }) })
++  }
++  if (method === "GET" && path === "/api/session/active") return json({ data: {} })
++  const one = /^\/api\/session\/([^/]+)(\/message|\/prompt|\/rename)?(?:\/([^/]+))?$/.exec(path)
++  if (one) {
++    const sessionID = decodeURIComponent(one[1])
++    const directory = await directoryOf(sessionID)
++    if (!directory) return json({ name: "NotFound" }, 404)
++    if (!one[2] && method === "GET") {
++      const row = (await sessions(directory)).find(row => row.id === sessionID)
++      return row ? json({ data: sessionInfo(directory, row) }) : json({ name: "NotFound" }, 404)
++    }
++    const view = await transcript(directory, sessionID)
++    if (one[2] === "/rename" && method === "POST") {
++      const input = await body()
++      if (Object.keys(input).some((key) => key !== "title") || typeof input.title !== "string" || !input.title.trim() || input.title.length > 512)
++        return json({ name: "AW_INVALID_TITLE" }, 400)
++      await bridge(`/agents/${directory}/commands`, {
++        type: "work.session.rename", request_id: uuid(), scope: stable(view.scope), target: sessionID,
++        expected_version: view.session_version,
++        arguments: { schema_id: "work.session.rename-args", data: { session_id: sessionID, title: input.title } },
++      })
++      return new Response(null, { status: 204 })
++    }
++    // Pages are newest first (the client reverses them into reading order).
++    if (one[2] === "/message" && !one[3] && method === "GET") return json({ data: messages(view).toReversed(), cursor: {} })
++    if (one[3] && method === "GET") {
++      const found = messages(view).find((row) => row.id === decodeURIComponent(one[3]))
++      return found ? json({ data: found }) : json({ name: "NotFound" }, 404)
++    }
++    if (one[2] === "/prompt" && method === "POST") {
++      const input = await body()
++      const text = String(input.text ?? "")
++      const requestID = String(input.id ?? uuid())
++      // The owner stores it under the next sequence (CAS on expected_version). The client already
++      // shows it under its own id: keep that id for this page, so it is not shown twice.
++      const send = (current: Transcript, request: string) => bridge(`/agents/${directory}/commands`, {
++        type: "work.session.message", request_id: request, scope: stable(current.scope), target: sessionID,
++        expected_version: current.session_version,
++        arguments: { schema_id: "work.session.message-args", data: { session_id: sessionID, text } },
++      })
++      const last = (current: Transcript) => Math.max(0, ...current.entries.map((entry) => entry.sequence))
++      let sequence = last(view) + 1
++      try {
++        await send(view, requestID)
++      } catch (error) {
++        if ((error as { status?: number }).status !== 409) throw error
++        // The session moved (e.g. a receipt landed) between reading and sending. Read again:
++        // if the message is already stored, do not send it twice; else one retry, new version.
++        const fresh = await transcript(directory, sessionID)
++        const stored = fresh.entries.findLast((entry) => entry.speaker === "operator")
++        if (!(stored && stored.sequence >= sequence && stored.text === text)) {
++          await send(fresh, `${requestID}:v${fresh.session_version}`)
++          sequence = last(fresh) + 1
++        } else sequence = stored.sequence
++      }
++      const id = input.id ? requestID : `msg-${sequence}`
++      clientIDs.set(`${sessionID}:${sequence}`, id)
++      return json({ data: { admittedSeq: 0, id, sessionID, timeCreated: Date.now(), type: "user", data: { text }, delivery: "queue" } })
++    }
++  }
++  // The operator file space: a virtual tree over the platform's managed files owner. Path space
++  // is /<area>/<logical path>; listing and search read the owner projection, content goes through
++  // the same owner release checks as the panel. Binary files answer as binary cards, not raw bytes.
++  if (path === "/file" && method === "GET") {
++    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
++    if (!directory) return json([])
++    return json(treeNodes(await library(directory), url.searchParams.get("path") ?? ""))
++  }
++  if (path === "/file/content" && method === "GET") {
++    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
++    if (!directory) return json({ name: "NotFound" }, 404)
++    return fileContent(directory, url.searchParams.get("path") ?? "")
++  }
++  if (path === "/api/fs/list" && method === "GET") {
++    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
++    const rows = directory ? treeNodes(await library(directory), url.searchParams.get("path") ?? "") : []
++    return json({ location: locationOf(directory ?? ""), data: rows.map((row) => ({ path: row.path, type: row.type })) })
++  }
++  if (path === "/api/fs/find" && method === "GET") {
++    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
++    if (!directory) return json({ location: locationOf(""), data: [] })
++    const needle = (url.searchParams.get("query") ?? "").toLowerCase()
++    const limit = Number(url.searchParams.get("limit") ?? 20) || 20
++    const matches = (await library(directory))
++      .filter((f) => needle && (f.path.toLowerCase().includes(needle) || f.title.toLowerCase().includes(needle)))
++      .slice(0, limit)
++      .map((f) => ({ path: "/" + f.area + "/" + f.path, type: "file" as const }))
++    return json({ location: locationOf(directory), data: matches })
++  }
++  // Lists the platform does not provide answer empty, never a native fallback.
++  if (method === "GET" && path === "/lsp") return json([])
++  if (method === "GET" && EMPTY_LISTS.has(path)) {
++    const agent = await agentOf(queryDirectory(url))
++    const directory = agent?.directory ?? ""
++    const location = { directory, project: { id: directory, directory } }
++    // The one "agent" is the selected platform person itself (never Build/Plan); the one
++    // "model" is the platform gateway, whose real assignment stays in the platform.
++    if (path === "/api/agent") return json({ location, data: agent ? [personAgent(agent)] : [] })
++    if (path === "/api/model") return json({ location, data: [GATEWAY_MODEL] })
++    if (path === "/api/model/default") return json({ location, data: GATEWAY_MODEL })
++    if (path === "/api/provider") return json({ location, data: [GATEWAY_PROVIDER] })
++    if (path === "/api/mcp/resource") return json({ location, data: { resources: [], templates: [] } })
++    return json({ location, data: [] })
++  }
++  return unavailable(path)
++}
++
++async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
++  const request = input instanceof Request ? input : new Request(input, init)
++  const url = new URL(request.url)
++  if (url.origin !== VIRTUAL_SERVER || url.pathname.startsWith("/api/v1/")) return json({ error: "AW_OUTSIDE_BRIDGE" }, 403)
++  const path = url.pathname
++  if (path === "/api/event") return events(request.signal)
++  try {
++    const response = await route(request.method, path, url, async () => (await request.json().catch(() => ({}))) as Record<string, unknown>)
++    return response
++  } catch (error) {
++    const status = (error as { status?: number }).status ?? 502
++    return json({ name: "AW_BRIDGE_ERROR", data: { status } }, status === 409 ? 409 : status)
++  }
++}
++
++// Platform.fetch is `typeof fetch`, which under Bun types also carries `preconnect`. The bridge opens
++// no connections of its own, so preconnect is a deliberate no-op rather than a cast or a looser type.
++export const awFetch: typeof globalThis.fetch = Object.assign(bridgeFetch, { preconnect: () => {} })
++
++// ---- events: owner notifications become "refetch" signals for the native store ------------------
++type RefetchHint = { owner_event?: string; resource_id?: string }
++function events(signal: AbortSignal): Response {
++  const encoder = new TextEncoder()
++  const sources: EventSource[] = []
++  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
++  const running = new Set<string>()
++  let closed = false
++  const drain = async (directory: string, send: (event: unknown) => void) => {
++    if (running.has(directory) || closed) return
++    running.add(directory)
++    try {
++      while (!closed && pending.has(directory)) {
++        const hint = pending.get(directory)!
++        pending.delete(directory)
++        try { await refresh(directory, send, hint.all ? undefined : hint.ids) }
++        catch { /* Continue the already queued tail; never replay a command. */ }
++      }
++    }
++    finally { running.delete(directory) }
++  }
++  const stop = () => {
++    closed = true
++    pending.clear()
++    sources.forEach((source) => source.close())
++  }
++  const stream = new ReadableStream<Uint8Array>({
++    async start(controller) {
++      const send = (event: unknown) => {
++        if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
++      }
++      send({ id: uuid(), type: "server.connected", data: {} })
++      for (const agent of await agents().catch(() => [] as Agent[])) {
++        if (closed) break
++        const source = new EventSource(`${BRIDGE}/agents/${agent.directory}/events`, { withCredentials: true })
++        source.addEventListener("refetch", (event) => {
++          if (closed) return
++          let hint: RefetchHint = {}
++          try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
++          const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
++            ? hint.resource_id : undefined
++          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
++          if (!target || queued.ids.size >= 200) queued.all = true
++          else queued.ids.add(target)
++          pending.set(agent.directory, queued)
++          // Microtask batches an event burst; one request sequence per directory is in flight.
++          queueMicrotask(() => void drain(agent.directory, send))
++        })
++        sources.push(source)
++      }
++      signal.addEventListener("abort", () => { if (!closed) { stop(); controller.close() } }, { once: true })
++      if (signal.aborted && !closed) { stop(); controller.close() }
++    },
++    cancel() { stop() },
++  })
++  return new Response(stream, { headers: { "content-type": "text/event-stream" } })
++}
++// Ids already announced per session: a refetch announces only new ones; the client then
++// fetches each by id from the owner view (no synthesized token stream, no replay of commands).
++const announced = new Map<string, Set<string>>()
++async function refresh(directory: string, send: (event: unknown) => void, targets?: Set<string>) {
++  libraryCache.delete(directory)
++  for (const row of await sessions(directory).catch(() => [] as SessionRow[])) {
++    const base = { created: Date.now(), location: { directory }, durable: { aggregateID: row.id, seq: row.version, version: 1 } }
++    send({ ...base, id: uuid(), type: "session.updated", data: { sessionID: row.id, info: sessionEventInfo(directory, row) } })
++    if (activeSessions.get(directory)?.id !== row.id || (targets && !targets.has(row.id))) continue
++    const view = await transcript(directory, row.id).catch(() => undefined)
++    if (!view) continue
++    const known = announced.get(row.id) ?? new Set<string>()
++    announced.set(row.id, known)
++    for (const message of messages(view)) {
++      const id = String(message.id)
++      const key = id + ":" + JSON.stringify(message).length
++      if (known.has(key)) continue
++      known.add(key)
++      send({ ...base, id: uuid(), type: "session.input.promoted", data: { sessionID: row.id, inputID: id } })
++    }
++    send({ ...base, id: uuid(), type: running(view) ? "session.execution.started" : "session.execution.succeeded", data: { sessionID: row.id } })
++  }
++}
++
++// ---- no private browser persistence: history/context/settings live only in this page ---------
++class PageStorage implements Storage {
++  #map = new Map<string, string>()
++  get length() { return this.#map.size }
++  clear() { this.#map.clear() }
++  getItem(key: string) { return this.#map.get(key) ?? null }
++  key(index: number) { return [...this.#map.keys()][index] ?? null }
++  removeItem(key: string) { this.#map.delete(key) }
++  setItem(key: string, value: string) { this.#map.set(String(key), String(value)) }
++}
++export const pageStorage: Storage = new PageStorage()
++const blobs = new Map<string, Blob>()
++export const pageDraftDriver = {
++  get: async (key: string) => pageStorage.getItem("draft:" + key),
++  set: async (key: string, value: string) => pageStorage.setItem("draft:" + key, value),
++  remove: async (key: string) => pageStorage.removeItem("draft:" + key),
++  putBlob: async (blob: Blob) => { const id = uuid(); blobs.set(id, blob); return id },
++  getBlob: async (id: string) => blobs.get(id) ?? null,
++}
++// The platform catalogue is the list of projects: every allowed agent, never a local folder.
++export async function catalogueDirectories(): Promise<string[]> {
++  return (await agents()).map((agent) => agent.directory)
++}
+diff --git a/packages/app/src/components/prompt-input/attachments.ts b/packages/app/src/components/prompt-input/attachments.ts
+index 6f3ef57..d58def6 100644
+--- a/packages/app/src/components/prompt-input/attachments.ts
++++ b/packages/app/src/components/prompt-input/attachments.ts
+@@ -1,213 +1,235 @@
+-import { onMount } from "solid-js"
+-import { makeEventListener } from "@solid-primitives/event-listener"
+-import { showToast } from "@/utils/toast"
+-import { type ContentPart, type ImageAttachmentPart, type usePrompt } from "@/context/prompt"
+-import { useLanguage } from "@/context/language"
+-import { usePlatform } from "@/context/platform"
+-import { uuid } from "@/utils/uuid"
+-import { getCursorPosition } from "./editor-dom"
+-import { createBlobReference, type DraftStore } from "@/utils/draft-store"
+-import { attachmentMime } from "./files"
+-import { normalizePaste, pasteMode } from "./paste"
+-
+-type PromptTarget = Pick<ReturnType<ReturnType<typeof usePrompt>["capture"]>, "current" | "cursor" | "set">
+-type AttachmentTarget = { prompt: PromptTarget; cursor: number | undefined }
+-
+-type PromptAttachmentsCoreInput = {
+-  capture: () => PromptTarget
+-  editor: () => HTMLDivElement | undefined
+-  focusEditor?: () => void
+-  addPart?: (part: ContentPart) => boolean
+-  warn?: () => void
+-  readClipboardImage?: () => Promise<File | null>
+-  getPathForFile?: (file: File) => string
+-  draftStore?: DraftStore
+-}
+-
+-export type PromptAttachmentsInput = {
+-  prompt: ReturnType<typeof usePrompt>
+-  editor: () => HTMLDivElement | undefined
+-  isDialogActive: () => boolean
+-  setDraggingType: (type: "image" | "@mention" | null) => void
+-  focusEditor: () => void
+-  addPart: (part: ContentPart) => boolean
+-  readClipboardImage?: () => Promise<File | null>
+-  getPathForFile?: (file: File) => string
+-}
+-
+-export function createPromptAttachmentsCore(input: PromptAttachmentsCoreInput) {
+-  const capture = (): AttachmentTarget | undefined => {
+-    const prompt = input.capture()
+-    const editor = input.editor()
+-    if (!editor) return
+-    return { prompt, cursor: prompt.cursor() ?? getCursorPosition(editor) }
+-  }
+-
+-  const add = async (file: File, toast = true, target = capture()) => {
+-    if (!target) return false
+-    const mime = await attachmentMime(file)
+-    if (!mime) {
+-      if (toast) input.warn?.()
+-      return false
+-    }
+-
+-    const attachment: ImageAttachmentPart = {
+-      type: "image",
+-      id: uuid(),
+-      filename: file.name,
+-      sourcePath: input.getPathForFile?.(file) || undefined,
+-      mime,
+-      blob: input.draftStore ? await input.draftStore.putBlob(file) : await createBlobReference(file),
+-    }
+-    target.prompt.set([...target.prompt.current(), attachment], target.cursor)
+-    return true
+-  }
+-
+-  const addAttachment = (file: File) => add(file)
+-
+-  const addAttachments = async (files: File[], toast = true, target = capture()) => {
+-    let found = false
+-
+-    for (const file of files) {
+-      const ok = await add(file, false, target)
+-      if (ok) found = true
+-    }
+-
+-    if (!found && files.length > 0 && toast) input.warn?.()
+-    return found
+-  }
+-
+-  const addClipboardAttachment = async (pending: Promise<File | null>, target = capture()) => {
+-    const file = await pending
+-    if (!file) return false
+-    return add(file, true, target)
+-  }
+-
+-  const removeAttachment = (id: string) => {
+-    const target = input.capture()
+-    const current = target.current()
+-    const next = current.filter((part) => part.type !== "image" || part.id !== id)
+-    target.set(next, target.cursor())
+-  }
+-
+-  const handlePaste = async (event: ClipboardEvent) => {
+-    const clipboardData = event.clipboardData
+-    if (!clipboardData) return
+-    const target = capture()
+-    if (!target) return
+-
+-    event.preventDefault()
+-    event.stopPropagation()
+-
+-    const files = Array.from(clipboardData.items).flatMap((item) => {
+-      if (item.kind !== "file") return []
+-      const file = item.getAsFile()
+-      return file ? [file] : []
+-    })
+-
+-    if (files.length > 0) {
+-      await addAttachments(files, true, target)
+-      return
+-    }
+-
+-    const plainText = clipboardData.getData("text/plain") ?? ""
+-
+-    // Desktop: Browser clipboard has no images and no text, try platform's native clipboard for images
+-    if (input.readClipboardImage && !plainText) {
+-      if (await addClipboardAttachment(input.readClipboardImage(), target)) return
+-    }
+-
+-    if (!plainText) return
+-
+-    const text = normalizePaste(plainText)
+-
+-    const put = () => {
+-      if (input.addPart?.({ type: "text", content: text, start: 0, end: 0 })) return true
+-      input.focusEditor?.()
+-      return input.addPart?.({ type: "text", content: text, start: 0, end: 0 }) ?? false
+-    }
+-
+-    if (pasteMode(text) === "manual") {
+-      put()
+-      return
+-    }
+-
+-    const inserted = typeof document.execCommand === "function" && document.execCommand("insertText", false, text)
+-    if (inserted) return
+-
+-    put()
+-  }
+-
+-  return {
+-    addAttachment,
+-    addAttachments,
+-    addClipboardAttachment,
+-    removeAttachment,
+-    handlePaste,
+-  }
+-}
+-
+-export function createPromptAttachments(input: PromptAttachmentsInput) {
+-  const language = useLanguage()
+-  const platform = usePlatform()
+-  const attachments = createPromptAttachmentsCore({
+-    ...input,
+-    draftStore: platform.draftStore,
+-    capture: input.prompt.capture,
+-    warn: () => {
+-      showToast({
+-        title: language.t("prompt.toast.pasteUnsupported.title"),
+-        description: language.t("prompt.toast.pasteUnsupported.description"),
+-      })
+-    },
+-  })
+-
+-  const handleGlobalDragOver = (event: DragEvent) => {
+-    if (input.isDialogActive()) return
+-
+-    event.preventDefault()
+-    const hasFiles = event.dataTransfer?.types.includes("Files")
+-    const hasText = event.dataTransfer?.types.includes("text/plain")
+-    if (hasFiles) {
+-      input.setDraggingType("image")
+-    } else if (hasText) {
+-      input.setDraggingType("@mention")
+-    }
+-  }
+-
+-  const handleGlobalDragLeave = (event: DragEvent) => {
+-    if (input.isDialogActive()) return
+-    if (!event.relatedTarget) {
+-      input.setDraggingType(null)
+-    }
+-  }
+-
+-  const handleGlobalDrop = async (event: DragEvent) => {
+-    if (input.isDialogActive()) return
+-
+-    event.preventDefault()
+-    input.setDraggingType(null)
+-
+-    const plainText = event.dataTransfer?.getData("text/plain")
+-    const filePrefix = "file:"
+-    if (plainText?.startsWith(filePrefix)) {
+-      const filePath = plainText.slice(filePrefix.length)
+-      input.focusEditor()
+-      input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
+-      return
+-    }
+-
+-    const dropped = event.dataTransfer?.files
+-    if (!dropped) return
+-
+-    await attachments.addAttachments(Array.from(dropped))
+-  }
+-
+-  onMount(() => {
+-    makeEventListener(document, "dragover", handleGlobalDragOver)
+-    makeEventListener(document, "dragleave", handleGlobalDragLeave)
+-    makeEventListener(document, "drop", handleGlobalDrop)
+-  })
+-
+-  return attachments
+-}
++import { onMount } from "solid-js"
++import { makeEventListener } from "@solid-primitives/event-listener"
++import { showToast } from "@/utils/toast"
++import { type ContentPart, type FileAttachmentPart, type ImageAttachmentPart, type usePrompt } from "@/context/prompt"
++import { useLanguage } from "@/context/language"
++import { usePlatform } from "@/context/platform"
++import { uuid } from "@/utils/uuid"
++import { getCursorPosition } from "./editor-dom"
++import { createBlobReference, type DraftStore } from "@/utils/draft-store"
++import { attachmentMime } from "./files"
++import { awUploadFile } from "@/aw/bridge"
++import { normalizePaste, pasteMode } from "./paste"
++
++type PromptTarget = Pick<ReturnType<ReturnType<typeof usePrompt>["capture"]>, "current" | "cursor" | "set">
++type AttachmentTarget = { prompt: PromptTarget; cursor: number | undefined }
++
++type PromptAttachmentsCoreInput = {
++  capture: () => PromptTarget
++  editor: () => HTMLDivElement | undefined
++  focusEditor?: () => void
++  addPart?: (part: ContentPart) => boolean
++  warn?: () => void
++  readClipboardImage?: () => Promise<File | null>
++  getPathForFile?: (file: File) => string
++  draftStore?: DraftStore
++}
++
++export type PromptAttachmentsInput = {
++  prompt: ReturnType<typeof usePrompt>
++  editor: () => HTMLDivElement | undefined
++  isDialogActive: () => boolean
++  setDraggingType: (type: "image" | "@mention" | null) => void
++  focusEditor: () => void
++  addPart: (part: ContentPart) => boolean
++  readClipboardImage?: () => Promise<File | null>
++  getPathForFile?: (file: File) => string
++}
++
++export function createPromptAttachmentsCore(input: PromptAttachmentsCoreInput) {
++  const capture = (): AttachmentTarget | undefined => {
++    const prompt = input.capture()
++    const editor = input.editor()
++    if (!editor) return
++    return { prompt, cursor: prompt.cursor() ?? getCursorPosition(editor) }
++  }
++
++  const add = async (file: File, toast = true, target = capture()) => {
++    if (!target) return false
++    const mime = await attachmentMime(file)
++    if (!mime) {
++      // Not an image: hand the file to the platform's managed files owner (operator upload),
++      // then mention it so the person sees the material reference. No bytes enter the prompt.
++      try {
++        const uploaded = await awUploadFile(file.name, file.type, file)
++        if (!uploaded) return false
++        const at = target.cursor ?? 0
++        const part: FileAttachmentPart = {
++          type: "file",
++          path: uploaded.area + "/" + uploaded.path,
++          content: "Файл оператора: " + uploaded.area + "/" + uploaded.path,
++          start: at,
++          end: at,
++        }
++        target.prompt.set([...target.prompt.current(), part], target.cursor)
++        showToast({
++          title: "Передано платформе",
++          description: uploaded.area + "/" + uploaded.path + " (v" + uploaded.version + ")",
++        })
++        return true
++      } catch {
++        showToast({ variant: "error", title: "Передача файла не удалась" })
++        return false
++      }
++    }
++
++    const attachment: ImageAttachmentPart = {
++      type: "image",
++      id: uuid(),
++      filename: file.name,
++      sourcePath: input.getPathForFile?.(file) || undefined,
++      mime,
++      blob: input.draftStore ? await input.draftStore.putBlob(file) : await createBlobReference(file),
++    }
++    target.prompt.set([...target.prompt.current(), attachment], target.cursor)
++    return true
++  }
++
++  const addAttachment = (file: File) => add(file)
++
++  const addAttachments = async (files: File[], toast = true, target = capture()) => {
++    let found = false
++
++    for (const file of files) {
++      const ok = await add(file, false, target)
++      if (ok) found = true
++    }
++
++    if (!found && files.length > 0 && toast) input.warn?.()
++    return found
++  }
++
++  const addClipboardAttachment = async (pending: Promise<File | null>, target = capture()) => {
++    const file = await pending
++    if (!file) return false
++    return add(file, true, target)
++  }
++
++  const removeAttachment = (id: string) => {
++    const target = input.capture()
++    const current = target.current()
++    const next = current.filter((part) => part.type !== "image" || part.id !== id)
++    target.set(next, target.cursor())
++  }
++
++  const handlePaste = async (event: ClipboardEvent) => {
++    const clipboardData = event.clipboardData
++    if (!clipboardData) return
++    const target = capture()
++    if (!target) return
++
++    event.preventDefault()
++    event.stopPropagation()
++
++    const files = Array.from(clipboardData.items).flatMap((item) => {
++      if (item.kind !== "file") return []
++      const file = item.getAsFile()
++      return file ? [file] : []
++    })
++
++    if (files.length > 0) {
++      await addAttachments(files, true, target)
++      return
++    }
++
++    const plainText = clipboardData.getData("text/plain") ?? ""
++
++    // Desktop: Browser clipboard has no images and no text, try platform's native clipboard for images
++    if (input.readClipboardImage && !plainText) {
++      if (await addClipboardAttachment(input.readClipboardImage(), target)) return
++    }
++
++    if (!plainText) return
++
++    const text = normalizePaste(plainText)
++
++    const put = () => {
++      if (input.addPart?.({ type: "text", content: text, start: 0, end: 0 })) return true
++      input.focusEditor?.()
++      return input.addPart?.({ type: "text", content: text, start: 0, end: 0 }) ?? false
++    }
++
++    if (pasteMode(text) === "manual") {
++      put()
++      return
++    }
++
++    const inserted = typeof document.execCommand === "function" && document.execCommand("insertText", false, text)
++    if (inserted) return
++
++    put()
++  }
++
++  return {
++    addAttachment,
++    addAttachments,
++    addClipboardAttachment,
++    removeAttachment,
++    handlePaste,
++  }
++}
++
++export function createPromptAttachments(input: PromptAttachmentsInput) {
++  const language = useLanguage()
++  const platform = usePlatform()
++  const attachments = createPromptAttachmentsCore({
++    ...input,
++    draftStore: platform.draftStore,
++    capture: input.prompt.capture,
++    warn: () => {
++      showToast({
++        title: language.t("prompt.toast.pasteUnsupported.title"),
++        description: language.t("prompt.toast.pasteUnsupported.description"),
++      })
++    },
++  })
++
++  const handleGlobalDragOver = (event: DragEvent) => {
++    if (input.isDialogActive()) return
++
++    event.preventDefault()
++    const hasFiles = event.dataTransfer?.types.includes("Files")
++    const hasText = event.dataTransfer?.types.includes("text/plain")
++    if (hasFiles) {
++      input.setDraggingType("image")
++    } else if (hasText) {
++      input.setDraggingType("@mention")
++    }
++  }
++
++  const handleGlobalDragLeave = (event: DragEvent) => {
++    if (input.isDialogActive()) return
++    if (!event.relatedTarget) {
++      input.setDraggingType(null)
++    }
++  }
++
++  const handleGlobalDrop = async (event: DragEvent) => {
++    if (input.isDialogActive()) return
++
++    event.preventDefault()
++    input.setDraggingType(null)
++
++    const plainText = event.dataTransfer?.getData("text/plain")
++    const filePrefix = "file:"
++    if (plainText?.startsWith(filePrefix)) {
++      const filePath = plainText.slice(filePrefix.length)
++      input.focusEditor()
++      input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
++      return
++    }
++
++    const dropped = event.dataTransfer?.files
++    if (!dropped) return
++
++    await attachments.addAttachments(Array.from(dropped))
++  }
++
++  onMount(() => {
++    makeEventListener(document, "dragover", handleGlobalDragOver)
++    makeEventListener(document, "dragleave", handleGlobalDragLeave)
++    makeEventListener(document, "drop", handleGlobalDrop)
++  })
++
++  return attachments
++}
+-- 
+2.53.0.windows.2
+
