@@ -38,7 +38,7 @@ from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.memory import RecallRequest, RecallResult
 from ai_agent_contracts.states import ErrorCode
 from fastapi import FastAPI
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Send
 from starlette.types import Scope as ASGIScope
@@ -82,6 +82,17 @@ class Views(Protocol):
 
     async def preview_transfer(
         self, authority: ControlAuthority, request: CommandBase
+    ) -> Contract: ...
+
+    async def operator_upload(
+        self,
+        authority: ControlAuthority,
+        scope: Scope,
+        area: str,
+        name: str,
+        title: str,
+        media_type: str,
+        content: bytes,
     ) -> Contract: ...
 
 
@@ -132,6 +143,13 @@ STATUS = {
     ErrorCode.EXPIRED: 409,
     ErrorCode.OUTCOME_UNKNOWN: 409,
 }
+
+UPLOAD = "/api/v1/workplace-files/upload"
+UPLOAD_KEYS = frozenset(
+    {"workspace_id", "persona_id", "memory_space_id", "memory_mode", "area", "name"}
+)
+UPLOAD_OPTIONAL = frozenset({"title", "media_type"})
+UPLOAD_MAX_BYTES = 104_857_600  # the configured per-file ceiling; transport rejects above it
 
 
 def _headers(scope: ASGIScope) -> dict[str, str]:
@@ -193,6 +211,36 @@ async def _body(headers: Mapping[str, str], receive: Receive, maximum: int) -> b
             result.extend(chunk)
             if not message.get("more_body", False):
                 break
+    return bytes(result)
+
+
+async def _octet(headers: Mapping[str, str], receive: Receive, maximum: int) -> bytes:
+    """One bounded raw upload body; the caller has already checked origin and session."""
+    if headers.get("content-type", "").split(";")[0].strip().lower() != "application/octet-stream":
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+    if "content-encoding" in headers:
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+    if "content-length" in headers:
+        try:
+            size = int(headers["content-length"])
+        except ValueError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        if not 1 <= size <= maximum:
+            raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+    result = bytearray()
+    async with asyncio.timeout(120):
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            chunk = message.get("body", b"")
+            if len(result) + len(chunk) > maximum:
+                raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+            result.extend(chunk)
+            if not message.get("more_body", False):
+                break
+    if not result:
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
     return bytes(result)
 
 
@@ -307,9 +355,61 @@ class Surface:
             result[key] = value
         return result
 
+    async def _operator_upload(
+        self, asgi: ASGIScope, receive: Receive, headers: Mapping[str, str]
+    ) -> Response:
+        """One raw operator upload into a workplace area.
+
+        Grants the agent no right and starts nothing; areas are limited by the file owner.
+        """
+        raw = asgi.get("query_string", b"")
+        if len(raw) > 2048:
+            raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+        try:
+            pairs = parse_qsl(raw.decode("ascii"), strict_parsing=True, max_num_fields=8)
+        except ValueError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        fields: dict[str, str] = {}
+        for key, value in pairs:
+            if key in fields or key not in UPLOAD_KEYS | UPLOAD_OPTIONAL:
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            fields[key] = value
+        if set(UPLOAD_KEYS) - set(fields):
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+        authority = self.operator(headers, mutation=True)  # Host/Origin/cookie/CSRF as any mutation
+        try:
+            wanted = Scope(
+                workspace_id=fields["workspace_id"],
+                persona_id=fields["persona_id"],
+                memory_space_id=fields["memory_space_id"],
+                memory_mode=fields["memory_mode"],
+            )
+        except ValidationError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        selected = next((s for s in self.sessions.info(authority).scopes if s == wanted), None)
+        if selected is None or selected.memory_mode != "work":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        self.sessions.check_scope(authority, selected)
+        content = await _octet(headers, receive, UPLOAD_MAX_BYTES)
+        if self.ports.views is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        entry = await self.ports.views.operator_upload(
+            authority.control,
+            selected,
+            fields["area"],
+            fields["name"],
+            fields.get("title") or fields["name"],
+            fields.get("media_type") or "application/octet-stream",
+            content,
+        )
+        self.sessions.check_scope(authority, selected)  # expiry during the awaited write
+        return _json(entry)
+
     async def http(self, scope: ASGIScope, receive: Receive) -> Response:
         headers = _headers(scope)
         path, method = scope["path"], scope["method"]
+        if path == UPLOAD and method == "POST":
+            return await self._operator_upload(scope, receive, headers)
         self.query(scope, reading=method == "GET" and "/auth/" not in path)
         if path.startswith("/internal/"):
             return await self.service(path, method, headers, receive)

@@ -5,7 +5,7 @@ import builtins
 import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
 from ai_agent_contracts.agent_workplace import (
@@ -24,6 +24,10 @@ from ai_agent_application.agent_workplace.ports import AttemptContext, WorkAdmis
 from ai_agent_application.storage import Owner, Principal, ReadPurpose, RecordAccess, Storage
 
 from .guard import FileReleaseGuard, current, stable_scope
+
+# Areas the operator may upload into through the trusted path: materials for the person.
+# exports is the agent-to-operator direction, scratch is the person's own TTL experiments.
+OPERATOR_AREAS = frozenset({"inbox", "knowledge", "projects"})
 
 
 class BlobStore(Protocol):
@@ -358,3 +362,143 @@ class ManagedFiles:
         await self.guard.verify(admission, dependencies, parents, "private")
         await self.authorize(admission, "write", change.area)
         return entry
+
+    async def operator_write(
+        self,
+        scope: Scope,
+        area: str,
+        path: str,
+        title: str,
+        media_type: str,
+        content: bytes,
+        *,
+        file_id: str,
+        request_id: str,
+    ) -> ManagedFile:
+        """Trusted operator upload: the same catalogue transaction and quotas as agent writes.
+
+        No WorkAdmission, no agent permission and no attempt: the composition boundary has
+        already authenticated the operator. New operator files (and only operator files,
+        never the person's own) may be replaced under the same path with a new version;
+        nothing here grants the agent rights or starts it.
+        """
+        if area not in OPERATOR_AREAS:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        if (
+            not isinstance(content, bytes)
+            or not content
+            or not isinstance(title, str)
+            or not 1 <= len(title) <= 512
+            or not isinstance(media_type, str)
+            or not 1 <= len(media_type) <= 128
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        if len(content) > self.limits.max_file_bytes:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        try:
+            logical_path(path)
+        except ValueError:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
+        checksum = hashlib.sha256(content).hexdigest()
+        area_scope = stable_scope(scope)
+        command = MessageCommand(
+            request_id=request_id,
+            scope=area_scope,
+            target=file_id,
+            type="dialogue.message",
+            arguments=MessageArguments(text="workspace-file:operator:" + checksum[:32]),
+        )
+        async with self._writes:
+            async with self.storage.transaction(self.principal, area_scope, command) as unit:
+                if unit.replay is not None:
+                    if unit.replay.resource_id != file_id or unit.replay.version is None:
+                        raise ContractError(ErrorCode.OUTCOME_UNKNOWN)
+                    return await self._file(area_scope, file_id, unit.replay.version)
+                previous = await self.storage.repository(
+                    ManagedFile, self.principal, area_scope
+                ).get(file_id)
+                if previous is not None and (
+                    previous.produced_by_attempt is not None or previous.state != "active"
+                ):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if previous is not None and (
+                    previous.area != area or previous.path != path
+                ):
+                    raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                dependencies = list(previous.dependencies) if previous else []
+                parents = list(previous.derived_from) if previous else []
+                files, versions = await self.usage(area_scope)
+                if files + (previous is None) > self.limits.max_files or (
+                    versions + 1 > self.limits.max_versions
+                ):
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                version = 1 if previous is None else previous.version + 1
+                now = self.clock()
+                entry = ManagedFile(
+                    id=file_id,
+                    scope=area_scope,
+                    version=version,
+                    created_at=now if previous is None else previous.created_at,
+                    updated_at=now,
+                    reference=ArtifactRef(
+                        artifact_id=file_id,
+                        version=version,
+                        scope=area_scope,
+                        checksum=checksum,
+                        size_bytes=len(content),
+                        media_type=media_type,
+                    ),
+                    area=area,
+                    path=path,
+                    title=title,
+                    kind="material",
+                    provenance="read",
+                    dependencies=dependencies,
+                    derived_from=parents,
+                    access=FileAccess(api_transfer=False, public_disclosure=False),
+                    state="active",
+                    produced_by_attempt=None,
+                    change_reason="operator upload",
+                )
+                try:
+                    await self.blobs.put(
+                        area_scope, checksum, content, self.limits.max_scope_bytes
+                    )
+                except OSError as error:
+                    raise ContractError(
+                        ErrorCode.RESOURCE_BUSY
+                        if str(error) == "BLOB_QUOTA"
+                        else ErrorCode.SERVICE_UNAVAILABLE
+                    ) from None
+                await unit.put(
+                    entry,
+                    expected_version=None if previous is None else previous.version,
+                    access=self.reader_access if previous is None else None,
+                )
+                await unit.complete(
+                    Receipt(
+                        request_id=request_id,
+                        scope=area_scope,
+                        status="completed",
+                        resource_id=entry.id,
+                        version=entry.version,
+                    )
+                )
+                return entry
+
+    async def operator_materials(
+        self, scope: Scope, *, days: int = 7, limit: int = 10
+    ) -> list[ManagedFile]:
+        """Recent operator uploads for the person's next turn; metadata only, no content."""
+        if not 1 <= days <= 366 or not 1 <= limit <= 50:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        since = self.clock() - timedelta(days=days)
+        rows = [
+            row
+            for row in await self._entries(scope)
+            if row.produced_by_attempt is None
+            and row.state == "active"
+            and row.updated_at >= since
+        ]
+        rows.sort(key=lambda row: (row.updated_at, row.id), reverse=True)
+        return rows[:limit]
