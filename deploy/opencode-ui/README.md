@@ -1,6 +1,7 @@
 # Родной OpenCode Web поверх bridge `aw-opencode/1`
 
-Статус: **кандидат проверен в Edge с синтетической моделью; личный host не менялся.**
+Статус: **серия 1–15 проверена в Edge и включена в локальную поставку (2026-10-26).**
+Текущая файловая поставка и границы проверок: [отчёт](../../docs/implementation-reports/OC-files-integration.md).
 Исправления и оставшиеся проверки: [отчёт Codex](../../docs/implementation-reports/OC-03-render-diagnosis.md).
 История исследования: [заметки Claude](../../docs/implementation-reports/OC-03-native-ui-notes.md).
 Эта клиентская проверка не закрывает весь OC-03/OC-06 и не является разрешением
