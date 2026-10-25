@@ -3,7 +3,7 @@
 import asyncio
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import parse_qsl, urlsplit
@@ -93,6 +93,9 @@ class Views(Protocol):
         title: str,
         media_type: str,
         content: bytes,
+        *,
+        authorize: Callable[[], None],
+        request_id: str,
     ) -> Contract: ...
 
 
@@ -169,6 +172,7 @@ def _headers(scope: ASGIScope) -> dict[str, str]:
             "content-length",
             "content-type",
             "content-encoding",
+            "x-upload-request-id",
             "sec-fetch-site",
         ):
             raise Rejection(403, ErrorCode.ACCESS_DENIED)
@@ -267,6 +271,7 @@ class Surface:
         if ports.jobs is not None and ports.jobs.supervisor is not supervisor:
             raise ValueError("ACCESS_JOB_OWNER")
         self.supervisor, self.ports = supervisor, ports
+        self._uploads = asyncio.Semaphore(1)
         self.origin = operator_origin(settings)
         self.host = urlsplit(self.origin).netloc
         self.secure_cookie = self.origin.startswith("https://")
@@ -378,11 +383,11 @@ class Surface:
             raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
         authority = self.operator(headers, mutation=True)  # Host/Origin/cookie/CSRF as any mutation
         try:
-            wanted = Scope(
-                workspace_id=fields["workspace_id"],
-                persona_id=fields["persona_id"],
-                memory_space_id=fields["memory_space_id"],
-                memory_mode=fields["memory_mode"],
+            wanted = Scope.model_validate(
+                {
+                    key: fields[key]
+                    for key in ("workspace_id", "persona_id", "memory_space_id", "memory_mode")
+                }
             )
         except ValidationError:
             raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
@@ -390,7 +395,11 @@ class Surface:
         if selected is None or selected.memory_mode != "work":
             raise ContractError(ErrorCode.ACCESS_DENIED)
         self.sessions.check_scope(authority, selected)
+        request_id = headers.get("x-upload-request-id", "upload-" + uuid4().hex)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", request_id):
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
         content = await _octet(headers, receive, UPLOAD_MAX_BYTES)
+        self.sessions.check_scope(authority, selected)
         if self.ports.views is None:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         entry = await self.ports.views.operator_upload(
@@ -401,6 +410,8 @@ class Surface:
             fields.get("title") or fields["name"],
             fields.get("media_type") or "application/octet-stream",
             content,
+            authorize=lambda: self.sessions.check_scope(authority, selected),
+            request_id=request_id,
         )
         self.sessions.check_scope(authority, selected)  # expiry during the awaited write
         return _json(entry)
@@ -409,7 +420,11 @@ class Surface:
         headers = _headers(scope)
         path, method = scope["path"], scope["method"]
         if path == UPLOAD and method == "POST":
-            return await self._operator_upload(scope, receive, headers)
+            # Slow uploads have a separate bounded slot and never occupy the STOP path.
+            if self._uploads.locked():
+                raise Rejection(429, ErrorCode.RESOURCE_BUSY)
+            async with self._uploads:
+                return await self._operator_upload(scope, receive, headers)
         self.query(scope, reading=method == "GET" and "/auth/" not in path)
         if path.startswith("/internal/"):
             return await self.service(path, method, headers, receive)

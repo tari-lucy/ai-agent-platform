@@ -49,7 +49,7 @@ class Workspace:
         allowed = {
             "capabilities": set(),
             "list_files": {"area"},
-            "read_file": {"file_id"},
+            "read_file": {"file_id", "version", "offset", "length"},
             "write_note": {"file_id", "path", "title", "kind", "body", "expected_version"},
             "raise_ticket": {"title", "body", "capability_id", "kind"},
             "read_ticket": {"ticket_id"},
@@ -113,18 +113,41 @@ class Workspace:
                 for e in entries
             ]
         elif request.operation == "read_file":
-            entry, data = await place.files.read(admission, a.get("file_id", ""))
+
+            def positive(name: str, default: int, maximum: int) -> int:
+                raw = a.get(name, str(default))
+                if not raw.isascii() or not raw.isdigit() or len(raw) > 12:
+                    raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                value = int(raw)
+                if value > maximum:
+                    raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                return value
+
+            offset = positive("offset", 0, 104857600)
+            length = positive("length", 4000, 4000)
+            version = positive("version", 0, 1000000000) if "version" in a else None
+            if length < 1 or version == 0:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            entry, data = await place.files.read(admission, a.get("file_id", ""), version)
             await guard.verify(admission, (), (entry.reference,), "api_transfer")
             if not entry.reference.media_type.startswith(("text/", "application/json")):
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
             files = [entry.reference]
             sources = list(entry.dependencies)
             text = data.decode("utf-8", errors="replace")
+            if offset > len(text):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            shown = text[offset : offset + length]
+            end = offset + len(shown)
             result = {
                 "id": entry.id,
                 "version": entry.version,
-                "text": text[:4000],
-                "truncated": len(text) > 4000,
+                "text": shown,
+                "offset": offset,
+                "next_offset": end if end < len(text) else None,
+                "total_chars": len(text),
+                "checksum": entry.reference.checksum,
+                "truncated": end < len(text),
             }
         elif request.operation == "write_note":
             try:

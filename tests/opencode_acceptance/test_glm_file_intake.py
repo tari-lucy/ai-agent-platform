@@ -87,9 +87,7 @@ async def library(host, scope):
     return result.json()
 
 
-def test_operator_upload_catalogue_projections_notification_and_refusals(
-    tmp_path, monkeypatch
-):
+def test_operator_upload_catalogue_projections_notification_and_refusals(tmp_path, monkeypatch):
     async def scenario():
         # The configured per-file ceiling now accepts 100 MiB (task A3).
         WorkplaceFilesConfig(blob_dir="x", max_file_bytes=104_857_600)
@@ -138,11 +136,20 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
             assert changed.status_code == 200, changed.text
             assert changed.json()["version"] == 2 and changed.json()["id"] == card["id"]
 
+            restored = await upload(
+                host, scope, "inbox", "report/data.bin", blob, title="Отчёт с данными"
+            )
+            assert restored.status_code == 200, restored.text
+            assert restored.json()["version"] == 3
+            assert restored.json()["reference"]["checksum"] == card["reference"]["checksum"]
+            assert restored.json()["access"]["api_transfer"] is True
+            assert restored.json()["access"]["public_disclosure"] is False
+
             # 2. Projections for the native tree and the panel carry area and path.
             listed = await library(host, scope)
             entry = next(f for f in listed["files"] if f["path"] == "report/data.bin")
             assert entry["area"] == "inbox" and entry["title"] == "Отчёт с данными"
-            assert entry["version"] == 2 and entry["change_reason"] == "operator upload"
+            assert entry["version"] == 3 and entry["change_reason"] == "operator upload"
             projects = await upload(
                 host, scope, "projects", "launch/plan.txt", b"plan v1", title="План запуска"
             )
@@ -153,9 +160,7 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
             inactive = scope.model_copy(
                 update={"persona_id": "glm-files-beta", "memory_space_id": "glm-files-beta"}
             )
-            await rt.store.provision(
-                inactive, rights.host_grants(load_config(paths(host.root)))
-            )
+            await rt.store.provision(inactive, rights.host_grants(load_config(paths(host.root))))
             rt.scopes = (*rt.scopes, inactive)
             surfaces[-1].sessions.scopes = (*surfaces[-1].sessions.scopes, inactive)
             beta_library = await library(host, inactive)
@@ -163,10 +168,11 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
 
             # 4. The next work turn names the material as data; no whole file in context.
             fast(rt)
-            await install(rt, scope)
+            await install(rt, scope, areas=["inbox", "projects"])
             sid = (
                 await env.client.post(
-                    base(scope) + "/commands", json=opened(scope, "glm-files-open"),
+                    base(scope) + "/commands",
+                    json=opened(scope, "glm-files-open"),
                     headers=host.env.headers,
                 )
             ).json()["resource_id"]
@@ -192,6 +198,7 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
                     base(scope) + "/commands", json=start, headers=host.env.headers
                 )
             ).status_code == 200
+
             async def read_view():
                 result = await env.client.get(base(scope) + "/sessions/" + sid)
                 assert result.status_code == 200, result.text
@@ -214,15 +221,11 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
             assert (
                 await upload(host, scope, "exports", "out.bin", b"x")
             ).status_code == 403  # not an operator area
-            assert (
-                await upload(host, scope, "scratch", "tmp.bin", b"x")
-            ).status_code == 403
+            assert (await upload(host, scope, "scratch", "tmp.bin", b"x")).status_code == 403
             assert (
                 await upload(host, scope, "inbox", "foreign.bin", b"x", query=foreign)
             ).status_code == 403
-            no_csrf = {
-                k: v for k, v in host.env.headers.items() if k != "X-CSRF-Token"
-            }
+            no_csrf = {k: v for k, v in host.env.headers.items() if k != "X-CSRF-Token"}
             assert (
                 await upload(host, scope, "inbox", "no-csrf.bin", b"x", headers=no_csrf)
             ).status_code == 403
@@ -259,5 +262,53 @@ def test_operator_upload_catalogue_projections_notification_and_refusals(
             assert stopped.status_code == 200
             assert rt.supervisor.snapshot.state.value == "STOPPED"
             assert model.count("activity") == 1  # uploads never called the model
+
+            # A slow upload has its own lane: STOP responds before the body finishes.
+            waiting, finish = asyncio.Event(), asyncio.Event()
+
+            async def body():
+                yield b"first"
+                waiting.set()
+                await finish.wait()
+                yield b"last"
+
+            pending_upload = asyncio.create_task(
+                upload(host, scope, "inbox", "during-stop.txt", body())
+            )
+            await asyncio.wait_for(waiting.wait(), 3)
+            current = rt.supervisor.snapshot
+            try:
+                stop_during = await asyncio.wait_for(
+                    env.client.post(
+                        "/api/v1/agents/" + current.agent_id + "/stop",
+                        headers=host.env.headers,
+                        json=dict(
+                            type="agent.stop",
+                            request_id="glm-stop-during-upload",
+                            target=current.agent_id,
+                            scope=current.scope.model_dump(mode="json"),
+                        ),
+                    ),
+                    3,
+                )
+                assert stop_during.status_code == 200, stop_during.text
+            finally:
+                finish.set()
+            assert (await pending_upload).status_code == 200
+
+            # A session revoked during the body must not publish a file afterwards.
+            from ai_agent_core.access import surface as access_module
+
+            original_octet = access_module._octet
+
+            async def logout_after_body(headers, receive, maximum):
+                result = await original_octet(headers, receive, maximum)
+                current = surfaces[-1].operator(headers, mutation=True)
+                surfaces[-1].sessions.logout(current)
+                return result
+
+            monkeypatch.setattr(access_module, "_octet", logout_after_body)
+            revoked = await upload(host, scope, "inbox", "after-logout.txt", b"not published")
+            assert revoked.status_code == 403, revoked.text
 
     asyncio.run(scenario())

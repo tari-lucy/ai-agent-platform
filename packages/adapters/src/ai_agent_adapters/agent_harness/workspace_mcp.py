@@ -50,7 +50,8 @@ def respond(request: dict[str, Any]) -> dict[str, Any]:
                 {
                     "name": "workspace",
                     "description": "Use platform owners: capabilities; list_files(area); "
-                    "read_file(file_id); write_note(file_id,path,title,body,kind=note|hypothesis, "
+                    "read_file(file_id,version optional,offset optional,length optional up to 4000 "
+                    "characters); write_note(file_id,path,title,body,kind=note|hypothesis, "
                     "expected_version optional); "
                     "raise_ticket(title,body,kind=question|problem|idea,capability_id optional); "
                     "read_ticket(ticket_id); find_skills(query); read_skill(skill_id); "
