@@ -26,7 +26,6 @@ from ai_agent_application.llm import (
     Finished,
     ProviderCall,
     ProviderError,
-    ProviderFactory,
     Started,
 )
 from ai_agent_application.llm.model import MAX_OUTPUT_CHARS, ProviderEvent
@@ -164,17 +163,14 @@ class PrivateLiveProvider:
             or assignment.credential_setting != "AI_PLATFORM_LLM_API_KEY"
             or not call.messages
             or call.messages[0].role != "system"
-            or sum(len(message.content) for message in call.messages)
-            + len(call_protocol(call))
+            or sum(len(message.content) for message in call.messages) + len(call_protocol(call))
             > self.config.max_prompt_chars
         ):
             raise ProviderError(Failure.NOT_ADMITTED)
         # Keep transport instructions after the character prose, without changing the profile
         # or relaxing the gateway's strict whole-document parser. No protocol capability assumed.
         messages = (
-            ChatMessage(
-                "system", call.messages[0].content + call_protocol(call)
-            ),
+            ChatMessage("system", call.messages[0].content + call_protocol(call)),
             *call.messages[1:],
         )
         return self._stream(replace(call, messages=messages))
@@ -220,9 +216,27 @@ class PrivateLiveProvider:
                 await close()
 
 
+class LocalProviders:
+    """One host's adapters; only owned HTTP resources close with its ASGI lifespan."""
+
+    def __init__(self, mock: MockProvider, live: PrivateLiveProvider | None) -> None:
+        self.mock, self.live = mock, live
+
+    def __call__(self, adapter_id: str) -> MockProvider | PrivateLiveProvider:
+        if adapter_id == "mock":
+            return self.mock
+        if adapter_id == ADAPTER_ID and self.live is not None:
+            return self.live
+        raise ProviderError(Failure.NOT_CONFIGURED)
+
+    async def aclose(self) -> None:
+        if self.live is not None:
+            await self.live.provider.aclose()
+
+
 def provider_factory(
     mode: str, *, live: LiveConfig | None = None, env_file: Path | None = None
-) -> ProviderFactory:
+) -> LocalProviders:
     if mode not in {"mock", "live"}:
         raise HostError("INVALID_OPTION")
     if mode == "mock":
@@ -267,13 +281,7 @@ def provider_factory(
                 {"AI_PLATFORM_LLM_ENDPOINT": endpoint, "AI_PLATFORM_LLM_API_KEY": credential}
             ),
         )
+        actual.provider.configure_keepalive(live.http_keepalive_seconds)
         actual.provider.stream_tools = live.activity.stream_tools
 
-    def build(adapter_id: str) -> MockProvider | PrivateLiveProvider:
-        if adapter_id == "mock":
-            return mock
-        if adapter_id == ADAPTER_ID and actual is not None:
-            return actual
-        raise ProviderError(Failure.NOT_CONFIGURED)
-
-    return build
+    return LocalProviders(mock, actual)

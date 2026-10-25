@@ -3,7 +3,8 @@
 import asyncio
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -14,7 +15,6 @@ from ai_agent_adapters.llm import ADAPTER_ID
 from ai_agent_adapters.recall import SQLiteRecallIndex
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.laboratory import LabRunner
-from ai_agent_application.llm import ProviderFactory
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.storage import Owner, RecordAccess
 from ai_agent_contracts.codec import ContractError
@@ -47,7 +47,7 @@ from .layout import (
 from .maintenance import HostMaintenance
 from .panel import mount, validate
 from .process import exclusive_host, loopback_socket, open_when_ready
-from .provider import provider_factory
+from .provider import LocalProviders, provider_factory
 
 LOOPBACK = "127.0.0.1"
 
@@ -83,7 +83,7 @@ def _prepare(
     port: int | None,
     panel_dir: Path | None,
     env_file: Path | None,
-) -> tuple[ProviderFactory, Path | None, str, int]:
+) -> tuple[LocalProviders, Path | None, str, int]:
     if (host.root / PERSONA_PENDING).exists() or (host.root / PERSONA_PENDING).is_symlink():
         raise HostError("PERSONA_ADD_INCOMPLETE")
     if (host.root / "RESTORE-PENDING").exists():
@@ -103,7 +103,7 @@ def _prepare(
 def _build(
     host: HostPaths,
     config: HostConfig,
-    prepared: tuple[ProviderFactory, Path | None, str, int],
+    prepared: tuple[LocalProviders, Path | None, str, int],
     *,
     ui: Bundle | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
@@ -248,6 +248,19 @@ def _build(
             else asyncio.Lock()
         )
         runtime.budget_controls = LiveBudget(host, runtime, lock)
+
+    previous_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def provider_lifespan(application: FastAPI) -> AsyncIterator[None]:
+        try:
+            async with previous_lifespan(application):
+                yield
+        finally:
+            # Runtime shutdown settles/cancels jobs first; no idle or in-flight socket survives.
+            await factory.aclose()
+
+    app.router.lifespan_context = provider_lifespan
 
     mount_opencode(app, ui)
     if panel is not None:

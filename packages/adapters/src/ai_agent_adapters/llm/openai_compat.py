@@ -6,9 +6,11 @@ body or remote error text into an exception, event or log. Redirects are not fol
 credential cannot leave for another host. Tool fragments remain data, never executable actions.
 """
 
+import asyncio
 import json
 import math
 from collections.abc import AsyncIterator, Iterator, Mapping
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlsplit
@@ -183,15 +185,51 @@ class OpenAICompatibleProvider:
         self._settings = settings
         self._client = client
         self.stream_tools = stream_tools
+        self._keepalive_seconds: float | None = None
+        self._owns_client = False
+        self._used = False
+        self._closed = False
+
+    def configure_keepalive(self, seconds: float) -> None:
+        """Opt in before first use; the enclosing server lifespan must call aclose()."""
+        if (
+            type(seconds) not in (int, float)
+            or not math.isfinite(seconds)
+            or not 0 <= seconds <= 3600
+            or self._used
+            or self._closed
+        ):
+            raise ValueError("HTTP_KEEPALIVE_INVALID")
+        self._keepalive_seconds = float(seconds)
+
+    async def aclose(self) -> None:
+        self._closed = True
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
+            self._owns_client = False
 
     def _http(self, timeout: float) -> tuple[httpx.AsyncClient, bool]:
+        if self._closed:
+            raise ProviderError(Failure.NOT_CONFIGURED)
+        self._used = True
         if self._client is not None:
-            return self._client, False
-        return httpx.AsyncClient(
+            return self._client, False  # explicit injected clients keep their caller's ownership
+        pooled = self._keepalive_seconds is not None
+        client = httpx.AsyncClient(
             follow_redirects=False,
             timeout=httpx.Timeout(timeout, connect=min(timeout, 10.0)),
-            limits=httpx.Limits(max_connections=4, max_keepalive_connections=0),
-        ), True
+            limits=httpx.Limits(
+                max_connections=4,
+                max_keepalive_connections=4 if pooled else 0,
+                keepalive_expiry=self._keepalive_seconds if pooled else 0,
+            ),
+            # The previous per-call client never carried response cookies to another call.
+            cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=())),
+        )
+        if pooled:
+            self._client, self._owns_client = client, True
+        return client, not pooled
 
     def stream(self, call: ProviderCall) -> AsyncIterator[ProviderEvent]:
         return self._stream(call)
@@ -234,10 +272,15 @@ class OpenAICompatibleProvider:
             body["top_p"] = parameters.top_p
         headers = {"Authorization": f"Bearer {credential}", "Accept": "text/event-stream"}
         client, owned = self._http(parameters.timeout_seconds)
+        timeout = httpx.Timeout(
+            parameters.timeout_seconds, connect=min(parameters.timeout_seconds, 10.0)
+        )
         try:
             if body["stream"] is False:
                 headers["Accept"] = "application/json"
-                async with client.stream("POST", url, json=body, headers=headers) as response:
+                async with client.stream(
+                    "POST", url, json=body, headers=headers, timeout=timeout
+                ) as response:
                     if response.status_code != 200:
                         raise ProviderError(
                             failure_for_status(response.status_code), _retry_after(response)
@@ -260,7 +303,9 @@ class OpenAICompatibleProvider:
                     for event in self._complete_events(document):
                         yield event
                 return
-            async with aconnect_sse(client, "POST", url, json=body, headers=headers) as source:
+            async with aconnect_sse(
+                client, "POST", url, json=body, headers=headers, timeout=timeout
+            ) as source:
                 response = source.response
                 if response.status_code != 200:
                     raise ProviderError(
@@ -317,11 +362,21 @@ class OpenAICompatibleProvider:
     async def _events(self, source: Any) -> AsyncIterator[ProviderEvent]:
         count = 0
         named = False
-        async for sse in source.aiter_sse():
+        events = source.aiter_sse()
+        async for sse in events:
             count += 1
             if count > MAX_EVENTS or len(sse.data) > MAX_EVENT_BYTES:
                 raise ProviderError(Failure.PROTOCOL)
             if sse.data.strip() == "[DONE]":
+                if self._keepalive_seconds is not None:
+                    # HTTPX releases a socket only after its iterator reaches HTTP EOF.
+                    # DONE already completes the protocol: never wait for a broken server
+                    # indefinitely or expose trailing events. STOP cancellation propagates.
+                    try:
+                        async with asyncio.timeout(0.05):
+                            await anext(events)
+                    except StopAsyncIteration, TimeoutError, httpx.HTTPError, SSEError:
+                        pass
                 return
             try:
                 chunk = json.loads(sse.data)

@@ -76,6 +76,7 @@ class LiveConfig(BaseModel):
     max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
     max_prompt_chars: int = Field(default=24000, strict=True, ge=1000, le=40000)
     timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    http_keepalive_seconds: int = Field(default=120, strict=True, ge=0, le=3600)
     gm: GmConfig = Field(default_factory=GmConfig)
     activity: ActivityConfig = Field(default_factory=ActivityConfig)
 

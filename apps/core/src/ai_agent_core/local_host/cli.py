@@ -17,6 +17,7 @@ from .activity import configure_activity
 from .budget import configure_budget
 from .finish_restore import finish_restore
 from .gm import configure_gm
+from .http_transport import configure_http_transport
 from .init import PROFILE_LIMIT, initialise
 from .layout import HostError, LiveConfig, load_config, paths
 from .llm_panel import prepare_llm_panel
@@ -46,6 +47,13 @@ SESSION_LIMITS = (
 def parser() -> argparse.ArgumentParser:
     main = argparse.ArgumentParser(prog="ai_agent_core.local_host")
     commands = main.add_subparsers(dest="command", required=True)
+    http = commands.add_parser(
+        "configure-http", help="offline shared HTTP pool keep-alive; no API calls"
+    )
+    http.add_argument("--root", type=Path, required=True)
+    http.add_argument(
+        "--keepalive-seconds", type=int, required=True, help="idle expiry, 0..3600 seconds"
+    )
     persona = commands.add_parser("add-persona", help="offline independent inactive work profile")
     persona.add_argument("--root", type=Path, required=True)
     persona.add_argument("--persona-id", required=True)
@@ -260,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
                     decision_id=arguments.decision_id,
                 )
             )
+            return 0
+        if arguments.command == "configure-http":
+            configure_http_transport(arguments.root, keepalive_seconds=arguments.keepalive_seconds)
+            print("HTTP keep-alive configured; restart serve to apply; agent stays STOPPED")
             return 0
         if arguments.command == "enable-recovery":
             asyncio.run(
