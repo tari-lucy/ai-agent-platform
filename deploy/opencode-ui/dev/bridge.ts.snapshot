@@ -104,6 +104,121 @@ export async function refreshViewedSession(reload: (force: boolean) => Promise<u
 const transcript = (directory: string, sessionID: string) =>
   bridge<Transcript>(`/agents/${directory}/sessions/${encodeURIComponent(sessionID)}`)
 
+// ---- operator file space: a virtual tree over the managed files owner ---------------------------
+// Path space is /<area>/<logical path> of the platform catalogue. No host path is ever shown or
+// resolved; every read goes through the same owner projection and release checks as the panel.
+const AREAS = ["inbox", "knowledge", "projects", "skills", "exports"] as const
+const UPLOAD_AREAS = ["inbox", "knowledge", "projects"] as const
+type LibraryFile = {
+  id: string; area: string; path: string; title: string; version: number
+  reference: { checksum: string; size_bytes: number; media_type: string }
+}
+const libraryCache = new Map<string, { at: number; files: Promise<LibraryFile[]> }>()
+function library(directory: string): Promise<LibraryFile[]> {
+  const cached = libraryCache.get(directory)
+  if (cached && Date.now() - cached.at < 5000) return cached.files
+  const files = bridge<{ files: LibraryFile[] }>(`/agents/${directory}/files`).then((view) => view.files)
+  libraryCache.set(directory, { at: Date.now(), files })
+  files.catch(() => libraryCache.delete(directory))
+  return files
+}
+const treeNode = (name: string, full: string, type: "file" | "directory") => ({
+  name, path: full, absolute: full, type, ignored: false,
+})
+function treeNodes(files: LibraryFile[], dir: string) {
+  const clean = dir.replace(/^\/+|\/+$/g, "")
+  if (!clean) return AREAS.map((area) => treeNode(area, "/" + area, "directory"))
+  const segments = clean.split("/")
+  const [area, ...rest] = segments
+  const wanted = rest.join("/")
+  const dirs = new Set<string>()
+  const rows: ReturnType<typeof treeNode>[] = []
+  for (const file of files) {
+    if (file.area !== area) continue
+    const inner = wanted ? (file.path.startsWith(wanted + "/") ? file.path.slice(wanted.length + 1) : null) : file.path
+    if (inner === null) continue
+    const slash = inner.indexOf("/")
+    if (slash === -1) rows.push(treeNode(inner, "/" + file.area + "/" + file.path, "file"))
+    else if (!dirs.has(inner.slice(0, slash))) {
+      const name = inner.slice(0, slash)
+      dirs.add(name)
+      rows.push(treeNode(name, "/" + file.area + "/" + file.path.slice(0, file.path.length - inner.length + slash), "directory"))
+    }
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name))
+}
+const locationOf = (directory: string) => ({ directory, project: { id: directory, directory } })
+async function fileContent(directory: string, virtualPath: string): Promise<Response> {
+  const clean = virtualPath.replace(/^\/+/, "")
+  const slash = clean.indexOf("/")
+  const area = slash === -1 ? "" : clean.slice(0, slash)
+  const filePath = slash === -1 ? "" : clean.slice(slash + 1)
+  const found = (await library(directory)).find((f) => f.area === area && f.path === filePath)
+  if (!found) return json({ name: "NotFound" }, 404)
+  const view = await bridge<{ text: string | null; withheld: boolean; truncated: boolean; media_type: string }>(
+    `/agents/${directory}/files/${encodeURIComponent(found.id)}`,
+  )
+  if ((view.withheld || view.text === null) && /^(text\/|application\/json)/.test(found.reference.media_type))
+    return json({ name: "AW_FILE_WITHHELD" }, 403)
+  if (view.withheld || view.text === null) {
+    // A closed basis or a non-text file: the viewer shows the card facts, never raw bytes.
+    return json({ type: "binary", content: "", mimeType: found.reference.media_type })
+  }
+  return json({
+    type: "text",
+    content: view.truncated
+      ? view.text + "\n\n… платформа: текст обрезан, полный файл — у владельца."
+      : view.text,
+    mimeType: found.reference.media_type,
+  })
+}
+async function uploadName(value: string): Promise<string> {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 160) || "file"
+  if (normalized === value && value.length <= 160) return normalized
+  const bytes = new TextEncoder().encode(value)
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("").slice(0, 16)
+  const extension = /\.([a-z0-9]{1,12})$/i.exec(value)?.[1]?.toLowerCase()
+  const stem = extension && normalized.endsWith(`.${extension}`) ? normalized.slice(0, -(extension.length + 1)) : normalized
+  return `${stem}-${hash}${extension ? `.${extension}` : ""}`
+}
+export type UploadedFile = { area: string; path: string; file_id: string; version: number }
+// Attachments of the operator: uploaded into the chosen platform area before sending. The message
+// itself references the file; the person reads it with its own file tools under its own rights.
+export async function awUploadFile(directory: string, name: string, mime: string, bytes: Blob): Promise<UploadedFile | null> {
+  if (!directory) throw Error("AW_UPLOAD_NO_PERSONA")
+  const agent = await agentOf(directory)
+  if (!agent || agent.directory !== directory) throw Error("AW_UPLOAD_NO_PERSONA")
+  if (bytes.size > 100 * 1024 * 1024) throw Error("AW_UPLOAD_TOO_LARGE")
+  const logicalName = await uploadName(name)
+  const requestID = uuid()
+  const area = window.prompt(`Передать «${name}» личности ${agent.label}. Материал можно будет читать её моделью в рамках прав; публичная передача запрещена. Область: ${UPLOAD_AREAS.join(" / ")}`, "inbox")?.trim().toLowerCase()
+  if (!area) return null
+  if (!UPLOAD_AREAS.includes(area as (typeof UPLOAD_AREAS)[number])) {
+    window.alert(`Недопустимая область «${area}». Доступны: ${UPLOAD_AREAS.join(", ")}.`)
+    return null
+  }
+  const query = new URLSearchParams({
+    workspace_id: String(agent.scope.workspace_id ?? ""),
+    persona_id: String(agent.scope.persona_id ?? ""),
+    memory_space_id: String(agent.scope.memory_space_id ?? ""),
+    memory_mode: String(agent.scope.memory_mode ?? ""),
+    area,
+    name: logicalName,
+    title: name,
+    media_type: mime || "application/octet-stream",
+  })
+  const response = await fetch(`/api/v1/workplace-files/upload?${query}`, {
+    method: "POST", credentials: "same-origin", cache: "no-store",
+    headers: { "content-type": "application/octet-stream", "x-csrf-token": await token(), "x-upload-request-id": requestID },
+    body: bytes,
+  })
+  if (response.status === 401) { csrf = null; location.assign("/"); return null }
+  if (!response.ok) throw Object.assign(new Error("AW_UPLOAD_" + response.status), { status: response.status })
+  const card = (await response.json()) as { id: string; version: number }
+  libraryCache.delete(agent.directory)
+  return { area, path: logicalName, file_id: card.id, version: card.version }
+}
+
 // ---- native shapes ------------------------------------------------------------------------------
 const project = (agent: Agent) => ({
   id: agent.directory, worktree: agent.directory, name: isTest(agent) ? `${agent.label} · тест` : agent.label,
@@ -368,6 +483,35 @@ async function route(method: string, path: string, url: URL, body: () => Promise
       return json({ data: { admittedSeq: 0, id, sessionID, timeCreated: Date.now(), type: "user", data: { text }, delivery: "queue" } })
     }
   }
+  // The operator file space: a virtual tree over the platform's managed files owner. Path space
+  // is /<area>/<logical path>; listing and search read the owner projection, content goes through
+  // the same owner release checks as the panel. Binary files answer as binary cards, not raw bytes.
+  if (path === "/file" && method === "GET") {
+    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+    if (!directory) return json([])
+    return json(treeNodes(await library(directory), url.searchParams.get("path") ?? ""))
+  }
+  if (path === "/file/content" && method === "GET") {
+    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+    if (!directory) return json({ name: "NotFound" }, 404)
+    return fileContent(directory, url.searchParams.get("path") ?? "")
+  }
+  if (path === "/api/fs/list" && method === "GET") {
+    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+    const rows = directory ? treeNodes(await library(directory), url.searchParams.get("path") ?? "") : []
+    return json({ location: locationOf(directory ?? ""), data: rows.map((row) => ({ path: row.path, type: row.type })) })
+  }
+  if (path === "/api/fs/find" && method === "GET") {
+    const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+    if (!directory) return json({ location: locationOf(""), data: [] })
+    const needle = (url.searchParams.get("query") ?? "").toLowerCase()
+    const limit = Number(url.searchParams.get("limit") ?? 20) || 20
+    const matches = (await library(directory))
+      .filter((f) => needle && (f.path.toLowerCase().includes(needle) || f.title.toLowerCase().includes(needle)))
+      .slice(0, limit)
+      .map((f) => ({ path: "/" + f.area + "/" + f.path, type: "file" as const }))
+    return json({ location: locationOf(directory), data: matches })
+  }
   // Lists the platform does not provide answer empty, never a native fallback.
   if (method === "GET" && path === "/lsp") return json([])
   if (method === "GET" && EMPTY_LISTS.has(path)) {
@@ -410,7 +554,7 @@ type RefetchHint = { owner_event?: string; resource_id?: string }
 function events(signal: AbortSignal): Response {
   const encoder = new TextEncoder()
   const sources: EventSource[] = []
-  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
+  const pending = new Map<string, { all: boolean; ids: Set<string>; files?: boolean }>()
   const running = new Set<string>()
   let closed = false
   const drain = async (directory: string, send: (event: unknown) => void) => {
@@ -446,7 +590,14 @@ function events(signal: AbortSignal): Response {
           try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
           const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
             ? hint.resource_id : undefined
-          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
+          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>(), files: false }
+          if (["work.changed", "memory.changed", "permission.changed", "binding.changed"].includes(hint.owner_event ?? "")) {
+            // Privacy invalidation precedes every awaited owner read; known open bodies
+            // are tracked by the native store, never inferred from this short cache.
+            libraryCache.delete(agent.directory)
+            send({ id: uuid(), type: "file.watcher.updated", created: Date.now(), location: { directory: agent.directory },
+              data: { file: "/", event: "change" } })
+          }
           if (!target || queued.ids.size >= 200) queued.all = true
           else queued.ids.add(target)
           pending.set(agent.directory, queued)
@@ -466,6 +617,7 @@ function events(signal: AbortSignal): Response {
 // fetches each by id from the owner view (no synthesized token stream, no replay of commands).
 const announced = new Map<string, Set<string>>()
 async function refresh(directory: string, send: (event: unknown) => void, targets?: Set<string>) {
+  libraryCache.delete(directory)
   for (const row of await sessions(directory).catch(() => [] as SessionRow[])) {
     const base = { created: Date.now(), location: { directory }, durable: { aggregateID: row.id, seq: row.version, version: 1 } }
     send({ ...base, id: uuid(), type: "session.updated", data: { sessionID: row.id, info: sessionEventInfo(directory, row) } })

@@ -96,3 +96,52 @@ def test_closed_release_and_bound_admission(tmp_path, monkeypatch, failure):
             await bridge.call(gate, WorkspaceRequest("read", "read_file", arguments))
 
     run(tmp_path, scenario)
+
+
+def test_uploaded_text_reads_exact_chunks_and_records_file_lineage(tmp_path, monkeypatch):
+    async def scenario(w):
+        entry = await w.files.operator_write(
+            AREA,
+            "knowledge",
+            "uploaded.txt",
+            "Upload",
+            "text/plain",
+            "Начало. Середина. Конец.".encode(),
+            file_id="upload",
+            request_id="upload-1",
+            authorize=lambda: None,
+        )
+        bridge, gate, owner, ex = await setup(w, monkeypatch)
+        first = json.loads(
+            await bridge.call(
+                gate,
+                WorkspaceRequest(
+                    "chunk-1", "read_file", dict(file_id=entry.id, offset="0", length="8")
+                ),
+            )
+        )
+        second = json.loads(
+            await bridge.call(
+                gate,
+                WorkspaceRequest(
+                    "chunk-2",
+                    "read_file",
+                    dict(file_id=entry.id, offset=str(first["next_offset"]), length="4000"),
+                ),
+            )
+        )
+        assert first["text"] + second["text"] == "Начало. Середина. Конец."
+        assert second["next_offset"] is None and not second["truncated"]
+        assert first["checksum"] == entry.reference.checksum
+        attempt = await owner.attempts_repo(gate.scope).get(gate.attempt_id)
+        assert entry.reference in attempt.input_files
+        for args in (dict(offset="-1"), dict(length="4001"), dict(version="0")):
+            with pytest.raises(ContractError):
+                await bridge.call(
+                    gate,
+                    WorkspaceRequest(
+                        "invalid-" + str(args), "read_file", dict(file_id=entry.id, **args)
+                    ),
+                )
+
+    run(tmp_path, scenario)
