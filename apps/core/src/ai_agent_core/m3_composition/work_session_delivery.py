@@ -84,6 +84,8 @@ async def draft(rt: Runtime, session: WorkSession) -> WorkSessionDraft | None:
                     and run.activity.value == "OPEN"
                 )
     return WorkSessionDraft(
+        created_at=None if utterance is None else utterance.created_at,
+        through_sequence=pending.through_sequence,
         scope=pending.scope,
         utterance_id=pending.utterance_id,
         version=pending.version,
@@ -116,6 +118,7 @@ async def acknowledge(
     session = await sessions(rt).get(scope, details.session_id)
     if (
         session is None
+        or session.visibility != "active"
         or session.state in ("closed", "invalidated")
         or session.generation != details.generation
     ):

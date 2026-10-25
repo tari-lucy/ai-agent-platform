@@ -132,6 +132,10 @@ class Views:
             from .workplace import file_content
 
             return await file_content(self.runtime, scope, identifier)
+        if resource == "work-session-sources" and identifier is not None:
+            from .work_sessions import source_selection
+
+            return await source_selection(self.runtime, scope, identifier)
         if resource == "work-session-transcript" and identifier is not None:
             from .work_sessions import transcript
 

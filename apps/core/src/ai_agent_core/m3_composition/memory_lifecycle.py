@@ -11,6 +11,7 @@ from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.memory import derived_id
 from ai_agent_application.retention import DeletionPreview, RetentionService
 from ai_agent_application.storage import Owner, Principal
+from ai_agent_contracts.agent_sessions import WorkSession
 from ai_agent_contracts.api import (
     ConsequencePlan,
     ExecutePlanCommand,
@@ -63,9 +64,33 @@ async def source(
     return row
 
 
+def proof_sources(proof: MemoryPlanProof) -> list[tuple[str, int]]:
+    return proof.source_versions or [(proof.source_id, proof.source_version)]
+
+
+async def pin_session(pins: Pins, ref: tuple[str, int] | None) -> None:
+    if ref is None:
+        return
+    row = await pins.read(WorkSession, ref[0])
+    if row.version != ref[1] or row.visibility == "active":
+        raise ContractError(ErrorCode.VERSION_CONFLICT)
+
+
+async def check_sources(
+    rt: Runtime, authority: ControlAuthority, request: ExecutePlanCommand, proof: MemoryPlanProof
+) -> None:
+    pins = Pins(rt, authority, request, Owner.WORKSPACE)
+    await pin_session(pins, proof.session_ref)
+    for identifier, version in proof_sources(proof):
+        row = await pins.read(Source, identifier)
+        if row.version != version:
+            raise ContractError(ErrorCode.VERSION_CONFLICT)
+    guard(rt, authority, request.scope, True)
+
+
 def snapshot(proof: MemoryPlanProof) -> DeletionPreview:
     return DeletionPreview(
-        (proof.source_id,),
+        tuple(proof.deletion_source_ids or [identifier for identifier, _ in proof_sources(proof)]),
         tuple(proof.erased),
         tuple(proof.detached),
         tuple(proof.indexed),
@@ -111,14 +136,32 @@ async def preview(rt: Runtime, authority: ControlAuthority, request: PlanCommand
     args = rt.registry.validate(
         request.arguments.schema_id, request.arguments.schema_version, request.arguments.data
     )
-    if not isinstance(args, MemorySelectionArguments) or args.source_ids != [request.target]:
+    if (
+        not isinstance(args, MemorySelectionArguments)
+        or args.source_ids[0] != request.target
+        or len(set(args.source_ids)) != len(args.source_ids)
+        or (not deleting and args.source_ids != [request.target])
+    ):
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
     guard(rt, authority, request.scope, deleting)
     pins = Pins(rt, authority, request, Owner.WORKSPACE)
+    await pin_session(pins, args.session_ref)
     row = await pins.read(Source, request.target)
     if row.version != request.expected_version:
         raise ContractError(ErrorCode.VERSION_CONFLICT, request.request_id, row.version)
-    region = await retention(rt).preview_delete(request.scope, [row.id]) if deleting else None
+    selected = [row]
+    for identifier in args.source_ids[1:]:
+        selected.append(await pins.read(Source, identifier))
+    region = (
+        await retention(rt).preview_delete(request.scope, args.source_ids) if deleting else None
+    )
+    if region and len(region.source_ids) > 200:
+        raise ContractError(ErrorCode.RESOURCE_BUSY)
+    if region:
+        known_ids = {item.id for item in selected}
+        for identifier in region.source_ids:
+            if identifier not in known_ids:
+                selected.append(await pins.read(Source, identifier))
     if region and len(region.erased_with) + len(region.detached) > 200:
         raise ContractError(ErrorCode.RESOURCE_BUSY)
     now = rt.supervisor.clock.utc()
@@ -133,6 +176,10 @@ async def preview(rt: Runtime, authority: ControlAuthority, request: PlanCommand
         operation_type="memory.delete" if deleting else "memory.export",
         source_id=row.id,
         source_version=row.version,
+        source_versions=[(item.id, item.version) for item in selected] if deleting else [],
+        selected_source_ids=args.source_ids if deleting else [],
+        session_ref=args.session_ref if deleting else None,
+        deletion_source_ids=list(region.source_ids) if region else [],
         digest=region.digest if region else hashlib.sha256(to_wire(row)).hexdigest(),
         dependency_digest=await dependency_digest(rt, request.scope, region)
         if region
@@ -144,7 +191,7 @@ async def preview(rt: Runtime, authority: ControlAuthority, request: PlanCommand
         expires_at=now + rt.store.receipt_retention,
     )
     consequences = (
-        f"Удалить выбранный источник версии {row.version} и все его редакции. "
+        f"Удалить выбранные источники ({len(selected)}) и все их редакции. "
         f"Зависимых записей без другого основания: {len(proof.erased)}; "
         f"с другими основаниями: {len(proof.detached)}. Очистить индексы, кэши и "
         "зависимые тела лабораторных отчётов. Старые резервные копии закрыты журналом "
@@ -164,7 +211,9 @@ async def preview(rt: Runtime, authority: ControlAuthority, request: PlanCommand
         updated_at=now,
         operation_type=operation,
         consequences=consequences,
-        dependencies=[PlanDependency(resource_id=row.id, version=row.version)],
+        dependencies=[
+            PlanDependency(resource_id=item.id, version=item.version) for item in selected
+        ],
         expires_at=proof.plan_expires_at,
     )
     with (
@@ -219,9 +268,12 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
     if known is None:
         if rt.supervisor.clock.utc() >= proof.plan_expires_at:
             raise ContractError(ErrorCode.EXPIRED)
-        await source(rt, authority, request, proof.source_version)
+        if deleting:
+            await check_sources(rt, authority, request, proof)
+        else:
+            await source(rt, authority, request, proof.source_version)
         if deleting and await retention(rt).preview_delete(
-            request.scope, [proof.source_id]
+            request.scope, proof.selected_source_ids or [proof.source_id]
         ) != snapshot(proof):
             raise ContractError(ErrorCode.VERSION_CONFLICT)
         if (
@@ -237,30 +289,54 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
         if not deleting:
             return [proof]
         service = retention(rt)
-        entry = next(
-            (
-                e
-                for e in await service.ledger.entries(request.scope)
-                if e.source_id == proof.source_id
-            ),
-            None,
-        )
-        if (
-            entry is None
-            or entry.reason != "operator_delete"
-            or entry.version != proof.source_version
-            or known is None
-            or entry.blocked_at < known.created_at
-        ):
-            return None
-        if entry.purged_at is None:
-            await service.resume(request.scope, source_ids=(proof.source_id,))
-            entry = next(
-                e
-                for e in await service.ledger.entries(request.scope)
-                if e.source_id == proof.source_id
+        entries = {entry.source_id: entry for entry in await service.ledger.entries(request.scope)}
+        selected = proof_sources(proof)
+        missing = []
+        for source_id, version in selected:
+            entry = entries.get(source_id)
+            if entry is None:
+                missing.append(source_id)
+            elif (
+                entry.reason != "operator_delete"
+                or entry.version != version
+                or known is None
+                or entry.blocked_at < known.created_at
+            ):
+                return None
+        if missing:
+            # A crash may leave only a prefix of the confirmed region in the ledger.
+            # Nothing has been purged yet; resume only if the exact pinned region survives.
+            await check_sources(rt, authority, request, proof)
+            if (
+                await service.preview_delete(
+                    request.scope, proof.selected_source_ids or [proof.source_id]
+                )
+                != snapshot(proof)
+                or await dependency_digest(rt, request.scope, snapshot(proof))
+                != proof.dependency_digest
+            ):
+                return None
+
+            async def before_remaining() -> None:
+                await check_sources(rt, authority, request, proof)
+                if (
+                    await dependency_digest(rt, request.scope, snapshot(proof))
+                    != proof.dependency_digest
+                ):
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+
+            result = await service.delete(
+                request.scope, snapshot(proof), before_block=before_remaining
             )
-        return [proof] if entry.purged_at is not None else None
+            if not result.complete:
+                return None
+        elif any(entries[source_id].purged_at is None for source_id, _ in selected):
+            await service.resume(request.scope, source_ids=tuple(i for i, _ in selected))
+        entries = {entry.source_id: entry for entry in await service.ledger.entries(request.scope)}
+        if all(entries[i].purged_at is not None for i, _ in selected):
+            await pin_session(Pins(rt, authority, request, Owner.WORKSPACE), proof.session_ref)
+            return [proof]
+        return None
 
     pending: tuple[list[str], list[str]] = ([], [])
 
@@ -268,9 +344,15 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
         nonlocal proof
         nonlocal pending
         pins = Pins(rt, authority, request, Owner.WORKSPACE)
+        await pin_session(pins, proof.session_ref)
         row = await pins.read(Source, proof.source_id)
         if row.version != proof.source_version:
             raise ContractError(ErrorCode.VERSION_CONFLICT)
+        if deleting:
+            for source_id, version in proof_sources(proof):
+                other = await pins.read(Source, source_id)
+                if other.version != version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
         updated = proof.model_copy(
             update={
                 "version": 2,
@@ -297,7 +379,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
         if deleting:
 
             async def before_block() -> None:
-                await source(rt, authority, request, proof.source_version)
+                await check_sources(rt, authority, request, proof)
                 if (
                     await dependency_digest(rt, request.scope, snapshot(proof))
                     != proof.dependency_digest
@@ -314,6 +396,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
                     ["Очистка источника, индексов и зависимых копий"],
                 )
                 return None
+        await pin_session(Pins(rt, authority, request, Owner.WORKSPACE), proof.session_ref)
         return [proof]
 
     with rt.store.fence(

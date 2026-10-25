@@ -60,6 +60,7 @@ class SessionReplyRef(Contract):
 
 class WorkSession(VersionedRecord):
     title: ShortText = Field(min_length=1)
+    visibility: Literal["active", "archived", "hidden"] = "active"
     state: Literal["open", "waiting", "closed", "invalidated"] = "open"
     # Changes on context invalidation. A checkpoint from another generation is unusable.
     generation: Version = 1
@@ -169,3 +170,8 @@ class WorkSessionRenameArguments(Contract):
 
 class WorkSessionCloseArguments(Contract):
     session_id: Id
+
+
+class WorkSessionManageArguments(Contract):
+    session_id: Id
+    visibility: Literal["active", "archived", "hidden"]

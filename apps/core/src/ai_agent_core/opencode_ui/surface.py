@@ -36,7 +36,7 @@ READS = {
     "run": "sessions",
     "files": "workplace-library",
 }
-DETAIL = re.compile(r"(sessions|files|operations)/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})")
+DETAIL = re.compile(r"(sessions|files|operations|plans)/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})")
 
 
 async def _read(
@@ -162,6 +162,11 @@ async def dispatch(
                 projection_lag_ms=page.projection_lag_ms,
             )
         )
+    selection = re.fullmatch(r"sessions/([^/]+)/sources", action)
+    if selection is not None and method == "GET":
+        return await _read(
+            surface, asgi, authority, selected, "work-session-sources", selection.group(1)
+        )
     detail = DETAIL.fullmatch(action)
     if detail is not None:
         kind, identifier = detail.groups()
@@ -169,6 +174,7 @@ async def dispatch(
             "sessions": "work-session-transcript",
             "files": "workplace-file",
             "operations": "operations",
+            "plans": "plans",
         }[kind]
         return await _read(surface, asgi, authority, selected, resource, identifier)
     raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)

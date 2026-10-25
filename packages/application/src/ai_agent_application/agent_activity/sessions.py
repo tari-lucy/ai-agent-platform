@@ -15,6 +15,7 @@ from ai_agent_contracts.agent_sessions import (
     SessionTicketRef,
     WorkSession,
     WorkSessionCloseArguments,
+    WorkSessionManageArguments,
     WorkSessionMessage,
     WorkSessionMessageArguments,
     WorkSessionOpenArguments,
@@ -301,7 +302,11 @@ class SessionBook:
                 if unit.replay is not None:
                     return unit.replay
                 session = await self.get(scope, args.session_id)
-                if session is None or session.state in ("closed", "invalidated"):
+                if (
+                    session is None
+                    or session.state in ("closed", "invalidated")
+                    or session.visibility != "active"
+                ):
                     raise ContractError(ErrorCode.ACCESS_DENIED)
                 if session.version != request.expected_version:
                     raise ContractError(ErrorCode.VERSION_CONFLICT)
@@ -377,7 +382,11 @@ class SessionBook:
                 if unit.replay is not None:
                     return unit.replay
                 session = await self.get(scope, session_id)
-                if session is None or session.state in ("closed", "invalidated"):
+                if (
+                    session is None
+                    or session.state in ("closed", "invalidated")
+                    or session.visibility != "active"
+                ):
                     raise ContractError(ErrorCode.ACCESS_DENIED)
                 if session.version != expected_version:
                     raise ContractError(ErrorCode.VERSION_CONFLICT)
@@ -472,7 +481,11 @@ class SessionBook:
                 if unit.replay is not None:
                     return unit.replay
                 session = await self.get(scope, session_id)
-                if session is None or session.state in ("closed", "invalidated"):
+                if (
+                    session is None
+                    or session.state in ("closed", "invalidated")
+                    or session.visibility != "active"
+                ):
                     raise ContractError(ErrorCode.ACCESS_DENIED)
                 if (
                     session.generation != generation
@@ -496,6 +509,30 @@ class SessionBook:
                 await self.verify_delivery(scope, delivery_id, source)
                 now = self.clock()
                 sequence = session.last_sequence + 1
+                reply_to = max(
+                    (item.sequence for item in prefix if item.speaker == "operator"), default=None
+                )
+                if reply_to is None:
+                    # A ticket continuation has no new operator input. Preserve its parent.
+                    end = through_sequence
+                    while end > 0:
+                        offset = max(0, end - 200)
+                        prior = await self.entries(
+                            scope, session.id, after_sequence=offset, limit=200
+                        )
+                        end = offset
+                        reply_to = next(
+                            (
+                                item.sequence
+                                for _, item in reversed(prior)
+                                if item is not None
+                                and item.speaker == "operator"
+                                and item.sequence <= through_sequence
+                            ),
+                            None,
+                        )
+                        if reply_to is not None:
+                            break
                 row = WorkSessionMessage(
                     id=message_id(scope, session.id, sequence),
                     scope=scope,
@@ -506,10 +543,7 @@ class SessionBook:
                     sequence=sequence,
                     speaker="character",
                     source=source,
-                    reply_to_sequence=max(
-                        (item.sequence for item in prefix if item.speaker == "operator"),
-                        default=None,
-                    ),
+                    reply_to_sequence=reply_to,
                 )
                 # Include our own appended reply only when there are no later unconsumed inputs.
                 consumed = (
@@ -630,6 +664,53 @@ class SessionBook:
                     scope=request.scope,
                     status="completed",
                     resource_id=session.id,
+                    version=revised.version,
+                )
+                await unit.complete(receipt)
+                return receipt
+
+    async def manage(self, request: EditCommand) -> Receipt:
+        """Reversible catalogue state; no source deletion and no grant or START.
+
+        Archive/hide invalidate a running attempt and its undelivered draft; references
+        and processed progress stay with their existing owners. Restoring cannot reopen
+        a terminal conversation. The caller must explicitly use retention to forget text.
+        """
+        args = WorkSessionManageArguments.model_validate(request.arguments.data)
+        if (
+            request.type != "work.session.manage"
+            or request.target != args.session_id
+            or request.arguments.schema_id != "work.session.manage-args"
+        ):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        scope = area(request.scope)
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, request) as unit:
+                if unit.replay is not None:
+                    return unit.replay
+                current = await self.get(scope, args.session_id)
+                if current is None:
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                if current.version != request.expected_version:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                revised = current.model_copy(
+                    update={
+                        "version": current.version + 1,
+                        "updated_at": self.clock(),
+                        "visibility": args.visibility,
+                        "generation": current.generation + 1,
+                        "checkpoint": None,
+                        "pending_reply": None,
+                        "context_sources": [],
+                        "context_files": [],
+                    }
+                )
+                await unit.put(revised, expected_version=current.version)
+                receipt = Receipt(
+                    request_id=request.request_id,
+                    scope=request.scope,
+                    status="completed",
+                    resource_id=current.id,
                     version=revised.version,
                 )
                 await unit.complete(receipt)

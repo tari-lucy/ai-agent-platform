@@ -124,8 +124,9 @@ class MemoryCorrectArguments(Contract):
 
 
 class MemorySelectionArguments(Contract):
-    # The panel currently operates on one explicitly selected source, never a hidden archive.
-    source_ids: list[Id] = Field(min_length=1, max_length=1)
+    # Explicit bounded source selection, including a conversation selected by its owner.
+    source_ids: list[Id] = Field(min_length=1, max_length=200)
+    session_ref: tuple[Id, Version] | None = None
 
 
 class MemorySourceExport(Contract):
@@ -142,11 +143,15 @@ class MemoryPlanProof(VersionedRecord):
     operation_type: Literal["memory.delete", "memory.export"]
     source_id: Id
     source_version: Version
+    source_versions: list[tuple[Id, Version]] = Field(default_factory=list, max_length=200)
+    selected_source_ids: list[Id] = Field(default_factory=list, max_length=200)
+    session_ref: tuple[Id, Version] | None = None
+    deletion_source_ids: list[Id] = Field(default_factory=list, max_length=200)
     digest: Digest
     dependency_digest: Digest
     erased: list[tuple[Id, Id]] = Field(default_factory=list, max_length=200)
     detached: list[tuple[Id, Id]] = Field(default_factory=list, max_length=200)
-    indexed: list[Id] = Field(default_factory=list, max_length=1)
+    indexed: list[Id] = Field(default_factory=list, max_length=200)
     plan_expires_at: UTC
     expires_at: UTC
     execution_id: Id | None = None
@@ -275,6 +280,7 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     from ai_agent_contracts.agent_sessions import (
         SessionReplyOrigin,
         WorkSessionCloseArguments,
+        WorkSessionManageArguments,
         WorkSessionMessageArguments,
         WorkSessionOpenArguments,
         WorkSessionRenameArguments,
@@ -284,6 +290,7 @@ def register_panel_extensions(registry: ExtensionRegistry) -> None:
     registry.register("work.session.message-args", WorkSessionMessageArguments)
     registry.register("work.session.close-args", WorkSessionCloseArguments)
     registry.register("work.session.rename-args", WorkSessionRenameArguments)
+    registry.register("work.session.manage-args", WorkSessionManageArguments)
     registry.register("work.session-reply", SessionReplyOrigin)
     registry.register("work.abandon-args", WorkAbandonArguments)
     registry.register("permission.decision-args", PermissionDecisionArguments)
@@ -538,6 +545,7 @@ class WorkSessionEntry(Contract):
     withheld: bool = Field(strict=True)
     at: UTC
     reply_to_sequence: int | None = Field(default=None, strict=True, ge=1)
+    reply_id: Id | None = None
 
     @model_validator(mode="after")
     def text_or_withheld(self) -> Self:
@@ -547,6 +555,8 @@ class WorkSessionEntry(Contract):
 
 
 class WorkSessionDraft(Contract):
+    created_at: UTC | None = None
+    through_sequence: int | None = Field(default=None, strict=True, ge=0)
     scope: Scope
     utterance_id: Id
     version: Version
@@ -675,3 +685,13 @@ class WorkplaceFileContent(Contract):
         if self.withheld != (self.text is None) or (self.withheld and self.truncated):
             raise ValueError("WITHHELD_TEXT")
         return self
+
+
+class WorkSessionSources(Contract):
+    """Explicit conversation-owned source identities for operator retention previews."""
+    scope: Scope
+    session_id: Id
+    session_version: Version
+    sources: list[tuple[Id, Version]] = Field(default_factory=list, max_length=2000)
+    complete: bool = Field(default=True, strict=True)
+    unavailable_count: int = Field(default=0, strict=True, ge=0, le=2000)

@@ -18,7 +18,7 @@ from ai_agent_contracts.agent_sessions import WorkSession, WorkSessionMessageArg
 from ai_agent_contracts.api import CreateCommand, EditCommand, Receipt
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
-from ai_agent_contracts.panel import WorkSessionEntry, WorkSessionTranscript
+from ai_agent_contracts.panel import WorkSessionEntry, WorkSessionSources, WorkSessionTranscript
 from ai_agent_contracts.states import ErrorCode, Provenance
 
 from .dialogue import memory
@@ -120,6 +120,8 @@ async def mutate(
             raise
     elif isinstance(request, EditCommand) and request.type == "work.session.rename":
         receipt = await book.rename(request)
+    elif isinstance(request, EditCommand) and request.type == "work.session.manage":
+        receipt = await book.manage(request)
     elif isinstance(request, EditCommand) and request.type == "work.session.close":
         receipt = await book.close(request)
     else:
@@ -194,6 +196,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
                 gone = gone or sequence > session.processed_sequence
                 continue  # its speaker and text are not readable any more
             text = None
+            source = None
             if next(flags):
                 source = found.get(row.source.source_id)
                 text = (
@@ -207,7 +210,12 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
                     speaker=row.speaker,
                     text=text,
                     withheld=text is None,
-                    at=row.created_at,
+                    at=source.occurred_at
+                    if source is not None and row.speaker == "character"
+                    else row.created_at,
+                    reply_id=source.external_id
+                    if source is not None and row.speaker == "character"
+                    else None,
                     reply_to_sequence=row.reply_to_sequence,
                 )
             )
@@ -230,7 +238,9 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
 
     turn = (
         None
-        if session.state == "invalidated" or waiting == "message_unavailable"
+        if session.visibility != "active"
+        or session.state == "invalidated"
+        or waiting == "message_unavailable"
         else await progress(rt, session, entries, pending)
     )
     return WorkSessionTranscript(
@@ -252,4 +262,60 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
         entries=entries,
         complete=start == 0 and session.state != "invalidated",
         checked_at=rt.supervisor.clock.utc(),
+    )
+
+
+async def source_selection(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionSources:
+    """No second deletion engine: explicit source selection for existing retention plans."""
+    from ai_agent_application.agent_activity.sessions import message_id
+    from ai_agent_contracts.agent_sessions import WorkSessionMessage
+
+    from .state import PRINCIPALS
+
+    _enabled(rt)
+    stable = area(scope)
+    session = await sessions(rt).get(stable, session_id)
+    if session is None:
+        raise ContractError(ErrorCode.ACCESS_DENIED)
+    if session.last_sequence > 2000:
+        raise ContractError(ErrorCode.RESOURCE_BUSY)
+    repo = rt.store.repository(WorkSessionMessage, PRINCIPALS[Owner.ACTIVITY], stable)
+    ids: list[str] = []
+    unreadable = 0
+    for start in range(0, session.last_sequence, 200):
+        rows = await repo.get_many(
+            [
+                message_id(stable, session.id, n)
+                for n in range(start + 1, min(start + 200, session.last_sequence) + 1)
+            ]
+        )
+        if any(
+            row.session_id != session.id or row.scope.partition != stable.partition for row in rows
+        ):
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        unreadable += min(200, session.last_sequence - start) - len(rows)
+        ids.extend(
+            row.source.source_id
+            for row in rows
+            if row is not None
+            and row.session_id == session.id
+            and row.scope.partition == stable.partition
+        )
+    selected = list(dict.fromkeys(ids))
+    found = []
+    for start in range(0, len(selected), 200):
+        found.extend(
+            await memory(rt).get_sources(
+                stable, selected[start : start + 200], purpose="api_transfer"
+            )
+        )
+    if await sessions(rt).get(stable, session_id) != session:
+        raise ContractError(ErrorCode.VERSION_CONFLICT)
+    return WorkSessionSources(
+        scope=stable,
+        session_id=session.id,
+        session_version=session.version,
+        sources=[(source.id, source.version) for source in found],
+        complete=unreadable == 0 and len(found) == len(selected),
+        unavailable_count=unreadable + len(selected) - len(found),
     )

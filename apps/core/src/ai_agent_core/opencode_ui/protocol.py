@@ -15,6 +15,9 @@ COMMANDS = frozenset(
         "work.session.message",
         "work.session.close",
         "work.session.rename",
+        "work.session.manage",
+        "memory.delete.preview",
+        "memory.delete.execute",
         "agent.start",
         "dialogue.acknowledge",
     }
@@ -49,6 +52,7 @@ class SessionCard(Contract):
     id: Id
     scope: Scope
     title: ShortText
+    visibility: Literal["active", "archived", "hidden"] = "active"
     version: Version
     generation: Version
     state: Literal["open", "waiting", "closed", "invalidated"]

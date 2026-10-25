@@ -493,7 +493,7 @@ class Surface:
         custom = re.fullmatch(
             r"/api/v1/(api-limits|private-api-status|laboratory-catalogue|laboratory-runs|"
             r"persona-markdown|settings-transfer-status|workplace-library|workplace-access|"
-            r"work-session-transcript|workplace-file)(?:/([^/]+))?",
+            r"work-session-transcript|work-session-sources|workplace-file)(?:/([^/]+))?",
             path,
         )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
@@ -559,6 +559,7 @@ class Surface:
                 "workplace-library": "WorkplaceLibrary",
                 "workplace-access": "InitialAccessStatus",
                 "work-session-transcript": "WorkSessionTranscript",
+                "work-session-sources": "WorkSessionSources",
                 "workplace-file": "WorkplaceFileContent",
             }[resource]
             checked = from_wire(

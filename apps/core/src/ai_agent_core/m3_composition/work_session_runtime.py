@@ -255,6 +255,8 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
 
     settled = False
     for session in sessions:
+        if session.visibility != "active":
+            continue
         found = None
         if session.state in ("open", "waiting"):
             found = await unavailable(rt, session)
@@ -280,7 +282,11 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
     owner, settings = book(rt), rt.activity
     assert settings is not None
     for session in sorted(sessions, key=lambda s: (s.updated_at, s.id)):
-        if session.state not in ("open", "waiting") or session.pending_reply is not None:
+        if (
+            session.visibility != "active"
+            or session.state not in ("open", "waiting")
+            or session.pending_reply is not None
+        ):
             continue
         rows = await repo.get(session.id)
         if rows is None or rows != session:
@@ -348,6 +354,7 @@ async def perform(ex: Execution) -> list[str]:
     session = await reader.get(scope, request.work_session_id)
     if (
         session is None
+        or session.visibility != "active"
         or session.state not in ("open", "waiting")
         or session.pending_reply is not None
         or session.generation != request.work_session_generation

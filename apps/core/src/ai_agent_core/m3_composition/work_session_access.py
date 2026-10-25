@@ -88,7 +88,8 @@ async def _waiting(rt: Runtime, sessions: list[WorkSession]) -> bool:
     from .work_sessions import sessions as history
 
     for session in sessions:
-        if session.state not in ("open", "waiting") or session.pending_reply is not None:
+        if (session.visibility != "active" or session.state not in ("open", "waiting")
+                or session.pending_reply is not None):
             continue
         messages = await history(rt).messages(
             session.scope, session.id, after_sequence=session.processed_sequence, limit=200

@@ -71,6 +71,7 @@ def test_session_response_waits_for_exact_ack_and_uses_existing_owners(tmp_path,
                 limit=200
             )
             assert not any(s.source_type == "work-session-reply" for s in sources)
+            original_reply = view["pending_reply"]
             response = await ack(host, view["pending_reply"])
             if failures:
                 raise failures[0]
@@ -80,6 +81,8 @@ def test_session_response_waits_for_exact_ack_and_uses_existing_owners(tmp_path,
             view = await transcript(host, identifier)
             assert view["pending_reply"] is None and len(view["entries"]) == 2
             assert view["entries"][-1]["speaker"] == "character" and view["processed_sequence"] == 2
+            assert view["entries"][-1]["reply_id"] == original_reply["utterance_id"]
+            assert view["entries"][-1]["at"] == original_reply["created_at"]
             sources = await rt.store.repository(Source, PRINCIPALS[Owner.MEMORY], host.scope).list(
                 limit=200
             )

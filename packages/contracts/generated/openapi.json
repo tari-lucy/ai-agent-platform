@@ -2177,7 +2177,8 @@
               "work.abandon",
               "work.session.message",
               "work.session.close",
-              "work.session.rename"
+              "work.session.rename",
+              "work.session.manage"
             ],
             "title": "Type",
             "type": "string"
@@ -4830,7 +4831,7 @@
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
               "type": "string"
             },
-            "maxItems": 1,
+            "maxItems": 200,
             "title": "Indexed",
             "type": "array"
           },
@@ -4875,6 +4876,28 @@
             "title": "Source Version",
             "type": "integer"
           },
+          "source_versions": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 200,
+            "title": "Source Versions",
+            "type": "array"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -4914,7 +4937,7 @@
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
               "type": "string"
             },
-            "maxItems": 1,
+            "maxItems": 200,
             "minItems": 1,
             "title": "Source Ids",
             "type": "array"
@@ -8400,6 +8423,7 @@
             "work.abandon": "#/components/schemas/EditCommand",
             "work.assign": "#/components/schemas/CreateCommand",
             "work.session.close": "#/components/schemas/EditCommand",
+            "work.session.manage": "#/components/schemas/EditCommand",
             "work.session.message": "#/components/schemas/EditCommand",
             "work.session.open": "#/components/schemas/CreateCommand",
             "work.session.rename": "#/components/schemas/EditCommand",
@@ -14353,6 +14377,16 @@
             "title": "Version",
             "type": "integer"
           },
+          "visibility": {
+            "default": "active",
+            "enum": [
+              "active",
+              "archived",
+              "hidden"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          },
           "waiting_ticket_ids": {
             "items": {
               "maxLength": 128,
@@ -14400,6 +14434,19 @@
             "title": "Acknowledgeable",
             "type": "boolean"
           },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created At"
+          },
           "revision": {
             "minimum": 1,
             "title": "Revision",
@@ -14420,6 +14467,19 @@
             ],
             "default": null,
             "title": "Text"
+          },
+          "through_sequence": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Through Sequence"
           },
           "utterance_id": {
             "maxLength": 128,
@@ -14457,6 +14517,21 @@
             "format": "date-time",
             "title": "At",
             "type": "string"
+          },
+          "reply_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reply Id"
           },
           "reply_to_sequence": {
             "anyOf": [
@@ -14509,6 +14584,33 @@
           "at"
         ],
         "title": "WorkSessionEntry",
+        "type": "object"
+      },
+      "WorkSessionManageArguments": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "active",
+              "archived",
+              "hidden"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "visibility"
+        ],
+        "title": "WorkSessionManageArguments",
         "type": "object"
       },
       "WorkSessionMessage": {
@@ -14833,6 +14935,56 @@
           "current"
         ],
         "title": "WorkSessionResultFile",
+        "type": "object"
+      },
+      "WorkSessionSources": {
+        "additionalProperties": false,
+        "description": "Explicit conversation-owned source identities for operator retention previews.",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_version": {
+            "minimum": 1,
+            "title": "Session Version",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 2000,
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "session_id",
+          "session_version"
+        ],
+        "title": "WorkSessionSources",
         "type": "object"
       },
       "WorkSessionTranscript": {

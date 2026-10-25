@@ -58,6 +58,7 @@ MODELS: dict[str, type[VersionedRecord]] = {
     )
 }
 OWNERS = {
+    "WorkSession": Owner.ACTIVITY,
     "Source": Owner.MEMORY,
     "Claim": Owner.MEMORY,
     "Summary": Owner.MEMORY,
