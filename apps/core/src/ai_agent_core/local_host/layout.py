@@ -218,6 +218,8 @@ class WorkSessionsConfig(BaseModel):
     max_model_tokens: int = Field(default=1024, strict=True, ge=64, le=65536)
     max_workspace_calls: int = Field(default=16, strict=True, ge=0, le=64)
     monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
+    prewarm_enabled: bool = Field(default=False, strict=True)
+    prewarm_idle_seconds: int = Field(default=120, strict=True, ge=10, le=300)
 
     @model_validator(mode="after")
     def bounds(self) -> Self:

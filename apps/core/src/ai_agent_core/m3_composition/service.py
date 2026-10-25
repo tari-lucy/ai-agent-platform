@@ -263,6 +263,12 @@ class Maintenance(Protocol):
     async def close(self) -> None: ...
 
 
+class SessionPrewarmer(Protocol):
+    def tick(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+
 class Runtime:
     def __init__(
         self,
@@ -318,6 +324,7 @@ class Runtime:
         self.activity: ActivitySettings | None = None
         from .work_session_runtime import HarnessFactory
 
+        self.session_prewarmer: SessionPrewarmer | None = None
         self.session_harness: HarnessFactory | None = None
         self.session_capability: str | None = None
         self.session_output_area: str | None = None
@@ -526,6 +533,8 @@ class Runtime:
                 await self._active
         if self.clock is not None:
             await self.state.checkpoint_time(self.supervisor.snapshot.scope, self.active_seconds())
+        if self.session_prewarmer is not None:
+            await self.session_prewarmer.close()
         await self.supervisor.flush()
         if self.maintenance is not None:
             await self.maintenance.close()
@@ -563,6 +572,8 @@ class Runtime:
                 return
             self._active.result()
             self._active = None
+        if self.session_prewarmer is not None:
+            self.session_prewarmer.tick()
         await self.daily_memory.tick()
         await self.autonomous_gm.tick()
         await self.autonomous_activity.tick()

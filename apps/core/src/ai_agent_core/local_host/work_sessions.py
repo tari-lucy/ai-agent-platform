@@ -129,13 +129,20 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
         return reason
     from ai_agent_core.m3_composition.work_session_opencode import OpenCodeSessions
 
-    OpenCodeSessions(runtime, template(settings), output_area=settings.output_area).install()
+    OpenCodeSessions(
+        runtime,
+        template(settings),
+        output_area=settings.output_area,
+        prewarm_enabled=settings.prewarm_enabled,
+        prewarm_idle_seconds=settings.prewarm_idle_seconds,
+    ).install()
     return None
 
 
 async def enable_work_sessions(
     root: Path, *, image_id: str, areas: list[str], output_area: str,
-    ceiling_days: int | None = None, monitor_interval_seconds: float = 1.0, **limits: int,
+    ceiling_days: int | None = None, monitor_interval_seconds: float = 1.0,
+    prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
     if not root.is_dir():
@@ -154,6 +161,20 @@ async def enable_work_sessions(
                     areas=tuple(areas),
                     output_area=output_area,
                     monitor_interval_seconds=monitor_interval_seconds,
+                    prewarm_enabled=(
+                        prewarm_enabled
+                        if prewarm_enabled is not None
+                        else config.work_sessions.prewarm_enabled
+                        if config.work_sessions
+                        else False
+                    ),
+                    prewarm_idle_seconds=(
+                        prewarm_idle_seconds
+                        if prewarm_idle_seconds is not None
+                        else config.work_sessions.prewarm_idle_seconds
+                        if config.work_sessions
+                        else 120
+                    ),
                     **limits,
                 )
             )

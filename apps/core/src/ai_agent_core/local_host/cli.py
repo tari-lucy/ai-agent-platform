@@ -133,6 +133,13 @@ def parser() -> argparse.ArgumentParser:
     sessions.add_argument("--area", action="append", required=True, dest="areas")
     sessions.add_argument("--output-area", required=True)
     sessions.add_argument(
+        "--prewarm",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="prepare one empty one-use OpenCode sandbox after START",
+    )
+    sessions.add_argument("--prewarm-idle-seconds", type=int, default=None)
+    sessions.add_argument(
         "--monitor-interval-seconds",
         type=float,
         default=1.0,
@@ -343,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
                     areas=arguments.areas,
                     output_area=arguments.output_area,
                     monitor_interval_seconds=arguments.monitor_interval_seconds,
+                    prewarm_enabled=arguments.prewarm,
+                    prewarm_idle_seconds=arguments.prewarm_idle_seconds,
                     ceiling_days=arguments.ceiling_days,
                     **limits,
                 )

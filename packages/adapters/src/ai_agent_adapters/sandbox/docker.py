@@ -9,7 +9,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
 from ai_agent_application.agent_workplace.ports import (
@@ -32,6 +32,10 @@ from .entry import ENTRY
 from .helper_protocol import helper_request
 from .model_protocol import model_request, wire_calls, workspace_request
 from .policy import RunnerTemplate, create_args
+
+if TYPE_CHECKING:
+    from .warm import WarmSandbox
+
 
 type Authorize = Callable[[WorkAdmission, str], Awaitable[None]]
 type Lifecycle = Callable[
@@ -98,6 +102,7 @@ class DockerTaskRunner:
         models: ModelGateway | None = None,
         workspace: WorkspaceGateway | None = None,
         helpers: WorkspaceGateway | None = None,
+        prepared: WarmSandbox | None = None,
     ) -> None:
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
@@ -106,6 +111,7 @@ class DockerTaskRunner:
         self.templates = {item.id: item for item in templates}
         self.files, self.attempts, self.guard = files, attempts, guard
         self.authorize, self.lifecycle, self.cache_seconds = authorize, lifecycle, cache_seconds
+        self.prepared = prepared
         self.models = models
         self.workspace = workspace
         self.helpers = helpers
@@ -137,16 +143,20 @@ class DockerTaskRunner:
         wire_cap: int,
     ) -> bytes:
         frame_cap = max(wire_cap, template.max_prompt_chars * 6 + 8192)
-        process = await asyncio.create_subprocess_exec(
-            "docker",
-            "start",
-            "--attach",
-            "--interactive",
-            name,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            limit=frame_cap + 1,
+        process = (
+            self.prepared.activate(template, task)
+            if self.prepared is not None
+            else await asyncio.create_subprocess_exec(
+                "docker",
+                "start",
+                "--attach",
+                "--interactive",
+                name,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                limit=frame_cap + 1,
+            )
         )
         assert process.stdin is not None and process.stdout is not None
         final: bytes | None = None
@@ -387,9 +397,13 @@ class DockerTaskRunner:
         try:
             return await self._run(admission, task)
         finally:
-            self._active = None
-            self._busy = False
-            self._idle.set()
+            try:
+                if self.prepared is not None:
+                    await self.prepared.close()
+            finally:
+                self._active = None
+                self._busy = False
+                self._idle.set()
 
     async def _watch(
         self,
@@ -443,7 +457,7 @@ class DockerTaskRunner:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         if self._active is not None or self._residual is not None:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        name = "aw-task-" + uuid4().hex
+        name = self.prepared.name if self.prepared is not None else "aw-task-" + uuid4().hex
         stopped = asyncio.Event()
         self._active = admission, name, stopped
         generation = self._generation
@@ -479,9 +493,10 @@ class DockerTaskRunner:
             await self._verify(admission, attempt)
             await self.lifecycle(admission, name, "register")
             registered = True
-            args = create_args(template, task, name, ENTRY)
-            args[1:1] = ["--label", "ai-agent-platform.instance=" + name]
-            await cli(*args)
+            if self.prepared is None:
+                args = create_args(template, task, name, ENTRY)
+                args[1:1] = ["--label", "ai-agent-platform.instance=" + name]
+                await cli(*args)
             await self._verify(admission, attempt)
             payload = json.dumps(
                 {

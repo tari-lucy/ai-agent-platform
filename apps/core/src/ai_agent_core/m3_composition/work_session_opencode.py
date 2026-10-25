@@ -77,6 +77,8 @@ class OpenCodeSessions:
         output_area: str,
         helper_template: RunnerTemplate | None = None,
         helper_capability: str | None = None,
+        prewarm_enabled: bool = False,
+        prewarm_idle_seconds: float = 120,
     ) -> None:
         from .work_session_helpers import PREFIX as HELPER_PREFIX
 
@@ -108,6 +110,18 @@ class OpenCodeSessions:
         self.runners: dict[str, DockerTaskRunner] = {}
         self.helper_runners: dict[str, DockerTaskRunner] = {}
         self.resources: dict[str, ResourceTicket] = {}
+        from .work_session_warm import WarmSessions
+
+        self.warm = (
+            WarmSessions(
+                runtime,
+                template,
+                idle_seconds=prewarm_idle_seconds,
+                helper=helper_template is not None,
+            )
+            if prewarm_enabled
+            else None
+        )
 
     def install(self) -> None:
         if self.rt.session_harness is not None:
@@ -116,6 +130,7 @@ class OpenCodeSessions:
         self.rt.session_capability = self.template.id
         self.rt.session_output_area = self.output_area
         self.rt.session_helper_capability = self.helper_capability
+        self.rt.session_prewarmer = self.warm
 
     async def create(
         self, execution: Execution, models: ModelGateway, admission: WorkAdmission
@@ -210,6 +225,8 @@ class OpenCodeSessions:
                 execution, admission, self.helper_template, helper_runner, helper_areas
             )
 
+        await execution.verify()
+        await authorize(admission, self.template.id)
         runner = DockerTaskRunner(
             (self.template,),
             place.files,
@@ -222,9 +239,8 @@ class OpenCodeSessions:
             if self.template.max_workspace_calls
             else None,
             helpers=helpers,
+            prepared=await self.warm.take() if self.warm is not None else None,
         )
-        await execution.verify()
-        await authorize(admission, self.template.id)
         self.runners[admission.attempt_id] = runner
         controller = self
 
