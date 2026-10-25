@@ -23,6 +23,15 @@ class DeletionLedger(Protocol):
     async def entries(self, scope: Scope) -> list[LedgerEntry]: ...
 
 
+@runtime_checkable
+class AtomicDeletionLedger(Protocol):
+    """Optional batch extension: publish every confirmed block or none of them."""
+
+    async def block_many(
+        self, scope: Scope, sources: Sequence[tuple[str, int]], reason: Reason, at: datetime
+    ) -> tuple[LedgerEntry, ...]: ...
+
+
 class DerivedPurger(Protocol):
     """Caches, exports, contexts, indexes: anything that holds a copy of source text."""
 

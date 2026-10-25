@@ -689,6 +689,7 @@ class WorkplaceFileContent(Contract):
 
 class WorkSessionSources(Contract):
     """Explicit conversation-owned source identities for operator retention previews."""
+
     scope: Scope
     session_id: Id
     session_version: Version

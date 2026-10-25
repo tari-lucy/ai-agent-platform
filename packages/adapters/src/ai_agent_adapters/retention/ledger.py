@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 import threading
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -76,28 +77,55 @@ class SQLiteDeletionLedger:
     ) -> LedgerEntry:
         def work() -> LedgerEntry:
             with self._lock:
-                row = self._db.execute(
-                    "SELECT version, reason, blocked_at, purged_at FROM deletion_ledger"
-                    " WHERE scope_key=? AND source_id=?",
-                    (_key(scope), source_id),
-                ).fetchone()
-                if row is None:
-                    self._db.execute(
-                        "INSERT INTO deletion_ledger VALUES (?,?,?,?,?,NULL)",
-                        (_key(scope), source_id, version, reason, at.isoformat()),
+                return self._block(scope, source_id, version, reason, at)
+
+        return await asyncio.to_thread(work)
+
+    def _block(
+        self, scope: Scope, source_id: str, version: int, reason: Reason, at: datetime
+    ) -> LedgerEntry:
+        row = self._db.execute(
+            "SELECT version, reason, blocked_at, purged_at FROM deletion_ledger"
+            " WHERE scope_key=? AND source_id=?",
+            (_key(scope), source_id),
+        ).fetchone()
+        if row is None:
+            self._db.execute(
+                "INSERT INTO deletion_ledger VALUES (?,?,?,?,?,NULL)",
+                (_key(scope), source_id, version, reason, at.isoformat()),
+            )
+            self._bump()
+            return LedgerEntry(source_id, version, reason, at, None)
+        kept: Reason = reason if STRENGTH[reason] > STRENGTH[row[1]] else row[1]
+        high = max(version, row[0])
+        self._db.execute(
+            "UPDATE deletion_ledger SET reason=?, version=? WHERE scope_key=? AND source_id=?",
+            (kept, high, _key(scope), source_id),
+        )
+        self._bump()
+        purged = datetime.fromisoformat(row[3]) if row[3] else None
+        return LedgerEntry(source_id, high, kept, datetime.fromisoformat(row[2]), purged)
+
+    async def block_many(
+        self, scope: Scope, sources: Sequence[tuple[str, int]], reason: Reason, at: datetime
+    ) -> tuple[LedgerEntry, ...]:
+        selected = tuple(sources)
+        if not 1 <= len(selected) <= 500 or len({item[0] for item in selected}) != len(selected):
+            raise ValueError("LEDGER_BATCH_BOUNDS")
+
+        def work() -> tuple[LedgerEntry, ...]:
+            with self._lock:
+                self._db.execute("BEGIN IMMEDIATE")
+                try:
+                    result = tuple(
+                        self._block(scope, identifier, version, reason, at)
+                        for identifier, version in selected
                     )
-                    self._bump()
-                    return LedgerEntry(source_id, version, reason, at, None)
-                kept: Reason = reason if STRENGTH[reason] > STRENGTH[row[1]] else row[1]
-                high = max(version, row[0])
-                self._db.execute(
-                    "UPDATE deletion_ledger SET reason=?, version=?"
-                    " WHERE scope_key=? AND source_id=?",
-                    (kept, high, _key(scope), source_id),
-                )
-                self._bump()
-                purged = datetime.fromisoformat(row[3]) if row[3] else None
-                return LedgerEntry(source_id, high, kept, datetime.fromisoformat(row[2]), purged)
+                    self._db.execute("COMMIT")
+                    return result
+                except BaseException:
+                    self._db.execute("ROLLBACK")
+                    raise
 
         return await asyncio.to_thread(work)
 

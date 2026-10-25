@@ -1,4 +1,4 @@
-"""Explicit single-source plans over the retention owner; no raw export archive is kept."""
+"""Explicit bounded source plans over retention; no raw export archive is kept."""
 
 import hashlib
 import json
@@ -304,8 +304,8 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
             ):
                 return None
         if missing:
-            # A crash may leave only a prefix of the confirmed region in the ledger.
-            # Nothing has been purged yet; resume only if the exact pinned region survives.
+            # Atomic batches publish all or none. A legacy partial region can only
+            # resume here if every pinned source and the exact region still survive.
             await check_sources(rt, authority, request, proof)
             if (
                 await service.preview_delete(

@@ -30,7 +30,7 @@ from .model import (
     SweepReport,
 )
 from .policy import RetentionPolicy
-from .ports import DeletionLedger, DerivedPurger, LedgerPurger, PhysicalStore
+from .ports import AtomicDeletionLedger, DeletionLedger, DerivedPurger, LedgerPurger, PhysicalStore
 
 MAX_BATCH = 500
 
@@ -87,12 +87,26 @@ class RetentionService:
         if await self.preview_delete(scope, preview.source_ids) != preview:
             raise ContractError(ErrorCode.VERSION_CONFLICT)
         now = self.clock()
-        for source_id in preview.source_ids:
-            stub = await self.physical.source(scope, source_id)
-            assert stub is not None
+        if len(preview.source_ids) > 1:
+            if not isinstance(self.ledger, AtomicDeletionLedger):
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            selected = []
+            for source_id in preview.source_ids:
+                stub = await self.physical.source(scope, source_id)
+                if stub is None:
+                    raise ContractError(ErrorCode.VERSION_CONFLICT)
+                selected.append((source_id, stub.version))
             if before_block is not None:
                 await before_block()
-            await self.ledger.block(scope, source_id, stub.version, "operator_delete", now)
+            # Maintenance/restart must never observe a half-published deletion region.
+            await self.ledger.block_many(scope, selected, "operator_delete", now)
+        else:
+            for source_id in preview.source_ids:
+                stub = await self.physical.source(scope, source_id)
+                assert stub is not None
+                if before_block is not None:
+                    await before_block()
+                await self.ledger.block(scope, source_id, stub.version, "operator_delete", now)
         return await self._purge(scope, preview.source_ids, "deleted", preview.erased_with)
 
     async def resume(

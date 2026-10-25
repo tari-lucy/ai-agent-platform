@@ -1,0 +1,456 @@
+From e882a62d103729fd1e15702e4af5f4ca8f658623 Mon Sep 17 00:00:00 2001
+From: tari-lucy <tari.gpt2025@gmail.com>
+Date: Mon, 26 Oct 2026 01:24:43 +0300
+Subject: [PATCH] fix(aw-ui): preserve reply identity and manage conversations
+ explicitly
+
+---
+ packages/app/src/aw/bridge.test.ts            | 26 ++++++
+ packages/app/src/aw/bridge.ts                 | 91 ++++++++++++++++---
+ packages/app/src/aw/session-management.tsx    | 76 ++++++++++++++++
+ packages/app/src/pages/layout.tsx             |  6 +-
+ packages/app/src/pages/session.tsx            |  2 +
+ .../app/src/pages/session/session-archive.ts  |  6 +-
+ .../session/timeline/message-timeline.tsx     | 50 +---------
+ packages/app/src/utils/session-message.ts     |  9 +-
+ 8 files changed, 203 insertions(+), 63 deletions(-)
+ create mode 100644 packages/app/src/aw/session-management.tsx
+
+diff --git a/packages/app/src/aw/bridge.test.ts b/packages/app/src/aw/bridge.test.ts
+index b50e1bd..665d978 100644
+--- a/packages/app/src/aw/bridge.test.ts
++++ b/packages/app/src/aw/bridge.test.ts
+@@ -6,6 +6,7 @@ Object.defineProperty(globalThis, "location", { configurable: true, value: new U
+ const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } })
+ const scope = { workspace_id: "fixture", persona_id: "person", memory_space_id: "work", memory_mode: "work" }
+ let pendingReply: any = null
++let extraEntries: any[] = []
+ const acknowledgements: any[] = []
+ let catalogue = [{ directory: "aw_fixture", scope, label: "Fixture" }]
+ const uploads: { persona: string | null; area: string | null; name: string | null; body: Uint8Array }[] = []
+@@ -27,6 +28,7 @@ globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: Request
+   if (path.endsWith("/sessions/session") || path.endsWith("/sessions/other")) return json({ scope, session_id: path.endsWith("/other") ? "other" : "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
+     { sequence: 1, speaker: "operator", text: "Synthetic user", at: "2026-01-01T00:00:01Z" },
+     { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Synthetic reply", at: "2026-01-01T00:00:02Z" },
++    ...extraEntries,
+   ] })
+   throw Error("Unexpected fixture route")
+ }, { preconnect: () => {} })
+@@ -226,6 +228,30 @@ test("cached route return settles a pre-revocation prefetch before a fresh owner
+   })).rejects.toThrow("owner unavailable")
+ })
+ 
++
++test("a read reply keeps its identity and timestamp across ACK, reload data, and a later input", async () => {
++  pendingReply = { scope, utterance_id: "stable-owner-id", version: 1, revision: 1,
++    created_at: "2026-01-01T00:00:04Z", through_sequence: 2,
++    text: "Read reply must stay", withheld: false, acknowledgeable: false }
++  try {
++    const before = await (await awFetch("http://fixture.invalid/api/session/session/message")).json()
++    const draft = before.data.find((row: any) => row.id === "session-utterance-stable-owner-id")
++    expect(draft).toBeDefined()
++    pendingReply = null
++    extraEntries = [
++      { sequence: 3, speaker: "character", reply_to_sequence: 1, reply_id: "stable-owner-id",
++        text: "Read reply must stay", at: "2026-01-01T00:00:04Z" },
++      { sequence: 4, speaker: "operator", text: "Later input", at: "2026-01-01T00:00:05Z" },
++    ]
++    const after = await (await awFetch("http://fixture.invalid/api/session/session/message")).json()
++    const saved = after.data.find((row: any) => row.id === draft.id)
++    expect(saved.time).toEqual(draft.time)
++    expect(saved.content).toEqual(draft.content)
++    expect(saved.aw_parent_id).toBe("session-msg-1")
++    expect(after.data.filter((row: any) => row.id === draft.id)).toHaveLength(1)
++  } finally { pendingReply = null; extraEntries = [] }
++})
++
+ test("operator file tree lists areas, files and content through the bridge", async () => {
+   const originalPrompt = window.prompt
+   window.prompt = () => "inbox"
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index 121ad76..5aaa8d3 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -11,13 +11,13 @@ const VERSION = "1.19.3"
+ 
+ type Scope = Record<string, string | null | undefined>
+ type Agent = { directory: string; scope: Scope; label: string; profile_version: number; active_runtime: boolean }
+-type SessionRow = {
++export type SessionRow = { visibility?: "active" | "archived" | "hidden";
+   id: string; scope: Scope; title: string; version: number; state: string
+   last_sequence: number; processed_sequence: number; created_at?: string; updated_at?: string
+ }
+-type Entry = { sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null }
++type Entry = { reply_id?: string | null; sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null }
+ type Progress = { state: string; since: string }
+-type Draft = { scope: Scope; utterance_id: string; version: number; revision: number; text: string | null; withheld: boolean; acknowledgeable: boolean }
++type Draft = { created_at?: string | null; through_sequence?: number | null; scope: Scope; utterance_id: string; version: number; revision: number; text: string | null; withheld: boolean; acknowledgeable: boolean }
+ type Transcript = {
+   scope: Scope; session_id: string; session_version: number; state: string; title: string
+   created_at?: string; updated_at?: string
+@@ -225,14 +225,14 @@ const project = (agent: Agent) => ({
+   time: { created: 0, updated: 0 }, sandboxes: [],
+ })
+ const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+-const sessionInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
++const sessionInfo = (directory: string, row: SessionRow | { id: string; title: string; created_at?: string; updated_at?: string; visibility?: string }) => ({
+   id: row.id, projectID: directory, title: row.title, cost: 0, tokens,
+-  time: { created: ms(row.created_at), updated: ms(row.updated_at) }, location: { directory },
++  time: { created: ms(row.created_at), updated: ms(row.updated_at), ...(row.visibility && row.visibility !== "active" ? { archived: ms(row.updated_at) || 1 } : {}) }, location: { directory },
+ })
+ // Session events still carry the legacy (v1) session shape.
+-const sessionEventInfo = (directory: string, row: { id: string; title: string; created_at?: string; updated_at?: string }) => ({
++const sessionEventInfo = (directory: string, row: SessionRow | { id: string; title: string; created_at?: string; updated_at?: string; visibility?: string }) => ({
+   id: row.id, slug: row.id, projectID: directory, directory, title: row.title, version: VERSION,
+-  time: { created: ms(row.created_at), updated: ms(row.updated_at) },
++  time: { created: ms(row.created_at), updated: ms(row.updated_at), ...(row.visibility && row.visibility !== "active" ? { archived: ms(row.updated_at) || 1 } : {}) },
+ })
+ const model = { id: "platform", providerID: "aw" }
+ const GATEWAY_PROVIDER = { id: "aw", name: "AI Agent Platform", package: "aw" }
+@@ -277,15 +277,16 @@ function messages(view: Transcript) {
+       const answered = entry.reply_to_sequence ?? entry.sequence
+       const n = (replies.get(answered) ?? 0) + 1
+       replies.set(answered, n)
+-      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
++      rows.push(assistant(view, entry.reply_id ? scopedID(view, `utterance-${entry.reply_id}`) : replyID(view, answered, n), text, entry.at, true))
+     }
+   }
+   // A reply after a ticket answer is a further reply to the same operator message.
+   const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
+   const draft = view.pending_reply
+   if (draft && !draft.withheld && draft.text) {
+-    rows.push(assistant(view, next, draft.text, view.checked_at, true))
+-    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, next)
++    const id = draft.created_at ? scopedID(view, `utterance-${draft.utterance_id}`) : next
++    rows.push(assistant(view, id, draft.text, draft.created_at ?? view.checked_at, true))
++    if (draft.acknowledgeable) watchReceipt(draft, view.session_id, id)
+   } else if (view.invalidated_reason && !lastOperator) {
+     // The stopped conversation's history is no longer shown: a platform placeholder in the
+     // operator's place and the stop notice in the reply's place (both platform words).
+@@ -302,6 +303,15 @@ function messages(view: Transcript) {
+     // the same operator message takes this place. Queued/running use the native busy state.
+     rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since))
+   }
++  for (const row of rows) {
++    if (row.type !== "assistant") continue
++    const match = view.entries.find((entry) => entry.speaker === "character" && entry.reply_id
++      && row.id === scopedID(view, `utterance-${entry.reply_id}`))
++    const parent = match?.reply_to_sequence ?? (view.pending_reply && String(row.id).includes(`utterance-${view.pending_reply.utterance_id}`)
++      ? view.entries.filter((entry) => entry.speaker === "operator" && entry.sequence <= (view.pending_reply!.through_sequence ?? lastOperator)).at(-1)?.sequence
++      : undefined)
++    if (parent) row.aw_parent_id = clientIDs.get(`${view.session_id}:${parent}`) ?? scopedID(view, `msg-${parent}`)
++  }
+   return rows
+ }
+ const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
+@@ -409,7 +419,7 @@ async function route(method: string, path: string, url: URL, body: () => Promise
+   if (path === "/api/session" && method === "GET") {
+     const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
+     if (!directory) return json({ data: [], cursor: {} })
+-    return json({ data: (await sessions(directory)).map((row) => sessionInfo(directory, row)), cursor: {} })
++    return json({ data: (await sessions(directory)).filter(row => !row.visibility || row.visibility === "active").map((row) => sessionInfo(directory, row)), cursor: {} })
+   }
+   if (path === "/api/session" && method === "POST") {
+     const input = await body()
+@@ -425,7 +435,7 @@ async function route(method: string, path: string, url: URL, body: () => Promise
+     return json({ data: sessionInfo(agent.directory, { id: receipt.resource_id, title: "Новый разговор" }) })
+   }
+   if (method === "GET" && path === "/api/session/active") return json({ data: {} })
+-  const one = /^\/api\/session\/([^/]+)(\/message|\/prompt|\/rename)?(?:\/([^/]+))?$/.exec(path)
++  const one = /^\/api\/session\/([^/]+)(\/message|\/prompt|\/rename|\/archive)?(?:\/([^/]+))?$/.exec(path)
+   if (one) {
+     const sessionID = decodeURIComponent(one[1])
+     const directory = await directoryOf(sessionID)
+@@ -435,6 +445,14 @@ async function route(method: string, path: string, url: URL, body: () => Promise
+       return row ? json({ data: sessionInfo(directory, row) }) : json({ name: "NotFound" }, 404)
+     }
+     const view = await transcript(directory, sessionID)
++    if (one[2] === "/archive" && method === "POST") {
++      await manageConversation(directory, sessionID, "archived")
++      return new Response(null, { status: 204 })
++    }
++    if (!one[2] && method === "DELETE") {
++      await manageConversation(directory, sessionID, "hidden")
++      return new Response(null, { status: 204 })
++    }
+     if (one[2] === "/rename" && method === "POST") {
+       const input = await body()
+       if (Object.keys(input).some((key) => key !== "title") || typeof input.title !== "string" || !input.title.trim() || input.title.length > 512)
+@@ -660,3 +678,52 @@ export const pageDraftDriver = {
+ export async function catalogueDirectories(): Promise<string[]> {
+   return (await agents()).map((agent) => agent.directory)
+ }
++
++
++// Human-only conversation controls: the same authenticated owner, never a model tool.
++export const managedSessions = (directory: string) => sessions(directory)
++export async function renameConversation(directory: string, sessionID: string, title: string) {
++  const view = await transcript(directory, sessionID)
++  await bridge(`/agents/${directory}/commands`, { type: "work.session.rename", request_id: uuid(),
++    scope: stable(view.scope), target: sessionID, expected_version: view.session_version,
++    arguments: { schema_id: "work.session.rename-args", data: { session_id: sessionID, title } } })
++}
++export async function manageConversation(directory: string, sessionID: string, visibility: "active" | "archived" | "hidden", expectedVersion?: number) {
++  const view = await transcript(directory, sessionID)
++  if (expectedVersion !== undefined && view.session_version !== expectedVersion) throw Object.assign(Error("AW_STALE_SESSION"), { status: 409 })
++  await bridge(`/agents/${directory}/commands`, { type: "work.session.manage", request_id: uuid(),
++    scope: stable(view.scope), target: sessionID, expected_version: view.session_version,
++    arguments: { schema_id: "work.session.manage-args", data: { session_id: sessionID, visibility } } })
++}
++export type ForgetPlan = { directory: string; sessionID: string; scope: Scope; target?: string;
++  plan?: { id: string; version: number; consequences: string; expires_at: string }; requestID: string; count: number; sessionVersion: number }
++export async function previewForget(directory: string, sessionID: string): Promise<ForgetPlan> {
++  const active = (await agents()).find(agent => agent.active_runtime)
++  if (!active) throw Error("Не удалось проверить активный запуск. Откройте панель.")
++  const run = await bridge<{ items: { state: string }[] }>(`/agents/${active.directory}/run`)
++  if (run.items.length !== 1 || run.items[0].state !== "STOPPED") throw Error("Сначала остановите агента кнопкой STOP в панели.")
++  await manageConversation(directory, sessionID, "archived")
++  const selected = await bridge<{ scope: Scope; session_version: number; sources: [string, number][]; complete: boolean }>(`/agents/${directory}/sessions/${sessionID}/sources`)
++  if (!selected.complete) throw Error("Часть источников разговора недоступна. Полное забывание не подтверждено: проверьте очистку памяти в панели. Можно отдельно убрать разговор из списка, сохранив память.")
++  if (selected.sources.length > 200) throw Error("Слишком большой разговор для одной очистки: обратитесь к оператору хранения. Ничего не удалено.")
++  const result: ForgetPlan = { directory, sessionID, scope: selected.scope, requestID: uuid(), count: selected.sources.length, sessionVersion: selected.session_version }
++  if (!selected.sources.length) return result
++  const [target, version] = selected.sources[0]
++  const made = await bridge<{ resource_id: string }>(`/agents/${directory}/commands`, {
++    type: "memory.delete.preview", request_id: uuid(), scope: stable(selected.scope), target,
++    expected_version: version, arguments: { schema_id: "memory.delete-args", data: { source_ids: selected.sources.map(([id]) => id), session_ref: [sessionID, selected.session_version] } },
++  })
++  result.target = target
++  result.plan = await bridge(`/agents/${directory}/plans/${made.resource_id}`)
++  return result
++}
++export async function executeForget(preview: ForgetPlan) {
++  if (preview.plan) {
++    const receipt = await bridge<{ status: string }>(`/agents/${preview.directory}/commands`, {
++      type: "memory.delete.execute", request_id: preview.requestID, scope: stable(preview.scope), target: preview.target,
++      expected_version: preview.plan.version, arguments: { plan_id: preview.plan.id, plan_version: preview.plan.version },
++    })
++    if (receipt.status !== "completed") throw Error("Источники заблокированы, очистка ещё не завершена. Проверьте операции в панели; не повторяйте удаление вслепую.")
++  }
++  await manageConversation(preview.directory, preview.sessionID, "hidden", preview.sessionVersion)
++}
+diff --git a/packages/app/src/aw/session-management.tsx b/packages/app/src/aw/session-management.tsx
+new file mode 100644
+index 0000000..69f7169
+--- /dev/null
++++ b/packages/app/src/aw/session-management.tsx
+@@ -0,0 +1,76 @@
++import { createSignal, For, Show, onMount, onCleanup } from "solid-js"
++import { managedSessions, manageConversation, renameConversation, previewForget, executeForget,
++  type SessionRow, type ForgetPlan } from "./bridge"
++const home = (directory: string) => `/opencode/${btoa(directory).replaceAll("=", "")}/session`
++const button = "px-3 py-1 rounded border border-border-weak-base hover:bg-surface-base-hover disabled:opacity-50"
++export function SessionManagement(props: { directory: string; sessionID?: string }) {
++  const [mode, setMode] = createSignal("")
++  const [title, setTitle] = createSignal("")
++  const [rows, setRows] = createSignal<SessionRow[]>([])
++  const [busy, setBusy] = createSignal(false)
++  const [error, setError] = createSignal("")
++  const [plan, setPlan] = createSignal<ForgetPlan>()
++  const run = async (action: () => Promise<void>) => {
++    if (busy()) return
++    setBusy(true); setError("")
++    try { await action() }
++    catch (cause) {
++      const status = (cause as { status?: number }).status
++      setError(status === 409 ? "Состояние изменилось или агент работает. Для очистки памяти нажмите STOP в панели и заново посмотрите последствия. Действие не повторяется автоматически."
++        : cause instanceof Error && cause.message && !cause.message.startsWith("AW_") ? cause.message
++        : "Действие не подтверждено. При обрыве удаления повтор использует тот же запрос; проверьте операции в панели.")
++      if (status === 409) setPlan(undefined)
++    } finally { setBusy(false) }
++  }
++  const open = async (next: string) => {
++    setMode(next); setPlan(undefined); setError("")
++    if (next === "archive" || next === "rename") await run(async () => {
++      const items = await managedSessions(props.directory); setRows(items)
++      if (next === "rename") setTitle(items.find(row => row.id === props.sessionID)?.title ?? "")
++    })
++  }
++  const move = (id: string, visibility: "active" | "archived" | "hidden") => run(async () => {
++    await manageConversation(props.directory, id, visibility)
++    location.assign(visibility === "active" ? `${home(props.directory)}/${encodeURIComponent(id)}` : home(props.directory))
++  })
++  onMount(() => {
++    const requested = (event: Event) => {
++      const detail = (event as CustomEvent<{ sessionID: string; action: string }>).detail
++      if (detail?.sessionID === props.sessionID) void open(detail.action)
++    }
++    window.addEventListener("aw-session-manage", requested)
++    onCleanup(() => window.removeEventListener("aw-session-manage", requested))
++  })
++  return <div class="shrink-0 px-4 py-2 border-b border-border-weak-base text-14-regular" data-aw="conversation-controls">
++    <div class="flex gap-2 flex-wrap"><Show when={props.sessionID}>
++      <button class={button} disabled={busy()} onClick={() => void open("rename")}>Переименовать разговор</button>
++      <button class={button} disabled={busy()} onClick={() => void move(props.sessionID!, "archived")}>В архив</button>
++      <button class={button} disabled={busy()} onClick={() => void open("delete")}>Удалить разговор…</button>
++    </Show><button class={button} disabled={busy()} onClick={() => void open("archive")}>Архив разговоров</button></div>
++    <Show when={mode()}><section class="mt-3 p-3 border rounded border-border-weak-base max-h-80 overflow-auto" aria-label="Управление разговором">
++      <Show when={mode() === "rename"}><form onSubmit={(event) => { event.preventDefault(); void run(async () => {
++        await renameConversation(props.directory, props.sessionID!, title().trim()); location.reload()
++      }) }}><label>Название разговора <input disabled={busy()} class="border rounded px-2 py-1" aria-label="Название разговора" value={title()} maxlength={512} onInput={event => setTitle(event.currentTarget.value)} /></label>
++      <button class={button} disabled={busy() || !title().trim()} type="submit">Сохранить название</button></form></Show>
++      <Show when={mode() === "archive"}><p>Архив сохраняет переписку и память. Агент не продолжает архивный разговор.</p>
++        <Show when={rows().some(row => row.visibility === "archived")} fallback={<p>Архив пуст.</p>}>
++        <For each={rows().filter(row => row.visibility === "archived")}>{row => <div class="flex gap-3 py-2 items-center">
++          <a class="underline" href={`${home(props.directory)}/${encodeURIComponent(row.id)}`}>{row.title}</a>
++          <button class={button} disabled={busy()} onClick={() => void move(row.id, "active")}>Вернуть из архива</button>
++        </div>}</For></Show></Show>
++      <Show when={mode() === "delete"}><p>Убрать из списка: переписка и память сохранятся, разговор перестанет исполняться.</p>
++        <button class={button} disabled={busy()} onClick={() => void move(props.sessionID!, "hidden")}>Убрать из списка, сохранить память</button>
++        <p class="mt-3">Удалить переписку и связанную память: необратимая очистка источников платформой. Сначала нажмите STOP в панели. Общие воспоминания с другими основаниями могут сохраниться. При подготовке разговор переместится в архив; незавершённый ход и неподтверждённый черновик будут сброшены. Затем покажем последствия; память до подтверждения не удаляется.</p>
++        <a class="underline" href="/" target="_blank" rel="noopener">Открыть панель для STOP</a>
++        <button class={button} disabled={busy()} onClick={() => void run(async () => { setPlan(await previewForget(props.directory, props.sessionID!)) })}>Заархивировать и посмотреть последствия</button>
++        <Show when={plan()}>{current => <div class="mt-3" role="status"><p>Источников переписки: {current().count}.</p>
++          <p>{current().plan?.consequences ?? "Доступных источников для очистки не осталось. Разговор будет убран из списка."}</p>
++          <p>При сбое очистка останется незавершённой. Внешние копии удаляются отдельно.</p>
++          <button class={button} disabled={busy()} onClick={() => void run(async () => { await executeForget(current()); location.assign(home(props.directory)) })}>Подтверждаю удаление переписки и памяти</button>
++        </div>}</Show>
++      </Show><button class={button + " mt-3"} disabled={busy()} onClick={() => setMode("")}>Закрыть</button>
++    </section></Show>
++    <Show when={busy()}><p role="status">Проверяем и сохраняем…</p></Show>
++    <Show when={error()}><p role="alert">{error()}</p></Show>
++  </div>
++}
+diff --git a/packages/app/src/pages/layout.tsx b/packages/app/src/pages/layout.tsx
+index 6b58e9c..050a87e 100644
+--- a/packages/app/src/pages/layout.tsx
++++ b/packages/app/src/pages/layout.tsx
+@@ -869,7 +869,11 @@ export default function LegacyLayout(props: ParentProps) {
+   }
+ 
+   async function archiveSession(session: Session) {
+-    if ((await serverSDK().protocol) !== "v1") return
++    if ((await serverSDK().protocol) !== "v1") {
++      await import("@/aw/bridge").then(({ manageConversation }) => manageConversation(session.directory, session.id, "archived"))
++      location.assign(`/opencode/${btoa(session.directory).replaceAll("=", "")}/session`)
++      return
++    }
+     const [store, setStore] = serverSync().child(session.directory)
+     const sessions = store.session ?? []
+     const index = sessions.findIndex((s) => s.id === session.id)
+diff --git a/packages/app/src/pages/session.tsx b/packages/app/src/pages/session.tsx
+index 2e647e0..df3198c 100644
+--- a/packages/app/src/pages/session.tsx
++++ b/packages/app/src/pages/session.tsx
+@@ -1,3 +1,4 @@
++import { SessionManagement } from "@/aw/session-management"
+ import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
+ import { getFilename } from "@opencode-ai/core/util/path"
+ import { useDialog } from "@opencode-ai/ui/context/dialog"
+@@ -2249,6 +2250,7 @@ export default function Page() {
+   return (
+     <SessionRouteFrame>
+       <SessionHeader />
++      <SessionManagement directory={sdk().directory} sessionID={params.id} />
+       <div
+         ref={panelRow}
+         class="flex-1 min-h-0 flex flex-col md:flex-row"
+diff --git a/packages/app/src/pages/session/session-archive.ts b/packages/app/src/pages/session/session-archive.ts
+index 3968869..01f41f0 100644
+--- a/packages/app/src/pages/session/session-archive.ts
++++ b/packages/app/src/pages/session/session-archive.ts
+@@ -42,7 +42,11 @@ export function useSessionArchive() {
+   const archive = async (sessionID: string) => {
+     const session = sync().session.get(sessionID)
+     if (!session) return
+-    if ((await sdk().protocol) !== "v1") return
++    if ((await sdk().protocol) !== "v1") {
++      await import("@/aw/bridge").then(({ manageConversation }) => manageConversation(sdk().directory, sessionID, "archived"))
++      location.assign(`/opencode/${btoa(sdk().directory).replaceAll("=", "")}/session`)
++      return
++    }
+ 
+     const sessions = sync().data.session ?? []
+     const index = sessions.findIndex((s) => s.id === sessionID)
+diff --git a/packages/app/src/pages/session/timeline/message-timeline.tsx b/packages/app/src/pages/session/timeline/message-timeline.tsx
+index aea6266..f24b693 100644
+--- a/packages/app/src/pages/session/timeline/message-timeline.tsx
++++ b/packages/app/src/pages/session/timeline/message-timeline.tsx
+@@ -889,53 +889,11 @@ export function MessageTimeline(props: {
+   }
+ 
+   function DialogDeleteSession(props: { sessionID: string }) {
+-    const name = createMemo(
+-      () => sessionTitle(sync().session.get(props.sessionID)?.title) ?? language.t("command.session.new"),
+-    )
+-    const handleDelete = async () => {
+-      await deleteSession(props.sessionID)
++    queueMicrotask(() => {
+       dialog.close()
+-    }
+-
+-    if (settings.general.newLayoutDesigns())
+-      return (
+-        <DialogV2 fit>
+-          <DialogHeader hideClose>
+-            <DialogTitleGroup
+-              title={language.t("session.delete.title")}
+-              description={language.t("session.delete.confirm", { name: name() })}
+-            />
+-          </DialogHeader>
+-          <DialogFooter>
+-            <ButtonV2 variant="ghost" onClick={() => dialog.close()}>
+-              {language.t("common.cancel")}
+-            </ButtonV2>
+-            <ButtonV2 variant="danger" onClick={handleDelete}>
+-              {language.t("session.delete.button")}
+-            </ButtonV2>
+-          </DialogFooter>
+-        </DialogV2>
+-      )
+-
+-    return (
+-      <Dialog title={language.t("session.delete.title")} fit>
+-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+-          <div class="flex flex-col gap-1">
+-            <span class="text-14-regular text-text-strong">
+-              {language.t("session.delete.confirm", { name: name() })}
+-            </span>
+-          </div>
+-          <div class="flex justify-end gap-2">
+-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+-              {language.t("common.cancel")}
+-            </Button>
+-            <Button variant="primary" size="large" onClick={handleDelete}>
+-              {language.t("session.delete.button")}
+-            </Button>
+-          </div>
+-        </div>
+-      </Dialog>
+-    )
++      window.dispatchEvent(new CustomEvent("aw-session-manage", { detail: { sessionID: props.sessionID, action: "delete" } }))
++    })
++    return <></>
+   }
+ 
+   const workingTurn = (userMessageID: string) => sessionStatus().type !== "idle" && activeMessageID() === userMessageID
+diff --git a/packages/app/src/utils/session-message.ts b/packages/app/src/utils/session-message.ts
+index eef9f4e..fede1fd 100644
+--- a/packages/app/src/utils/session-message.ts
++++ b/packages/app/src/utils/session-message.ts
+@@ -90,8 +90,11 @@ export function normalizeSessionMessages(sessionID: string, source: readonly Ses
+     if (message.type === "assistant") {
+       agent = message.agent
+       model = message.model
+-      if (!parentID) return
+-      const parent = messages.findLast((item) => item.id === parentID)
++      const explicit = message.model.providerID === "aw"
++        ? (message as typeof message & { aw_parent_id?: string }).aw_parent_id : undefined
++      const replyParentID = explicit ?? parentID
++      if (!replyParentID) return
++      const parent = messages.findLast((item) => item.id === replyParentID)
+       if (parent?.role === "user") {
+         parent.agent = message.agent
+         parent.model = {
+@@ -100,7 +103,7 @@ export function normalizeSessionMessages(sessionID: string, source: readonly Ses
+           variant: message.model.variant,
+         }
+       }
+-      messages.push(assistantMessage(sessionID, parentID, message))
++      messages.push(assistantMessage(sessionID, replyParentID, message))
+       parts.set(message.id, assistantParts(sessionID, message))
+       return
+     }
+-- 
+2.53.0.windows.2
+

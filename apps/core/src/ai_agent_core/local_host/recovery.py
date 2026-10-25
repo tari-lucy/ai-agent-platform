@@ -5,7 +5,7 @@ import os
 import sqlite3
 import stat
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -165,7 +165,7 @@ class HostLedger:
         async with self.lock:
             return await self._identity()
 
-    async def _reserve(self) -> None:
+    async def _reserve(self, bumps: int = 1) -> None:
         _, sequence = await self._identity()
         config = load_config(self.host)
         assert config.recovery is not None
@@ -173,7 +173,9 @@ class HostLedger:
             self.host,
             config.model_copy(
                 update={
-                    "recovery": config.recovery.model_copy(update={"ledger_floor": sequence + 1}),
+                    "recovery": config.recovery.model_copy(
+                        update={"ledger_floor": sequence + bumps}
+                    ),
                 }
             ),
         )
@@ -190,6 +192,22 @@ class HostLedger:
             try:
                 await self._reserve()
                 return await self.raw.block(scope, source_id, version, reason, at)
+            except Exception:
+                self.failed = True
+                self.fail()
+                raise
+
+    async def block_many(
+        self, scope: Scope, sources: Sequence[tuple[str, int]], reason: Reason, at: datetime
+    ) -> tuple[LedgerEntry, ...]:
+        selected = tuple(sources)
+        if not 1 <= len(selected) <= 500 or len({item[0] for item in selected}) != len(selected):
+            raise ValueError("LEDGER_BATCH_BOUNDS")
+        async with self.lock:
+            try:
+                # raw increments seq for every member, within one SQLite transaction.
+                await self._reserve(len(selected))
+                return await self.raw.block_many(scope, selected, reason, at)
             except Exception:
                 self.failed = True
                 self.fail()

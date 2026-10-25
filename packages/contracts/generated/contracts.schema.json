@@ -4679,6 +4679,17 @@
           "title": "Created At",
           "type": "string"
         },
+        "deletion_source_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Deletion Source Ids",
+          "type": "array"
+        },
         "dependency_digest": {
           "pattern": "^[a-f0-9]{64}$",
           "title": "Dependency Digest",
@@ -4804,6 +4815,43 @@
         "scope": {
           "$ref": "#/$defs/Scope"
         },
+        "selected_source_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Selected Source Ids",
+          "type": "array"
+        },
+        "session_ref": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Ref"
+        },
         "source_id": {
           "maxLength": 128,
           "minLength": 1,
@@ -4870,6 +4918,32 @@
     "MemorySelectionArguments": {
       "additionalProperties": false,
       "properties": {
+        "session_ref": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Ref"
+        },
         "source_ids": {
           "items": {
             "maxLength": 128,
@@ -14881,6 +14955,11 @@
       "additionalProperties": false,
       "description": "Explicit conversation-owned source identities for operator retention previews.",
       "properties": {
+        "complete": {
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
         "scope": {
           "$ref": "#/$defs/Scope"
         },
@@ -14917,6 +14996,13 @@
           "maxItems": 2000,
           "title": "Sources",
           "type": "array"
+        },
+        "unavailable_count": {
+          "default": 0,
+          "maximum": 2000,
+          "minimum": 0,
+          "title": "Unavailable Count",
+          "type": "integer"
         }
       },
       "required": [
