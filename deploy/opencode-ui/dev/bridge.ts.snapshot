@@ -158,6 +158,8 @@ async function fileContent(directory: string, virtualPath: string): Promise<Resp
   const view = await bridge<{ text: string | null; withheld: boolean; truncated: boolean; media_type: string }>(
     `/agents/${directory}/files/${encodeURIComponent(found.id)}`,
   )
+  if ((view.withheld || view.text === null) && /^(text\/|application\/json)/.test(found.reference.media_type))
+    return json({ name: "AW_FILE_WITHHELD" }, 403)
   if (view.withheld || view.text === null) {
     // A closed basis or a non-text file: the viewer shows the card facts, never raw bytes.
     return json({ type: "binary", content: "", mimeType: found.reference.media_type })
@@ -170,40 +172,51 @@ async function fileContent(directory: string, virtualPath: string): Promise<Resp
     mimeType: found.reference.media_type,
   })
 }
-const uploadName = (value: string) =>
-  value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 200) || "file"
+async function uploadName(value: string): Promise<string> {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 160) || "file"
+  if (normalized === value && value.length <= 160) return normalized
+  const bytes = new TextEncoder().encode(value)
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("").slice(0, 16)
+  const extension = /\.([a-z0-9]{1,12})$/i.exec(value)?.[1]?.toLowerCase()
+  const stem = extension && normalized.endsWith(`.${extension}`) ? normalized.slice(0, -(extension.length + 1)) : normalized
+  return `${stem}-${hash}${extension ? `.${extension}` : ""}`
+}
 export type UploadedFile = { area: string; path: string; file_id: string; version: number }
 // Attachments of the operator: uploaded into the chosen platform area before sending. The message
 // itself references the file; the person reads it with its own file tools under its own rights.
-export async function awUploadFile(name: string, mime: string, bytes: Blob): Promise<UploadedFile | null> {
-  const area = window.prompt(`Область платформы для «${name}»: ${UPLOAD_AREAS.join(" / ")}`, "inbox")?.trim().toLowerCase()
+export async function awUploadFile(directory: string, name: string, mime: string, bytes: Blob): Promise<UploadedFile | null> {
+  if (!directory) throw Error("AW_UPLOAD_NO_PERSONA")
+  const agent = await agentOf(directory)
+  if (!agent || agent.directory !== directory) throw Error("AW_UPLOAD_NO_PERSONA")
+  if (bytes.size > 100 * 1024 * 1024) throw Error("AW_UPLOAD_TOO_LARGE")
+  const logicalName = await uploadName(name)
+  const requestID = uuid()
+  const area = window.prompt(`Передать «${name}» личности ${agent.label}. Материал можно будет читать её моделью в рамках прав; публичная передача запрещена. Область: ${UPLOAD_AREAS.join(" / ")}`, "inbox")?.trim().toLowerCase()
   if (!area) return null
   if (!UPLOAD_AREAS.includes(area as (typeof UPLOAD_AREAS)[number])) {
     window.alert(`Недопустимая область «${area}». Доступны: ${UPLOAD_AREAS.join(", ")}.`)
     return null
   }
-  const agent = await agentOf(undefined)
-  if (!agent) return null
   const query = new URLSearchParams({
     workspace_id: String(agent.scope.workspace_id ?? ""),
     persona_id: String(agent.scope.persona_id ?? ""),
     memory_space_id: String(agent.scope.memory_space_id ?? ""),
     memory_mode: String(agent.scope.memory_mode ?? ""),
     area,
-    name: uploadName(name),
+    name: logicalName,
     title: name,
     media_type: mime || "application/octet-stream",
   })
   const response = await fetch(`/api/v1/workplace-files/upload?${query}`, {
     method: "POST", credentials: "same-origin", cache: "no-store",
-    headers: { "content-type": "application/octet-stream", "x-csrf-token": await token() },
+    headers: { "content-type": "application/octet-stream", "x-csrf-token": await token(), "x-upload-request-id": requestID },
     body: bytes,
   })
   if (response.status === 401) { csrf = null; location.assign("/"); return null }
   if (!response.ok) throw Object.assign(new Error("AW_UPLOAD_" + response.status), { status: response.status })
   const card = (await response.json()) as { id: string; version: number }
   libraryCache.delete(agent.directory)
-  return { area, path: uploadName(name), file_id: card.id, version: card.version }
+  return { area, path: logicalName, file_id: card.id, version: card.version }
 }
 
 // ---- native shapes ------------------------------------------------------------------------------
@@ -541,7 +554,7 @@ type RefetchHint = { owner_event?: string; resource_id?: string }
 function events(signal: AbortSignal): Response {
   const encoder = new TextEncoder()
   const sources: EventSource[] = []
-  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
+  const pending = new Map<string, { all: boolean; ids: Set<string>; files?: boolean }>()
   const running = new Set<string>()
   let closed = false
   const drain = async (directory: string, send: (event: unknown) => void) => {
@@ -577,7 +590,14 @@ function events(signal: AbortSignal): Response {
           try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
           const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
             ? hint.resource_id : undefined
-          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
+          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>(), files: false }
+          if (["work.changed", "memory.changed", "permission.changed", "binding.changed"].includes(hint.owner_event ?? "")) {
+            // Privacy invalidation precedes every awaited owner read; known open bodies
+            // are tracked by the native store, never inferred from this short cache.
+            libraryCache.delete(agent.directory)
+            send({ id: uuid(), type: "file.watcher.updated", created: Date.now(), location: { directory: agent.directory },
+              data: { file: "/", event: "change" } })
+          }
           if (!target || queued.ids.size >= 200) queued.all = true
           else queued.ids.add(target)
           pending.set(agent.directory, queued)
