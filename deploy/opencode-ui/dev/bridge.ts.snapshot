@@ -89,6 +89,18 @@ async function directoryOf(sessionID: string): Promise<string | undefined> {
   for (const agent of await agents()) if ((await sessions(agent.directory)).some((row) => row.id === sessionID)) return agent.directory
   return undefined
 }
+const activeSessions = new Map<string, { id: string; token: symbol }>()
+// Bound to the rendered route, never to GET/prefetch. No authority or body cache.
+export function watchSession(directory: string, id?: string) {
+  const token = Symbol()
+  if (id) activeSessions.set(directory, { id, token })
+  return () => { if (activeSessions.get(directory)?.token === token) activeSessions.delete(directory) }
+}
+// Settle an older prefetch before the owner's fresh route-entry read.
+export async function refreshViewedSession(reload: (force: boolean) => Promise<unknown> | void) {
+  try { await reload(false) } catch { /* The fresh read below owns the displayed outcome. */ }
+  return reload(true)
+}
 const transcript = (directory: string, sessionID: string) =>
   bridge<Transcript>(`/agents/${directory}/sessions/${encodeURIComponent(sessionID)}`)
 
@@ -303,8 +315,11 @@ async function route(method: string, path: string, url: URL, body: () => Promise
     const sessionID = decodeURIComponent(one[1])
     const directory = await directoryOf(sessionID)
     if (!directory) return json({ name: "NotFound" }, 404)
+    if (!one[2] && method === "GET") {
+      const row = (await sessions(directory)).find(row => row.id === sessionID)
+      return row ? json({ data: sessionInfo(directory, row) }) : json({ name: "NotFound" }, 404)
+    }
     const view = await transcript(directory, sessionID)
-    if (!one[2] && method === "GET") return json({ data: sessionInfo(directory, { ...view, id: sessionID }) })
     if (one[2] === "/rename" && method === "POST") {
       const input = await body()
       if (Object.keys(input).some((key) => key !== "title") || typeof input.title !== "string" || !input.title.trim() || input.title.length > 512)
@@ -391,31 +406,70 @@ async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promis
 export const awFetch: typeof globalThis.fetch = Object.assign(bridgeFetch, { preconnect: () => {} })
 
 // ---- events: owner notifications become "refetch" signals for the native store ------------------
+type RefetchHint = { owner_event?: string; resource_id?: string }
 function events(signal: AbortSignal): Response {
   const encoder = new TextEncoder()
   const sources: EventSource[] = []
+  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
+  const running = new Set<string>()
+  let closed = false
+  const drain = async (directory: string, send: (event: unknown) => void) => {
+    if (running.has(directory) || closed) return
+    running.add(directory)
+    try {
+      while (!closed && pending.has(directory)) {
+        const hint = pending.get(directory)!
+        pending.delete(directory)
+        try { await refresh(directory, send, hint.all ? undefined : hint.ids) }
+        catch { /* Continue the already queued tail; never replay a command. */ }
+      }
+    }
+    finally { running.delete(directory) }
+  }
+  const stop = () => {
+    closed = true
+    pending.clear()
+    sources.forEach((source) => source.close())
+  }
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      const send = (event: unknown) => {
+        if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      }
       send({ id: uuid(), type: "server.connected", data: {} })
       for (const agent of await agents().catch(() => [] as Agent[])) {
+        if (closed) break
         const source = new EventSource(`${BRIDGE}/agents/${agent.directory}/events`, { withCredentials: true })
-        source.addEventListener("refetch", () => void refresh(agent.directory, send))
+        source.addEventListener("refetch", (event) => {
+          if (closed) return
+          let hint: RefetchHint = {}
+          try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
+          const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
+            ? hint.resource_id : undefined
+          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
+          if (!target || queued.ids.size >= 200) queued.all = true
+          else queued.ids.add(target)
+          pending.set(agent.directory, queued)
+          // Microtask batches an event burst; one request sequence per directory is in flight.
+          queueMicrotask(() => void drain(agent.directory, send))
+        })
         sources.push(source)
       }
-      signal.addEventListener("abort", () => { sources.forEach((s) => s.close()); controller.close() })
+      signal.addEventListener("abort", () => { if (!closed) { stop(); controller.close() } }, { once: true })
+      if (signal.aborted && !closed) { stop(); controller.close() }
     },
-    cancel() { sources.forEach((s) => s.close()) },
+    cancel() { stop() },
   })
   return new Response(stream, { headers: { "content-type": "text/event-stream" } })
 }
 // Ids already announced per session: a refetch announces only new ones; the client then
 // fetches each by id from the owner view (no synthesized token stream, no replay of commands).
 const announced = new Map<string, Set<string>>()
-async function refresh(directory: string, send: (event: unknown) => void) {
+async function refresh(directory: string, send: (event: unknown) => void, targets?: Set<string>) {
   for (const row of await sessions(directory).catch(() => [] as SessionRow[])) {
     const base = { created: Date.now(), location: { directory }, durable: { aggregateID: row.id, seq: row.version, version: 1 } }
     send({ ...base, id: uuid(), type: "session.updated", data: { sessionID: row.id, info: sessionEventInfo(directory, row) } })
+    if (activeSessions.get(directory)?.id !== row.id || (targets && !targets.has(row.id))) continue
     const view = await transcript(directory, row.id).catch(() => undefined)
     if (!view) continue
     const known = announced.get(row.id) ?? new Set<string>()

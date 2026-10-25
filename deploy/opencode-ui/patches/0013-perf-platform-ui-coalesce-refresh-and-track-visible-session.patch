@@ -1,0 +1,302 @@
+From 9ac917fb0e55840b1c7400aaa2b428d710949e89 Mon Sep 17 00:00:00 2001
+From: AI Agent Platform <development@example.invalid>
+Date: Sun, 25 Oct 2026 13:44:56 +0300
+Subject: [PATCH] perf(platform-ui): coalesce refreshes and track visible
+ conversations
+
+---
+ packages/app/src/aw/bridge.test.ts            | 110 +++++++++++++++++-
+ packages/app/src/aw/bridge.ts                 |  66 ++++++++++-
+ .../app/src/pages/session/timeline/model.ts   |  14 ++-
+ 3 files changed, 182 insertions(+), 8 deletions(-)
+
+diff --git a/packages/app/src/aw/bridge.test.ts b/packages/app/src/aw/bridge.test.ts
+index db4006f..3a45604 100644
+--- a/packages/app/src/aw/bridge.test.ts
++++ b/packages/app/src/aw/bridge.test.ts
+@@ -19,7 +19,7 @@ globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: Request
+   ] })
+   throw Error("Unexpected fixture route")
+ }, { preconnect: () => {} })
+-const { awFetch, registerRenderedReply, checkReceipts, resetReceiptState } = await import("./bridge")
++const { awFetch, registerRenderedReply, checkReceipts, resetReceiptState, watchSession, refreshViewedSession } = await import("./bridge")
+ afterAll(() => {
+   resetReceiptState()
+   globalThis.fetch = originalFetch
+@@ -106,3 +106,111 @@ test("session clocks stay stable on detail and list refetch; rename uses the own
+   expect(acknowledgements[before].arguments.data).toEqual({ session_id: "session", title: "A clear title" })
+   acknowledgements.splice(before)
+ })
++
++
++test("owner bursts have one refresh in flight and only read the viewed conversation", async () => {
++  const savedFetch = globalThis.fetch
++  const savedSource = globalThis.EventSource
++  const sources: Array<{ emit: (value: unknown) => void; closed: boolean }> = []
++  const bodies: string[] = []
++  let hold = false, active = 0, peak = 0, lists = 0
++  let unblock: () => void = () => {}
++  let held = Promise.resolve()
++  globalThis.EventSource = class {
++    listeners = new Map<string, EventListener>()
++    closed = false
++    constructor() { sources.push(this) }
++    addEventListener(name: string, listener: EventListener) { this.listeners.set(name, listener) }
++    close() { this.closed = true }
++    emit(value: unknown) { this.listeners.get("refetch")?.({ data: JSON.stringify(value) } as MessageEvent) }
++  } as unknown as typeof EventSource
++  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
++    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin).pathname
++    if (path.endsWith("/sessions")) lists++
++    if (/\/sessions\/(session|other)$/.test(path)) {
++      bodies.push(path.endsWith("/other") ? "other" : "session")
++      peak = Math.max(peak, ++active)
++      try { if (hold) await held; return await savedFetch(input, init) }
++      finally { active-- }
++    }
++    return savedFetch(input, init)
++  }, { preconnect: () => {} })
++  const wait = async (done: () => boolean) => {
++    for (let i = 0; i < 100 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 5))
++    expect(done()).toBe(true)
++  }
++  const abort = new AbortController()
++  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
++  let releaseView = watchSession("aw_fixture", "session")
++  try {
++    await awFetch("http://fixture.invalid/api/session/session/message")
++    bodies.length = 0
++    const response = await awFetch("http://fixture.invalid/api/event", { signal: abort.signal })
++    reader = response.body!.getReader()
++    await reader.read() // connected
++    await wait(() => sources.length === 1)
++    hold = true
++    held = new Promise(resolve => { unblock = resolve })
++    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
++    await wait(() => bodies.length === 1)
++    for (let i = 0; i < 8; i++) sources[0].emit({ owner_event: "source.changed", resource_id: "basis" })
++    expect(peak).toBe(1)
++    hold = false; unblock()
++    await wait(() => bodies.length === 2 && active === 0)
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(bodies).toEqual(["session", "session"])
++    const before = bodies.length, oldLists = lists
++    sources[0].emit({ owner_event: "work-session.changed", resource_id: "other" })
++    await wait(() => lists > oldLists)
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(bodies.length).toBe(before) // metadata update of a non-viewed conversation
++    // A prefetch must not change the actual viewed A.
++    await awFetch("http://fixture.invalid/api/session/other/message")
++    bodies.length = 0
++    sources[0].emit({ owner_event: "work-session.changed", resource_id: "session" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["session"])
++    releaseView(); releaseView = watchSession("aw_fixture", "other")
++    bodies.length = 0
++    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-basis" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["other"]) // source invalidation still rechecks the viewed text
++    releaseView(); releaseView = watchSession("aw_fixture", "session") // cached return A
++    bodies.length = 0
++    sources[0].emit({ owner_event: "source.changed", resource_id: "revoked-a" })
++    await wait(() => bodies.length === 1 && active === 0)
++    expect(bodies).toEqual(["session"])
++    await reader.cancel()
++    expect(sources[0].closed).toBe(true)
++    const after = lists
++    sources[0].emit({ owner_event: "source.changed", resource_id: "late" })
++    await new Promise(resolve => setTimeout(resolve, 10))
++    expect(lists).toBe(after)
++  } finally {
++    releaseView(); unblock(); await reader?.cancel().catch(() => {}); abort.abort()
++    globalThis.fetch = savedFetch
++    globalThis.EventSource = savedSource
++  }
++})
++
++
++test("cached route return settles a pre-revocation prefetch before a fresh owner read", async () => {
++  let finishOld: () => void = () => {}
++  const old = new Promise<void>(resolve => { finishOld = resolve })
++  const phases: string[] = []
++  let allowed = true
++  const refreshing = refreshViewedSession(async force => {
++    if (!force) { phases.push("join-old"); await old; return "old private body" }
++    phases.push("fresh-owner")
++    return allowed ? "body" : "withheld"
++  })
++  expect(phases).toEqual(["join-old"])
++  allowed = false
++  finishOld()
++  expect(await refreshing).toBe("withheld")
++  expect(phases).toEqual(["join-old", "fresh-owner"])
++  await expect(refreshViewedSession(async force => {
++    if (force) throw Error("owner unavailable")
++    return "old body"
++  })).rejects.toThrow("owner unavailable")
++})
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index b223db6..b8de65e 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -89,6 +89,18 @@ async function directoryOf(sessionID: string): Promise<string | undefined> {
+   for (const agent of await agents()) if ((await sessions(agent.directory)).some((row) => row.id === sessionID)) return agent.directory
+   return undefined
+ }
++const activeSessions = new Map<string, { id: string; token: symbol }>()
++// Bound to the rendered route, never to GET/prefetch. No authority or body cache.
++export function watchSession(directory: string, id?: string) {
++  const token = Symbol()
++  if (id) activeSessions.set(directory, { id, token })
++  return () => { if (activeSessions.get(directory)?.token === token) activeSessions.delete(directory) }
++}
++// Settle an older prefetch before the owner's fresh route-entry read.
++export async function refreshViewedSession(reload: (force: boolean) => Promise<unknown> | void) {
++  try { await reload(false) } catch { /* The fresh read below owns the displayed outcome. */ }
++  return reload(true)
++}
+ const transcript = (directory: string, sessionID: string) =>
+   bridge<Transcript>(`/agents/${directory}/sessions/${encodeURIComponent(sessionID)}`)
+ 
+@@ -303,8 +315,11 @@ async function route(method: string, path: string, url: URL, body: () => Promise
+     const sessionID = decodeURIComponent(one[1])
+     const directory = await directoryOf(sessionID)
+     if (!directory) return json({ name: "NotFound" }, 404)
++    if (!one[2] && method === "GET") {
++      const row = (await sessions(directory)).find(row => row.id === sessionID)
++      return row ? json({ data: sessionInfo(directory, row) }) : json({ name: "NotFound" }, 404)
++    }
+     const view = await transcript(directory, sessionID)
+-    if (!one[2] && method === "GET") return json({ data: sessionInfo(directory, { ...view, id: sessionID }) })
+     if (one[2] === "/rename" && method === "POST") {
+       const input = await body()
+       if (Object.keys(input).some((key) => key !== "title") || typeof input.title !== "string" || !input.title.trim() || input.title.length > 512)
+@@ -391,31 +406,70 @@ async function bridgeFetch(input: RequestInfo | URL, init?: RequestInit): Promis
+ export const awFetch: typeof globalThis.fetch = Object.assign(bridgeFetch, { preconnect: () => {} })
+ 
+ // ---- events: owner notifications become "refetch" signals for the native store ------------------
++type RefetchHint = { owner_event?: string; resource_id?: string }
+ function events(signal: AbortSignal): Response {
+   const encoder = new TextEncoder()
+   const sources: EventSource[] = []
++  const pending = new Map<string, { all: boolean; ids: Set<string> }>()
++  const running = new Set<string>()
++  let closed = false
++  const drain = async (directory: string, send: (event: unknown) => void) => {
++    if (running.has(directory) || closed) return
++    running.add(directory)
++    try {
++      while (!closed && pending.has(directory)) {
++        const hint = pending.get(directory)!
++        pending.delete(directory)
++        try { await refresh(directory, send, hint.all ? undefined : hint.ids) }
++        catch { /* Continue the already queued tail; never replay a command. */ }
++      }
++    }
++    finally { running.delete(directory) }
++  }
++  const stop = () => {
++    closed = true
++    pending.clear()
++    sources.forEach((source) => source.close())
++  }
+   const stream = new ReadableStream<Uint8Array>({
+     async start(controller) {
+-      const send = (event: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
++      const send = (event: unknown) => {
++        if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
++      }
+       send({ id: uuid(), type: "server.connected", data: {} })
+       for (const agent of await agents().catch(() => [] as Agent[])) {
++        if (closed) break
+         const source = new EventSource(`${BRIDGE}/agents/${agent.directory}/events`, { withCredentials: true })
+-        source.addEventListener("refetch", () => void refresh(agent.directory, send))
++        source.addEventListener("refetch", (event) => {
++          if (closed) return
++          let hint: RefetchHint = {}
++          try { hint = JSON.parse((event as MessageEvent).data) } catch { /* Broad invalidation. */ }
++          const target = hint?.owner_event === "work-session.changed" && typeof hint.resource_id === "string"
++            ? hint.resource_id : undefined
++          const queued = pending.get(agent.directory) ?? { all: false, ids: new Set<string>() }
++          if (!target || queued.ids.size >= 200) queued.all = true
++          else queued.ids.add(target)
++          pending.set(agent.directory, queued)
++          // Microtask batches an event burst; one request sequence per directory is in flight.
++          queueMicrotask(() => void drain(agent.directory, send))
++        })
+         sources.push(source)
+       }
+-      signal.addEventListener("abort", () => { sources.forEach((s) => s.close()); controller.close() })
++      signal.addEventListener("abort", () => { if (!closed) { stop(); controller.close() } }, { once: true })
++      if (signal.aborted && !closed) { stop(); controller.close() }
+     },
+-    cancel() { sources.forEach((s) => s.close()) },
++    cancel() { stop() },
+   })
+   return new Response(stream, { headers: { "content-type": "text/event-stream" } })
+ }
+ // Ids already announced per session: a refetch announces only new ones; the client then
+ // fetches each by id from the owner view (no synthesized token stream, no replay of commands).
+ const announced = new Map<string, Set<string>>()
+-async function refresh(directory: string, send: (event: unknown) => void) {
++async function refresh(directory: string, send: (event: unknown) => void, targets?: Set<string>) {
+   for (const row of await sessions(directory).catch(() => [] as SessionRow[])) {
+     const base = { created: Date.now(), location: { directory }, durable: { aggregateID: row.id, seq: row.version, version: 1 } }
+     send({ ...base, id: uuid(), type: "session.updated", data: { sessionID: row.id, info: sessionEventInfo(directory, row) } })
++    if (activeSessions.get(directory)?.id !== row.id || (targets && !targets.has(row.id))) continue
+     const view = await transcript(directory, row.id).catch(() => undefined)
+     if (!view) continue
+     const known = announced.get(row.id) ?? new Set<string>()
+diff --git a/packages/app/src/pages/session/timeline/model.ts b/packages/app/src/pages/session/timeline/model.ts
+index 33eb300..9ec5110 100644
+--- a/packages/app/src/pages/session/timeline/model.ts
++++ b/packages/app/src/pages/session/timeline/model.ts
+@@ -1,7 +1,9 @@
+ import type { Message, UserMessage } from "@opencode-ai/sdk/v2"
+-import { createMemo, createResource, onCleanup, untrack, type Accessor } from "solid-js"
++import { createMemo, createResource, createEffect, onCleanup, untrack, type Accessor } from "solid-js"
+ import { useServerSync } from "@/context/server-sync"
+ import { useSync } from "@/context/sync"
++import { useSDK } from "@/context/sdk"
++import { watchSession, refreshViewedSession } from "@/aw/bridge"
+ import { same } from "@/utils/same"
+ 
+ const emptyUserMessages: UserMessage[] = []
+@@ -13,6 +15,11 @@ export function createTimelineModel(input: {
+ }) {
+   const serverSync = useServerSync()
+   const sync = useSync()
++  const sdk = useSDK()
++  const platform = () => sdk().directory.startsWith("aw_")
++  createEffect(() => {
++    if (platform()) onCleanup(watchSession(sdk().directory, input.sessionID()))
++  })
+   let refreshFrame: number | undefined
+   let refreshTimer: number | undefined
+ 
+@@ -21,6 +28,8 @@ export function createTimelineModel(input: {
+     (id) => {
+       clearRefresh()
+       if (!id) return
++      // A return to a cached route must recheck current owner rights/TTL/ledger.
++      if (platform()) return refreshViewedSession(force => sync().session.sync(id, { force }))
+ 
+       const cached = untrack(() => sync().data.message[id] !== undefined)
+       const stale = cached && !serverSync().session.fresh(id, sessionFreshness)
+@@ -40,10 +49,13 @@ export function createTimelineModel(input: {
+     },
+   )
+   const messages = createMemo(() => {
++    // Do not briefly render a stale private body while the owner read is pending/failed.
++    if (platform() && (resource.loading || resource.error)) return []
+     const id = input.sessionID()
+     return id ? (sync().data.message[id] ?? []) : []
+   })
+   const ready = createMemo(() => {
++    if (platform() && (resource.loading || resource.error)) return false
+     const id = input.sessionID()
+     return !id || isTimelineReady(sync().data.message[id], serverSync().session.history.loading(id))
+   })
+-- 
+2.53.0.windows.2
+

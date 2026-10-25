@@ -212,3 +212,109 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     control.get_by_role("button", name="STOP — остановить активного агента").click()
     expect(control.get_by_role("button", name="START — запустить агента")).to_be_visible()
     control.close()
+
+
+def test_cached_return_rechecks_owner_and_prefetch_does_not_choose_the_view(page, work_host):
+    import asyncio
+
+    from ai_agent_core.m3_composition.dialogue import memory
+    from ai_agent_core.m3_composition.state import command as owner_command
+    from ai_agent_core.m3_composition.work_sessions import sessions
+
+    origin, host, model = work_host
+    rt, loop = host.served
+    page.goto(origin + "/")
+    page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
+    page.get_by_role("button", name="Войти", exact=True).click()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    csrf = page.request.get(origin + "/api/v1/auth/session").json()["csrf_token"]
+    selected = directory(host.scope)
+    bridge = origin + PREFIX + "/agents/" + selected
+    headers = {"Origin": origin, "x-csrf-token": csrf}
+    ids = []
+    for name in ("A", "B"):
+        opened = page.request.post(
+            bridge + "/commands",
+            headers=headers,
+            data=dict(
+                type="work.session.open",
+                request_id="cache-open-" + name,
+                target="work",
+                scope=host.scope.model_dump(mode="json"),
+                arguments=dict(schema_id="work.session.open-args", data={"title": "Cache " + name}),
+            ),
+        )
+        assert opened.status == 200
+        identifier = opened.json()["resource_id"]
+        posted = page.request.post(
+            bridge + "/commands",
+            headers=headers,
+            data=dict(
+                type="work.session.message",
+                request_id="cache-message-" + name,
+                target=identifier,
+                scope=host.scope.model_dump(mode="json"),
+                expected_version=1,
+                arguments=dict(
+                    schema_id="work.session.message-args",
+                    data={"session_id": identifier, "text": "Synthetic cached marker " + name},
+                ),
+            ),
+        )
+        assert posted.status == 200
+        ids.append(identifier)
+    slug = base64.urlsafe_b64encode(selected.encode()).decode().rstrip("=")
+
+    def path(identifier):
+        return "/opencode/" + slug + "/session/" + identifier
+
+    page.goto(origin + path(ids[0]))
+    expect(page.get_by_text("Synthetic cached marker A", exact=True).first).to_be_visible(
+        timeout=20000
+    )
+
+    def navigate(identifier):
+        page.evaluate(
+            "url => { history.pushState({}, '', url); "
+            "dispatchEvent(new PopStateEvent('popstate')) }",
+            path(identifier),
+        )
+
+    navigate(ids[1])
+    expect(page.get_by_text("Synthetic cached marker B", exact=True).first).to_be_visible(
+        timeout=20000
+    )
+    body_reads = []
+    page.on(
+        "request",
+        lambda request: (
+            body_reads.append(request.url)
+            if request.url in {bridge + "/sessions/" + value for value in ids}
+            else None
+        ),
+    )
+
+    async def revoke():
+        row = (await sessions(rt).messages(host.scope, ids[0]))[0]
+        source = row.source
+        await memory(rt).set_rights(
+            owner_command(host.scope, "cached-revoke"),
+            source.source_id,
+            source.version,
+            read_allowed=True,
+            api_transfer_allowed=False,
+            public_disclosure_allowed=False,
+        )
+        rt.notify("memory.changed", host.scope, source.source_id, source.version + 1)
+
+    with page.expect_response(
+        lambda response: response.url == bridge + "/sessions/" + ids[1], timeout=20000
+    ):
+        asyncio.run_coroutine_threadsafe(revoke(), loop).result(20)
+    assert bridge + "/sessions/" + ids[0] not in body_reads
+    with page.expect_response(
+        lambda response: response.url == bridge + "/sessions/" + ids[0], timeout=20000
+    ):
+        navigate(ids[0])
+    expect(page.get_by_text("Synthetic cached marker A", exact=True)).to_have_count(0)
+    assert model.count("activity") == 0  # no START and no model call
