@@ -131,7 +131,7 @@ async def mutate(
     ):
         # Reconsider durable operator input on the next runtime tick. This is only a
         # scheduling hint: START, admission, foreground priority and budget still apply.
-        rt.autonomous_activity.next_check = 0.0
+        rt.wake_activity(request.scope)
     rt.notify("work-session.changed", area(request.scope), receipt.resource_id, receipt.version)
     return receipt
 
@@ -179,14 +179,28 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
             # The owner invalidated this conversation between our two reads.
             # Show only the terminal metadata; no earlier message body is reused.
             session, rows = latest, []
+        shown = [row for _, row in rows if row is not None]
+        flags = iter(
+            await release.source_statuses(stable, [row.source for row in shown], "api_transfer")
+        )
+        found = {
+            source.id: source
+            for source in await mem.get_sources(
+                stable, [row.source.source_id for row in shown], purpose="api_transfer"
+            )
+        }
         for sequence, row in rows:
             if row is None:
                 gone = gone or sequence > session.processed_sequence
                 continue  # its speaker and text are not readable any more
             text = None
-            if await release.bases_open(stable, (row.source,), (), "api_transfer"):
-                source = await mem.get_source(stable, row.source.source_id, purpose="api_transfer")
-                text = None if source is None else source.content
+            if next(flags):
+                source = found.get(row.source.source_id)
+                text = (
+                    source.content
+                    if source is not None and source.version == row.source.version
+                    else None
+                )
             entries.append(
                 WorkSessionEntry(
                     sequence=row.sequence,

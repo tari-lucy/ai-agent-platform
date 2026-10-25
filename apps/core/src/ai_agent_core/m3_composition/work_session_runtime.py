@@ -64,13 +64,24 @@ class Release:
             raise ContractError(ErrorCode.STALE_CONTEXT)
 
 
-async def _open(rt: Runtime, scope: Scope, row: WorkSessionMessage) -> bool:
-    """The message's text may still go to the model: rights, version, TTL, ledger."""
-    if not await ticket_release(rt).bases_open(scope, (row.source,), (), "api_transfer"):
-        return False
-    source = await memory(rt).get_source(scope, row.source.source_id, purpose="api_transfer")
-    return (
-        source is not None and source.version == row.source.version and source.content is not None
+async def _open_messages(
+    rt: Runtime, scope: Scope, rows: Sequence[WorkSessionMessage]
+) -> tuple[bool, ...]:
+    flags = await ticket_release(rt).source_statuses(
+        scope, [row.source for row in rows], "api_transfer"
+    )
+    found = {
+        s.id: s
+        for s in await memory(rt).get_sources(
+            scope, [row.source.source_id for row in rows], purpose="api_transfer"
+        )
+    }
+    return tuple(
+        allowed
+        and (source := found.get(row.source.source_id)) is not None
+        and source.version == row.source.version
+        and source.content is not None
+        for row, allowed in zip(rows, flags, strict=True)
     )
 
 
@@ -90,18 +101,35 @@ class OpenHistory:
     async def messages(
         self, scope: Scope, session_id: str, *, after_sequence: int = 0, limit: int = 50
     ) -> list[WorkSessionMessage]:
-        kept: list[WorkSessionMessage] = []
-        for sequence, row in await self.inner.entries(
+        rows = await self.inner.entries(
             scope, session_id, after_sequence=after_sequence, limit=limit
+        )
+        if any(
+            row is None and sequence > self.session.processed_sequence for sequence, row in rows
         ):
-            taken = sequence <= self.session.processed_sequence
-            if row is None:
-                if not taken:
-                    raise ContractError(ErrorCode.ACCESS_DENIED)  # a pending row is gone
-                continue
-            if (row.speaker == "operator" and not taken) or await _open(self.rt, scope, row):
-                kept.append(row)
-        return kept
+            raise ContractError(ErrorCode.ACCESS_DENIED)  # a pending row is gone
+        checked = [
+            row
+            for sequence, row in rows
+            if row is not None
+            and not (row.speaker == "operator" and sequence > self.session.processed_sequence)
+        ]
+        opened = {
+            (row.source.source_id, row.source.version)
+            for row, allowed in zip(
+                checked, await _open_messages(self.rt, scope, checked), strict=True
+            )
+            if allowed
+        }
+        return [
+            row
+            for sequence, row in rows
+            if row is not None
+            and (
+                (row.speaker == "operator" and sequence > self.session.processed_sequence)
+                or (row.source.source_id, row.source.version) in opened
+            )
+        ]
 
 
 async def unavailable(rt: Runtime, session: WorkSession) -> Literal["message", "context"] | None:
@@ -117,10 +145,11 @@ async def unavailable(rt: Runtime, session: WorkSession) -> Literal["message", "
     rows = await history(rt).entries(
         session.scope, session.id, after_sequence=session.processed_sequence, limit=200
     )
-    for _, row in rows:
-        # A hidden row's speaker is unknown: never answer around it.
-        if row is None or (row.speaker == "operator" and not await _open(rt, session.scope, row)):
-            return "message"
+    if any(row is None for _, row in rows):
+        return "message"  # a hidden row's speaker is unknown: never answer around it
+    operators = [row for _, row in rows if row is not None and row.speaker == "operator"]
+    if not all(await _open_messages(rt, session.scope, operators)):
+        return "message"
     pending = await draft(rt, session)
     if pending is not None and pending.withheld:
         return "context"

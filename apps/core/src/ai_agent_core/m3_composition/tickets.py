@@ -42,4 +42,6 @@ async def mutate(rt: Runtime, authority: ControlAuthority, request: EditCommand)
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
     if receipt.resource_id is not None:
         rt.notify("ticket.changed", area(request.scope), receipt.resource_id, receipt.version)
+    if request.type == "ticket.reply":
+        rt.wake_activity(request.scope)
     return receipt

@@ -386,10 +386,6 @@ class AutonomousActivity:
         budget, run, settings = rt.private_api_budget, rt.supervisor.snapshot, rt.activity
         if settings is None or budget is None or not budget.activity_enabled or rt.tickets is None:
             return "ACTIVITY_DISABLED"
-        elapsed = rt.supervisor.clock.elapsed()
-        if elapsed < self.next_check:
-            return "THROTTLED"
-        self.next_check = elapsed + settings.check_seconds
         if (
             run.state.value != "ACTIVE"
             or run.activity.value != "OPEN"
@@ -398,6 +394,10 @@ class AutonomousActivity:
             return self._skip("RUN_NOT_AUTONOMOUS")
         if run.scope.memory_mode != "work":
             return self._skip("NOT_WORK")
+        elapsed = rt.supervisor.clock.elapsed()
+        if elapsed < self.next_check:
+            return "THROTTLED"
+        self.next_check = elapsed + settings.check_seconds
         try:
             return await self._tick(run.scope)
         except ContractError as error:

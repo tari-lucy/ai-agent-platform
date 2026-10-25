@@ -4,6 +4,7 @@ No text/checkpoint cache. Never drop unprocessed inputs to get the newest page;
 through_sequence only covers the bounded prefix actually shown to the model.
 """
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from ai_agent_contracts.agent_sessions import WorkSession
@@ -24,9 +25,9 @@ from ai_agent_application.storage import ReadPurpose
 
 
 class SessionSources(Protocol):
-    async def get_source(
-        self, scope: Scope, source_id: str, *, purpose: ReadPurpose = "private"
-    ) -> Source | None: ...
+    async def get_sources(
+        self, scope: Scope, source_ids: Sequence[str], *, purpose: ReadPurpose = "private"
+    ) -> list[Source]: ...
 
 
 class ReleasedSessionContext:
@@ -80,11 +81,15 @@ class ReleasedSessionContext:
         rows = await self.history.messages(
             session.scope, session.id, after_sequence=start, limit=capacity
         )
-        for row in rows:
-            await self.guard.verify(admission, (row.source,), (), "api_transfer")
-            source = await self.sources.get_source(
-                session.scope, row.source.source_id, purpose="api_transfer"
+        await self.guard.verify(admission, tuple(row.source for row in rows), (), "api_transfer")
+        found = {
+            source.id: source
+            for source in await self.sources.get_sources(
+                session.scope, [row.source.source_id for row in rows], purpose="api_transfer"
             )
+        }
+        for row in rows:
+            source = found.get(row.source.source_id)
             if source is None or source.version != row.source.version or source.content is None:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
             if used + len(source.content) > max_chars:

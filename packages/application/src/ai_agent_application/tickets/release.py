@@ -58,6 +58,44 @@ class TicketRelease:
         self.sources, self.ledger, self.files = sources, ledger, files
         self.bulk_sources = bulk_sources
 
+    async def source_statuses(
+        self, scope: Scope, sources: Sequence[SourceRef], purpose: ReadPurpose
+    ) -> tuple[bool, ...]:
+        """Fresh per-reference release decisions, one bounded owner read; no text/cache."""
+        if len(sources) > 200:
+            raise ContractError(ErrorCode.RESOURCE_BUSY)
+        blocked = (
+            set()
+            if self.ledger is None or not sources
+            else {entry.source_id for entry in await self.ledger.entries(scope)}
+        )
+        wanted = [
+            r
+            for r in sources
+            if r.scope.partition == scope.partition and r.source_id not in blocked
+        ]
+        if self.bulk_sources is not None and wanted:
+            found = {s.id: s for s in await self.bulk_sources(scope, [r.source_id for r in wanted])}
+        else:
+            found = {}
+            for start in range(0, len(wanted), 4):
+                refs = wanted[start : start + 4]
+                rows = await asyncio.gather(
+                    *(self.sources.get_source(scope, r.source_id) for r in refs)
+                )
+                found.update((source.id, source) for source in rows if source is not None)
+        return tuple(
+            ref.scope.partition == scope.partition
+            and ref.source_id not in blocked
+            and (source := found.get(ref.source_id)) is not None
+            and source.availability == "available"
+            and source.version == ref.version
+            and source.read_allowed
+            and (purpose != "api_transfer" or source.api_transfer_allowed)
+            and (purpose != "public_disclosure" or source.public_disclosure_allowed)
+            for ref in sources
+        )
+
     async def bases_open(
         self,
         scope: Scope,
@@ -66,37 +104,8 @@ class TicketRelease:
         purpose: ReadPurpose,
     ) -> bool:
         """Every given basis is still releasable for ``purpose`` (also for session checkpoints)."""
-        blocked: set[str] = set()
-        if self.ledger is not None and sources:
-            blocked = {entry.source_id for entry in await self.ledger.entries(scope)}
-        if any(
-            ref.source_id in blocked or ref.scope.partition != scope.partition for ref in sources
-        ):
+        if not all(await self.source_statuses(scope, sources, purpose)):
             return False
-        if self.bulk_sources is not None and sources:
-            found = {
-                s.id: s for s in await self.bulk_sources(scope, [r.source_id for r in sources])
-            }
-            pairs = [(ref, found.get(ref.source_id)) for ref in sources]
-        else:
-            # Non-batched implementations remain bounded and fresh too.
-            pairs = []
-            for start in range(0, len(sources), 4):
-                refs = sources[start : start + 4]
-                rows = await asyncio.gather(
-                    *(self.sources.get_source(scope, ref.source_id) for ref in refs)
-                )
-                pairs.extend(zip(refs, rows, strict=True))
-        for ref, source in pairs:
-            if (
-                source is None
-                or source.availability != "available"
-                or source.version != ref.version
-                or not source.read_allowed
-                or (purpose == "api_transfer" and not source.api_transfer_allowed)
-                or (purpose == "public_disclosure" and not source.public_disclosure_allowed)
-            ):
-                return False
         if materials:
             if self.files is None:
                 return False  # a material that cannot be checked is not released

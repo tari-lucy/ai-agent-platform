@@ -221,3 +221,30 @@ def test_old_bases_are_kept_and_a_full_list_refuses_instead_of_forgetting(tmp_pa
         assert again.sources == ticket.sources and again.occurrences == 2
 
     run(tmp_path, scenario)
+
+
+def test_per_source_release_decisions_keep_order_versions_scope_and_ledger(tmp_path):
+    async def scenario(world):
+        _, release = await owners(world)
+        first, second = [await world.source() for _ in range(2)]
+        wrong = first.model_copy(update={"version": first.version + 1})
+        foreign = first.model_copy(
+            update={"scope": AREA.model_copy(update={"persona_id": "other"})}
+        )
+        refs = [second, wrong, first, foreign]
+        assert await release.source_statuses(AREA, refs, "api_transfer") == (
+            True,
+            False,
+            True,
+            False,
+        )
+        await world.ledger.block(AREA, second.source_id, 1, "rights_revoked", world.now)
+        assert await release.source_statuses(AREA, refs, "api_transfer") == (
+            False,
+            False,
+            True,
+            False,
+        )
+        assert not await release.bases_open(AREA, refs, (), "api_transfer")
+
+    run(tmp_path, scenario)

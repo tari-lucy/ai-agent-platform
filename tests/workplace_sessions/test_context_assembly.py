@@ -14,9 +14,9 @@ class OwnerSources:
     def __init__(self, w):
         self.w = w
 
-    async def get_source(self, scope, source_id, *, purpose):
-        return await self.w.store.repository(Source, SUPPORT["CAT"], scope).get(
-            source_id, purpose=purpose
+    async def get_sources(self, scope, source_ids, *, purpose):
+        return await self.w.store.repository(Source, SUPPORT["CAT"], scope).get_many(
+            source_ids, purpose=purpose
         )
 
 
@@ -78,8 +78,8 @@ def test_late_stop_during_source_read_discards_the_assembled_context(tmp_path):
                     return True
 
             class Sources(OwnerSources):
-                async def get_source(self, scope, source_id, *, purpose):
-                    result = await super().get_source(scope, source_id, purpose=purpose)
+                async def get_sources(self, scope, source_ids, *, purpose):
+                    result = await super().get_sources(scope, source_ids, purpose=purpose)
                     assert result is not None
                     w.active = False  # cancellation arrives while the owner is reading
                     return result

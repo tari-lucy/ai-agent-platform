@@ -202,10 +202,17 @@ class SessionBook:
             raise ContractError(ErrorCode.ACCESS_DENIED)
         repo = self.store.repository(WorkSessionMessage, self.principal, area(scope))
         rows: list[tuple[int, WorkSessionMessage | None]] = []
-        for sequence in range(
+        sequences = range(
             after_sequence + 1, min(session.last_sequence, after_sequence + limit) + 1
-        ):
-            row = await repo.get(message_id(scope, session_id, sequence))
+        )
+        found = {
+            row.id: row
+            for row in await repo.get_many(
+                [message_id(scope, session_id, sequence) for sequence in sequences]
+            )
+        }
+        for sequence in sequences:
+            row = found.get(message_id(scope, session_id, sequence))
             if row is not None and (row.session_id != session_id or row.sequence != sequence):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
             rows.append((sequence, row))

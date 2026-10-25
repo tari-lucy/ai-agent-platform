@@ -31,6 +31,7 @@ class ManagedRuntime(Protocol):
     async def open(self) -> None: ...
     async def close(self) -> None: ...
     async def tick(self) -> None: ...
+    async def wait_for_work(self, seconds: float = 1.0) -> None: ...
     def access_ports(self) -> AccessPorts: ...
 
 
@@ -96,7 +97,10 @@ def create_app(
                     await runtime.tick()
             except Exception:
                 supervisor.critical_failure()
-            await asyncio.sleep(1)
+            if runtime is None:
+                await asyncio.sleep(1)
+            else:
+                await runtime.wait_for_work()
 
     async def operational_watchdog() -> None:
         while True:

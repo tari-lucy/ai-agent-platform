@@ -455,6 +455,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
     for permission, _ in rights:
         rt.notify("connection.changed", request.scope, permission.id, permission.version)
     await close_requests(rt, authority, request, proof)
+    rt.wake_activity(request.scope)
     return receipt
 
 

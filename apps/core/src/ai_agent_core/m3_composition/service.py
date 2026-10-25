@@ -55,7 +55,7 @@ from ai_agent_contracts.api import (
 )
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
-from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, Job, Lease
+from ai_agent_contracts.control import ExecutionCommand, ExecutionResult, Job, Lease, RunSession
 from ai_agent_contracts.extensions import ExtensionRegistry
 from ai_agent_contracts.llm import Connection, LLMAttempt
 from ai_agent_contracts.memory import Episode, Source
@@ -380,6 +380,8 @@ class Runtime:
         self._lock = asyncio.Lock()
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
         self._opened = False
+        self._work_ready = asyncio.Event()
+        self._activity_key: tuple[object, ...] | None = None
         self.maintenance: Maintenance | None = None
         from ai_agent_application.retention import RetentionService
 
@@ -480,7 +482,7 @@ class Runtime:
             initial=gm.active_seconds,
             max_gap=self.supervisor.limits.sleep_gap_seconds,
         )
-        self._unsubscribe = self.supervisor.observe(self.clock.observe)
+        self._unsubscribe = self.supervisor.observe(self._observe_run)
         self._opened = True
         if self.maintenance is not None:
             self.maintenance.start()
@@ -541,6 +543,32 @@ class Runtime:
         if self._unsubscribe:
             self._unsubscribe()
 
+    def _observe_run(self, run: RunSession, elapsed: float) -> None:
+        if self.clock is not None:
+            self.clock.observe(run, elapsed)
+        key = (run.state, run.activity, run.autonomy, run.control_epoch, run.run_id)
+        if key != self._activity_key:
+            self._activity_key = key
+            if run.state.value == "ACTIVE" and run.activity.value == "OPEN":
+                self.autonomous_activity.next_check = 0.0
+                self.wake()
+
+    def wake(self) -> None:
+        """Coalesced scheduling hint only; tick still applies every eligibility gate."""
+        self._work_ready.set()
+
+    def wake_activity(self, scope: Scope) -> None:
+        if scope.partition == self.supervisor.snapshot.scope.partition:
+            self.autonomous_activity.next_check = 0.0
+            self.wake()
+
+    async def wait_for_work(self, seconds: float = 1.0) -> None:
+        try:
+            await asyncio.wait_for(self._work_ready.wait(), timeout=seconds)
+        except TimeoutError:
+            pass
+        self._work_ready.clear()
+
     async def tick(self) -> None:
         if not self._opened:
             return
@@ -585,6 +613,7 @@ class Runtime:
                 and schedule.ready_at <= self.supervisor.clock.utc()
             ):
                 self._active = asyncio.create_task(self.execute(job))
+                self._active.add_done_callback(lambda _: self.wake())
                 break
 
     def authorize_submission(

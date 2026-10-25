@@ -381,4 +381,5 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
             text,
         )
         rt.notify("ticket.changed", request.scope, proof.ticket_id, noted.version)
+    rt.wake_activity(request.scope)
     return receipt
