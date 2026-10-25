@@ -6,6 +6,61 @@ reference. All task bytes live in tmpfs and disappear with the container.
 
 from .bridge import BRIDGE
 
+STAGE_INPUTS = r"""
+manifest = []
+for index, item in enumerate(payload["inputs"]):
+    name = "input-%04d" % index
+    data = base64.b64decode(item["content"], validate=True)
+    with open("inputs/" + name, "xb") as stream:
+        stream.write(data)
+    manifest.append({"name": name, "artifact_id": item["id"], "version": item["version"]})
+with open("inputs/manifest.json", "x", encoding="utf-8") as stream:
+    json.dump(manifest, stream)
+"""
+
+COLLECT = r"""
+files = []
+total = len(output)
+if not stat.S_ISDIR(os.lstat("outputs").st_mode):
+    state = "failed"
+if state == "succeeded":
+    for root, directories, names in os.walk("outputs", followlinks=False):
+        for directory in directories:
+            if os.path.islink(os.path.join(root, directory)):
+                state = "failed"
+        for name in names:
+            path = os.path.join(root, name)
+            logical = path[len("outputs/"):]
+            if (len(logical) > 256 or len(logical.split("/")) > 8 or
+                any(not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", p) or p in {".", ".."}
+                    for p in logical.split("/"))):
+                state = "failed"
+                break
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    state = "failed"
+                    break
+                data = stream.read(max(0, cap["output_bytes"]-total)+1)
+            total += len(data)
+            if total > cap["output_bytes"] or len(files) >= payload["max_files"]:
+                state = "limit"
+                break
+            files.append({"name": logical, "checksum": hashlib.sha256(data).hexdigest(),
+                          "content": base64.b64encode(data).decode("ascii")})
+        if state != "succeeded":
+            break
+if state != "succeeded":
+    files = []
+wire({"kind": "result", "status": state, "exit_code": child.returncode,
+                  "stdout": base64.b64encode(output[:cap["output_bytes"]]).decode("ascii"),
+                  "files": files})
+# No interpreter finalisation while the daemon stdin reader holds a buffered lock.
+# The complete frame was flushed; exiting PID 1 tears down this task namespace.
+os._exit(0)
+"""
+
 ENTRY = (
     r"""
 import base64, hashlib, json, os, re, selectors, signal, stat, subprocess, sys, time
@@ -20,16 +75,8 @@ env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/work/home",
        "PYTHONDONTWRITEBYTECODE": "1", "LANG": "C.UTF-8"}
 for directory in ("inputs", "outputs", "home", "tmp", "config", "cache", "data"):
     os.mkdir(directory, 0o700)
-manifest = []
-for index, item in enumerate(payload["inputs"]):
-    name = "input-%04d" % index
-    data = base64.b64decode(item["content"], validate=True)
-    with open("inputs/" + name, "xb") as stream:
-        stream.write(data)
-    manifest.append({"name": name, "artifact_id": item["id"], "version": item["version"]})
-with open("inputs/manifest.json", "x", encoding="utf-8") as stream:
-    json.dump(manifest, stream)
 """
+    + STAGE_INPUTS
     + BRIDGE
     + r"""
 started = time.monotonic()
@@ -72,45 +119,6 @@ child.stdout.close()
 poller.close()
 if child.returncode != 0 and state == "succeeded":
     state = "failed"
-files = []
-total = len(output)
-if not stat.S_ISDIR(os.lstat("outputs").st_mode):
-    state = "failed"
-if state == "succeeded":
-    for root, directories, names in os.walk("outputs", followlinks=False):
-        for directory in directories:
-            if os.path.islink(os.path.join(root, directory)):
-                state = "failed"
-        for name in names:
-            path = os.path.join(root, name)
-            logical = path[len("outputs/"):]
-            if (len(logical) > 256 or len(logical.split("/")) > 8 or
-                any(not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", p) or p in {".", ".."}
-                    for p in logical.split("/"))):
-                state = "failed"
-                break
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            with os.fdopen(fd, "rb") as stream:
-                info = os.fstat(stream.fileno())
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                    state = "failed"
-                    break
-                data = stream.read(max(0, cap["output_bytes"]-total)+1)
-            total += len(data)
-            if total > cap["output_bytes"] or len(files) >= payload["max_files"]:
-                state = "limit"
-                break
-            files.append({"name": logical, "checksum": hashlib.sha256(data).hexdigest(),
-                          "content": base64.b64encode(data).decode("ascii")})
-        if state != "succeeded":
-            break
-if state != "succeeded":
-    files = []
-wire({"kind": "result", "status": state, "exit_code": child.returncode,
-                  "stdout": base64.b64encode(output[:cap["output_bytes"]]).decode("ascii"),
-                  "files": files})
-# No interpreter finalisation while the daemon stdin reader holds a buffered lock.
-# The complete frame was flushed; exiting PID 1 tears down this task namespace.
-os._exit(0)
 """
+    + COLLECT
 )
