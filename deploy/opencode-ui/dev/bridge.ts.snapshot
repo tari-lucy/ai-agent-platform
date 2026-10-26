@@ -17,7 +17,7 @@ type SessionRow = {
 }
 type Step = { tool: string; status: "completed" | "error"; input: string; output: string; output_chars: number }
 type Entry = {
-  sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null
+  sequence: number; speaker: "operator" | "character" | "wake"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null
   steps?: Step[]
 }
 type Progress = { state: string; since: string; steps?: Step[] }
@@ -341,9 +341,11 @@ function messages(view: Transcript) {
   const replies = new Map<number, number>()
   for (const entry of view.entries) {
     const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
-    if (entry.speaker === "operator") {
+    if (entry.speaker === "operator" || entry.speaker === "wake") {
+      // A wake-up the person set for itself (W7) asks for a turn like a message, marked as such.
       lastOperator = entry.sequence
-      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
+      const shown = entry.speaker === "wake" ? "⏰ " + text : text
+      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text: shown })
     } else {
       const answered = entry.reply_to_sequence ?? entry.sequence
       const n = (replies.get(answered) ?? 0) + 1

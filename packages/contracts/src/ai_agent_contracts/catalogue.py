@@ -28,6 +28,7 @@ MODELS = (
     workplace_access.InitialAccessStatus,
     agent_sessions.WorkSession,
     agent_sessions.WorkSessionMessage,
+    agent_sessions.WakeTimer,
     agent_sessions.WorkSessionOpenArguments,
     agent_sessions.WorkSessionMessageArguments,
     agent_sessions.WorkSessionCloseArguments,

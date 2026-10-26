@@ -218,6 +218,17 @@ def install(
         if settings.egress_enabled
         else None,
     ).install()
+    if settings.wake_enabled:
+        from ai_agent_core.m3_composition.work_session_wake import AutonomousWake, WakeSettings
+
+        quiet = settings.wake_quiet_hours
+        runtime.autonomous_wake = AutonomousWake(
+            runtime,
+            WakeSettings(
+                settings.wake_max_per_hour,
+                tuple(int(hour) for hour in quiet.split("-")) if quiet else None,  # type: ignore[arg-type]
+            ),
+        )
     return None
 
 
@@ -227,7 +238,8 @@ async def enable_work_sessions(
     prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
     helper_enabled: bool | None = None, helper_capability_id: str | None = None,
     home_enabled: bool | None = None, egress_enabled: bool | None = None,
-    resident_enabled: bool | None = None,
+    resident_enabled: bool | None = None, wake_enabled: bool | None = None,
+    wake_quiet_hours: str | None = None,
     egress_deny: list[str] | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
@@ -288,6 +300,20 @@ async def enable_work_sessions(
                         else config.work_sessions.home_enabled
                         if config.work_sessions
                         else False
+                    ),
+                    wake_enabled=(
+                        wake_enabled
+                        if wake_enabled is not None
+                        else config.work_sessions.wake_enabled
+                        if config.work_sessions
+                        else False
+                    ),
+                    wake_quiet_hours=(
+                        wake_quiet_hours
+                        if wake_quiet_hours is not None
+                        else config.work_sessions.wake_quiet_hours
+                        if config.work_sessions
+                        else ""
                     ),
                     resident_enabled=(
                         resident_enabled

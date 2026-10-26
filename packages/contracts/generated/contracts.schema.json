@@ -13959,6 +13959,96 @@
       "title": "VersionedRecord",
       "type": "object"
     },
+    "WakeTimer": {
+      "additionalProperties": false,
+      "description": "A wake-up the agent set for itself (W7): data, no right, no start after restart.\n\nThe platform fires it only while the run is active and autonomous, outside quiet hours\nand within the hourly cap; firing appends a ``wake`` message to its session.",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "due_at": {
+          "format": "date-time",
+          "title": "Due At",
+          "type": "string"
+        },
+        "fired_sequence": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fired Sequence"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "state": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "fired",
+            "cancelled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "created_at",
+        "version",
+        "updated_at",
+        "session_id",
+        "due_at",
+        "reason"
+      ],
+      "title": "WakeTimer",
+      "type": "object"
+    },
     "WorkAbandonArguments": {
       "additionalProperties": false,
       "description": "The operator stops pursuing one task; the exact task version is the command's pin.",
@@ -14476,7 +14566,8 @@
         "speaker": {
           "enum": [
             "operator",
-            "character"
+            "character",
+            "wake"
           ],
           "title": "Speaker",
           "type": "string"
@@ -14578,7 +14669,8 @@
         "speaker": {
           "enum": [
             "operator",
-            "character"
+            "character",
+            "wake"
           ],
           "title": "Speaker",
           "type": "string"
@@ -16067,6 +16159,9 @@
     },
     "VersionedRecord": {
       "$ref": "#/$defs/VersionedRecord"
+    },
+    "WakeTimer": {
+      "$ref": "#/$defs/WakeTimer"
     },
     "WorkAbandonArguments": {
       "$ref": "#/$defs/WorkAbandonArguments"

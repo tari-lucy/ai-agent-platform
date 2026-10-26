@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.agent_activity.book import area, session_attempt_id
 from ai_agent_application.agent_activity.session_context import ReleasedSessionContext
-from ai_agent_application.agent_activity.sessions import SessionBook
+from ai_agent_application.agent_activity.sessions import INPUTS, SessionBook
 from ai_agent_application.agent_experience.session import ContextRefs
 from ai_agent_application.agent_workplace.ports import (
     AgentHarness,
@@ -112,7 +112,7 @@ class OpenHistory:
             row
             for sequence, row in rows
             if row is not None
-            and not (row.speaker == "operator" and sequence > self.session.processed_sequence)
+            and not (row.speaker in INPUTS and sequence > self.session.processed_sequence)
         ]
         opened = {
             (row.source.source_id, row.source.version)
@@ -126,7 +126,7 @@ class OpenHistory:
             for sequence, row in rows
             if row is not None
             and (
-                (row.speaker == "operator" and sequence > self.session.processed_sequence)
+                (row.speaker in INPUTS and sequence > self.session.processed_sequence)
                 or (row.source.source_id, row.source.version) in opened
             )
         ]
@@ -147,7 +147,7 @@ async def unavailable(rt: Runtime, session: WorkSession) -> Literal["message", "
     )
     if any(row is None for _, row in rows):
         return "message"  # a hidden row's speaker is unknown: never answer around it
-    operators = [row for _, row in rows if row is not None and row.speaker == "operator"]
+    operators = [row for _, row in rows if row is not None and row.speaker in INPUTS]
     if not all(await _open_messages(rt, session.scope, operators)):
         return "message"
     pending = await draft(rt, session)
@@ -291,9 +291,9 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
         messages = await history(rt).messages(
             scope, session.id, after_sequence=session.processed_sequence, limit=200
         )
-        if not any(
-            message.speaker == "operator" for message in messages
-        ) and not await ticket_updates(rt, session):
+        if not any(message.speaker in INPUTS for message in messages) and not await ticket_updates(
+            rt, session
+        ):
             continue
         attempts = [
             a

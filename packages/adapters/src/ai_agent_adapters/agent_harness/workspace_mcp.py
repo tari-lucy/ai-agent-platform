@@ -21,6 +21,7 @@ SCHEMA = {
                 "find_skills",
                 "read_skill",
                 "save_skill",
+                "wake_me",
             ],
         },
         "arguments": {

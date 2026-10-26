@@ -226,6 +226,11 @@ class WorkSessionsConfig(BaseModel):
     # STOP, after this idle time and on any failed turn. Never started by a restart.
     resident_enabled: bool = Field(default=False, strict=True)
     resident_idle_seconds: int = Field(default=1800, strict=True, ge=60, le=14400)
+    # W7: the agent may set its own wake-ups (wake_me); they fire into the diary conversation
+    # only while the run is ACTIVE and autonomous, outside quiet hours, within the hourly cap.
+    wake_enabled: bool = Field(default=False, strict=True)
+    wake_max_per_hour: int = Field(default=4, strict=True, ge=1, le=60)
+    wake_quiet_hours: str = Field(default="", pattern=r"^$|^([01]?\d|2[0-3])-([01]?\d|2[0-3])$")
     # Managed Python helpers: a second networkless container beside the session container,
     # asked by the person through the scripts tool. Ceilings are the operator's own config;
     # the capability still needs its own explicit permission decision to do anything.

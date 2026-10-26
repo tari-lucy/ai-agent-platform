@@ -48,6 +48,7 @@ def environment_guide(
     *,
     home: bool = False,
     internet: bool = False,
+    wake: bool = False,
 ) -> str:
     """Trusted adapter facts, separate from persona/canon and operator instructions."""
     from .work_session_egress import GUIDE as EGRESS_GUIDE
@@ -103,6 +104,10 @@ def environment_guide(
     if internet:
         guide = guide.replace(MODEL_ONLY, "Модель доступна через шлюз платформы. ")
         guide += EGRESS_GUIDE
+    if wake:
+        from .work_session_wake import GUIDE as WAKE_GUIDE
+
+        guide += WAKE_GUIDE
     if helper_template is None or helper_capability is None:
         return guide + "Python helper в этом запуске не подключён; не обещай его выполнение."
     limits = helper_template.ceiling
@@ -137,10 +142,16 @@ class EnvironmentModels:
         *,
         home: bool = False,
         internet: bool = False,
+        wake: bool = False,
     ) -> None:
         self.delegate = delegate
         self.guide = environment_guide(
-            output_area, helper_template, helper_capability, home=home, internet=internet
+            output_area,
+            helper_template,
+            helper_capability,
+            home=home,
+            internet=internet,
+            wake=wake,
         )
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
@@ -358,6 +369,7 @@ class OpenCodeSessions:
                 self.helper_capability,
                 home=home is not None,
                 internet=internet is not None,
+                wake=rt.autonomous_wake is not None,
             ),
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
@@ -406,6 +418,7 @@ class OpenCodeSessions:
             self.helper_capability,
             home=True,
             internet=internet,
+            wake=self.rt.autonomous_wake is not None,
         )
         return home_of(self.home, scope, facts)
 

@@ -534,7 +534,7 @@ class WorkSessionEntry(Contract):
     """
 
     sequence: int = Field(strict=True, ge=1)
-    speaker: Literal["operator", "character"]
+    speaker: Literal["operator", "character", "wake"]
     text: str | None = Field(default=None, max_length=16000)
     withheld: bool = Field(strict=True)
     at: UTC

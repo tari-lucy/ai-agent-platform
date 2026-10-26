@@ -3,7 +3,7 @@
 from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
-from ai_agent_application.agent_activity.sessions import SessionBook
+from ai_agent_application.agent_activity.sessions import INPUTS, SessionBook
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.memory import EpisodeDraft, SourceDraft, derived_id
 from ai_agent_application.storage import Owner, Principal
@@ -291,7 +291,7 @@ async def acknowledge(
             inputs = [
                 row.source.source_id
                 for row in rows
-                if row.speaker == "operator"
+                if row.speaker in INPUTS
                 and details.after_sequence < row.sequence <= details.through_sequence
             ]
             # Replay uses the original input refs, not a changing session cursor.

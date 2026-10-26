@@ -37,6 +37,7 @@ def workspace_request(row: Any) -> WorkspaceRequest:
             "find_skills",
             "read_skill",
             "save_skill",
+            "wake_me",
         }
         or not isinstance(arguments, dict)
         or len(arguments) > 12

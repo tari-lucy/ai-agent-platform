@@ -55,6 +55,8 @@ class Workspace:
             "read_ticket": {"ticket_id"},
             **SKILL_OPERATIONS,
         }
+        if rt.autonomous_wake is not None:
+            allowed["wake_me"] = {"minutes", "reason"}
         if request.operation not in allowed or set(a) - allowed[request.operation]:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if request.operation in ("raise_ticket", "read_ticket"):
@@ -161,6 +163,12 @@ class Workspace:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
             files = written = [entry.reference]
             result = {"id": entry.id, "version": entry.version, "provenance": entry.provenance}
+        elif request.operation == "wake_me":
+            from .work_session_wake import wake_me
+
+            result = await wake_me(
+                rt, admission.scope, ex.guard, key, a.get("minutes", ""), a.get("reason", "")
+            )
         elif request.operation in SKILL_OPERATIONS:
             result, sources, files, written = await skill_call(
                 rt, guard, admission, attempt, request.operation, a, key

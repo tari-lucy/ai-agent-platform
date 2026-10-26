@@ -101,6 +101,8 @@ DOMAIN_OWNERS = frozenset(
 if TYPE_CHECKING:
     from ai_agent_adapters.sandbox.home_files import HomeFiles
 
+    from .work_session_wake import AutonomousWake
+
 
 RENEW_ATTEMPTS = 3  # one renewal request, replayed only after a lapsed proof
 GM_SLOTS = 16  # bounded per-run-day GM job identifiers; see PrivateAPIBudget.gm_attempt
@@ -336,6 +338,8 @@ class Runtime:
         self.session_egress_capability: str | None = None
         # W4: operator access to persona home volumes, set when homes are enabled.
         self.session_home_files: HomeFiles | None = None
+        # W7: the agent's own wake-ups, fired by the tick only while ACTIVE and autonomous.
+        self.autonomous_wake: AutonomousWake | None = None
         # Fixed code why configured work conversations are not wired on this host (launcher).
         self.session_unavailable: str | None = None
         self.tool_executors: dict[str, ToolExecutor] = {}
@@ -613,6 +617,11 @@ class Runtime:
             self.session_prewarmer.tick()
         await self.daily_memory.tick()
         await self.autonomous_gm.tick()
+        if self.autonomous_wake is not None:
+            try:
+                await self.autonomous_wake.tick()
+            except ContractError as error:
+                logging.getLogger(__name__).info("Wake tick skipped: %s", error.error.code.value)
         await self.autonomous_activity.tick()
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:

@@ -33,6 +33,7 @@ from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 SESSION_LIMITS = (
+    "wake_max_per_hour",
     "resident_idle_seconds",
     "egress_max_mb",
     "egress_connections",
@@ -200,6 +201,18 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="keep the persona's sandbox between turns (background work survives until idle/STOP)",
+    )
+    sessions.add_argument(
+        "--self-work",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="let the agent set its own wake-ups (fire only while ACTIVE and autonomous)",
+    )
+    sessions.add_argument(
+        "--quiet-hours",
+        default=None,
+        metavar="START-END",
+        help="local host hours with no wake-ups, e.g. 23-8; empty string clears",
     )
     sessions.add_argument(
         "--internet",
@@ -424,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
                     home_enabled=arguments.home,
                     egress_enabled=arguments.internet,
                     resident_enabled=arguments.resident,
+                    wake_enabled=arguments.self_work,
+                    wake_quiet_hours=arguments.quiet_hours,
                     egress_deny=arguments.egress_deny,
                     **{
                         **limits,

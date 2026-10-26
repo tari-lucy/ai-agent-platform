@@ -9,6 +9,7 @@ retries or acknowledges anything.
 
 from typing import TYPE_CHECKING, Literal
 
+from ai_agent_application.agent_activity.sessions import INPUTS
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
 from ai_agent_contracts.agent_sessions import WorkSession
@@ -113,7 +114,7 @@ async def progress(
     from .activity import book
 
     waiting = [
-        e for e in entries if e.speaker == "operator" and e.sequence > session.processed_sequence
+        e for e in entries if e.speaker in INPUTS and e.sequence > session.processed_sequence
     ]
     # The latest turn of the conversation, unless a newer operator message has not been taken
     # yet: then that message is the current one (a delivered reply is itself a message).

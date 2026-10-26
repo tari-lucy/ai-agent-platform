@@ -10,6 +10,7 @@ from typing import Literal, Self
 from pydantic import Field, model_validator
 
 from ai_agent_contracts.common import (
+    UTC,
     ArtifactRef,
     Contract,
     Counter,
@@ -117,7 +118,8 @@ class WorkSessionMessage(VersionedRecord):
 
     session_id: Id
     sequence: int = Field(strict=True, ge=1)
-    speaker: Literal["operator", "character"]
+    # "wake": the agent's own wake-up (W7), an input like an operator message, never one.
+    speaker: Literal["operator", "character", "wake"]
     source: SourceRef
     reply_to_sequence: int | None = Field(default=None, strict=True, ge=1)
 
@@ -129,6 +131,28 @@ class WorkSessionMessage(VersionedRecord):
             raise ValueError("SESSION_REFERENCE_SCOPE")
         if self.reply_to_sequence is not None and self.reply_to_sequence >= self.sequence:
             raise ValueError("SESSION_REPLY_ORDER")
+        return self
+
+
+class WakeTimer(VersionedRecord):
+    """A wake-up the agent set for itself (W7): data, no right, no start after restart.
+
+    The platform fires it only while the run is active and autonomous, outside quiet hours
+    and within the hourly cap; firing appends a ``wake`` message to its session.
+    """
+
+    session_id: Id
+    due_at: UTC
+    reason: ShortText = Field(min_length=1)
+    state: Literal["pending", "fired", "cancelled"] = "pending"
+    fired_sequence: int | None = Field(default=None, strict=True, ge=1)
+
+    @model_validator(mode="after")
+    def coherent(self) -> Self:
+        if self.scope.agent_id is not None or self.scope.run_id is not None:
+            raise ValueError("STABLE_SCOPE_REQUIRED")
+        if (self.state == "fired") != (self.fired_sequence is not None):
+            raise ValueError("WAKE_FIRED_SEQUENCE")
         return self
 
 

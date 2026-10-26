@@ -9,7 +9,7 @@ transcript gives the panel each message's text through the release gate, or ``wi
 
 from typing import TYPE_CHECKING, Literal
 
-from ai_agent_application.agent_activity.sessions import SessionBook
+from ai_agent_application.agent_activity.sessions import INPUTS, SessionBook
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.memory import SourceDraft, derived_id
 from ai_agent_application.storage import Owner
@@ -237,7 +237,7 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
     waiting: Waiting | Literal["message_unavailable"] | None = None
     ticket = None
     unprocessed = [
-        e for e in entries if e.speaker == "operator" and e.sequence > session.processed_sequence
+        e for e in entries if e.speaker in INPUTS and e.sequence > session.processed_sequence
     ]
     if session.state in ("open", "waiting") and (gone or any(e.withheld for e in unprocessed)):
         # Not executed; the session driver stops this conversation on its next check.

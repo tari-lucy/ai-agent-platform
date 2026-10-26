@@ -1,0 +1,73 @@
+From ed7bf93547839190011010204aa1a525e6f29bbb Mon Sep 17 00:00:00 2001
+From: Claude Code <noreply@anthropic.com>
+Date: Mon, 26 Oct 2026 19:13:11 +0000
+Subject: [PATCH] aw: show the person's own wake-ups as marked incoming
+ messages
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ packages/app/src/aw/bridge.test.ts | 16 +++++++++++++++-
+ packages/app/src/aw/bridge.ts      |  8 +++++---
+ 2 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/packages/app/src/aw/bridge.test.ts b/packages/app/src/aw/bridge.test.ts
+index 252321c..8298a80 100644
+--- a/packages/app/src/aw/bridge.test.ts
++++ b/packages/app/src/aw/bridge.test.ts
+@@ -50,7 +50,11 @@ globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: Request
+     { id: "operator-file-1", area: uploads[0].area, path: uploads[0].name, title: "Fixture upload", version: 1, reference: { checksum: "a".repeat(64), size_bytes: uploads[0].body.length, media_type: "text/plain" } },
+   ] : [] })
+   if (path.endsWith("/files/operator-file-1")) return json({ text: "Synthetic material body", withheld: false, truncated: false, media_type: "text/plain" })
+-  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }, { id: "other", title: "Other", version: 1 }] })
++  if (path.endsWith("/sessions")) return json({ items: [{ id: "session", title: "Fixture", version: 1 }, { id: "other", title: "Other", version: 1 }, { id: "diary", title: "Самостоятельная работа", version: 3 }] })
++  if (path.endsWith("/sessions/diary")) return json({ scope, session_id: "diary", title: "Самостоятельная работа", session_version: 3, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: null, entries: [
++    { sequence: 1, speaker: "wake", text: "Будильник: проверить сборку", at: "2026-01-01T00:00:01Z" },
++    { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Сборка прошла", at: "2026-01-01T00:00:02Z", steps: [] },
++  ] })
+   if (path.endsWith("/sessions/session") || path.endsWith("/sessions/other")) return json({ scope, session_id: path.endsWith("/other") ? "other" : "session", title: "Fixture", session_version: 1, state: "open", checked_at: "2026-01-01T00:00:03Z", pending_reply: pendingReply, entries: [
+     { sequence: 1, speaker: "operator", text: "Synthetic user", at: "2026-01-01T00:00:01Z" },
+     { sequence: 2, speaker: "character", reply_to_sequence: 1, text: "Synthetic reply", at: "2026-01-01T00:00:02Z",
+@@ -363,3 +367,13 @@ test("the persona's own folder is a read-only tree and the operator drops files
+     window.alert = originalAlert
+   }
+ })
++
++test("a wake-up the person set for itself shows as a marked incoming message, its reply after it", async () => {
++  // Pages are newest first.
++  const page = await (await awFetch("http://fixture.invalid/api/session/diary/message")).json()
++  const [reply, wake] = page.data
++  expect(wake.type).toBe("user")
++  expect(JSON.stringify(wake)).toContain("⏰ Будильник: проверить сборку")
++  expect(reply.type).toBe("assistant")
++  expect(JSON.stringify(reply)).toContain("Сборка прошла")
++})
+diff --git a/packages/app/src/aw/bridge.ts b/packages/app/src/aw/bridge.ts
+index ece1c12..745464a 100644
+--- a/packages/app/src/aw/bridge.ts
++++ b/packages/app/src/aw/bridge.ts
+@@ -17,7 +17,7 @@ type SessionRow = {
+ }
+ type Step = { tool: string; status: "completed" | "error"; input: string; output: string; output_chars: number }
+ type Entry = {
+-  sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null
++  sequence: number; speaker: "operator" | "character" | "wake"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null
+   steps?: Step[]
+ }
+ type Progress = { state: string; since: string; steps?: Step[] }
+@@ -341,9 +341,11 @@ function messages(view: Transcript) {
+   const replies = new Map<number, number>()
+   for (const entry of view.entries) {
+     const text = entry.withheld ? "Скрыто: основание сообщения недоступно." : (entry.text ?? "")
+-    if (entry.speaker === "operator") {
++    if (entry.speaker === "operator" || entry.speaker === "wake") {
++      // A wake-up the person set for itself (W7) asks for a turn like a message, marked as such.
+       lastOperator = entry.sequence
+-      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text })
++      const shown = entry.speaker === "wake" ? "⏰ " + text : text
++      rows.push({ id: clientIDs.get(`${view.session_id}:${entry.sequence}`) ?? scopedID(view, `msg-${entry.sequence}`), type: "user", time: { created: ms(entry.at) }, text: shown })
+     } else {
+       const answered = entry.reply_to_sequence ?? entry.sequence
+       const n = (replies.get(answered) ?? 0) + 1
+-- 
+2.43.0
+

@@ -12,6 +12,7 @@ within its areas, term and the shared budget, not one message or conversation.
 from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.agent_activity.book import area
+from ai_agent_application.agent_activity.sessions import INPUTS
 from ai_agent_application.storage import Owner
 from ai_agent_application.tickets import TicketDraft, duplicate_key, ticket_id
 from ai_agent_contracts.agent_sessions import WorkSession
@@ -93,7 +94,7 @@ async def _waiting(rt: Runtime, sessions: list[WorkSession]) -> bool:
         messages = await history(rt).messages(
             session.scope, session.id, after_sequence=session.processed_sequence, limit=200
         )
-        if any(message.speaker == "operator" for message in messages):
+        if any(message.speaker in INPUTS for message in messages):
             return True
     return False
 

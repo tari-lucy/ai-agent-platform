@@ -7,12 +7,13 @@ Only references are stored here. R2 releases bodies/history through their owners
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from ai_agent_contracts.agent_sessions import (
     SessionReplyRef,
     SessionTicketRef,
+    WakeTimer,
     WorkSession,
     WorkSessionCloseArguments,
     WorkSessionMessage,
@@ -35,6 +36,10 @@ from ai_agent_application.memory import derived_id
 from ai_agent_application.storage import Owner, Principal, RecordAccess, Storage
 
 from .book import ActivityBook, area
+
+# Messages that ask for a turn: the operator's and the agent's own wake-ups (W7).
+INPUTS = frozenset({"operator", "wake"})
+MAX_PENDING_TIMERS = 16
 
 
 def message_id(scope: Scope, session_id: str, sequence: int) -> str:
@@ -507,7 +512,7 @@ class SessionBook:
                     speaker="character",
                     source=source,
                     reply_to_sequence=max(
-                        (item.sequence for item in prefix if item.speaker == "operator"),
+                        (item.sequence for item in prefix if item.speaker in INPUTS),
                         default=None,
                     ),
                 )
@@ -549,6 +554,158 @@ class SessionBook:
                 )
                 await unit.complete(receipt)
                 return receipt
+
+    def _internal(
+        self, request_id: str, scope: Scope, target: str, payload: object
+    ) -> MessageCommand:
+        """An idempotency key for an internal write: same request id, same exact payload."""
+        return MessageCommand(
+            request_id=request_id,
+            scope=scope,
+            target=target,
+            type="dialogue.message",
+            arguments=MessageArguments(
+                text=hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            ),
+        )
+
+    async def sessions(self, scope: Scope) -> list[WorkSession]:
+        return await self.store.repository(WorkSession, self.principal, area(scope)).list(
+            limit=self.max_sessions
+        )
+
+    async def timers(self, scope: Scope) -> list[WakeTimer]:
+        rows = await self.store.repository(WakeTimer, self.principal, area(scope)).list(limit=200)
+        return sorted(rows, key=lambda row: (row.due_at, row.id))
+
+    async def set_timer(
+        self, scope: Scope, request_id: str, session_id: str, minutes: int, reason: str
+    ) -> WakeTimer:
+        """The agent's own wake-up (W7): bounded in number, owned here, no right granted.
+
+        The due time is taken from this owner's clock at the first commit; a replay of the
+        same request returns that timer.
+        """
+        scope = area(scope)
+        identifier = derived_id("wake-timer", scope, request_id)
+        payload = {"session": session_id, "minutes": minutes, "reason": reason}
+        command = self._internal(request_id, scope, session_id, payload)
+        repo = self.store.repository(WakeTimer, self.principal, scope)
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, command) as unit:
+                if unit.replay is None:
+                    session = await self.get(scope, session_id)
+                    if session is None or session.state in ("closed", "invalidated"):
+                        raise ContractError(ErrorCode.ACCESS_DENIED)
+                    pending = [t for t in await repo.list(limit=200) if t.state == "pending"]
+                    if len(pending) >= MAX_PENDING_TIMERS:
+                        raise ContractError(ErrorCode.RESOURCE_BUSY)
+                    now = self.clock()
+                    timer = WakeTimer(
+                        id=identifier,
+                        scope=scope,
+                        version=1,
+                        created_at=now,
+                        updated_at=now,
+                        session_id=session_id,
+                        due_at=now + timedelta(minutes=minutes),
+                        reason=reason,
+                    )
+                    await unit.put(timer, access=self.readers or None)
+                    await unit.complete(
+                        Receipt(
+                            request_id=request_id,
+                            scope=scope,
+                            status="completed",
+                            resource_id=identifier,
+                            version=1,
+                        )
+                    )
+        found = await repo.get(identifier)
+        if found is None:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        return found
+
+    async def wake(self, scope: Scope, timer: WakeTimer, source: SourceRef, text: str) -> int:
+        """Fire one due timer: append its ``wake`` message, mark it fired, in one transaction."""
+        scope = area(scope)
+        if source.scope.partition != scope.partition or source.availability != "available":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        command = self._internal(
+            "wake-" + timer.id, scope, timer.session_id, source.model_dump(mode="json")
+        )
+        with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
+            async with self.store.transaction(self.principal, scope, command) as unit:
+                current = await self.store.repository(WakeTimer, self.principal, scope).get(
+                    timer.id
+                )
+                if unit.replay is not None:
+                    return 0 if current is None else current.fired_sequence or 0
+                if current is None or current.state != "pending":
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+                session = await self.get(scope, current.session_id)
+                now = self.clock()
+                if session is None or session.state in ("closed", "invalidated"):
+                    # The operator closed the conversation: the wake-up is dropped, not retried.
+                    dropped = current.model_copy(
+                        update={"version": current.version + 1, "updated_at": now,
+                                "state": "cancelled"}
+                    )  # fmt: skip
+                    await unit.put(dropped, expected_version=current.version)
+                    await unit.complete(
+                        Receipt(
+                            request_id="wake-" + timer.id,
+                            scope=scope,
+                            status="completed",
+                            resource_id=dropped.id,
+                            version=dropped.version,
+                        )
+                    )
+                    return 0
+                if session.last_sequence >= self.max_messages:
+                    raise ContractError(ErrorCode.RESOURCE_BUSY)
+                await self.verify_source(scope, source, text)
+                sequence = session.last_sequence + 1
+                row = WorkSessionMessage(
+                    id=message_id(scope, session.id, sequence),
+                    scope=scope,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                    session_id=session.id,
+                    sequence=sequence,
+                    speaker="wake",
+                    source=source,
+                )
+                revised = session.model_copy(
+                    update={
+                        "version": session.version + 1,
+                        "updated_at": now,
+                        "last_sequence": sequence,
+                        "pending_reply": None,
+                    }
+                )
+                fired = current.model_copy(
+                    update={
+                        "version": current.version + 1,
+                        "updated_at": now,
+                        "state": "fired",
+                        "fired_sequence": sequence,
+                    }
+                )
+                await unit.put(revised, expected_version=session.version)
+                await unit.put(row, access=self.readers or None)
+                await unit.put(fired, expected_version=current.version)
+                await unit.complete(
+                    Receipt(
+                        request_id="wake-" + timer.id,
+                        scope=scope,
+                        status="completed",
+                        resource_id=fired.id,
+                        version=fired.version,
+                    )
+                )
+                return sequence
 
     async def rename(self, request: EditCommand) -> Receipt:
         """Operator metadata only; does not append input or wake the character."""

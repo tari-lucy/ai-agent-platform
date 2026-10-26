@@ -79,6 +79,7 @@ SPECS = {
     "WorkTask": Spec(agent_workplace.WorkTask, Owner.ACTIVITY),
     "WorkSession": Spec(agent_sessions.WorkSession, Owner.ACTIVITY),
     "WorkSessionMessage": Spec(agent_sessions.WorkSessionMessage, Owner.ACTIVITY),
+    "WakeTimer": Spec(agent_sessions.WakeTimer, Owner.ACTIVITY),
     "WorkAttempt": Spec(agent_workplace.WorkAttempt, Owner.ACTIVITY),
     "ManagedFile": Spec(agent_workplace.ManagedFile, Owner.CATALOGUE),
     "SkillVersion": Spec(agent_workplace.SkillVersion, Owner.SKILLS),

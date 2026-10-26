@@ -99,7 +99,7 @@ class ReleasedSessionContext:
                     )  # cannot fit the first pending input
                 break
             messages.append(
-                ChatMessage("user" if row.speaker == "operator" else "assistant", source.content)
+                ChatMessage("assistant" if row.speaker == "character" else "user", source.content)
             )
             sources[(row.source.source_id, row.source.version)] = row.source
             used += len(source.content)
