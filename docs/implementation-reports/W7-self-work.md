@@ -33,7 +33,11 @@ Claude Code, 2026-10-26. План: [doc31 §7](../31-agent-workspace-v2.md), D74
   получила текст будильника, ответ после ACK ссылается на него; лимит в час и тихие часы
   удерживают следующий; тихие часы через полночь.
 - Патч 18: `bun test` 12 pass, `typecheck` чистый.
-- Полный gate: см. итог ниже.
+- Полный gate (`scripts/check_combined.py`, Linux, общая ветка W4–W7): 1578 passed,
+  55 skipped, 9 failed. Из них 7 — тестовые заглушки, не знавшие новых полей
+  (`claim(..., internet)`, `slot.internet`, `rt.autonomous_wake`); исправлены, файлы
+  перепрогнаны и проходят. Остальные 2 — известные: `test_import_has_no_effects`
+  (окружение VPS) и flaky `test_panel_and_api_on_one_address_smoke` (отдельно проходит).
 
 Не проверено: живая модель (поставит ли она будильник сама), Windows, настоящий
 OpenCode с `wake_me` (нужна пересборка образа — `workspace_mcp.py` знает новую операцию).

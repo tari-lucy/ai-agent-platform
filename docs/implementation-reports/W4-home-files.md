@@ -34,7 +34,11 @@ Claude Code, 2026-10-26. План: [doc31 §3, §6, §9](../31-agent-workspace-v
   том, список, чтение текста и бинарного, 404, обход `..`, лишний query, загрузка,
   409 на повтор, отказ без CSRF, GET на inbox — 404, агент остаётся STOPPED.
 - Патч 17: `bun test src/aw/bridge.test.ts` — 11 pass, `bun run typecheck` чистый.
-- Полный gate: см. итог ниже.
+- Полный gate (`scripts/check_combined.py`, Linux, общая ветка W4–W7): 1578 passed,
+  55 skipped, 9 failed. Из них 7 — тестовые заглушки, не знавшие новых полей
+  (`claim(..., internet)`, `slot.internet`, `rt.autonomous_wake`); исправлены, файлы
+  перепрогнаны и проходят. Остальные 2 — известные: `test_import_has_no_effects`
+  (окружение VPS) и flaky `test_panel_and_api_on_one_address_smoke` (отдельно проходит).
 
 Не проверено: Windows/Docker Desktop, Edge, время ответа `docker run` на Windows
 (лимит запроса 10 с; на Linux ~0,5 с).

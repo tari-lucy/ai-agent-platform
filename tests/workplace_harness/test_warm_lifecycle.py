@@ -64,6 +64,7 @@ class EmptySlot:
     def __init__(self, template, **options):
         self.template, self.options = template, options
         self.name, self.claimed, self.ready, self.closed = "fake", False, False, False
+        self.internet = False
         self.created_at = time.monotonic()
         self.booting = asyncio.Event()
 
@@ -74,7 +75,7 @@ class EmptySlot:
             await asyncio.Event().wait()
         self.ready = True
 
-    def claim(self, template, task, home_volume=None):
+    def claim(self, template, task, home_volume=None, internet=False):
         self.options["valid"]()
         if not self.ready:
             return False

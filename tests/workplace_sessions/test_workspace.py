@@ -25,6 +25,7 @@ async def setup(w, monkeypatch, sources=()):
         workplace=SimpleNamespace(files=w.files, knowledge=KnowledgeBase(w.files)),
         tickets=object(),
         notify=lambda *a: None,
+        autonomous_wake=None,
     )
 
     async def verify():
