@@ -579,7 +579,13 @@ class SessionBook:
         return sorted(rows, key=lambda row: (row.due_at, row.id))
 
     async def set_timer(
-        self, scope: Scope, request_id: str, session_id: str, minutes: int, reason: str
+        self,
+        scope: Scope,
+        request_id: str,
+        session_id: str,
+        minutes: int,
+        reason: str,
+        done_marker: str | None = None,
     ) -> WakeTimer:
         """The agent's own wake-up (W7): bounded in number, owned here, no right granted.
 
@@ -589,6 +595,8 @@ class SessionBook:
         scope = area(scope)
         identifier = derived_id("wake-timer", scope, request_id)
         payload = {"session": session_id, "minutes": minutes, "reason": reason}
+        if done_marker is not None:
+            payload["done"] = done_marker
         command = self._internal(request_id, scope, session_id, payload)
         repo = self.store.repository(WakeTimer, self.principal, scope)
         with self.store.fence(lambda: self.authorize(scope), owner=Owner.ACTIVITY):
@@ -610,6 +618,7 @@ class SessionBook:
                         session_id=session_id,
                         due_at=now + timedelta(minutes=minutes),
                         reason=reason,
+                        done_marker=done_marker,
                     )
                     await unit.put(timer, access=self.readers or None)
                     await unit.complete(

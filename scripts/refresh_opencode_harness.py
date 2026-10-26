@@ -44,22 +44,26 @@ def main() -> int:
         digest.update(name.encode() + b"\0" + data)
         (context / name).write_bytes(data)
     shutil.copyfile(root / "deploy/opencode/Dockerfile.harness-refresh", context / "Dockerfile")
-    subprocess.run(
-        [
-            "docker",
-            "build",
-            "--pull=false",
-            "--network=none",
-            "--build-arg",
-            "BASE_IMAGE=" + alias,
-            "--label",
-            "ai-agent-platform.harness.sha256=" + digest.hexdigest(),
-            "-t",
-            options.tag,
-            str(context),
-        ],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "build",
+                "--pull=false",
+                "--network=none",
+                "--build-arg",
+                "BASE_IMAGE=" + alias,
+                "--label",
+                "ai-agent-platform.harness.sha256=" + digest.hexdigest(),
+                "-t",
+                options.tag,
+                str(context),
+            ],
+            check=True,
+        )
+    finally:
+        # The build-only alias is a tag, not data; leaving it only clutters the image list.
+        subprocess.run(["docker", "image", "rm", alias], check=False, capture_output=True)
     result = json.loads(subprocess.check_output(["docker", "image", "inspect", options.tag]))[0]
     base_layers = original["RootFS"]["Layers"]
     if result["RootFS"]["Layers"][: len(base_layers)] != base_layers:

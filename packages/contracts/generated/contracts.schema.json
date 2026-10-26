@@ -14126,12 +14126,25 @@
     },
     "WakeTimer": {
       "additionalProperties": false,
-      "description": "A wake-up the agent set for itself (W7): data, no right, no start after restart.\n\nThe platform fires it only while the run is active and autonomous, outside quiet hours\nand within the hourly cap; firing appends a ``wake`` message to its session.",
+      "description": "A wake-up the agent set for itself (W7): data, no right, no start after restart.\n\nThe platform fires it only while the run is active and autonomous, outside quiet hours\nand within the hourly cap; firing appends a ``wake`` message to its session.\n``done_marker`` (W7b): it also fires, before ``due_at``, once the agent's background work\nwrites ``/workspace/.platform/done/<marker>``; ``due_at`` is then the latest time.",
       "properties": {
         "created_at": {
           "format": "date-time",
           "title": "Created At",
           "type": "string"
+        },
+        "done_marker": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Done Marker"
         },
         "due_at": {
           "format": "date-time",

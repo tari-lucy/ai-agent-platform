@@ -139,11 +139,14 @@ class WakeTimer(VersionedRecord):
 
     The platform fires it only while the run is active and autonomous, outside quiet hours
     and within the hourly cap; firing appends a ``wake`` message to its session.
+    ``done_marker`` (W7b): it also fires, before ``due_at``, once the agent's background work
+    writes ``/workspace/.platform/done/<marker>``; ``due_at`` is then the latest time.
     """
 
     session_id: Id
     due_at: UTC
     reason: ShortText = Field(min_length=1)
+    done_marker: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
     state: Literal["pending", "fired", "cancelled"] = "pending"
     fired_sequence: int | None = Field(default=None, strict=True, ge=1)
 

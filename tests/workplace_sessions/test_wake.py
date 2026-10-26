@@ -107,3 +107,75 @@ def test_quiet_hours_wrap_midnight():
     for hour, quiet in ((23, True), (2, True), (7, True), (8, False), (15, False)):
         moment = local.replace(hour=hour, minute=0)
         assert settings.quiet_at(moment) is quiet, hour
+
+
+class Markers:
+    """Stand-in for the home reader: the listing of /workspace/.platform/done."""
+
+    def __init__(self):
+        self.entries, self.calls = [], 0
+
+    async def list(self, volume, path):
+        assert volume.startswith("aw-home-") and path == ".platform/done"
+        self.calls += 1
+        return {"status": "ok", "entries": list(self.entries), "complete": True}
+
+
+def test_wake_when_background_work_writes_its_marker(tmp_path, monkeypatch):
+    async def scenario():
+        model = WorkModel()
+        host = await prepared(tmp_path, monkeypatch, model)
+        async with host.open():
+            rt, scope = host.runtime, host.scope
+            fast(rt)
+            await install(rt, scope)
+            waker = AutonomousWake(rt, WakeSettings(max_per_hour=5))
+            rt.autonomous_wake = waker
+            try:  # markers need the home reader: without homes the argument is refused
+                await wake_me(rt, scope, lambda: None, "m-0", "60", "Build", "build")
+            except Exception as error:
+                assert "INVALID_ARGUMENTS" in repr(error) or error
+            else:
+                raise AssertionError("marker without homes")
+            markers = Markers()
+            rt.session_home_files = markers
+            for bad in ("Build", "-x", "a/b", "x" * 65):
+                try:
+                    await wake_me(rt, scope, lambda: None, "m-bad", "60", "Build", bad)
+                except Exception:
+                    pass
+                else:
+                    raise AssertionError(bad)
+            made = await wake_me(rt, scope, lambda: None, "m-1", "600", "Проверить сборку", "build")
+            assert made["when_done"] == "/workspace/.platform/done/build"
+
+            model.queues["activity"].append({"reply": "Synthetic diary answer"})
+            await host.start()
+            created = int(rt.supervisor.clock.utc().timestamp())
+            # No marker, then a stale one from an earlier build: nothing fires.
+            assert await waker.tick() == "NONE" and markers.calls == 1
+            markers.entries = [{"name": "build", "type": "file", "size": 2, "mtime": created - 5}]
+            waker.next_check = waker.next_markers = 0.0
+            assert await waker.tick() == "NONE"
+            # Throttled: the home is read at most once a minute.
+            waker.next_check = 0.0
+            assert await waker.tick() == "NONE" and markers.calls == 2
+            markers.entries = [{"name": "build", "type": "file", "size": 2, "mtime": created + 1}]
+            waker.next_check = waker.next_markers = 0.0
+            assert await waker.tick() == "FIRED"
+            sessions = await host.env.client.get(
+                "/api/v1/work-sessions",
+                params=dict(zip(
+                    ("workspace_id", "persona_id", "memory_space_id", "memory_mode"),
+                    scope.partition, strict=True,
+                )),
+            )  # fmt: skip
+            (diary,) = [s for s in sessions.json()["items"] if s["title"] == DIARY]
+            view = await until(lambda: transcript(host, diary["id"]), ready, "diary draft", 60)
+            wake = view["entries"][0]
+            assert "фоновая работа завершилась" in wake["text"]
+            assert "Проверить сборку" in wake["text"]
+            waker.next_check = waker.next_markers = 0.0
+            assert await waker.tick() == "NONE"  # fired once
+
+    asyncio.run(scenario())

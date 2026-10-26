@@ -30,7 +30,7 @@ if home is not None:
                 "PIP_CACHE_DIR": "/workspace/.cache/pip",
                 # Tools OpenCode fetches itself (ripgrep) are kept once, not per turn.
                 "XDG_CACHE_HOME": "/workspace/.cache"})
-    for directory in ("inbox", "share"):
+    for directory in ("inbox", "share", ".platform/done"):
         os.makedirs("/workspace/" + directory, 0o700, exist_ok=True)
 # W3: the turn's egress gateway. Loopback (the model facade) never goes through it.
 proxy = payload.get("proxy")

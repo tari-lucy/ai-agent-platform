@@ -9,6 +9,8 @@ Nothing fires while STOPPED; a restart never fires anything before START.
 """
 
 import logging
+import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -17,6 +19,7 @@ from ai_agent_application.agent_activity.sessions import SessionBook
 from ai_agent_application.memory import SourceDraft, derived_id
 from ai_agent_application.storage import Owner
 from ai_agent_application.tickets import area
+from ai_agent_contracts.agent_sessions import WakeTimer
 from ai_agent_contracts.api import CreateCommand
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope, SourceRef
@@ -36,6 +39,10 @@ LOG = logging.getLogger(__name__)
 DIARY = "Самостоятельная работа"
 MAX_MINUTES = 7 * 24 * 60
 CHECK_SECONDS = 15.0
+# Done markers are read from the persona's home by a short helper container: at most this often.
+MARKER_SECONDS = 60.0
+MARKERS = ".platform/done"
+MARKER = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 GUIDE = (
     "Ты можешь сам назначить себе следующий шаг: операция workspace wake_me с аргументами "
     "minutes (строка, от 1 до 10080) и reason (что именно продолжить, до 500 символов) "
@@ -44,6 +51,11 @@ GUIDE = (
     "пиши в reason всё нужное и веди план в /workspace. Будильник срабатывает, только когда "
     "оператор запустил тебя в автономном режиме, вне тихих часов и не чаще заданного числа "
     "раз в час; прав он не выдаёт. Важное сообщай оператору, новый доступ — обращением. "
+    "Чтобы проснуться, когда закончится долгая фоновая работа (сборка, рендер), запусти её "
+    "так: nohup sh -c 'КОМАНДА > /workspace/scratch/имя.log 2>&1; echo $? > "
+    "/workspace/.platform/done/имя' & — и поставь wake_me с when_done=имя (латиница, цифры, "
+    "дефис): будильник сработает по появлении файла (проверка раз в минуту) или через "
+    "minutes, что раньше. Фоновая работа переживает ход только в долгоживущем контейнере. "
 )
 
 
@@ -106,9 +118,12 @@ async def wake_me(
     key: str,
     minutes: str,
     reason: str,
+    when_done: str = "",
 ) -> dict[str, str]:
     """The workspace operation: bounded delay and text; the timer is data, not a right."""
     if not minutes.isascii() or not minutes.isdigit() or len(minutes) > 6:
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+    if when_done and (MARKER.fullmatch(when_done) is None or rt.session_home_files is None):
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
     delay = int(minutes)
     reason = reason.strip()
@@ -122,8 +137,11 @@ async def wake_me(
 
     sessions = book(rt, authorize)
     session_id = await diary(rt, sessions, scope)
-    timer = await sessions.set_timer(scope, key, session_id, delay, reason)
-    return {"timer_id": timer.id, "due_at": timer.due_at.isoformat(), "conversation": DIARY}
+    timer = await sessions.set_timer(scope, key, session_id, delay, reason, when_done or None)
+    answer = {"timer_id": timer.id, "due_at": timer.due_at.isoformat(), "conversation": DIARY}
+    if timer.done_marker is not None:
+        answer["when_done"] = "/workspace/" + MARKERS + "/" + timer.done_marker
+    return answer
 
 
 class AutonomousWake:
@@ -132,6 +150,36 @@ class AutonomousWake:
     def __init__(self, runtime: Runtime, settings: WakeSettings) -> None:
         self.rt, self.settings = runtime, settings
         self.next_check = 0.0
+        self.next_markers = 0.0
+
+    async def finished(self, scope: Scope, timers: list[WakeTimer]) -> WakeTimer | None:
+        """A pending marker timer whose marker appeared after it was set; None when unknown."""
+        files = self.rt.session_home_files
+        waiting = [t for t in timers if t.state == "pending" and t.done_marker is not None]
+        now = time.monotonic()
+        if not waiting or files is None or now < self.next_markers:
+            return None
+        self.next_markers = now + MARKER_SECONDS
+        from .work_session_home import volume
+
+        try:
+            listed = await files.list(volume(scope), MARKERS)
+        except OSError, TimeoutError, ValueError:
+            LOG.info("Wake markers unreadable; timers wait for their time")
+            return None
+        if listed.get("status") != "ok":
+            return None
+        seen = {
+            row["name"]: row["mtime"]
+            for row in listed.get("entries", [])
+            if row.get("type") == "file" and isinstance(row.get("mtime"), int)
+        }
+        for timer in waiting:
+            written = seen.get(timer.done_marker or "")
+            # Whole seconds there: a marker of the same second still counts.
+            if written is not None and written >= int(timer.created_at.timestamp()):
+                return timer
+        return None
 
     async def tick(self) -> str:
         rt = self.rt
@@ -165,12 +213,20 @@ class AutonomousWake:
         if len(recent) >= self.settings.max_per_hour:
             return "HOURLY_CAP"
         due = [t for t in timers if t.state == "pending" and t.due_at <= now]
-        if not due:
+        done = None if due else await self.finished(scope, timers)
+        if not due and done is None:
             return "NONE"
-        timer = due[0]
+        timer = due[0] if due else done
+        assert timer is not None
+        why = (
+            "фоновая работа завершилась (/workspace/" + MARKERS + "/" + timer.done_marker + ")"
+            if done is not None and timer.done_marker is not None
+            else "наступило назначенное время"
+            + (", файл завершения ещё не появился" if timer.done_marker is not None else "")
+        )
         text = (
             "Будильник, который ты поставил себе сам "
-            f"({timer.created_at:%Y-%m-%d %H:%M} UTC): {timer.reason}"
+            f"({timer.created_at:%Y-%m-%d %H:%M} UTC; {why}): {timer.reason}"
         )
         made = await memory(rt).register_source(
             command(scope, "wake-source-" + timer.id),
