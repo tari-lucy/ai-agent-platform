@@ -30,7 +30,7 @@ def allowed(address: str, deny: list[Network]) -> bool:
     ip = ipaddress.ip_address(address.split("%", 1)[0])
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
-    return ip.is_global and not any(ip in network for network in deny)
+    return ip.is_global and not ip.is_multicast and not any(ip in network for network in deny)
 
 
 def target(method: str, raw: str) -> tuple[str, int, str]:

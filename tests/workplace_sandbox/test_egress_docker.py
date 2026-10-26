@@ -98,3 +98,39 @@ def test_agent_reaches_internet_only_through_the_gateway():
         assert not gone.strip() and not net.strip()
 
     asyncio.run(scenario())
+
+
+def test_stop_mid_turn_removes_agent_proxy_and_network():
+    async def scenario():
+        made = []
+        world = World()
+        image = os.environ["AW_SANDBOX_IMAGE_ID"]
+
+        def egress():
+            made.append(Egress(image, EgressLimits(), lambda row: None))
+            return made[-1]
+
+        cap = CAP.__class__(**{**CAP.__dict__, "wall_seconds": 60, "cpu_seconds": 30})
+        template = RunnerTemplate("python-task", image, ("/usr/local/bin/python", "-I"), cap, 65536)
+        runner = DockerTaskRunner(
+            (template,), world, world, world, authorize=world.authorize,
+            lifecycle=world.lifecycle, egress=egress,
+        )  # fmt: skip
+        turn = asyncio.create_task(
+            runner.run(world.admission, world.task("import time; time.sleep(50)", cap))
+        )
+        # Both the proxy and the agent container are registered before the cancel.
+        while sum(phase == "register" for _, phase in world.names) < 2:
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(1)
+        await runner.cancel(world.admission)
+        result = await turn
+        assert result.status == "cancelled"
+        assert sorted(phase for _, phase in world.names) == ["register"] * 2 + ["removed"] * 2
+        gone = await cli("ps", "--all", "--filter", "name=" + made[0].name, "--format", "{{.ID}}")
+        net = await cli(
+            "network", "ls", "--filter", "name=" + made[0].network, "--format", "{{.ID}}"
+        )
+        assert not gone.strip() and not net.strip()
+
+    asyncio.run(scenario())

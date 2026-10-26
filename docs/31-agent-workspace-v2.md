@@ -208,6 +208,9 @@ W1 не зависит от остальных и нужен сразу. Ста�
 проверка образа и окна на Windows — Codex ([отчёт](implementation-reports/W1-turn-journal.md)).
 Статус W2: реализован и проверен на Linux с настоящим Docker/OpenCode, Windows — Codex
 ([отчёт](implementation-reports/W2-persistent-home.md), [инструкция](agent-workspace.md)).
+Статус W3: шлюз, разрешение «интернет» и журнал реализованы и проверены на Linux с
+настоящим Docker/OpenCode; образ «руки» и просмотр журнала в панели — W3b
+([отчёт](implementation-reports/W3-egress-gateway.md)).
  W3 обязателен до открытия сети.
 W7 опирается на W5 (долгоживущий контейнер) и W6 (бюджет в профиле).
 

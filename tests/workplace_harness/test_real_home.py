@@ -186,7 +186,7 @@ def test_real_opencode_shell_keeps_files_in_the_home(monkeypatch):
 
 
 FETCH = (
-    "python3 -c \"import urllib.request as u; "
+    'python3 -c "import urllib.request as u; '
     "print('status', u.urlopen('https://example.com', timeout=20).status)\""
 )
 
@@ -223,6 +223,8 @@ def test_real_opencode_reaches_the_internet_through_the_gateway(monkeypatch):
             assert len(fetched) == 2 and all(r["status"] == "ok" for r in fetched)
             assert all(r["method"] == "CONNECT" for r in rows)  # HTTPS: host:port only
         finally:
-            subprocess.run(["docker", "volume", "rm", home.volume], capture_output=True, check=False)
+            subprocess.run(
+                ["docker", "volume", "rm", home.volume], capture_output=True, check=False
+            )
 
     asyncio.run(scenario())
