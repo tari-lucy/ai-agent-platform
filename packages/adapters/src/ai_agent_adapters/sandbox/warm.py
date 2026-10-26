@@ -18,6 +18,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .docker import DockerTaskRunner, cli
+from .egress import Egress
 from .policy import Home, RunnerTemplate, create_args
 from .warm_entry import WARM_ENTRY
 
@@ -53,6 +54,7 @@ class WarmSandbox:
         home: Home | None = None,
         resident: bool = False,
         resident_idle_seconds: float = 1800,
+        egress: Callable[[], Egress] | None = None,
     ) -> None:
         if type(idle_seconds) not in (float, int) or not 10 <= idle_seconds <= 300:
             raise ValueError("WARM_IDLE_INVALID")
@@ -63,6 +65,10 @@ class WarmSandbox:
         self.resident, self.resident_idle_seconds = resident, resident_idle_seconds
         self.turns = 0
         self.released_at = 0.0
+        # W5b: the gateway lives and dies with this sandbox (network fixed at creation).
+        self.egress = egress
+        self.gateway: Egress | None = None
+        self.internet = egress is not None
         self.template, self.workspace, self.helper = template, workspace, helper
         # Mounted at creation: a prepared sandbox serves only this persona's home.
         self.home = home
@@ -97,10 +103,21 @@ class WarmSandbox:
         self.valid()
         await self.registered(self.name)
         self._registered = True
-        args = create_args(self.template, task, self.name, WARM_ENTRY, self.home_volume)
-        args[1:1] = ["--label", "ai-agent-platform.instance=" + self.name]
         try:
             async with asyncio.timeout(35):
+                proxy = None
+                if self.egress is not None:
+                    gateway = self.gateway = self.egress()
+                    proxy = await gateway.open()
+                args = create_args(
+                    self.template,
+                    task,
+                    self.name,
+                    WARM_ENTRY,
+                    self.home_volume,
+                    self.gateway.network if self.gateway is not None else None,
+                )
+                args[1:1] = ["--label", "ai-agent-platform.instance=" + self.name]
                 # Cancellation of the CLI client is not cancellation at Docker daemon.
                 self._create_unknown = True
                 creation = asyncio.create_task(cli(*args))
@@ -138,6 +155,8 @@ class WarmSandbox:
                     self.template, workspace=self.workspace, helper=self.helper, home=self.home
                 )
                 initial["warm_idle_seconds"] = self.idle_seconds
+                if proxy is not None:
+                    initial["proxy"] = proxy
                 if self.resident:
                     initial["resident"] = True
                     # A margin past the host's own idle close: the host decides, not the timer.
@@ -155,11 +174,16 @@ class WarmSandbox:
             raise
 
     def claim(
-        self, template: RunnerTemplate, task: RunnerTask, home_volume: str | None = None
+        self,
+        template: RunnerTemplate,
+        task: RunnerTask,
+        home_volume: str | None = None,
+        internet: bool = False,
     ) -> bool:
         self.valid()
         if (
             home_volume != self.home_volume
+            or internet != self.internet
             or self.closed
             or self.claimed
             or not self.ready
@@ -231,6 +255,9 @@ class WarmSandbox:
             if self.process is not None and self.process.returncode is None:
                 self.process.kill()
                 await self.process.wait()
+            if self.gateway is not None:
+                # After the container: the network is removable only without it.
+                removed = await self.gateway.close() and removed
             if self._registered:
                 await self.released(self.name, removed)
             if not removed:

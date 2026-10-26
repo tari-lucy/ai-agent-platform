@@ -105,7 +105,7 @@ async def turn(
     slot = None
     if resident is not None:
         task = RunnerTask(template.id, PREFIX, (), CAP, network="gateway")
-        assert resident.claim(template, task, home.volume)
+        assert resident.claim(template, task, home.volume, resident.internet)
     elif warm is not None:
 
         async def registered(name):
@@ -310,5 +310,61 @@ def test_resident_sandbox_keeps_processes_not_conversations(monkeypatch):
                 ["docker", "volume", "rm", home.volume], capture_output=True, check=False
             )
         assert receipts == [True]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(not os.getenv("AW_EGRESS_LIVE"), reason="AW_EGRESS_LIVE=1 (real internet)")
+def test_resident_sandbox_with_its_own_gateway(monkeypatch):
+    from ai_agent_adapters.sandbox.docker import cli
+    from ai_agent_adapters.sandbox.egress import Egress, EgressLimits
+
+    monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", os.environ["AW_HOME_IMAGE_ID"])
+
+    async def scenario():
+        rows = []
+        image = os.environ["AW_HOME_IMAGE_ID"]
+        home = Home("aw-home-" + uuid4().hex, "Synthetic rule", "Synthetic facts", "Starter", 64)
+        template = replace(
+            World().runner.templates["python-task"], image_id=image, executable_prefix=PREFIX,
+            ceiling=CAP, model_role_id="activity", max_model_calls=4,
+            max_prompt_chars=100000, max_model_tokens=256,
+        )  # fmt: skip
+        gateways = []
+
+        def egress():
+            gateways.append(Egress(image, EgressLimits(max_bytes=8 * 1024 * 1024), rows.append))
+            return gateways[-1]
+
+        async def nothing(*args):
+            pass
+
+        slot = WarmSandbox(
+            template, workspace=False, helper=False, idle_seconds=60, valid=lambda: None,
+            registered=nothing, released=nothing, home=home, resident=True,
+            resident_idle_seconds=120, egress=egress,
+        )  # fmt: skip
+        try:
+            await slot.prepare()
+            task = RunnerTask(template.id, PREFIX, (), CAP, network="gateway")
+            assert not slot.claim(template, task, home.volume, internet=False)
+            for answer in ("First online answer", "Second online answer"):
+                events, provider = await turn(home, FETCH, answer, resident=slot)
+                assert [e.detail for e in events if e.kind == "result"] == [answer]
+                assert "status 200" in tool_output(provider)
+            assert len(gateways) == 1 and slot.turns == 2  # one gateway for both turns
+            assert sum(r["target"] == "example.com:443" for r in rows) == 2
+        finally:
+            await slot.close()
+            subprocess.run(
+                ["docker", "volume", "rm", home.volume], capture_output=True, check=False
+            )
+        net = await cli(
+            "network", "ls", "--filter", "name=" + gateways[0].network, "--format", "{{.ID}}"
+        )
+        proxy = await cli(
+            "ps", "--all", "--filter", "name=" + gateways[0].name, "--format", "{{.ID}}"
+        )
+        assert not net.strip() and not proxy.strip()
 
     asyncio.run(scenario())

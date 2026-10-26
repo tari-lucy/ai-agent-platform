@@ -215,7 +215,7 @@ W1 не зависит от остальных и нужен сразу. Ста�
 настоящий Docker); навыки как файлы и заморозка helper_mcp — W4b
 ([отчёт](implementation-reports/W4-home-files.md)).
 Статус W5: долгоживущий контейнер (`--resident`) реализован и проверен на Linux с
-настоящим OpenCode; вместе с интернетом — W5b ([отчёт](implementation-reports/W5-resident-sandbox.md)).
+настоящим OpenCode, в том числе со шлюзом (W5b) ([отчёт](implementation-reports/W5-resident-sandbox.md)).
  W3 обязателен до открытия сети.
 W7 опирается на W5 (долгоживущий контейнер) и W6 (бюджет в профиле).
 

@@ -36,7 +36,7 @@ class EgressSettings:
 
 
 def log_writer(
-    settings: EgressSettings, admission: WorkAdmission
+    settings: EgressSettings, persona_id: str, attempt_id: str
 ) -> Callable[[dict[str, Any]], None]:
     """Append-only JSON lines per day; the directory is created owner-only on first use."""
 
@@ -46,8 +46,8 @@ def log_writer(
         now = datetime.now(UTC)
         line = {
             "at": now.isoformat(),
-            "persona": admission.scope.persona_id,
-            "attempt": admission.attempt_id,
+            "persona": persona_id,
+            "attempt": attempt_id,
             **{key: row[key] for key in sorted(row) if key != "at"},
         }
         settings.log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -61,5 +61,12 @@ def log_writer(
 
 
 def factory(settings: EgressSettings, admission: WorkAdmission) -> Callable[[], Egress]:
-    record = log_writer(settings, admission)
+    return resident_factory(settings, admission.scope.persona_id, admission.attempt_id)
+
+
+def resident_factory(
+    settings: EgressSettings, persona_id: str, attempt_id: str = "resident"
+) -> Callable[[], Egress]:
+    """A gateway for a kept sandbox: it serves several turns, its log says ``resident``."""
+    record = log_writer(settings, persona_id, attempt_id)
     return lambda: Egress(settings.image_id, settings.limits, record)

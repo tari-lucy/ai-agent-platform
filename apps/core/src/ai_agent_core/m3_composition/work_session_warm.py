@@ -3,9 +3,10 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from ai_agent_adapters.sandbox.egress import Egress
 from ai_agent_adapters.sandbox.policy import Home, RunnerTemplate
 from ai_agent_adapters.sandbox.warm import WarmSandbox
 from ai_agent_application.agent_workplace.ports import RunnerTask
@@ -32,6 +33,7 @@ class WarmSessions:
         home: Callable[[Scope], Home] | None = None,
         resident: bool = False,
         resident_idle_seconds: float = 1800,
+        internet: Callable[[Scope], Awaitable[Callable[[], Egress] | None]] | None = None,
     ) -> None:
         self.rt, self.template, self.idle_seconds = runtime, template, idle_seconds
         self.helper = helper
@@ -39,6 +41,8 @@ class WarmSessions:
         self.home = home
         # W5: the prepared sandbox is kept for further turns until idle, STOP or any doubt.
         self.resident, self.resident_idle_seconds = resident, resident_idle_seconds
+        # W5b: the gateway factory when this persona may use the internet now, else None.
+        self.internet = internet
         self.task: asyncio.Task[None] | None = None
         self.slot: WarmSandbox | None = None
         self.slots: set[WarmSandbox] = set()
@@ -71,6 +75,7 @@ class WarmSessions:
         ):
             self.next_try = time.monotonic() + REFRESH_SECONDS
             return
+        egress = await self.internet(scope) if self.internet is not None else None
         admission = rt.supervisor.admit("observation")
         ticket: ResourceTicket | None = None
 
@@ -112,6 +117,7 @@ class WarmSessions:
             home=self.home(scope) if self.home is not None else None,
             resident=self.resident,
             resident_idle_seconds=self.resident_idle_seconds,
+            egress=egress,
         )
         self.slot = slot
         self.slots.add(slot)
@@ -131,6 +137,11 @@ class WarmSessions:
                     admission = refresh.result()
                     refresh = None
                     refresh_at = time.monotonic() + REFRESH_SECONDS
+                    # A revoked internet permission closes the networked sandbox at once,
+                    # also between turns (background work loses the network with it).
+                    if slot.internet and not slot.claimed and self.internet is not None:
+                        if await self.internet(scope) is None:
+                            break
                 if refresh is None and time.monotonic() >= refresh_at:
                     refresh = asyncio.create_task(rt.supervisor.refresh(admission))
                 await asyncio.sleep(0.1)
@@ -147,7 +158,9 @@ class WarmSessions:
             if self.slot is slot:
                 self.slot = None
 
-    async def take(self, home_volume: str | None = None) -> WarmSandbox | None:
+    async def take(
+        self, home_volume: str | None = None, internet: bool = False
+    ) -> WarmSandbox | None:
         slot = self.slot
         if slot is None:
             return None
@@ -159,7 +172,7 @@ class WarmSessions:
             network="gateway",
         )
         try:
-            if slot.claim(self.template, task, home_volume):
+            if slot.claim(self.template, task, home_volume, internet):
                 return slot
         except ContractError:
             pass

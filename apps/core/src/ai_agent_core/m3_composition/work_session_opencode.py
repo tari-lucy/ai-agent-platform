@@ -4,12 +4,14 @@ Does not prepare a host, register capabilities, grant rights or start an agent.
 The launcher supplies its verified template and the operator-selected output area.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
 from ai_agent_adapters.agent_harness import OpenCodeHarness
 from ai_agent_adapters.agent_harness.opencode import PREFIX
 from ai_agent_adapters.sandbox.docker import DockerTaskRunner
+from ai_agent_adapters.sandbox.egress import Egress
 from ai_agent_adapters.sandbox.policy import Home, RunnerTemplate
 from ai_agent_application.agent_workplace.ports import (
     ModelGateway,
@@ -24,7 +26,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode
 
-from .work_session_egress import EgressSettings
+from .work_session_egress import EgressSettings, resident_factory
 from .work_session_egress import factory as egress_factory
 from .work_session_home import OFFLINE as HOME_OFFLINE
 from .work_session_home import HomeSettings
@@ -209,6 +211,7 @@ class OpenCodeSessions:
                 home=self._home if home is not None else None,
                 resident=resident_enabled,
                 resident_idle_seconds=resident_idle_seconds,
+                internet=self._internet if egress is not None and resident_enabled else None,
             )
             if prewarm_enabled or resident_enabled
             else None
@@ -338,6 +341,9 @@ class OpenCodeSessions:
             if self.home is not None
             else None
         )
+        prepared = None
+        if self.warm is not None and (internet is None or self.warm.internet is not None):
+            prepared = await self.warm.take(home.volume if home else None, internet is not None)
         runner = DockerTaskRunner(
             (self.template,),
             place.files,
@@ -357,13 +363,12 @@ class OpenCodeSessions:
             if self.template.max_workspace_calls
             else None,
             helpers=helpers,
-            # A prewarmed sandbox has no network: a turn with the gateway starts cold.
-            prepared=await self.warm.take(home.volume if home else None)
-            if self.warm is not None and internet is None
-            else None,
+            # A one-shot prewarmed sandbox has no network: with the gateway a turn starts cold,
+            # unless the resident sandbox was prepared with its own gateway (W5b).
+            prepared=prepared,
             home=home,
             egress=egress_factory(self.egress, admission)
-            if self.egress is not None and internet is not None
+            if self.egress is not None and internet is not None and prepared is None
             else None,
         )
         self.runners[admission.attempt_id] = runner
@@ -380,6 +385,18 @@ class OpenCodeSessions:
                     controller.helper_runners.pop(admission.attempt_id, None)
 
         return TrackedHarness(runner, self.template.id, self.template.ceiling)
+
+    async def _internet(self, scope: Scope) -> Callable[[], Egress] | None:
+        """The gateway factory for a resident sandbox, only while the permission is usable."""
+        from .activity import tools
+
+        assert self.egress is not None
+        if any(
+            tool.available and tool.manifest.capability_id == self.egress.capability_id
+            for tool in await tools(self.rt, scope, session=True)
+        ):
+            return resident_factory(self.egress, scope.persona_id)
+        return None
 
     def _home(self, scope: Scope, *, internet: bool = False) -> Home:
         assert self.home is not None
