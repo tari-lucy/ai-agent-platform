@@ -55,7 +55,9 @@ Claude Code, 2026-10-26. План: [doc31 §3, §9](../31-agent-workspace-v2.md)
   моделью: bash пишет в `/workspace`, `touch /planted` отклонён, правила `/guide`
   в системном промпте, следующий контейнер читает файл; прогретый путь монтирует
   volume при подготовке, отдаёт свежий `/guide` и не принимает чужой volume.
-- Полный gate: см. итог ниже.
+- Полный gate (`scripts/check_combined.py`, Linux): 1571 passed, 48 skipped, 2 failed —
+  `test_panel_and_api_on_one_address_smoke` отдельно прошёл (таймаут под нагрузкой),
+  `test_import_has_no_effects` — известный сбой окружения VPS (как в W1).
 
 Не проверено: Windows/Docker Desktop (WSL2) — владелец volume и права на нём,
 живая модель, поведение агента с реальным промптом. Это проверка Codex.
