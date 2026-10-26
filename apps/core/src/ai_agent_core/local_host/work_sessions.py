@@ -108,7 +108,44 @@ def template(settings: WorkSessionsConfig) -> RunnerTemplate:
         max_prompt_chars=settings.max_prompt_chars,
         max_model_tokens=settings.max_model_tokens,
         max_workspace_calls=settings.max_workspace_calls,
+        max_helper_calls=settings.helper_max_calls if settings.helper_enabled else 0,
         monitor_interval_seconds=settings.monitor_interval_seconds,
+    )
+
+
+HELPER_SUMMARY = "Запуск Python-скриптов личности в изолированном контейнере без сети."
+HELPER_INSTRUCTIONS = (
+    "Скрипт и входные файлы подаются владельцем; сеть, установка пакетов и пути host "
+    "недоступны. Результаты и диагностика возвращаются файлами через владельца; "
+    "запуск требует отдельного разрешения оператора."
+)
+
+
+def helper_template(settings: WorkSessionsConfig) -> RunnerTemplate | None:
+    """The networkless script container beside the session; None keeps helpers off.
+
+    The runner template keeps the session's own id (one runner family, one attempt
+    capability); ``helper_capability_id`` is the separate permission gate for its use.
+    """
+    if not settings.helper_enabled:
+        return None
+    from ai_agent_core.m3_composition.work_session_helpers import PREFIX as HELPER_PREFIX
+
+    return RunnerTemplate(
+        settings.capability_id,
+        settings.image_id,
+        HELPER_PREFIX,
+        RunnerLimits(
+            settings.helper_cpu_seconds,
+            settings.helper_memory_mb,
+            settings.helper_pids,
+            settings.helper_wall_seconds,
+            settings.helper_output_bytes,
+            settings.helper_disk_mb * 1024 * 1024,
+        ),
+        settings.helper_max_input_bytes,
+        max_files=settings.helper_max_files,
+        max_prompt_chars=1000,  # helpers carry no model call; the field is still bounded
     )
 
 
@@ -129,12 +166,15 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
         return reason
     from ai_agent_core.m3_composition.work_session_opencode import OpenCodeSessions
 
+    helper = helper_template(settings)
     OpenCodeSessions(
         runtime,
         template(settings),
         output_area=settings.output_area,
         prewarm_enabled=settings.prewarm_enabled,
         prewarm_idle_seconds=settings.prewarm_idle_seconds,
+        helper_template=helper,
+        helper_capability=settings.helper_capability_id if helper is not None else None,
     ).install()
     return None
 
@@ -142,7 +182,8 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
 async def enable_work_sessions(
     root: Path, *, image_id: str, areas: list[str], output_area: str,
     ceiling_days: int | None = None, monitor_interval_seconds: float = 1.0,
-    prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None, **limits: int,
+    prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
+    helper_enabled: bool | None = None, helper_capability_id: str | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
     if not root.is_dir():
@@ -175,10 +216,25 @@ async def enable_work_sessions(
                         if config.work_sessions
                         else 120
                     ),
+                    helper_enabled=(
+                        helper_enabled
+                        if helper_enabled is not None
+                        else config.work_sessions.helper_enabled
+                        if config.work_sessions
+                        else False
+                    ),
+                    helper_capability_id=(
+                        helper_capability_id
+                        if helper_capability_id is not None
+                        else config.work_sessions.helper_capability_id
+                        if config.work_sessions
+                        else "workplace.scripts"
+                    ),
                     **limits,
                 )
             )
             template(settings)  # the runner's own bounds, before anything is written
+            helper_template(settings)  # the script container's bounds, same strictness
         except ValidationError, ValueError:
             raise HostError("WORK_SESSIONS_LIMITS") from None
         previous = config.work_sessions
@@ -194,6 +250,10 @@ async def enable_work_sessions(
             ceilings[settings.capability_id] = PermissionCeiling(
                 level="automatic", max_days=ceiling_days
             )
+            if settings.helper_enabled:
+                ceilings[settings.helper_capability_id] = PermissionCeiling(
+                    level="automatic", max_days=ceiling_days
+                )
         updated = config.model_copy(
             update={"work_sessions": settings, "workplace_permissions": ceilings or None}
         )
@@ -210,7 +270,16 @@ async def enable_work_sessions(
             capability_id=settings.capability_id,
             capability_version=1,
             summary=SUMMARY,
-            instructions=INSTRUCTIONS,
+            instructions=(
+                INSTRUCTIONS
+                + (
+                    " Для разборов и вычислений можно сохранять и запускать Python-скрипты "
+                    f"(инструмент scripts, возможность {settings.helper_capability_id}): "
+                    "исполнение идёт в отдельном контейнере без сети и установки пакетов."
+                    if settings.helper_enabled
+                    else ""
+                )
+            ),
             input_schema_id="session.instruction",
             output_schema_id="session.result",
             effect="local_write",
@@ -232,9 +301,57 @@ async def enable_work_sessions(
             state="ready",
             verified_at=now,
         )
+        seeded: list[tuple[str, CapabilityManifest | CapabilityBinding]] = [
+            ("manifest", manifest),
+            ("binding", binding),
+        ]
+        if settings.helper_enabled:
+            # The person discovers scripts through this capability's own manifest; a call
+            # still needs its explicit permission decision with the covered areas.
+            seeded.append(
+                (
+                    "helper-manifest",
+                    CapabilityManifest(
+                        id="manifest-" + settings.helper_capability_id,
+                        scope=scope,
+                        created_at=now,
+                        updated_at=now,
+                        version=1,
+                        capability_id=settings.helper_capability_id,
+                        capability_version=1,
+                        summary=HELPER_SUMMARY,
+                        instructions=HELPER_INSTRUCTIONS,
+                        input_schema_id="session.instruction",
+                        output_schema_id="session.result",
+                        effect="local_write",
+                        areas=list(settings.areas),
+                        network="none",
+                        runner_required=True,
+                    ),
+                )
+            )
+            seeded.append(
+                (
+                    "helper-binding",
+                    CapabilityBinding(
+                        id=ADAPTER + "." + settings.helper_capability_id,
+                        scope=scope,
+                        created_at=now,
+                        updated_at=now,
+                        version=1,
+                        binding_id=ADAPTER + "." + settings.helper_capability_id,
+                        capability_id=settings.helper_capability_id,
+                        capability_version=1,
+                        adapter_id=ADAPTER,
+                        adapter_version=VERSION,
+                        state="ready",
+                        verified_at=now,
+                    ),
+                )
+            )
         workspace = PRINCIPALS[Owner.WORKSPACE]
         try:
-            for name, row in (("manifest", manifest), ("binding", binding)):
+            for name, row in seeded:
                 if await store.repository(type(row), workspace, scope).get(row.id):
                     continue  # written by an earlier or interrupted run; never replaced here
                 await put(

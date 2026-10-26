@@ -43,6 +43,18 @@ SESSION_LIMITS = (
     "max_workspace_calls",
 )
 
+HELPER_LIMITS = (
+    "helper_max_calls",
+    "helper_wall_seconds",
+    "helper_cpu_seconds",
+    "helper_memory_mb",
+    "helper_pids",
+    "helper_disk_mb",
+    "helper_output_bytes",
+    "helper_max_files",
+    "helper_max_input_bytes",
+)
+
 
 def parser() -> argparse.ArgumentParser:
     main = argparse.ArgumentParser(prog="ai_agent_core.local_host")
@@ -159,6 +171,19 @@ def parser() -> argparse.ArgumentParser:
         help="let the operator grant the capability up to N days",
     )
     for name in SESSION_LIMITS:
+        sessions.add_argument("--" + name.replace("_", "-"), type=int)
+    sessions.add_argument(
+        "--helper",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="enable the managed Python script container beside the session (no network)",
+    )
+    sessions.add_argument(
+        "--helper-capability-id",
+        default=None,
+        help="scripts capability id; default workplace.scripts",
+    )
+    for name in HELPER_LIMITS:
         sessions.add_argument("--" + name.replace("_", "-"), type=int)
     check = commands.add_parser(
         "check-work-sessions", help="readiness of Docker and the configured OpenCode image"
@@ -344,7 +369,16 @@ def main(argv: list[str] | None = None) -> int:
                     arguments.root,
                     blob_dir=arguments.blob_dir,
                     ceiling_days=arguments.ceiling_days,
-                    **limits,
+                    helper_enabled=arguments.helper,
+                    helper_capability_id=arguments.helper_capability_id,
+                    **{
+                        **limits,
+                        **{
+                            name: getattr(arguments, name)
+                            for name in HELPER_LIMITS
+                            if getattr(arguments, name) is not None
+                        },
+                    },
                 )
             )
             print("workplace files enabled; no rights granted to the agent; agent stays STOPPED")
