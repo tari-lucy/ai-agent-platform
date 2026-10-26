@@ -5,6 +5,9 @@ import http.server, queue, threading
 wire_lock = threading.Lock()
 rpc_slot = threading.Lock()
 replies = queue.Queue(maxsize=1)
+# A resident sandbox closes this between turns: background processes get no model or owner.
+turn_open = threading.Event()
+turn_open.set()
 
 def wire(value):
     with wire_lock:
@@ -16,6 +19,10 @@ def responses():
             replies.put_nowait(json.loads(line))
         except (ValueError, queue.Full):
             break
+    # The host is gone (or broke the protocol): a resident sandbox never outlives it,
+    # so a platform crash or restart cannot leave the agent's work running on its own.
+    if globals().get("resident"):
+        os._exit(3)
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -39,6 +46,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if not rpc_slot.acquire(blocking=False):
             self.send_json(429, {"error": "MODEL_BUSY"})
+            return
+        if not turn_open.is_set():
+            rpc_slot.release()
+            self.send_json(403, {"error": "MODEL_NOT_ADMITTED"})
             return
         try:
             self.connection.settimeout(cap["wall_seconds"])
@@ -109,6 +120,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_json(404, {"status": "denied", "code": "CAPABILITY_UNAVAILABLE"})
         if not rpc_slot.acquire(blocking=False):
             return self.send_json(429, {"status": "denied", "code": "RESOURCE_BUSY"})
+        if not turn_open.is_set():
+            rpc_slot.release()
+            return self.send_json(403, {"status": "denied", "code": "CAPABILITY_UNAVAILABLE"})
         try:
             self.connection.settimeout(cap["wall_seconds"])
             size = int(self.headers.get("Content-Length", "-1"))

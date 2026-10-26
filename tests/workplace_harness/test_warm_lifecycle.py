@@ -81,13 +81,16 @@ class EmptySlot:
         self.claimed = True
         return True
 
+    def idle(self, margin=0):
+        return time.monotonic() - self.created_at >= self.options["idle_seconds"] - margin
+
     async def close(self):
         if not self.closed:
             self.closed = True
             await self.options["released"](self.name, True)
 
 
-async def setup(monkeypatch, *, block=False):
+async def setup(monkeypatch, *, block=False, **options):
     control = Control()
     rt = SimpleNamespace(supervisor=control)
 
@@ -97,7 +100,7 @@ async def setup(monkeypatch, *, block=False):
     monkeypatch.setattr(activity, "tools", tools)
     monkeypatch.setattr(work_session_warm, "WarmSandbox", EmptySlot)
     monkeypatch.setattr(EmptySlot, "block_boot", block)
-    manager = work_session_warm.WarmSessions(rt, TEMPLATE, idle_seconds=30)
+    manager = work_session_warm.WarmSessions(rt, TEMPLATE, idle_seconds=30, **options)
     manager.tick()
     while manager.slot is None:
         await asyncio.sleep(0)
@@ -138,6 +141,27 @@ def test_successful_refresh_and_claim_use_current_admission(monkeypatch):
         finally:
             await manager.close()
         assert control.removed == control.registered
+
+    asyncio.run(scenario())
+
+
+def test_resident_slot_outlives_its_turns_until_idle_or_stop(monkeypatch):
+    async def scenario():
+        control, manager = await setup(monkeypatch, resident=True, resident_idle_seconds=60)
+        try:
+            await asyncio.sleep(0.15)
+            slot = await manager.take()
+            assert slot is not None and slot.claimed
+            slot.claimed = False  # the runner released it after a clean turn
+            await asyncio.sleep(0.2)
+            assert not slot.closed and not manager.task.done()  # kept for the next turn
+            assert await manager.take() is slot
+            slot.claimed = False
+            slot.created_at = time.monotonic() - 3600  # now idle
+            await asyncio.wait_for(asyncio.gather(manager.task, return_exceptions=True), 2)
+            assert slot.closed and control.removed == control.registered
+        finally:
+            await manager.close()
 
     asyncio.run(scenario())
 

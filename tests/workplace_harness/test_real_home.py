@@ -56,10 +56,12 @@ async def turn(
     *,
     calls: list[list[object]] | None = None,
     egress=None,
+    resident: WarmSandbox | None = None,
 ) -> tuple[list, ScriptedProvider]:
     """One harness turn; ``warm`` prepares the sandbox first with that (older) guide.
 
-    ``calls`` replaces the single bash step; ``egress`` gives the turn its gateway.
+    ``calls`` replaces the single bash step; ``egress`` gives the turn its gateway;
+    ``resident`` is a kept sandbox claimed for this turn (it is not closed here).
     """
     w = World()
     template = replace(
@@ -101,7 +103,10 @@ async def turn(
             )
 
     slot = None
-    if warm is not None:
+    if resident is not None:
+        task = RunnerTask(template.id, PREFIX, (), CAP, network="gateway")
+        assert resident.claim(template, task, home.volume)
+    elif warm is not None:
 
         async def registered(name):
             await w.lifecycle(w.admission, name, "register")
@@ -119,7 +124,7 @@ async def turn(
         assert slot.claim(template, task, home.volume)
     runner = DockerTaskRunner(
         (template,), w, w, w, authorize=w.authorize, lifecycle=w.lifecycle,
-        models=Models(), home=home, prepared=slot, egress=egress,
+        models=Models(), home=home, prepared=slot or resident, egress=egress,
     )  # fmt: skip
     try:
         events = await OpenCodeHarness(runner, template.id, CAP).turn(
@@ -226,5 +231,84 @@ def test_real_opencode_reaches_the_internet_through_the_gateway(monkeypatch):
             subprocess.run(
                 ["docker", "volume", "rm", home.volume], capture_output=True, check=False
             )
+
+    asyncio.run(scenario())
+
+
+BACKGROUND = (
+    'nohup python3 -c "import os, time, urllib.request as u; time.sleep(4); '
+    "r = u.Request(os.environ['AI_WORKPLACE_MODEL_BASE_URL'] + '/chat/completions', "
+    "data=b'{}', headers={'Content-Type': 'application/json'})\n"
+    "try: u.urlopen(r, timeout=5); s = 'answered'\n"
+    "except Exception as e: s = str(getattr(e, 'code', e))\n"
+    "open('/workspace/bg.txt', 'w').write(s)\" >/dev/null 2>&1 &"
+    " sleep 300 >/dev/null 2>&1 & echo $! > /workspace/sleeper.pid; echo resident-marker-one"
+)
+
+
+def test_resident_sandbox_keeps_processes_not_conversations(monkeypatch):
+    monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", os.environ["AW_HOME_IMAGE_ID"])
+
+    async def scenario():
+        home = Home("aw-home-" + uuid4().hex, "Synthetic rule", "Synthetic facts", "Starter", 64)
+        template = replace(
+            World().runner.templates["python-task"],
+            image_id=os.environ["AW_HOME_IMAGE_ID"],
+            executable_prefix=PREFIX,
+            ceiling=CAP,
+            model_role_id="activity",
+            max_model_calls=4,
+            max_prompt_chars=100000,
+            max_model_tokens=256,
+        )
+        receipts = []
+
+        async def registered(name):
+            pass
+
+        async def released(name, removed):
+            receipts.append(removed)
+
+        slot = WarmSandbox(
+            template, workspace=False, helper=False, idle_seconds=60, valid=lambda: None,
+            registered=registered, released=released, home=home, resident=True,
+            resident_idle_seconds=120,
+        )  # fmt: skip
+        try:
+            await slot.prepare()
+            events, _ = await turn(home, BACKGROUND, "First resident answer", resident=slot)
+            assert [e.detail for e in events if e.kind == "result"] == ["First resident answer"]
+            assert slot.turns == 1 and not slot.claimed and not slot.closed
+            await asyncio.sleep(6)  # the background process asks the model between turns
+
+            check = "kill -0 $(cat /workspace/sleeper.pid) && echo alive; cat /workspace/bg.txt"
+            events, provider = await turn(home, check, "Second resident answer", resident=slot)
+            assert [e.detail for e in events if e.kind == "result"] == ["Second resident answer"]
+            output = tool_output(provider)
+            assert "alive" in output and "403" in output, output
+            # A fresh OpenCode session: nothing of the first turn's conversation is carried.
+            first_turn = json.dumps([m.content for m in provider.calls[0].messages])
+            assert (
+                "First resident answer" not in first_turn
+                and "resident-marker-one" not in first_turn
+            )
+            assert slot.turns == 2 and receipts == []
+            # The platform process dies: the container ends with its background work.
+            slot.process.kill()
+            for _ in range(50):
+                state = subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.Running}}", slot.name],
+                    capture_output=True, text=True,
+                ).stdout.strip()  # fmt: skip
+                if state == "false":
+                    break
+                await asyncio.sleep(0.2)
+            assert state == "false"
+        finally:
+            await slot.close()
+            subprocess.run(
+                ["docker", "volume", "rm", home.volume], capture_output=True, check=False
+            )
+        assert receipts == [True]
 
     asyncio.run(scenario())

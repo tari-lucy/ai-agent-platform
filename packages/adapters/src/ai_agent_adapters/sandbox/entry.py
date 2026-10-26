@@ -95,7 +95,7 @@ if home is not None:
     os.chmod("/guide", 0o555)
 """
 
-COLLECT = r"""
+COLLECT_FRAME = r"""
 files = []
 total = len(output)
 if not stat.S_ISDIR(os.lstat("outputs").st_mode):
@@ -133,8 +133,11 @@ if state != "succeeded":
 wire({"kind": "result", "status": state, "exit_code": child.returncode,
                   "stdout": base64.b64encode(output[:cap["output_bytes"]]).decode("ascii"),
                   "files": files})
+"""
+
 # No interpreter finalisation while the daemon stdin reader holds a buffered lock.
 # The complete frame was flushed; exiting PID 1 tears down this task namespace.
+EXIT = r"""
 os._exit(0)
 """
 
@@ -199,5 +202,6 @@ poller.close()
 if child.returncode != 0 and state == "succeeded":
     state = "failed"
 """
-    + COLLECT
+    + COLLECT_FRAME
+    + EXIT
 )

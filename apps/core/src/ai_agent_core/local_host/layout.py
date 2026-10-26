@@ -222,6 +222,10 @@ class WorkSessionsConfig(BaseModel):
     monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
     prewarm_enabled: bool = Field(default=False, strict=True)
     prewarm_idle_seconds: int = Field(default=120, strict=True, ge=10, le=300)
+    # W5: keep the persona's sandbox between turns (background processes live on); closed on
+    # STOP, after this idle time and on any failed turn. Never started by a restart.
+    resident_enabled: bool = Field(default=False, strict=True)
+    resident_idle_seconds: int = Field(default=1800, strict=True, ge=60, le=14400)
     # Managed Python helpers: a second networkless container beside the session container,
     # asked by the person through the scripts tool. Ceilings are the operator's own config;
     # the capability still needs its own explicit permission decision to do anything.

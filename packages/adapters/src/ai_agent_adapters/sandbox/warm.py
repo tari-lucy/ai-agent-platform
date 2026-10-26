@@ -1,4 +1,10 @@
-"""One empty, one-use prepared sandbox; never a pool of conversations or authority."""
+"""One prepared sandbox; never a pool of conversations or authority.
+
+One-shot by default. ``resident`` (W5) keeps it for further turns of the same persona home:
+each turn still claims it, gets a fresh OpenCode session and releases it on a clean result;
+any doubt (failure, cancel, timeout) closes it. The first wait for a turn uses
+``idle_seconds``; later idle time is ``resident_idle_seconds``, both enforced by the host.
+"""
 
 import asyncio
 import json
@@ -45,9 +51,18 @@ class WarmSandbox:
         registered: Callable[[str], Awaitable[None]],
         released: Callable[[str, bool], Awaitable[None]],
         home: Home | None = None,
+        resident: bool = False,
+        resident_idle_seconds: float = 1800,
     ) -> None:
         if type(idle_seconds) not in (float, int) or not 10 <= idle_seconds <= 300:
             raise ValueError("WARM_IDLE_INVALID")
+        if type(resident_idle_seconds) not in (float, int) or not (
+            60 <= resident_idle_seconds <= 4 * 3600
+        ):
+            raise ValueError("WARM_IDLE_INVALID")
+        self.resident, self.resident_idle_seconds = resident, resident_idle_seconds
+        self.turns = 0
+        self.released_at = 0.0
         self.template, self.workspace, self.helper = template, workspace, helper
         # Mounted at creation: a prepared sandbox serves only this persona's home.
         self.home = home
@@ -123,6 +138,10 @@ class WarmSandbox:
                     self.template, workspace=self.workspace, helper=self.helper, home=self.home
                 )
                 initial["warm_idle_seconds"] = self.idle_seconds
+                if self.resident:
+                    initial["resident"] = True
+                    # A margin past the host's own idle close: the host decides, not the timer.
+                    initial["resident_idle_seconds"] = self.resident_idle_seconds + 60
                 self.process.stdin.write(json.dumps(initial).encode() + b"\n")
                 await self.process.stdin.drain()
                 row = await self.process.stdout.readline()
@@ -149,12 +168,30 @@ class WarmSandbox:
             or template != self.template
             or task.limits != template.ceiling
             or task.network != "gateway"
-            or time.monotonic() - self.created_at >= self.idle_seconds - 5
+            or self.idle(margin=5)
         ):
             return False
         template.check(task)
         self.claimed = True
         self.claimed_at = time.monotonic()
+        return True
+
+    def idle(self, margin: float = 0) -> bool:
+        """Past the wait for the first turn, or (resident) past the idle time since the last."""
+        now = time.monotonic()
+        if self.turns == 0:
+            return now - self.created_at >= self.idle_seconds - margin
+        return now - self.released_at >= self.resident_idle_seconds - margin
+
+    def release(self) -> bool:
+        """After a clean turn a resident sandbox waits for the next; else the caller closes it."""
+        if not self.resident or self.closed or not self.claimed:
+            return False
+        if self.process is None or self.process.returncode is not None:
+            return False
+        self.turns += 1
+        self.released_at = time.monotonic()
+        self.claimed = False
         return True
 
     def activate(self, template: RunnerTemplate, task: RunnerTask) -> asyncio.subprocess.Process:
@@ -182,8 +219,10 @@ class WarmSandbox:
                 # Absence alone cannot settle a timed-out create. Require an actual
                 # exact-name instance to remove, otherwise keep the resource unknown.
                 try:
-                    info = json.loads(await cli("inspect", self.name))[0]
-                    if info["Config"]["Labels"].get("ai-agent-platform.instance") != self.name:
+                    labels = json.loads(
+                        await cli("inspect", "--format", "{{json .Config.Labels}}", self.name)
+                    )
+                    if labels.get("ai-agent-platform.instance") != self.name:
                         raise ValueError("WARM_INSTANCE_MISMATCH")
                 except OSError, TimeoutError, ValueError, KeyError, IndexError:
                     await self.released(self.name, False)

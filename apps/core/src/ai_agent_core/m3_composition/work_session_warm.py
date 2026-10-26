@@ -30,11 +30,15 @@ class WarmSessions:
         idle_seconds: float,
         helper: bool = False,
         home: Callable[[Scope], Home] | None = None,
+        resident: bool = False,
+        resident_idle_seconds: float = 1800,
     ) -> None:
         self.rt, self.template, self.idle_seconds = runtime, template, idle_seconds
         self.helper = helper
         # The active persona's home is mounted at creation; another home never claims it.
         self.home = home
+        # W5: the prepared sandbox is kept for further turns until idle, STOP or any doubt.
+        self.resident, self.resident_idle_seconds = resident, resident_idle_seconds
         self.task: asyncio.Task[None] | None = None
         self.slot: WarmSandbox | None = None
         self.slots: set[WarmSandbox] = set()
@@ -106,6 +110,8 @@ class WarmSessions:
             registered=registered,
             released=released,
             home=self.home(scope) if self.home is not None else None,
+            resident=self.resident,
+            resident_idle_seconds=self.resident_idle_seconds,
         )
         self.slot = slot
         self.slots.add(slot)
@@ -117,9 +123,9 @@ class WarmSessions:
                 valid()
                 if boot.done():
                     await boot
-                    if slot.claimed or slot.closed:
+                    if slot.closed or slot.claimed and not self.resident:
                         break
-                    if time.monotonic() - slot.created_at >= self.idle_seconds:
+                    if not slot.claimed and slot.idle():
                         break
                 if refresh is not None and refresh.done():
                     admission = refresh.result()

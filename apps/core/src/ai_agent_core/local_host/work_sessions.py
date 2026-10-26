@@ -200,6 +200,8 @@ def install(
         output_area=settings.output_area,
         prewarm_enabled=settings.prewarm_enabled,
         prewarm_idle_seconds=settings.prewarm_idle_seconds,
+        resident_enabled=settings.resident_enabled,
+        resident_idle_seconds=settings.resident_idle_seconds,
         helper_template=helper,
         helper_capability=settings.helper_capability_id if helper is not None else None,
         home=HomeSettings(settings.home_quota_mb, guide) if settings.home_enabled else None,
@@ -225,6 +227,7 @@ async def enable_work_sessions(
     prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
     helper_enabled: bool | None = None, helper_capability_id: str | None = None,
     home_enabled: bool | None = None, egress_enabled: bool | None = None,
+    resident_enabled: bool | None = None,
     egress_deny: list[str] | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
@@ -283,6 +286,13 @@ async def enable_work_sessions(
                         home_enabled
                         if home_enabled is not None
                         else config.work_sessions.home_enabled
+                        if config.work_sessions
+                        else False
+                    ),
+                    resident_enabled=(
+                        resident_enabled
+                        if resident_enabled is not None
+                        else config.work_sessions.resident_enabled
                         if config.work_sessions
                         else False
                     ),

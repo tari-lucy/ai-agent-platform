@@ -161,6 +161,8 @@ class OpenCodeSessions:
         helper_capability: str | None = None,
         prewarm_enabled: bool = False,
         prewarm_idle_seconds: float = 120,
+        resident_enabled: bool = False,
+        resident_idle_seconds: float = 1800,
         home: HomeSettings | None = None,
         egress: EgressSettings | None = None,
     ) -> None:
@@ -205,8 +207,10 @@ class OpenCodeSessions:
                 idle_seconds=prewarm_idle_seconds,
                 helper=helper_template is not None,
                 home=self._home if home is not None else None,
+                resident=resident_enabled,
+                resident_idle_seconds=resident_idle_seconds,
             )
-            if prewarm_enabled
+            if prewarm_enabled or resident_enabled
             else None
         )
 

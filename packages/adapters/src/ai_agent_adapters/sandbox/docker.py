@@ -173,6 +173,7 @@ class DockerTaskRunner:
         )
         assert process.stdin is not None and process.stdout is not None
         final: bytes | None = None
+        resident = self.prepared is not None and self.prepared.resident
         calls = 0
         workspace_calls = 0
         helper_calls = 0
@@ -188,6 +189,9 @@ class DockerTaskRunner:
                         if len(raw) > wire_cap:
                             raise ValueError("RUNNER_FRAME_INVALID")
                         final = raw
+                        if resident:
+                            # The same container serves the next turn: keep its pipes.
+                            return final
                         process.stdin.close()
                         continue
                     if row.get("kind") == "helper":
@@ -297,10 +301,11 @@ class DockerTaskRunner:
                     raise ValueError("RUNNER_EXIT_UNKNOWN")
                 return final
         finally:
-            process.stdin.close()
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+            if not (resident and final is not None):
+                process.stdin.close()
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
 
     async def _verify(self, admission: WorkAdmission, attempt: WorkAttempt) -> None:
         current(admission)
@@ -372,8 +377,9 @@ class DockerTaskRunner:
             )
             if not present.strip():
                 return True
-            info = json.loads(await cli("inspect", name, cap=65536))[0]
-            if info["Config"]["Labels"].get("ai-agent-platform.instance") != name:
+            # Labels only: the full inspect repeats the entry script and outgrows the cap.
+            labels = json.loads(await cli("inspect", "--format", "{{json .Config.Labels}}", name))
+            if labels.get("ai-agent-platform.instance") != name:
                 return False
             await cli("rm", "--force", name)
             return True
@@ -422,7 +428,10 @@ class DockerTaskRunner:
             return await self._run(admission, task)
         finally:
             try:
-                if self.prepared is not None:
+                # A resident sandbox released after a clean turn waits for the next one.
+                if self.prepared is not None and (
+                    not self.prepared.resident or self.prepared.claimed
+                ):
                     await self.prepared.close()
             finally:
                 self._active = None
@@ -568,7 +577,13 @@ class DockerTaskRunner:
             else:
                 result, contents = self._decode(await attached, task)
                 state = json.loads(await cli("inspect", "--format", "{{json .State}}", name))
-                if state["Running"] or state["OOMKilled"] or state["ExitCode"] != 0:
+                kept = self.prepared is not None and self.prepared.resident
+                if (
+                    state["OOMKilled"]
+                    or (not state["Running"] if kept else state["Running"])
+                    or not kept
+                    and state["ExitCode"] != 0
+                ):
                     result, contents = (
                         RunnerOutcome("limit" if state["OOMKilled"] else "unknown", None, (), ""),
                         {},
@@ -580,7 +595,16 @@ class DockerTaskRunner:
             if attached is not None:
                 attached.cancel()
             try:
-                if registered:
+                if (
+                    registered
+                    and result.status == "succeeded"
+                    and self.prepared is not None
+                    and self.prepared.release()
+                ):
+                    # The attempt's hold ends; the container stays under the resident owner.
+                    cleanup = True
+                    await self.lifecycle(admission, name, "removed")
+                elif registered:
                     removal = asyncio.create_task(self._remove(name))
                     try:
                         cleanup = await asyncio.shield(removal)

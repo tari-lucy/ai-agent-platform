@@ -33,6 +33,7 @@ from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 SESSION_LIMITS = (
+    "resident_idle_seconds",
     "egress_max_mb",
     "egress_connections",
     "home_quota_mb",
@@ -193,6 +194,12 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="persistent per-persona /workspace volume with a shell inside the container",
+    )
+    sessions.add_argument(
+        "--resident",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="keep the persona's sandbox between turns (background work survives until idle/STOP)",
     )
     sessions.add_argument(
         "--internet",
@@ -416,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
                     helper_capability_id=arguments.helper_capability_id,
                     home_enabled=arguments.home,
                     egress_enabled=arguments.internet,
+                    resident_enabled=arguments.resident,
                     egress_deny=arguments.egress_deny,
                     **{
                         **limits,
