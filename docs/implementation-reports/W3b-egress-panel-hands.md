@@ -45,7 +45,8 @@ Claude Code, 2026-10-26. План: [doc31 §4, §7](../31-agent-workspace-v2.md)
   https://example.com через шлюз; `test_home_docker.py` — `tools.md`.
 - **Настоящий OpenCode** (`test_real_home.py`, синтетическая модель) на образе «руки» после
   refresh — проходит.
-- Полный gate: см. ниже.
+- Полный gate (`scripts/check_combined.py`, Linux): 1592 passed, 56 skipped, 1 failed —
+  `test_import_has_no_effects`, известный сбой окружения VPS.
 
 Не проверено: Windows/Docker Desktop (сборка образа с сетью, размер на WSL2), Edge,
 живая модель (пользуется ли она браузером по `tools.md`).
