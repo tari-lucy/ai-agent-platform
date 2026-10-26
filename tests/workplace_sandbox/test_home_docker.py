@@ -57,6 +57,9 @@ tool.write_text('#!/bin/sh\\necho tool works\\n')
 tool.chmod(0o755)
 (home / 'README.md').write_text('Synthetic own order')
 assert 'пока нет' in pathlib.Path('/guide/skills.md').read_text()
+tools = pathlib.Path('/guide/tools.md').read_text()
+hands = os.path.exists('/opt/agent-harness/hands-packages.txt')
+assert ('Chromium' in tools) if hands else ('только Python' in tools), tools
 (home / 'skills/build-check').mkdir(parents=True)
 (home / 'skills/build-check/SKILL.md').write_text(
     '---\\nname: build-check\\ndescription: Проверять сборку перед ответом\\n---\\n# Body\\n')

@@ -209,8 +209,9 @@ W1 не зависит от остальных и нужен сразу. Ста�
 Статус W2: реализован и проверен на Linux с настоящим Docker/OpenCode, Windows — Codex
 ([отчёт](implementation-reports/W2-persistent-home.md), [инструкция](agent-workspace.md)).
 Статус W3: шлюз, разрешение «интернет» и журнал реализованы и проверены на Linux с
-настоящим Docker/OpenCode; образ «руки» и просмотр журнала в панели — W3b
-([отчёт](implementation-reports/W3-egress-gateway.md)).
+настоящим Docker/OpenCode ([отчёт](implementation-reports/W3-egress-gateway.md)).
+Статус W3b: журнал в панели, суточный лимит трафика, SOCKS5 и образ «руки» реализованы и
+проверены на Linux с настоящим Docker/OpenCode ([отчёт](implementation-reports/W3b-egress-panel-hands.md)).
 Статус W4: просмотр папки оператором и загрузка в её inbox/ реализованы (Linux,
 настоящий Docker); оглавление навыков `skills/*/SKILL.md` в каждом ходе — сделано (W4b); заморозка helper_mcp — позже
 ([отчёт](implementation-reports/W4-home-files.md)).

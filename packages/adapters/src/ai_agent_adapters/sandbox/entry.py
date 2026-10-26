@@ -43,8 +43,17 @@ if proxy is not None:
     env["AI_WORKPLACE_SOCKS"] = "socks5h://" + proxy.removeprefix("http://")
 """
 
+HANDS_TOOLS = (
+    "Инструменты образа: git, curl, wget, jq, zip/unzip, ssh-клиент, dig, nc; ffmpeg, "
+    "ImageMagick; Java 17 (JRE); Node.js и npm; Chromium (/usr/bin/chromium) и Python "
+    "Playwright: chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox', "
+    "'--disable-dev-shm-usage']); прокси шлюза Chromium берёт из --proxy-server=$HTTP_PROXY. "
+    "Корень образа только для чтения: свои пакеты ставь в /workspace (pip install --user, "
+    "npm --prefix). Полные списки: /opt/agent-harness/hands-packages.txt, hands-python.txt."
+)
+
 # Written fresh every turn from the platform's copy: changing it inside has no lasting effect.
-HOME_GUIDE = r"""
+HOME_GUIDE = "HANDS_TOOLS = " + repr(HANDS_TOOLS) + r"""
 if home is not None:
     def guide_file(name, text):
         with open("/guide/" + name, "x", encoding="utf-8") as stream:
@@ -122,6 +131,12 @@ if home is not None:
             skills.append("- %s: %s" % (name[:64], summary(text)[:200]))
     guide_file("skills.md", "Твои навыки (/workspace/skills/<имя>/SKILL.md; полный текст "
                "читай сам, когда навык нужен):\n\n" + ("\n".join(skills) or "пока нет"))
+    # W3b: what this image itself carries (the "hands" image lists its packages).
+    if os.path.exists("/opt/agent-harness/hands-packages.txt"):
+        guide_file("tools.md", HANDS_TOOLS)
+    else:
+        guide_file("tools.md", "В образе только Python и OpenCode; остальное ставь сам "
+                   "(pip --user, npm в /workspace), если есть интернет.")
     os.chmod("/guide", 0o555)
 """
 

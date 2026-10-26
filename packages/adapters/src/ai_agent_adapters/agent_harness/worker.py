@@ -25,7 +25,12 @@ TOOL_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 # Read-only guide files of a home: the operator's rules, the start of the agent README (W2)
 # and the index of the agent's own skills (W4b).
-HOME_INSTRUCTIONS = ["/guide/AGENTS.md", "/guide/workspace-readme.md", "/guide/skills.md"]
+HOME_INSTRUCTIONS = [
+    "/guide/AGENTS.md",
+    "/guide/workspace-readme.md",
+    "/guide/skills.md",
+    "/guide/tools.md",
+]
 
 
 def configuration(

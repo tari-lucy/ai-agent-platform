@@ -1,0 +1,20 @@
+# W3b "hands": tools for the agent's own work over a verified harness image (doc31 §4).
+# Built by scripts/build_hands_image.py with network for apt/pip only; the platform's
+# harness modules and the OpenCode binary come unchanged from BASE_IMAGE.
+ARG BASE_IMAGE=ai-agent-platform:hands-base-unconfigured
+FROM ${BASE_IMAGE}
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates curl wget git openssh-client unzip xz-utils zip jq \
+      dnsutils iputils-ping netcat-openbsd \
+      ffmpeg imagemagick \
+      openjdk-17-jre-headless \
+      nodejs npm \
+      chromium fonts-liberation fonts-noto-color-emoji \
+ && rm -rf /var/lib/apt/lists/* \
+ && dpkg-query -W -f '${Package} ${Version}\n' > /opt/agent-harness/hands-packages.txt
+# Playwright drives the system Chromium (executable_path=/usr/bin/chromium); no browser download.
+ARG PLAYWRIGHT_VERSION=1.63.0
+RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
+ && pip freeze > /opt/agent-harness/hands-python.txt
+LABEL ai-agent-platform.hands="1"

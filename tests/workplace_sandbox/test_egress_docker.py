@@ -55,7 +55,8 @@ out['direct'] = s.connect_ex(('1.1.1.1', 443))
 host, port = os.environ['AI_WORKPLACE_SOCKS'].removeprefix('socks5h://').rsplit(':', 1)
 s = socket.create_connection((host, int(port)), timeout=20)
 name = b'example.com'
-s.sendall(b'\\x05\\x01\\x00' + b'\\x05\\x01\\x00\\x03' + bytes([len(name)]) + name + (80).to_bytes(2))
+request = b'\\x05\\x01\\x00\\x03' + bytes([len(name)]) + name + (80).to_bytes(2)
+s.sendall(b'\\x05\\x01\\x00' + request)
 reply = b''
 while len(reply) < 12 and (chunk := s.recv(12 - len(reply))):
     reply += chunk
