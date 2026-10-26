@@ -183,6 +183,13 @@ python -m ai_agent_core.local_host enable-work-sessions --root <root> --image-id
   Фоновая работа после последнего хода долгоживущего контейнера (до его закрытия по
   простою или STOP) в учёт не попадает.
 
+## Python-контейнер и MCP-навыки при доме (W7b)
+
+С `--home` отдельный Python-контейнер (`--helper`) и MCP-операции навыков
+(`find_skills/read_skill/save_skill`) заморожены: скрипты агент запускает сам в bash,
+навыки — файлы `/workspace/skills/<имя>/SKILL.md`. Возможность `workplace.scripts` в этом
+режиме не заводится. Без дома всё работает как раньше.
+
 ## Ограничения и риски
 
 - **Без разрешения `workplace.internet` сети нет.** Установленное из локальных

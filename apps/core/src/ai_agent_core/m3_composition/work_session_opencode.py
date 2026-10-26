@@ -109,6 +109,11 @@ def environment_guide(
         from .work_session_wake import GUIDE as WAKE_GUIDE
 
         guide += WAKE_GUIDE
+    if home and (helper_template is None or helper_capability is None):
+        return guide + (
+            "Отдельного Python-контейнера и MCP-навыков здесь нет: скрипты запускай сам в bash, "
+            "навыки — файлы /workspace/skills/<имя>/SKILL.md."
+        )
     if helper_template is None or helper_capability is None:
         return guide + "Python helper в этом запуске не подключён; не обещай его выполнение."
     limits = helper_template.ceiling

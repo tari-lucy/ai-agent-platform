@@ -1,7 +1,8 @@
 """W6: the whole workplace profile of workspace v2 is one operator decision (OC-05 mechanism).
 
-Home, shell and resident sandbox ride on the work-session capability itself; scripts and
-internet are their own capabilities with the host's automatic ceiling. One preview/execute
+Home, shell and resident sandbox ride on the work-session capability itself; internet is its
+own capability with the host's automatic ceiling. With a home the separate scripts container
+is frozen (bash replaces it), so ``--helper`` adds no capability there (W7b). One preview/execute
 grants all of them for the chosen time; revocation stays per right. Synthetic model, no Docker.
 """
 
@@ -22,7 +23,6 @@ PROFILE = {
     "workplace.internet",
     "workplace.knowledge",
     "workplace.opencode-session",
-    "workplace.scripts",
     "workplace.skills",
 }
 

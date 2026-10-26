@@ -53,7 +53,8 @@ class Workspace:
             "write_note": {"file_id", "path", "title", "kind", "body", "expected_version"},
             "raise_ticket": {"title", "body", "capability_id", "kind"},
             "read_ticket": {"ticket_id"},
-            **SKILL_OPERATIONS,
+            # Frozen with a home (D71): skills are files in /workspace/skills there.
+            **(SKILL_OPERATIONS if rt.session_home_files is None else {}),
         }
         if rt.autonomous_wake is not None:
             allowed["wake_me"] = {"minutes", "reason", "when_done"}

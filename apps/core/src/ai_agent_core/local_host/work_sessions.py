@@ -94,6 +94,11 @@ def check(settings: WorkSessionsConfig, *, timeout: float = 10.0) -> str | None:
     return None
 
 
+def scripts(settings: WorkSessionsConfig) -> bool:
+    """The separate Python script container; frozen with a home, where bash replaces it (W7b)."""
+    return settings.helper_enabled and not settings.home_enabled
+
+
 def template(settings: WorkSessionsConfig) -> RunnerTemplate:
     return RunnerTemplate(
         settings.capability_id,
@@ -114,7 +119,7 @@ def template(settings: WorkSessionsConfig) -> RunnerTemplate:
         max_prompt_chars=settings.max_prompt_chars,
         max_model_tokens=settings.max_model_tokens,
         max_workspace_calls=settings.max_workspace_calls,
-        max_helper_calls=settings.helper_max_calls if settings.helper_enabled else 0,
+        max_helper_calls=settings.helper_max_calls if scripts(settings) else 0,
         monitor_interval_seconds=settings.monitor_interval_seconds,
     )
 
@@ -141,7 +146,7 @@ def helper_template(settings: WorkSessionsConfig) -> RunnerTemplate | None:
     The runner template keeps the session's own id (one runner family, one attempt
     capability); ``helper_capability_id`` is the separate permission gate for its use.
     """
-    if not settings.helper_enabled:
+    if not scripts(settings):
         return None
     from ai_agent_core.m3_composition.work_session_helpers import PREFIX as HELPER_PREFIX
 
@@ -365,7 +370,7 @@ async def enable_work_sessions(
             ceilings[settings.capability_id] = PermissionCeiling(
                 level="automatic", max_days=ceiling_days
             )
-            if settings.helper_enabled:
+            if scripts(settings):
                 ceilings[settings.helper_capability_id] = PermissionCeiling(
                     level="automatic", max_days=ceiling_days
                 )
@@ -395,7 +400,7 @@ async def enable_work_sessions(
                     " Для разборов и вычислений можно сохранять и запускать Python-скрипты "
                     f"(инструмент scripts, возможность {settings.helper_capability_id}): "
                     "исполнение идёт в отдельном контейнере без сети и установки пакетов."
-                    if settings.helper_enabled
+                    if scripts(settings)
                     else ""
                 )
             ),
@@ -424,7 +429,7 @@ async def enable_work_sessions(
             ("manifest", manifest),
             ("binding", binding),
         ]
-        if settings.helper_enabled:
+        if scripts(settings):
             # The person discovers scripts through this capability's own manifest; a call
             # still needs its explicit permission decision with the covered areas.
             seeded.append(
@@ -514,7 +519,7 @@ async def enable_work_sessions(
         workspace = PRINCIPALS[Owner.WORKSPACE]
         try:
             # A helper must not reuse a pre-existing library/other capability's grant.
-            if settings.helper_enabled:
+            if scripts(settings):
                 all_manifests = await store.repository(CapabilityManifest, workspace, scope).list(
                     limit=200
                 )

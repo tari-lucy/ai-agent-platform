@@ -26,6 +26,7 @@ async def setup(w, monkeypatch, sources=()):
         tickets=object(),
         notify=lambda *a: None,
         autonomous_wake=None,
+        session_home_files=None,
     )
 
     async def verify():
