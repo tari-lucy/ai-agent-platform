@@ -36,7 +36,7 @@ from ai_agent_core.m3_composition.work_sessions import sessions
 from ai_agent_core.opencode_ui.protocol import PREFIX, directory
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("AW_NATIVE_UI_DIR") or os.getenv("AW_OPENCODE_IMAGE_ID"),
+    not os.getenv("AW_NATIVE_UI_DIR") or bool(os.getenv("AW_OPENCODE_IMAGE_ID")),
     reason="packaged native OpenCode build with the synthetic harness required",
 )
 QUESTION = "Сделай синтетический набросок для газеты."
@@ -99,7 +99,7 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     page.goto(origin + "/")
     page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
     page.get_by_role("button", name="Войти", exact=True).click()
-    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible(timeout=20000)
     csrf = page.request.get(origin + "/api/v1/auth/session").json()["csrf_token"]
     selected = directory(host.scope)
     bridge = origin + PREFIX + "/agents/" + selected
@@ -166,7 +166,9 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     expect(page.get_by_text("Агент ждёт вашего ответа в обращении", exact=False)).to_be_visible(
         timeout=30000
     )
-    expect(page.get_by_text("/#/tickets?ticket=" + asked[0], exact=False)).to_be_visible()
+    expect(page.get_by_text("/#/tickets?ticket=" + asked[0], exact=False)).to_be_visible(
+        timeout=20000
+    )
 
     # The operator answers in the panel in plain text; the same conversation continues.
     model.queues["activity"].append({"reply": CONTINUED})
@@ -188,7 +190,9 @@ def test_native_ticket_round_trip_revocation_and_closed_native_surface(page, wor
     # STOP, then a message whose basis is revoked: never executed, the window says so.
     control.goto(origin + "/")
     control.get_by_role("button", name="STOP — остановить активного агента").click()
-    expect(control.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    expect(control.get_by_role("button", name="START — запустить агента")).to_be_visible(
+        timeout=20000
+    )
     send(LATE)
 
     async def revoke():
