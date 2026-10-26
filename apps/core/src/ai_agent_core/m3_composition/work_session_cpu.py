@@ -52,8 +52,10 @@ def used_today(settings: CpuSettings, persona_id: str, now: datetime | None = No
             row = json.loads(line)
         except ValueError:
             continue
-        value = row.get("cpu_seconds") if isinstance(row, dict) else None
-        if row.get("persona") == persona_id and type(value) in (int, float) and value >= 0:
+        if not isinstance(row, dict) or row.get("persona") != persona_id:
+            continue
+        value = row.get("cpu_seconds")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             total += value
     return total
 

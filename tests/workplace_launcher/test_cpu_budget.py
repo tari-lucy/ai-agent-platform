@@ -25,7 +25,7 @@ def test_journal_counts_this_persona_today(tmp_path):
     assert used_today(settings, "alpha", datetime(2000, 1, 1, tzinfo=UTC)) == 0.0
     day = next((tmp_path / "usage").iterdir())
     with day.open("a", encoding="utf-8") as stream:
-        stream.write('broken\n{"persona": "alpha", "cpu_seconds": -5}\n')
+        stream.write('broken\n[1]\n{"persona": "alpha", "cpu_seconds": -5}\n')
     assert used_today(settings, "alpha") == 100.5
     assert not exhausted(CpuSettings(tmp_path / "usage", None), "alpha")
     assert not exhausted(None, "alpha")
