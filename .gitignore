@@ -42,3 +42,11 @@ htmlcov/
 .vscode/
 Thumbs.db
 Desktop.ini
+
+# Local parallel checkouts and diagnostic outputs
+/.worktrees/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.coverage.*
+.DS_Store
