@@ -1,7 +1,7 @@
 """Trusted one-shot prewarmed OpenCode entry. No input or model call during preparation."""
 
 from .bridge import BRIDGE
-from .entry import COLLECT, STAGE_INPUTS
+from .entry import COLLECT, HOME_ENV, HOME_GUIDE, STAGE_INPUTS
 
 WARM_ENTRY = (
     r"""
@@ -18,6 +18,7 @@ env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/work/home",
 for directory in ("inputs", "outputs", "home", "tmp", "config", "cache", "data"):
     os.mkdir(directory, 0o700)
 """
+    + HOME_ENV
     + BRIDGE
     + r"""
 worker = runpy.run_path("/opt/agent-harness/worker.py", run_name="warm_configuration")
@@ -30,7 +31,8 @@ backend_env.update({key: "1" for key in (
 backend_env["XDG_CONFIG_HOME"] = "/opt/agent-harness/config"
 backend_env["OPENCODE_CONFIG_CONTENT"] = json.dumps(worker["configuration"](
     env["AI_WORKPLACE_MODEL_BASE_URL"], payload["max_model_tokens"],
-    workspace=payload["workspace"], helpers=payload["helper"]))
+    workspace=payload["workspace"], helpers=payload["helper"],
+    **({"home": True} if home is not None else {})))
 backend = subprocess.Popen(["/usr/local/bin/opencode", "serve", "--hostname", "127.0.0.1",
                             "--port", "4100"], env=backend_env,
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -63,13 +65,19 @@ http("/agent")
 wire({"kind": "warm_ready"})
 activation = replies.get(timeout=payload["warm_idle_seconds"])
 if set(activation) != {"inputs", "command", "limits", "max_files", "gateway",
-                       "max_prompt_chars", "max_model_tokens", "workspace", "helper"}:
+                       "max_prompt_chars", "max_model_tokens", "workspace", "helper", "home"}:
     raise SystemExit(2)
-if any(activation[key] != payload[key] for key in activation if key not in {"inputs", "command"}):
+if any(activation[key] != payload[key] for key in activation
+       if key not in {"inputs", "command", "home"}):
+    raise SystemExit(2)
+# The volume was mounted at preparation; the guide is this turn's fresh copy.
+if (activation["home"] is None) != (home is None):
     raise SystemExit(2)
 payload = activation
+home = payload["home"]
 """
     + STAGE_INPUTS
+    + HOME_GUIDE
     + r"""
 state = "failed"
 child = types.SimpleNamespace(returncode=1)

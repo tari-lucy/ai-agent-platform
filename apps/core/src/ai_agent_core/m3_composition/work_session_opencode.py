@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from ai_agent_adapters.agent_harness import OpenCodeHarness
 from ai_agent_adapters.agent_harness.opencode import PREFIX
 from ai_agent_adapters.sandbox.docker import DockerTaskRunner
-from ai_agent_adapters.sandbox.policy import RunnerTemplate
+from ai_agent_adapters.sandbox.policy import Home, RunnerTemplate
 from ai_agent_application.agent_workplace.ports import (
     ModelGateway,
     ModelReply,
@@ -21,8 +21,11 @@ from ai_agent_application.agent_workplace.ports import (
 from ai_agent_application.control.ports import ResourceTicket
 from ai_agent_contracts.agent_workplace import WRITABLE_AREAS
 from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode
 
+from .work_session_home import HomeSettings
+from .work_session_home import home as home_of
 from .work_session_runtime import Release
 from .workplace import Attempts
 
@@ -34,8 +37,12 @@ def environment_guide(
     output_area: str,
     helper_template: RunnerTemplate | None = None,
     helper_capability: str | None = None,
+    *,
+    home: bool = False,
 ) -> str:
     """Trusted adapter facts, separate from persona/canon and operator instructions."""
+    from .work_session_home import GUIDE as HOME_GUIDE
+
     guide = (
         "\n\n## Устройство этой рабочей среды\n"
         "Управляемые области платформы не являются каталогами контейнера. "
@@ -78,6 +85,8 @@ def environment_guide(
         "localhost/127.0.0.1 в контейнере — сам этот контейнер, не компьютер оператора. "
         "Модель доступна через шлюз платформы; это не общий доступ к сети, браузеру или игре. "
     )
+    if home:
+        guide += HOME_GUIDE
     if helper_template is None or helper_capability is None:
         return guide + "Python helper в этом запуске не подключён; не обещай его выполнение."
     limits = helper_template.ceiling
@@ -109,9 +118,11 @@ class EnvironmentModels:
         output_area: str,
         helper_template: RunnerTemplate | None = None,
         helper_capability: str | None = None,
+        *,
+        home: bool = False,
     ) -> None:
         self.delegate = delegate
-        self.guide = environment_guide(output_area, helper_template, helper_capability)
+        self.guide = environment_guide(output_area, helper_template, helper_capability, home=home)
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
         if not request.messages or request.messages[0].role != "system":
@@ -133,6 +144,7 @@ class OpenCodeSessions:
         helper_capability: str | None = None,
         prewarm_enabled: bool = False,
         prewarm_idle_seconds: float = 120,
+        home: HomeSettings | None = None,
     ) -> None:
         from .work_session_helpers import PREFIX as HELPER_PREFIX
 
@@ -160,6 +172,7 @@ class OpenCodeSessions:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         self.rt, self.template, self.output_area = runtime, template, output_area
         self.helper_template, self.helper_capability = helper_template, helper_capability
+        self.home = home
         # Live handles only, not another durable job/session/resource journal.
         self.runners: dict[str, DockerTaskRunner] = {}
         self.helper_runners: dict[str, DockerTaskRunner] = {}
@@ -172,6 +185,7 @@ class OpenCodeSessions:
                 template,
                 idle_seconds=prewarm_idle_seconds,
                 helper=helper_template is not None,
+                home=self._home if home is not None else None,
             )
             if prewarm_enabled
             else None
@@ -281,6 +295,7 @@ class OpenCodeSessions:
 
         await execution.verify()
         await authorize(admission, self.template.id)
+        home = self._home(admission.scope) if self.home is not None else None
         runner = DockerTaskRunner(
             (self.template,),
             place.files,
@@ -289,13 +304,20 @@ class OpenCodeSessions:
             authorize=authorize,
             lifecycle=lifecycle,
             models=EnvironmentModels(
-                models, self.output_area, self.helper_template, self.helper_capability
+                models,
+                self.output_area,
+                self.helper_template,
+                self.helper_capability,
+                home=home is not None,
             ),
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
             else None,
             helpers=helpers,
-            prepared=await self.warm.take() if self.warm is not None else None,
+            prepared=await self.warm.take(home.volume if home else None)
+            if self.warm is not None
+            else None,
+            home=home,
         )
         self.runners[admission.attempt_id] = runner
         controller = self
@@ -311,6 +333,13 @@ class OpenCodeSessions:
                     controller.helper_runners.pop(admission.attempt_id, None)
 
         return TrackedHarness(runner, self.template.id, self.template.ceiling)
+
+    def _home(self, scope: Scope) -> Home:
+        assert self.home is not None
+        facts = environment_guide(
+            self.output_area, self.helper_template, self.helper_capability, home=True
+        )
+        return home_of(self.home, scope, facts)
 
     @staticmethod
     def _workspace(execution: Execution, admission: WorkAdmission) -> WorkspaceGateway:

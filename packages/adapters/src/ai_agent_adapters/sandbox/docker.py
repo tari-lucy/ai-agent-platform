@@ -31,11 +31,14 @@ from ai_agent_contracts.states import ErrorCode
 from .entry import ENTRY
 from .helper_protocol import helper_request
 from .model_protocol import model_request, wire_calls, workspace_request
-from .policy import RunnerTemplate, create_args
+from .policy import Home, RunnerTemplate, create_args
 
 if TYPE_CHECKING:
     from .warm import WarmSandbox
 
+
+# Images that know /workspace (owned by the sandbox user) and the home protocol of the entry.
+HOME_LABEL = "ai-agent-platform.workspace.protocol"
 
 type Authorize = Callable[[WorkAdmission, str], Awaitable[None]]
 type Lifecycle = Callable[
@@ -103,6 +106,7 @@ class DockerTaskRunner:
         workspace: WorkspaceGateway | None = None,
         helpers: WorkspaceGateway | None = None,
         prepared: WarmSandbox | None = None,
+        home: Home | None = None,
     ) -> None:
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
@@ -112,6 +116,9 @@ class DockerTaskRunner:
         self.files, self.attempts, self.guard = files, attempts, guard
         self.authorize, self.lifecycle, self.cache_seconds = authorize, lifecycle, cache_seconds
         self.prepared = prepared
+        if prepared is not None and prepared.home_volume != (home.volume if home else None):
+            raise ValueError("RUNNER_HOME_MISMATCH")
+        self.home = home
         self.models = models
         self.workspace = workspace
         self.helpers = helpers
@@ -310,10 +317,12 @@ class DockerTaskRunner:
         return attempt
 
     @staticmethod
-    async def _image(template: RunnerTemplate) -> None:
+    async def _image(template: RunnerTemplate, *, home: bool = False) -> None:
         info = json.loads(await cli("image", "inspect", template.image_id, cap=65536))[0]
         config = info["Config"]
         if info["Os"] != "linux" or config.get("Volumes"):
+            raise OSError("RUNNER_IMAGE_UNSAFE")
+        if home and (config.get("Labels") or {}).get(HOME_LABEL) != "1":
             raise OSError("RUNNER_IMAGE_UNSAFE")
         # Never inherit arbitrary image env (including unexpected credential names).
         # Image contents themselves must still be trusted and pinned by setup.
@@ -334,6 +343,15 @@ class DockerTaskRunner:
         }
         if any(value.split("=", 1)[0] not in safe_env for value in config.get("Env", ())):
             raise OSError("RUNNER_IMAGE_UNSAFE")
+
+    @staticmethod
+    async def ensure_home(volume: str) -> None:
+        """Idempotent; the volume outlives every container and is never removed here."""
+        created = await cli(
+            "volume", "create", "--label", "ai-agent-platform.home=1", volume, cap=1024
+        )
+        if created.strip().decode("utf-8", "replace") != volume:
+            raise OSError("RUNNER_HOME_UNAVAILABLE")
 
     @staticmethod
     async def _remove(name: str) -> bool:
@@ -489,12 +507,16 @@ class DockerTaskRunner:
                         "content": base64.b64encode(data).decode("ascii"),
                     }
                 )
-            await self._image(template)
+            await self._image(template, home=self.home is not None)
+            if self.home is not None and self.prepared is None:
+                await self.ensure_home(self.home.volume)
             await self._verify(admission, attempt)
             await self.lifecycle(admission, name, "register")
             registered = True
             if self.prepared is None:
-                args = create_args(template, task, name, ENTRY)
+                args = create_args(
+                    template, task, name, ENTRY, self.home.volume if self.home else None
+                )
                 args[1:1] = ["--label", "ai-agent-platform.instance=" + name]
                 await cli(*args)
             await self._verify(admission, attempt)
@@ -509,6 +531,7 @@ class DockerTaskRunner:
                     "max_model_tokens": template.max_model_tokens,
                     "workspace": self.workspace is not None and template.max_workspace_calls > 0,
                     "helper": self.helpers is not None and template.max_helper_calls > 0,
+                    "home": self.home.wire() if self.home is not None else None,
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096

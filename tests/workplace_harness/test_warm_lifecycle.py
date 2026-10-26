@@ -74,7 +74,7 @@ class EmptySlot:
             await asyncio.Event().wait()
         self.ready = True
 
-    def claim(self, template, task):
+    def claim(self, template, task, home_volume=None):
         self.options["valid"]()
         if not self.ready:
             return False

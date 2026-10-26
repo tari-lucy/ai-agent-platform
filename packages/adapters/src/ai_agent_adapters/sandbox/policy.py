@@ -81,6 +81,46 @@ class RunnerTemplate:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
 
 
+# The persistent home of one persona partition: a named Docker volume, never a host path.
+HOME_VOLUME = re.compile(r"aw-home-[0-9a-f]{32}")
+GUIDE_BYTES = 32768
+
+
+@dataclass(frozen=True)
+class Home:
+    """Trusted per-attempt home: the volume and the read-only guide written for this turn.
+
+    ``rules`` is the operator's guide, ``connections`` the platform's facts and ``readme``
+    the starter README for an empty home. Text only; none of it grants a right.
+    A Docker volume has no size limit: ``quota_mb`` is a warning shown to the agent.
+    """
+
+    volume: str
+    rules: str
+    connections: str
+    readme: str
+    quota_mb: int = 4096
+
+    def __post_init__(self) -> None:
+        if (
+            HOME_VOLUME.fullmatch(self.volume) is None
+            or type(self.quota_mb) is not int
+            or not 64 <= self.quota_mb <= 1048576
+        ) or any(
+            not isinstance(text, str) or len(text.encode()) > GUIDE_BYTES
+            for text in (self.rules, self.connections, self.readme)
+        ):
+            raise ValueError("RUNNER_HOME_INVALID")
+
+    def wire(self) -> dict[str, object]:
+        return {
+            "rules": self.rules,
+            "connections": self.connections,
+            "readme": self.readme,
+            "quota_mb": self.quota_mb,
+        }
+
+
 def limits(value: RunnerLimits) -> None:
     if (
         any(
@@ -94,12 +134,30 @@ def limits(value: RunnerLimits) -> None:
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
 
 
-def create_args(template: RunnerTemplate, task: RunnerTask, name: str, entry: str) -> list[str]:
-    """No host mounts/ports/keys/socket. Writable task disk is a kernel-bounded tmpfs."""
+def create_args(
+    template: RunnerTemplate, task: RunnerTask, name: str, entry: str, home: str | None = None
+) -> list[str]:
+    """No host mounts/ports/keys/socket. Writable task disk is a kernel-bounded tmpfs.
+
+    ``home`` adds the persona's named volume at /workspace and a small tmpfs for /guide;
+    everything else stays read-only or disappears with the container.
+    """
     template.check(task)
     if re.fullmatch(r"aw-task-[0-9a-f]{32}", name) is None:
         raise ValueError("RUNNER_NAME_INVALID")
+    if home is not None and HOME_VOLUME.fullmatch(home) is None:
+        raise ValueError("RUNNER_HOME_INVALID")
     cap = task.limits
+    mounts = (
+        [
+            "--mount",
+            f"type=volume,src={home},dst=/workspace",
+            "--tmpfs",
+            "/guide:rw,nosuid,nodev,noexec,size=1m,nr_inodes=64,mode=0700,uid=65532,gid=65532",
+        ]
+        if home is not None
+        else []
+    )
     return [
         "create",
         "--pull=never",
@@ -132,6 +190,7 @@ def create_args(template: RunnerTemplate, task: RunnerTask, name: str, entry: st
         "core=0:0",
         "--tmpfs",
         f"/work:rw,nosuid,nodev,noexec,size={cap.disk_bytes},nr_inodes=2048,mode=0700,uid=65532,gid=65532",
+        *mounts,
         "--workdir=/work",
         "--entrypoint=/usr/local/bin/python",
         template.image_id,

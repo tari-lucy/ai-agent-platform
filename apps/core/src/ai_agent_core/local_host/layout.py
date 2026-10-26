@@ -237,6 +237,10 @@ class WorkSessionsConfig(BaseModel):
     helper_output_bytes: int = Field(default=1048576, strict=True, ge=1024, le=1048576)
     helper_max_files: int = Field(default=16, strict=True, ge=1, le=16)
     helper_max_input_bytes: int = Field(default=67108864, strict=True, ge=1024, le=134217728)
+    # W2: a persistent Docker volume per persona at /workspace, a shell and free edits inside
+    # it. Needs an image with the workspace protocol label. The quota is a warning only.
+    home_enabled: bool = Field(default=False, strict=True)
+    home_quota_mb: int = Field(default=4096, strict=True, ge=64, le=1048576)
 
     @model_validator(mode="after")
     def bounds(self) -> Self:
@@ -385,6 +389,11 @@ class HostPaths:
     @property
     def reports(self) -> Path:
         return self.root / "data" / "reports"
+
+    @property
+    def guide(self) -> Path:
+        """Operator rules for the agent's /guide/AGENTS.md; optional, edited by the operator."""
+        return self.root / "guide" / "AGENTS.md"
 
     @property
     def secrets(self) -> Path:

@@ -3,4 +3,7 @@
 ARG BASE_IMAGE=ai-agent-platform:harness-base-unconfigured
 FROM ${BASE_IMAGE}
 COPY worker.py workspace_mcp.py helper_mcp.py /opt/agent-harness/
+# W2 home: an empty volume copies this owner/mode on first mount; /guide is a tmpfs mountpoint.
+RUN mkdir -m 0700 /workspace && chown 65532:65532 /workspace && mkdir -m 0555 /guide
 LABEL ai-agent-platform.helper.protocol="1"
+LABEL ai-agent-platform.workspace.protocol="1"

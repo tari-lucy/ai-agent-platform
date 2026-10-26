@@ -18,6 +18,74 @@ with open("inputs/manifest.json", "x", encoding="utf-8") as stream:
     json.dump(manifest, stream)
 """
 
+# The persona's persistent home (W2). Agent-installed tools land in the volume; OpenCode's
+# own state (XDG dirs, history) stays in tmpfs and disappears with the container.
+HOME_ENV = r"""
+home = payload.get("home")
+if home is not None:
+    env.update({"AI_WORKPLACE_HOME": "/workspace",
+                "PATH": "/workspace/.local/bin:/workspace/.npm-global/bin:" + env["PATH"],
+                "PYTHONUSERBASE": "/workspace/.local",
+                "NPM_CONFIG_PREFIX": "/workspace/.npm-global",
+                "PIP_CACHE_DIR": "/workspace/.cache/pip"})
+    for directory in ("inbox", "share"):
+        os.makedirs("/workspace/" + directory, 0o700, exist_ok=True)
+"""
+
+# Written fresh every turn from the platform's copy: changing it inside has no lasting effect.
+HOME_GUIDE = r"""
+if home is not None:
+    def guide_file(name, text):
+        with open("/guide/" + name, "x", encoding="utf-8") as stream:
+            stream.write(text)
+        os.chmod("/guide/" + name, 0o444)
+
+    def head(path, size):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError:
+            return ""
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return ""
+            return stream.read(size).decode("utf-8", "replace")
+
+    def usage(root, budget=100000, seconds=2.0):
+        used, seen, pending, until = 0, 0, [root], time.monotonic() + seconds
+        while pending:
+            if seen >= budget or time.monotonic() > until:
+                return used, False
+            try:
+                entries = list(os.scandir(pending.pop()))
+            except OSError:
+                continue
+            for item in entries:
+                seen += 1
+                try:
+                    info = item.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                used += info.st_blocks * 512
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append(item.path)
+        return used, True
+
+    if not os.path.lexists("/workspace/README.md"):
+        with open("/workspace/README.md", "x", encoding="utf-8") as stream:
+            stream.write(home["readme"])
+    used, complete = usage("/workspace")
+    mib = used // (1024 * 1024)
+    space = "\n\nЗанято в /workspace: %s%d МиБ из рекомендуемых %d МиБ." % (
+        "" if complete else "не меньше ", mib, home["quota_mb"])
+    if mib > home["quota_mb"]:
+        space += " Порог превышен: освободи место (scratch/, кэши, старые сборки)."
+    guide_file("AGENTS.md", home["rules"])
+    guide_file("connections.md", home["connections"] + space)
+    guide_file("workspace-readme.md", "Начало /workspace/README.md (до 8000 байт; "
+               "полный файл читай сам):\n\n" + head("/workspace/README.md", 8000))
+    os.chmod("/guide", 0o555)
+"""
+
 COLLECT = r"""
 files = []
 total = len(output)
@@ -76,7 +144,9 @@ env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/work/home",
 for directory in ("inputs", "outputs", "home", "tmp", "config", "cache", "data"):
     os.mkdir(directory, 0o700)
 """
+    + HOME_ENV
     + STAGE_INPUTS
+    + HOME_GUIDE
     + BRIDGE
     + r"""
 started = time.monotonic()

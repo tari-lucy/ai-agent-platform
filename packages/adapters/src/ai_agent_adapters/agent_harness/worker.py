@@ -23,8 +23,17 @@ SHELL_TOOLS = {"read", "write", "edit", "bash"}
 TOOL_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
+# Read-only guide files of a home (W2): the operator's rules and the start of the agent README.
+HOME_INSTRUCTIONS = ["/guide/AGENTS.md", "/guide/workspace-readme.md"]
+
+
 def configuration(
-    base_url: str, output_tokens: int, *, workspace: bool = False, helpers: bool = False
+    base_url: str,
+    output_tokens: int,
+    *,
+    workspace: bool = False,
+    helpers: bool = False,
+    home: bool = False,
 ) -> dict[str, Any]:
     # OpenCode uses paths relative to its worktree, which is / without VCS.
     paths = {
@@ -35,6 +44,23 @@ def configuration(
         "work/outputs/*": "allow",
     }
     outputs = {"*": "deny", "outputs/*": "allow", "work/outputs/*": "allow"}
+    # With a home the container is the boundary: a shell inside it, free edits in the volume.
+    # Rootfs stays read-only and there is no network, so path rules here are convenience.
+    free = (
+        {
+            "bash": "allow",
+            "glob": "allow",
+            "grep": "allow",
+            "list": "allow",
+            "todowrite": "allow",
+            "todoread": "allow",
+        }
+        if home
+        else {}
+    )
+    if home:
+        paths = {"*": "allow"}
+        outputs = {**outputs, "workspace/*": "allow", "workspace": "allow"}
     return {
         "model": "platform/bound",
         "small_model": "platform/bound",
@@ -66,6 +92,7 @@ def configuration(
                     "*": "deny",
                     "read": paths,
                     "edit": outputs,
+                    **free,
                     **({"platform_*": "allow"} if workspace else {}),
                     **({"helpers_*": "allow"} if helpers else {}),
                 },
@@ -115,7 +142,7 @@ def configuration(
         },
         "lsp": False,
         "formatter": False,
-        "instructions": [],
+        "instructions": HOME_INSTRUCTIONS if home else [],
         "compaction": {"auto": False, "prune": False},
     }
 
@@ -257,6 +284,7 @@ def main() -> None:
                     int(environment["AI_WORKPLACE_MAX_MODEL_TOKENS"]),
                     workspace="AI_WORKPLACE_WORKSPACE_URL" in environment,
                     helpers="AI_WORKPLACE_HELPER_URL" in environment,
+                    home="AI_WORKPLACE_HOME" in environment,
                 )
             ),
         }

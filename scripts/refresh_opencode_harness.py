@@ -66,7 +66,9 @@ def main() -> int:
         raise ValueError("BASE_IMAGE_CHANGED")
     if result["Config"]["Labels"].get("ai-agent-platform.helper.protocol") != "1":
         raise ValueError("HELPER_IMAGE_UNEXPECTED")
-    print("Prepared helper-capable image: " + result["Id"])
+    if result["Config"]["Labels"].get("ai-agent-platform.workspace.protocol") != "1":
+        raise ValueError("WORKSPACE_IMAGE_UNEXPECTED")
+    print("Prepared helper- and workspace-capable image: " + result["Id"])
     print("No host prepared, no permissions granted, no agent started.")
     return 0
 

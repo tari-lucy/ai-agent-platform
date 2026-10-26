@@ -12,11 +12,13 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .docker import DockerTaskRunner, cli
-from .policy import RunnerTemplate, create_args
+from .policy import Home, RunnerTemplate, create_args
 from .warm_entry import WARM_ENTRY
 
 
-def settings(template: RunnerTemplate, *, workspace: bool, helper: bool) -> dict[str, object]:
+def settings(
+    template: RunnerTemplate, *, workspace: bool, helper: bool, home: Home | None = None
+) -> dict[str, object]:
     return {
         "inputs": [],
         "command": [],
@@ -27,6 +29,7 @@ def settings(template: RunnerTemplate, *, workspace: bool, helper: bool) -> dict
         "max_model_tokens": template.max_model_tokens,
         "workspace": workspace,
         "helper": helper,
+        "home": home.wire() if home is not None else None,
     }
 
 
@@ -41,10 +44,14 @@ class WarmSandbox:
         valid: Callable[[], None],
         registered: Callable[[str], Awaitable[None]],
         released: Callable[[str, bool], Awaitable[None]],
+        home: Home | None = None,
     ) -> None:
         if type(idle_seconds) not in (float, int) or not 10 <= idle_seconds <= 300:
             raise ValueError("WARM_IDLE_INVALID")
         self.template, self.workspace, self.helper = template, workspace, helper
+        # Mounted at creation: a prepared sandbox serves only this persona's home.
+        self.home = home
+        self.home_volume = home.volume if home is not None else None
         self.idle_seconds, self.valid = idle_seconds, valid
         self.registered, self.released = registered, released
         self.name = "aw-task-" + uuid4().hex
@@ -67,11 +74,13 @@ class WarmSandbox:
             network="gateway",
         )
         self.valid()
-        await DockerTaskRunner._image(self.template)
+        await DockerTaskRunner._image(self.template, home=self.home is not None)
+        if self.home_volume is not None:
+            await DockerTaskRunner.ensure_home(self.home_volume)
         self.valid()
         await self.registered(self.name)
         self._registered = True
-        args = create_args(self.template, task, self.name, WARM_ENTRY)
+        args = create_args(self.template, task, self.name, WARM_ENTRY, self.home_volume)
         args[1:1] = ["--label", "ai-agent-platform.instance=" + self.name]
         try:
             async with asyncio.timeout(35):
@@ -108,7 +117,9 @@ class WarmSandbox:
                     limit=frame_cap + 1,
                 )
                 assert self.process.stdin is not None and self.process.stdout is not None
-                initial = settings(self.template, workspace=self.workspace, helper=self.helper)
+                initial = settings(
+                    self.template, workspace=self.workspace, helper=self.helper, home=self.home
+                )
                 initial["warm_idle_seconds"] = self.idle_seconds
                 self.process.stdin.write(json.dumps(initial).encode() + b"\n")
                 await self.process.stdin.drain()
@@ -122,10 +133,13 @@ class WarmSandbox:
             await self.close()
             raise
 
-    def claim(self, template: RunnerTemplate, task: RunnerTask) -> bool:
+    def claim(
+        self, template: RunnerTemplate, task: RunnerTask, home_volume: str | None = None
+    ) -> bool:
         self.valid()
         if (
-            self.closed
+            home_volume != self.home_volume
+            or self.closed
             or self.claimed
             or not self.ready
             or self.process is None

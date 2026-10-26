@@ -47,6 +47,7 @@ ADAPTER = "opencode"
 VERSION = "1.19.3"  # the pinned release of deploy/opencode; the image carries it as a label
 LABEL = "ai-agent-platform.opencode.version"
 HELPER_LABEL = "ai-agent-platform.helper.protocol"
+HOME_LABEL = "ai-agent-platform.workspace.protocol"
 SUMMARY = "Рабочий разговор: ответить оператору, работая с файлами и навыками рабочего места."
 INSTRUCTIONS = (
     "Исполняется в изолированной песочнице без сети; модель — через общий gateway и бюджет. "
@@ -86,6 +87,8 @@ def check(settings: WorkSessionsConfig, *, timeout: float = 10.0) -> str | None:
             return "OPENCODE_IMAGE_UNEXPECTED"
         if settings.helper_enabled and labels.get(HELPER_LABEL) != "1":
             return "OPENCODE_HELPER_IMAGE_UNEXPECTED"
+        if settings.home_enabled and labels.get(HOME_LABEL) != "1":
+            return "OPENCODE_WORKSPACE_IMAGE_UNEXPECTED"
     except ValueError, KeyError, TypeError:
         return "OPENCODE_IMAGE_UNEXPECTED"
     return None
@@ -152,8 +155,11 @@ def helper_template(settings: WorkSessionsConfig) -> RunnerTemplate | None:
     )
 
 
-def install(runtime: Runtime, config: HostConfig) -> str | None:
-    """Wire the session driver to OpenCode at serve; returns the code that kept it off."""
+def install(runtime: Runtime, config: HostConfig, guide: Path | None = None) -> str | None:
+    """Wire the session driver to OpenCode at serve; returns the code that kept it off.
+
+    ``guide`` is the operator's rules file for the agent's home, read fresh every turn.
+    """
     settings = config.work_sessions
     if settings is None:
         return None
@@ -167,6 +173,7 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
     reason = check(settings)
     if reason is not None:
         return reason
+    from ai_agent_core.m3_composition.work_session_home import HomeSettings
     from ai_agent_core.m3_composition.work_session_opencode import OpenCodeSessions
 
     helper = helper_template(settings)
@@ -178,6 +185,7 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
         prewarm_idle_seconds=settings.prewarm_idle_seconds,
         helper_template=helper,
         helper_capability=settings.helper_capability_id if helper is not None else None,
+        home=HomeSettings(settings.home_quota_mb, guide) if settings.home_enabled else None,
     ).install()
     return None
 
@@ -186,7 +194,8 @@ async def enable_work_sessions(
     root: Path, *, image_id: str, areas: list[str], output_area: str,
     ceiling_days: int | None = None, monitor_interval_seconds: float | None = None,
     prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
-    helper_enabled: bool | None = None, helper_capability_id: str | None = None, **limits: int,
+    helper_enabled: bool | None = None, helper_capability_id: str | None = None,
+    home_enabled: bool | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
     if not root.is_dir():
@@ -239,6 +248,13 @@ async def enable_work_sessions(
                         else config.work_sessions.helper_capability_id
                         if config.work_sessions
                         else "workplace.scripts"
+                    ),
+                    home_enabled=(
+                        home_enabled
+                        if home_enabled is not None
+                        else config.work_sessions.home_enabled
+                        if config.work_sessions
+                        else False
                     ),
                     **limits,
                 )

@@ -3,13 +3,15 @@
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from ai_agent_adapters.sandbox.policy import RunnerTemplate
+from ai_agent_adapters.sandbox.policy import Home, RunnerTemplate
 from ai_agent_adapters.sandbox.warm import WarmSandbox
 from ai_agent_application.agent_workplace.ports import RunnerTask
 from ai_agent_application.control.ports import Admission, ResourceTicket
 from ai_agent_contracts.codec import ContractError
+from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
@@ -27,9 +29,12 @@ class WarmSessions:
         *,
         idle_seconds: float,
         helper: bool = False,
+        home: Callable[[Scope], Home] | None = None,
     ) -> None:
         self.rt, self.template, self.idle_seconds = runtime, template, idle_seconds
         self.helper = helper
+        # The active persona's home is mounted at creation; another home never claims it.
+        self.home = home
         self.task: asyncio.Task[None] | None = None
         self.slot: WarmSandbox | None = None
         self.slots: set[WarmSandbox] = set()
@@ -100,6 +105,7 @@ class WarmSessions:
             valid=valid,
             registered=registered,
             released=released,
+            home=self.home(scope) if self.home is not None else None,
         )
         self.slot = slot
         self.slots.add(slot)
@@ -135,7 +141,7 @@ class WarmSessions:
             if self.slot is slot:
                 self.slot = None
 
-    async def take(self) -> WarmSandbox | None:
+    async def take(self, home_volume: str | None = None) -> WarmSandbox | None:
         slot = self.slot
         if slot is None:
             return None
@@ -147,7 +153,7 @@ class WarmSessions:
             network="gateway",
         )
         try:
-            if slot.claim(self.template, task):
+            if slot.claim(self.template, task, home_volume):
                 return slot
         except ContractError:
             pass

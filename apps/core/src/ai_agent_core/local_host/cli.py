@@ -33,6 +33,7 @@ from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 SESSION_LIMITS = (
+    "home_quota_mb",
     "memory_mb",
     "pids",
     "cpu_seconds",
@@ -185,6 +186,12 @@ def parser() -> argparse.ArgumentParser:
     )
     for name in HELPER_LIMITS:
         sessions.add_argument("--" + name.replace("_", "-"), type=int)
+    sessions.add_argument(
+        "--home",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="persistent per-persona /workspace volume with a shell inside the container",
+    )
     check = commands.add_parser(
         "check-work-sessions", help="readiness of Docker and the configured OpenCode image"
     )
@@ -392,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
                     ceiling_days=arguments.ceiling_days,
                     helper_enabled=arguments.helper,
                     helper_capability_id=arguments.helper_capability_id,
+                    home_enabled=arguments.home,
                     **{
                         **limits,
                         **{
