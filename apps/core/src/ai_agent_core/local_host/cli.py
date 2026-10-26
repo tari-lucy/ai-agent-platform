@@ -33,6 +33,8 @@ from .workplace_files import enable_workplace_files
 
 EXIT_USAGE, EXIT_CONFIG, EXIT_FAILED = 64, 78, 1
 SESSION_LIMITS = (
+    "egress_max_mb",
+    "egress_connections",
     "home_quota_mb",
     "memory_mb",
     "pids",
@@ -191,6 +193,19 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="persistent per-persona /workspace volume with a shell inside the container",
+    )
+    sessions.add_argument(
+        "--internet",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="internet through the per-turn egress gateway (needs the operator's permission)",
+    )
+    sessions.add_argument(
+        "--egress-deny",
+        action="append",
+        default=None,
+        metavar="CIDR",
+        help="extra network the gateway refuses (repeat); private/LAN ranges are always refused",
     )
     check = commands.add_parser(
         "check-work-sessions", help="readiness of Docker and the configured OpenCode image"
@@ -400,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
                     helper_enabled=arguments.helper,
                     helper_capability_id=arguments.helper_capability_id,
                     home_enabled=arguments.home,
+                    egress_enabled=arguments.internet,
+                    egress_deny=arguments.egress_deny,
                     **{
                         **limits,
                         **{

@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -157,7 +158,11 @@ class Egress:
                     if isinstance(row.get(key), int):
                         self.used += row[key]
                 row.pop("kind")
-                self.record(row)
+                try:
+                    self.record(row)
+                except OSError:
+                    # The log is local diagnostics; a full disk does not stop the turn.
+                    logging.getLogger(__name__).warning("Egress log write failed")
 
     async def close(self) -> bool:
         """True only with removal receipts for both the proxy and the network."""

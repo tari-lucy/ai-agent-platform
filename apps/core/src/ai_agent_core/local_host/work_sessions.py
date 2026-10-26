@@ -127,6 +127,14 @@ HELPER_INSTRUCTIONS = (
 )
 
 
+EGRESS_SUMMARY = "Выход в интернет из рабочего места через шлюз платформы."
+EGRESS_INSTRUCTIONS = (
+    "Трафик идёт только через шлюз хода: журнал запросов, лимит объёма, запрет локальной "
+    "сети, компьютера оператора и почтовых портов; STOP рвёт соединения. Публикация от "
+    "имени персонажа идёт через отдельные подключения с модерацией. Нужно разрешение оператора."
+)
+
+
 def helper_template(settings: WorkSessionsConfig) -> RunnerTemplate | None:
     """The networkless script container beside the session; None keeps helpers off.
 
@@ -155,10 +163,16 @@ def helper_template(settings: WorkSessionsConfig) -> RunnerTemplate | None:
     )
 
 
-def install(runtime: Runtime, config: HostConfig, guide: Path | None = None) -> str | None:
+def install(
+    runtime: Runtime,
+    config: HostConfig,
+    guide: Path | None = None,
+    egress_log: Path | None = None,
+) -> str | None:
     """Wire the session driver to OpenCode at serve; returns the code that kept it off.
 
-    ``guide`` is the operator's rules file for the agent's home, read fresh every turn.
+    ``guide`` is the operator's rules file for the agent's home, read fresh every turn;
+    ``egress_log`` the local directory of the gateway's traffic log.
     """
     settings = config.work_sessions
     if settings is None:
@@ -173,6 +187,9 @@ def install(runtime: Runtime, config: HostConfig, guide: Path | None = None) -> 
     reason = check(settings)
     if reason is not None:
         return reason
+    from ai_agent_adapters.sandbox.egress import EgressLimits
+
+    from ai_agent_core.m3_composition.work_session_egress import EgressSettings
     from ai_agent_core.m3_composition.work_session_home import HomeSettings
     from ai_agent_core.m3_composition.work_session_opencode import OpenCodeSessions
 
@@ -186,6 +203,18 @@ def install(runtime: Runtime, config: HostConfig, guide: Path | None = None) -> 
         helper_template=helper,
         helper_capability=settings.helper_capability_id if helper is not None else None,
         home=HomeSettings(settings.home_quota_mb, guide) if settings.home_enabled else None,
+        egress=EgressSettings(
+            settings.egress_capability_id,
+            settings.image_id,
+            EgressLimits(
+                max_bytes=settings.egress_max_mb * 1024 * 1024,
+                max_connections=settings.egress_connections,
+                deny=settings.egress_deny,
+            ),
+            egress_log,
+        )
+        if settings.egress_enabled
+        else None,
     ).install()
     return None
 
@@ -195,7 +224,8 @@ async def enable_work_sessions(
     ceiling_days: int | None = None, monitor_interval_seconds: float | None = None,
     prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
     helper_enabled: bool | None = None, helper_capability_id: str | None = None,
-    home_enabled: bool | None = None, **limits: int,
+    home_enabled: bool | None = None, egress_enabled: bool | None = None,
+    egress_deny: list[str] | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
     host = paths(root)
     if not root.is_dir():
@@ -256,6 +286,20 @@ async def enable_work_sessions(
                         if config.work_sessions
                         else False
                     ),
+                    egress_enabled=(
+                        egress_enabled
+                        if egress_enabled is not None
+                        else config.work_sessions.egress_enabled
+                        if config.work_sessions
+                        else False
+                    ),
+                    egress_deny=(
+                        tuple(egress_deny)
+                        if egress_deny is not None
+                        else config.work_sessions.egress_deny
+                        if config.work_sessions
+                        else ()
+                    ),
                     **limits,
                 )
             )
@@ -278,6 +322,10 @@ async def enable_work_sessions(
             )
             if settings.helper_enabled:
                 ceilings[settings.helper_capability_id] = PermissionCeiling(
+                    level="automatic", max_days=ceiling_days
+                )
+            if settings.egress_enabled:
+                ceilings[settings.egress_capability_id] = PermissionCeiling(
                     level="automatic", max_days=ceiling_days
                 )
         updated = config.model_copy(
@@ -367,6 +415,49 @@ async def enable_work_sessions(
                         version=1,
                         binding_id=ADAPTER + "." + settings.helper_capability_id,
                         capability_id=settings.helper_capability_id,
+                        capability_version=1,
+                        adapter_id=ADAPTER,
+                        adapter_version=VERSION,
+                        state="ready",
+                        verified_at=now,
+                    ),
+                )
+            )
+        if settings.egress_enabled:
+            # Discoverable by the person; using it still needs the operator's permission.
+            seeded.append(
+                (
+                    "egress-manifest",
+                    CapabilityManifest(
+                        id="manifest-" + settings.egress_capability_id,
+                        scope=scope,
+                        created_at=now,
+                        updated_at=now,
+                        version=1,
+                        capability_id=settings.egress_capability_id,
+                        capability_version=1,
+                        summary=EGRESS_SUMMARY,
+                        instructions=EGRESS_INSTRUCTIONS,
+                        input_schema_id="session.instruction",
+                        output_schema_id="session.result",
+                        effect="external_effect",
+                        areas=list(settings.areas),
+                        network="gateway",
+                        runner_required=True,
+                    ),
+                )
+            )
+            seeded.append(
+                (
+                    "egress-binding",
+                    CapabilityBinding(
+                        id=ADAPTER + "." + settings.egress_capability_id,
+                        scope=scope,
+                        created_at=now,
+                        updated_at=now,
+                        version=1,
+                        binding_id=ADAPTER + "." + settings.egress_capability_id,
+                        capability_id=settings.egress_capability_id,
                         capability_version=1,
                         adapter_id=ADAPTER,
                         adapter_version=VERSION,

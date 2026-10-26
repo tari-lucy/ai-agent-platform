@@ -167,6 +167,11 @@ async def tools(rt: Runtime, scope: Scope, *, session: bool = False) -> list[Too
                 and rt.session_helper_capability is not None
                 and manifest.capability_id == rt.session_helper_capability
             )
+            or (
+                session
+                and rt.session_egress_capability is not None
+                and manifest.capability_id == rt.session_egress_capability
+            )
         )
         found.append(Tool(manifest, granted and executor))
     return found

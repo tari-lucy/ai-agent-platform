@@ -1,5 +1,6 @@
 """Host directory layout, nonsecret configuration and local secret files."""
 
+import ipaddress
 import os
 import re
 import secrets
@@ -241,6 +242,15 @@ class WorkSessionsConfig(BaseModel):
     # it. Needs an image with the workspace protocol label. The quota is a warning only.
     home_enabled: bool = Field(default=False, strict=True)
     home_quota_mb: int = Field(default=4096, strict=True, ge=64, le=1048576)
+    # W3: internet through a per-turn egress gateway. Seeds one capability; each persona still
+    # needs the operator's permission. Mail ports, private and link-local networks are refused.
+    egress_enabled: bool = Field(default=False, strict=True)
+    egress_capability_id: str = Field(
+        default="workplace.internet", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    )
+    egress_max_mb: int = Field(default=256, strict=True, ge=1, le=65536)
+    egress_connections: int = Field(default=32, strict=True, ge=1, le=256)
+    egress_deny: tuple[str, ...] = Field(default=(), max_length=64)
 
     @model_validator(mode="after")
     def bounds(self) -> Self:
@@ -251,6 +261,16 @@ class WorkSessionsConfig(BaseModel):
             or self.cpu_seconds > self.wall_seconds
         ):
             raise ValueError("WORK_SESSIONS_LIMITS")
+        if self.egress_enabled and self.egress_capability_id in {
+            self.capability_id,
+            self.helper_capability_id,
+        }:
+            raise ValueError("WORK_SESSIONS_LIMITS")
+        try:
+            for item in self.egress_deny:
+                ipaddress.ip_network(item)
+        except ValueError:
+            raise ValueError("WORK_SESSIONS_LIMITS") from None
         if self.helper_enabled and (
             self.helper_capability_id == self.capability_id
             or self.helper_cpu_seconds > self.helper_wall_seconds
@@ -385,6 +405,11 @@ class HostPaths:
     @property
     def lab_indexes(self) -> Path:
         return self.root / "data" / "lab-indexes"
+
+    @property
+    def egress_log(self) -> Path:
+        """Local traffic log of the egress gateway; may hold personal data, never exported."""
+        return self.root / "data" / "egress"
 
     @property
     def reports(self) -> Path:

@@ -49,9 +49,18 @@ def bash(call: str, command: str) -> list[object]:
 
 
 async def turn(
-    home: Home, command: str, answer: str, warm: Home | None = None
+    home: Home,
+    command: str,
+    answer: str,
+    warm: Home | None = None,
+    *,
+    calls: list[list[object]] | None = None,
+    egress=None,
 ) -> tuple[list, ScriptedProvider]:
-    """One harness turn; ``warm`` prepares the sandbox first with that (older) guide."""
+    """One harness turn; ``warm`` prepares the sandbox first with that (older) guide.
+
+    ``calls`` replaces the single bash step; ``egress`` gives the turn its gateway.
+    """
     w = World()
     template = replace(
         w.runner.templates["python-task"],
@@ -59,12 +68,15 @@ async def turn(
         executable_prefix=PREFIX,
         ceiling=CAP,
         model_role_id="activity",
-        max_model_calls=2,
+        max_model_calls=4,
         max_prompt_chars=100000,
         max_model_tokens=256,
     )
     provider = ScriptedProvider(
-        [bash("bash_a", command), [Delta(answer), Finished("stop"), UsageReported(USAGE)]]
+        [
+            *(calls or [bash("bash_a", command)]),
+            [Delta(answer), Finished("stop"), UsageReported(USAGE)],
+        ]
     )
     binding = ResolvedAssignment(
         "assignment", 1, "activity", "connection", "mock", "model",
@@ -107,7 +119,7 @@ async def turn(
         assert slot.claim(template, task, home.volume)
     runner = DockerTaskRunner(
         (template,), w, w, w, authorize=w.authorize, lifecycle=w.lifecycle,
-        models=Models(), home=home, prepared=slot,
+        models=Models(), home=home, prepared=slot, egress=egress,
     )  # fmt: skip
     try:
         events = await OpenCodeHarness(runner, template.id, CAP).turn(
@@ -169,5 +181,48 @@ def test_real_opencode_shell_keeps_files_in_the_home(monkeypatch):
             subprocess.run(
                 ["docker", "volume", "rm", home.volume], capture_output=True, check=False
             )
+
+    asyncio.run(scenario())
+
+
+FETCH = (
+    "python3 -c \"import urllib.request as u; "
+    "print('status', u.urlopen('https://example.com', timeout=20).status)\""
+)
+
+
+@pytest.mark.skipif(not os.getenv("AW_EGRESS_LIVE"), reason="AW_EGRESS_LIVE=1 (real internet)")
+def test_real_opencode_reaches_the_internet_through_the_gateway(monkeypatch):
+    from ai_agent_adapters.sandbox.egress import Egress, EgressLimits
+
+    monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", os.environ["AW_HOME_IMAGE_ID"])
+
+    async def scenario():
+        rows = []
+        home = Home("aw-home-" + uuid4().hex, "Synthetic rule", "Synthetic facts", "Starter", 64)
+        fetch = json.dumps({"url": "https://example.com", "format": "text"})
+        calls = [
+            bash("bash_a", FETCH),
+            [ToolCallDelta(0, "web_a", "webfetch", fetch), Finished("tool_calls"),
+             UsageReported(USAGE)],
+        ]  # fmt: skip
+        image = os.environ["AW_HOME_IMAGE_ID"]
+        try:
+            events, provider = await turn(
+                home, "", "Internet synthetic answer", calls=calls,
+                egress=lambda: Egress(image, EgressLimits(max_bytes=8 * 1024 * 1024), rows.append),
+            )  # fmt: skip
+            (result,) = [e for e in events if e.kind == "result"]
+            assert [(s.tool, s.status) for s in result.steps] == [
+                ("bash", "completed"),
+                ("webfetch", "completed"),
+            ], result.steps
+            tools = [m.content for m in provider.calls[2].messages if m.role == "tool"]
+            assert "status 200" in tools[0] and "Example Domain" in tools[1]
+            fetched = [r for r in rows if r["target"] == "example.com:443"]
+            assert len(fetched) == 2 and all(r["status"] == "ok" for r in fetched)
+            assert all(r["method"] == "CONNECT" for r in rows)  # HTTPS: host:port only
+        finally:
+            subprocess.run(["docker", "volume", "rm", home.volume], capture_output=True, check=False)
 
     asyncio.run(scenario())

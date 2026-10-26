@@ -14,7 +14,10 @@ import os
 import socket
 import sys
 import time
+from typing import Any
 from urllib.parse import urlsplit
+
+type Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 PORT = 3128
 MAX_HEAD = 16384
@@ -23,9 +26,9 @@ IDLE_SECONDS = 300
 DROPPED = {"proxy-connection", "proxy-authorization", "connection", "keep-alive"}
 
 
-def allowed(address: str, deny: list) -> bool:
+def allowed(address: str, deny: list[Network]) -> bool:
     ip = ipaddress.ip_address(address.split("%", 1)[0])
-    if ip.version == 6 and ip.ipv4_mapped is not None:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
     return ip.is_global and not any(ip in network for network in deny)
 
@@ -48,7 +51,7 @@ def target(method: str, raw: str) -> tuple[str, int, str]:
 
 
 class Proxy:
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self.deny = [ipaddress.ip_network(item) for item in config["deny"]]
         self.deny_ports = set(config["deny_ports"])
         self.max_bytes = config["max_bytes"]
@@ -56,7 +59,7 @@ class Proxy:
         self.slots = asyncio.Semaphore(config["max_connections"])
         self.used = 0
 
-    def log(self, **row) -> None:
+    def log(self, **row: object) -> None:
         print(json.dumps({"kind": "egress", **row}, ensure_ascii=False), flush=True)
 
     async def resolve(self, host: str, port: int) -> str:
@@ -69,7 +72,13 @@ class Proxy:
                 return info[4][0]
         raise PermissionError("EGRESS_DESTINATION_DENIED")
 
-    async def pipe(self, source, sink, stats: dict, key: str) -> None:
+    async def pipe(
+        self,
+        source: asyncio.StreamReader,
+        sink: asyncio.StreamWriter,
+        stats: dict[str, Any],
+        key: str,
+    ) -> None:
         try:
             while data := await asyncio.wait_for(source.read(65536), IDLE_SECONDS):
                 self.used += len(data)
@@ -83,17 +92,18 @@ class Proxy:
                 if sink.can_write_eof():
                     sink.write_eof()
                 return
-        except (OSError, TimeoutError, asyncio.IncompleteReadError):
+        except OSError, TimeoutError, asyncio.IncompleteReadError:
             pass
         sink.close()
 
-    async def handle(self, reader, writer) -> None:
+    async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async with self.slots:
             await self.serve(reader, writer)
 
-    async def serve(self, reader, writer) -> None:
+    async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         started = time.monotonic()
-        stats = {"method": "", "target": "", "status": "error", "up": 0, "down": 0}
+        stats: dict[str, Any] = {"method": "", "target": "", "status": "error", "up": 0, "down": 0}
+        address = ""
         upstream = None
         try:
             head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 30)
@@ -114,7 +124,7 @@ class Proxy:
                 reason = "EGRESS_LIMIT"
             if reason is None:
                 try:
-                    stats["ip"] = await self.resolve(host, port)
+                    stats["ip"] = address = await self.resolve(host, port)
                 except PermissionError as error:
                     reason = str(error)
             if reason is not None:
@@ -126,9 +136,7 @@ class Proxy:
                     + body
                 )
                 return
-            upstream = await asyncio.wait_for(
-                asyncio.open_connection(stats["ip"], port), self.timeout
-            )
+            upstream = await asyncio.wait_for(asyncio.open_connection(address, port), self.timeout)
             if method == "CONNECT":
                 writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
                 await writer.drain()

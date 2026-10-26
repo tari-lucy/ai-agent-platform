@@ -18,8 +18,8 @@ with open("inputs/manifest.json", "x", encoding="utf-8") as stream:
     json.dump(manifest, stream)
 """
 
-# The persona's persistent home (W2). Agent-installed tools land in the volume; OpenCode's
-# own state (XDG dirs, history) stays in tmpfs and disappears with the container.
+# The persona's persistent home (W2). Agent-installed tools and caches land in the volume;
+# OpenCode's own state (config, data, history) stays in tmpfs and goes with the container.
 HOME_ENV = r"""
 home = payload.get("home")
 if home is not None:
@@ -27,7 +27,9 @@ if home is not None:
                 "PATH": "/workspace/.local/bin:/workspace/.npm-global/bin:" + env["PATH"],
                 "PYTHONUSERBASE": "/workspace/.local",
                 "NPM_CONFIG_PREFIX": "/workspace/.npm-global",
-                "PIP_CACHE_DIR": "/workspace/.cache/pip"})
+                "PIP_CACHE_DIR": "/workspace/.cache/pip",
+                # Tools OpenCode fetches itself (ripgrep) are kept once, not per turn.
+                "XDG_CACHE_HOME": "/workspace/.cache"})
     for directory in ("inbox", "share"):
         os.makedirs("/workspace/" + directory, 0o700, exist_ok=True)
 # W3: the turn's egress gateway. Loopback (the model facade) never goes through it.

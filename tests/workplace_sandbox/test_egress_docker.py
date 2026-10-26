@@ -92,7 +92,9 @@ def test_agent_reaches_internet_only_through_the_gateway():
         phases = [phase for _, phase in world.names]
         assert phases.count("register") == 2 and phases.count("removed") == 2
         gone = await cli("ps", "--all", "--filter", "name=" + made[0].name, "--format", "{{.ID}}")
-        net = await cli("network", "ls", "--filter", "name=" + made[0].network, "--format", "{{.ID}}")
+        net = await cli(
+            "network", "ls", "--filter", "name=" + made[0].network, "--format", "{{.ID}}"
+        )
         assert not gone.strip() and not net.strip()
 
     asyncio.run(scenario())

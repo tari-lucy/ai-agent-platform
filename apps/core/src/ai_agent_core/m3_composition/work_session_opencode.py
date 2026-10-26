@@ -24,6 +24,9 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode
 
+from .work_session_egress import EgressSettings
+from .work_session_egress import factory as egress_factory
+from .work_session_home import OFFLINE as HOME_OFFLINE
 from .work_session_home import HomeSettings
 from .work_session_home import home as home_of
 from .work_session_runtime import Release
@@ -33,14 +36,19 @@ if TYPE_CHECKING:
     from .service import Execution, Runtime
 
 
+MODEL_ONLY = "Модель доступна через шлюз платформы; это не общий доступ к сети, браузеру или игре. "
+
+
 def environment_guide(
     output_area: str,
     helper_template: RunnerTemplate | None = None,
     helper_capability: str | None = None,
     *,
     home: bool = False,
+    internet: bool = False,
 ) -> str:
     """Trusted adapter facts, separate from persona/canon and operator instructions."""
+    from .work_session_egress import GUIDE as EGRESS_GUIDE
     from .work_session_home import GUIDE as HOME_GUIDE
 
     guide = (
@@ -83,10 +91,16 @@ def environment_guide(
         "или об этом попросили. "
         "Рабочий контейнер и Python-контейнер изолированы от Windows и друг от друга. "
         "localhost/127.0.0.1 в контейнере — сам этот контейнер, не компьютер оператора. "
-        "Модель доступна через шлюз платформы; это не общий доступ к сети, браузеру или игре. "
+        + MODEL_ONLY
     )
     if home:
         guide += HOME_GUIDE
+        if internet:
+            # The home text says "no network yet"; this turn's gateway supersedes it.
+            guide = guide.replace(HOME_OFFLINE, "")
+    if internet:
+        guide = guide.replace(MODEL_ONLY, "Модель доступна через шлюз платформы. ")
+        guide += EGRESS_GUIDE
     if helper_template is None or helper_capability is None:
         return guide + "Python helper в этом запуске не подключён; не обещай его выполнение."
     limits = helper_template.ceiling
@@ -120,9 +134,12 @@ class EnvironmentModels:
         helper_capability: str | None = None,
         *,
         home: bool = False,
+        internet: bool = False,
     ) -> None:
         self.delegate = delegate
-        self.guide = environment_guide(output_area, helper_template, helper_capability, home=home)
+        self.guide = environment_guide(
+            output_area, helper_template, helper_capability, home=home, internet=internet
+        )
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
         if not request.messages or request.messages[0].role != "system":
@@ -145,6 +162,7 @@ class OpenCodeSessions:
         prewarm_enabled: bool = False,
         prewarm_idle_seconds: float = 120,
         home: HomeSettings | None = None,
+        egress: EgressSettings | None = None,
     ) -> None:
         from .work_session_helpers import PREFIX as HELPER_PREFIX
 
@@ -173,6 +191,7 @@ class OpenCodeSessions:
         self.rt, self.template, self.output_area = runtime, template, output_area
         self.helper_template, self.helper_capability = helper_template, helper_capability
         self.home = home
+        self.egress = egress
         # Live handles only, not another durable job/session/resource journal.
         self.runners: dict[str, DockerTaskRunner] = {}
         self.helper_runners: dict[str, DockerTaskRunner] = {}
@@ -198,6 +217,7 @@ class OpenCodeSessions:
         self.rt.session_capability = self.template.id
         self.rt.session_output_area = self.output_area
         self.rt.session_helper_capability = self.helper_capability
+        self.rt.session_egress_capability = self.egress.capability_id if self.egress else None
         self.rt.session_prewarmer = self.warm
 
     async def create(
@@ -218,6 +238,8 @@ class OpenCodeSessions:
         if place is None:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
 
+        internet: str | None = None  # this turn's internet capability, decided below
+
         async def authorize(gate: WorkAdmission, capability: str) -> None:
             if gate != admission or capability != self.template.id:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
@@ -226,10 +248,13 @@ class OpenCodeSessions:
             # Full JobOwner proof stays at create/model/file boundaries; acquiring its
             # lock again here can contend with that same admitted operation.
             execution.guard()
-            if not any(
-                tool.available and tool.manifest.capability_id == capability
+            usable = {
+                tool.manifest.capability_id
                 for tool in await tools(rt, gate.scope, session=True)
-            ):
+                if tool.available
+            }
+            # A turn with the gateway ends when the internet permission is revoked.
+            if capability not in usable or internet is not None and internet not in usable:
                 raise ContractError(ErrorCode.ACCESS_DENIED)
 
         async def lifecycle(
@@ -295,7 +320,16 @@ class OpenCodeSessions:
 
         await execution.verify()
         await authorize(admission, self.template.id)
-        home = self._home(admission.scope) if self.home is not None else None
+        if self.egress is not None and any(
+            tool.available and tool.manifest.capability_id == self.egress.capability_id
+            for tool in await tools(rt, admission.scope, session=True)
+        ):
+            internet = self.egress.capability_id
+        home = (
+            self._home(admission.scope, internet=internet is not None)
+            if self.home is not None
+            else None
+        )
         runner = DockerTaskRunner(
             (self.template,),
             place.files,
@@ -309,15 +343,20 @@ class OpenCodeSessions:
                 self.helper_template,
                 self.helper_capability,
                 home=home is not None,
+                internet=internet is not None,
             ),
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
             else None,
             helpers=helpers,
+            # A prewarmed sandbox has no network: a turn with the gateway starts cold.
             prepared=await self.warm.take(home.volume if home else None)
-            if self.warm is not None
+            if self.warm is not None and internet is None
             else None,
             home=home,
+            egress=egress_factory(self.egress, admission)
+            if self.egress is not None and internet is not None
+            else None,
         )
         self.runners[admission.attempt_id] = runner
         controller = self
@@ -334,10 +373,14 @@ class OpenCodeSessions:
 
         return TrackedHarness(runner, self.template.id, self.template.ceiling)
 
-    def _home(self, scope: Scope) -> Home:
+    def _home(self, scope: Scope, *, internet: bool = False) -> Home:
         assert self.home is not None
         facts = environment_guide(
-            self.output_area, self.helper_template, self.helper_capability, home=True
+            self.output_area,
+            self.helper_template,
+            self.helper_capability,
+            home=True,
+            internet=internet,
         )
         return home_of(self.home, scope, facts)
 
