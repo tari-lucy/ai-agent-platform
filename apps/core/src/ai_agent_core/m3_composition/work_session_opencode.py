@@ -30,9 +30,13 @@ if TYPE_CHECKING:
     from .service import Execution, Runtime
 
 
-def environment_guide(output_area: str) -> str:
+def environment_guide(
+    output_area: str,
+    helper_template: RunnerTemplate | None = None,
+    helper_capability: str | None = None,
+) -> str:
     """Trusted adapter facts, separate from persona/canon and operator instructions."""
-    return (
+    guide = (
         "\n\n## Устройство этой рабочей среды\n"
         "Управляемые области платформы не являются каталогами контейнера. "
         "Их содержимое и права узнавай через объявленные workspace MCP операции; "
@@ -54,13 +58,60 @@ def environment_guide(output_area: str) -> str:
         "инструмента. read_file поддерживает version, offset и length (до 4000 символов); "
         "для следующей части используй next_offset и сверяй checksum/version. "
         "Бинарные материалы сначала оцени по метаданным: текстовый инструмент их не разбирает. "
-        "Пустой список файлов — корректный результат, а не запрос новых прав."
+        "Пустой список файлов — корректный результат, а не запрос новых прав. "
+        "Доводи поручение до результата доступными средствами самостоятельно: "
+        "читать материалы, писать и исправлять скрипты, сохранять заметки и результаты "
+        "в уже разрешённых областях можно без согласования каждого подшага. "
+        "Не спрашивай оператора, читать ли нужный для поручения файл. "
+        "Наличие инструмента не выдаёт права; capability и доступность сверяй через capabilities. "
+        "Новый доступ, отсутствующий инструмент или неустранимую проблему запрашивай одним "
+        "конкретным обращением, а не повторным запросом на каждый шаг. "
+        "В ответе отличай прочитанное от предположений и проверенных действий. "
+        "Ссылка на материал в контексте означает наличие материала, а не чтение его байтов. "
+        "Имя архива, перечень файлов и строки из бинарника не доказывают устройство протокола. "
+        "Технический вывод из архива подкрепляй именем записи и извлечённым значением; "
+        "если код не исследован, не пиши «по коду» и не придумывай порт или команды. "
+        "Текстовый read_file не декодирует ZIP/JAR: для содержимого нужен разбор архивных байтов. "
+        "Результат можно объяснить прямо в чате; файл создавай, когда нужен сохраняемый артефакт "
+        "или об этом попросили. "
+        "Рабочий контейнер и Python-контейнер изолированы от Windows и друг от друга. "
+        "localhost/127.0.0.1 в контейнере — сам этот контейнер, не компьютер оператора. "
+        "Модель доступна через шлюз платформы; это не общий доступ к сети, браузеру или игре. "
+    )
+    if helper_template is None or helper_capability is None:
+        return guide + "Python helper в этом запуске не подключён; не обещай его выполнение."
+    limits = helper_template.ceiling
+    return guide + (
+        f"Python helper подключён как возможность {helper_capability}; это ещё не Permission. "
+        "Если право уже действует для нужных областей, используй helpers scripts самостоятельно: "
+        "save_script сохраняет Python, run_script запускает его отдельным контейнером без сети. "
+        "Доступна стандартная библиотека, в том числе zipfile для ZIP/JAR и json для метаданных. "
+        "Устанавливать пакеты, подключаться к WebSocket/Minecraft/Telegram или путям Windows "
+        "через Python нельзя: написанный клиент не меняет сетевой запрет. "
+        "inputs принимает JSON-массив точных {id,version} файлов владельца; передай туда архив. "
+        "Скрипт — inputs/input-0000, данные начинаются с inputs/input-0001; "
+        "inputs/manifest.json содержит соответствие ссылок. argv — JSON-массив строк. "
+        "Для архива сначала изучи оглавление и размеры, затем читай нужные небольшие записи; "
+        "не запускай код архива и не распаковывай всё без необходимости. "
+        "Пиши выводы под outputs/, затем читай файлы из receipt штатным read_file. "
+        "Только receipt run_script подтверждает исполнение; сохранение скрипта его не запускает. "
+        f"Потолки этого helper: wall {limits.wall_seconds} с, CPU {limits.cpu_seconds} с, "
+        f"RAM {limits.memory_mb} МиБ, вход {helper_template.max_input_bytes} байт, "
+        f"выход {limits.output_bytes} байт. STOP отзывает исполнение; "
+        "неизвестный исход не повторяй вслепую."
     )
 
 
 class EnvironmentModels:
-    def __init__(self, delegate: ModelGateway, output_area: str) -> None:
-        self.delegate, self.guide = delegate, environment_guide(output_area)
+    def __init__(
+        self,
+        delegate: ModelGateway,
+        output_area: str,
+        helper_template: RunnerTemplate | None = None,
+        helper_capability: str | None = None,
+    ) -> None:
+        self.delegate = delegate
+        self.guide = environment_guide(output_area, helper_template, helper_capability)
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
         if not request.messages or request.messages[0].role != "system":
@@ -237,7 +288,9 @@ class OpenCodeSessions:
             Release(rt),
             authorize=authorize,
             lifecycle=lifecycle,
-            models=EnvironmentModels(models, self.output_area),
+            models=EnvironmentModels(
+                models, self.output_area, self.helper_template, self.helper_capability
+            ),
             workspace=self._workspace(execution, admission)
             if self.template.max_workspace_calls
             else None,
