@@ -259,6 +259,8 @@ class WorkSessionsConfig(BaseModel):
     )
     egress_max_mb: int = Field(default=256, strict=True, ge=1, le=65536)
     egress_connections: int = Field(default=32, strict=True, ge=1, le=256)
+    # W3b: traffic per persona per UTC day across all turns; 0 leaves only the per-turn limit.
+    egress_daily_mb: int = Field(default=2048, strict=True, ge=0, le=1048576)
     egress_deny: tuple[str, ...] = Field(default=(), max_length=64)
 
     @model_validator(mode="after")

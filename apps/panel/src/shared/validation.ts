@@ -661,7 +661,7 @@ export function workAttempts(value: unknown, selected: Scope): import('./contrac
 // Work conversation (R3): sessions are the activity owner's records; text comes only in the
 // released transcript, never in a session or message record.
 const sessionStates = new Set(['open', 'waiting', 'closed', 'invalidated']);
-const speakers = new Set(['operator', 'character']);
+const speakers = new Set(['operator', 'character', 'wake']);
 const waitingReasons = new Set(['unavailable', 'access_required', 'access_requested', 'access_refused', 'message_unavailable']);
 const invalidatedReasons = new Set(['message_unavailable']);
 const stopReason = (value: Record<string, unknown>) => value.invalidated_reason == null ||
@@ -721,4 +721,19 @@ export function workplaceFileContent(value: unknown, selected: Scope, fileId: st
     version(value.version) && text(value.title, 512) && typeof value.withheld === 'boolean' && typeof value.truncated === 'boolean' &&
     date(value.checked_at) && (value.withheld ? (value.text === null || value.text === undefined) && !value.truncated : text(value.text, 20000)));
   return value as import('./contracts.ts').WorkplaceFileContent;
+}
+
+// The persona's internet log of one UTC day (W3b): totals and the newest requests.
+const egressStatuses = new Set(['ok', 'denied', 'limit', 'error']);
+export function egressLog(value: unknown, selected: Scope, day: string): import('./contracts.ts').EgressLog {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.day === day &&
+    typeof value.enabled === 'boolean' && typeof value.complete === 'boolean' && date(value.checked_at) &&
+    count(value.used_bytes) && count(value.requests) && count(value.denied) &&
+    (value.daily_limit_bytes == null || count(value.daily_limit_bytes)) &&
+    (value.turn_limit_bytes == null || count(value.turn_limit_bytes)) &&
+    Array.isArray(value.items) && value.items.length <= 200);
+  demand((value as { items: unknown[] }).items.every((item) => object(item) && date(item.at) &&
+    text(item.method, 16) && text(item.target, 2048) && egressStatuses.has(String(item.status)) &&
+    count(item.up) && count(item.down) && typeof item.seconds === 'number'));
+  return value as import('./contracts.ts').EgressLog;
 }

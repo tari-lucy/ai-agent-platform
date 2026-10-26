@@ -305,6 +305,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         ("/api/v1/workplace-access", "InitialAccessStatus"),
         ("/api/v1/work-session-transcript/{session_id}", "WorkSessionTranscript"),
         ("/api/v1/workplace-file/{file_id}", "WorkplaceFileContent"),
+        ("/api/v1/egress-log/{day}", "EgressLog"),
         ("/api/v1/api-limits", "ApiLimits"),
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
         ("/api/v1/laboratory-runs", "LaboratoryRuns"),
@@ -337,6 +338,15 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
                     "in": "path",
                     "required": True,
                     "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                }
+            )
+        if "{day}" in route:
+            params.append(
+                {
+                    "name": "day",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
                 }
             )
         if "{operation_id}" in route:

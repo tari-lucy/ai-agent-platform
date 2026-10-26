@@ -6,6 +6,7 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { Conversation } from './Conversation.tsx';
+import { Traffic } from './Traffic.tsx';
 import { nativeAgent, nativeHref, useNativeEntry } from '../opencode.ts';
 import { useWorkSessions } from './sessions.ts';
 import { discussTitle, openCommand, sessionFor } from './conversation.ts';
@@ -219,6 +220,7 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
         <Section title="В работе" rows={working} empty="Нет задач в работе." render={render} />
         <Section title="Завершённые" rows={done} empty="Завершённых задач нет." render={render} />
       </>}
+      <Traffic api={api} scope={scope} />
     </>}
   </Stack>;
 }

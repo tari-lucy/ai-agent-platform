@@ -236,6 +236,7 @@ class OpenCodeSessions:
         self.rt.session_output_area = self.output_area
         self.rt.session_helper_capability = self.helper_capability
         self.rt.session_egress_capability = self.egress.capability_id if self.egress else None
+        self.rt.session_egress = self.egress
         if self.home is not None:
             from ai_agent_adapters.sandbox.home_files import HomeFiles
 

@@ -40,6 +40,8 @@ MODELS = (
     panel.WorkSessionProgress,
     panel.WorkSessionTranscript,
     panel.WorkplaceFileContent,
+    panel.EgressRequest,
+    panel.EgressLog,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
     panel.PersonaApplyArguments,

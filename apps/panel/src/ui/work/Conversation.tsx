@@ -14,7 +14,7 @@ import {
 } from './conversation.ts';
 
 const when = (value: string) => formatTime(value, 'short');
-const speakerLabels = { operator: 'Вы', character: 'Агент' } as const;
+const speakerLabels = { operator: 'Вы', character: 'Агент', wake: '⏰ Будильник агента' } as const;
 
 function PendingReply({ api, draft, running, refresh }: {
   api: PanelApi; draft: WorkSessionDraft; running: boolean; refresh: () => void;
@@ -162,7 +162,7 @@ function Thread({ api, scope, transcript, running, native }: {
     {stopNotice(transcript) && <Text size="sm" c="orange.8" role="status">{stopNotice(transcript)}</Text>}
     {!transcript.complete && transcript.state !== 'invalidated' && <Text size="sm" c="orange.8">Показаны последние сообщения.</Text>}
     <Stack gap={6} mt="xs" component="ol" aria-label="Сообщения разговора" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-      {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker === 'operator' ? 'gray.0' : 'blue.0'}>
+      {transcript.entries.map((entry) => <Paper key={entry.sequence} component="li" p="xs" bg={entry.speaker !== 'character' ? 'gray.0' : 'blue.0'}>
         <Text size="xs" c="dimmed">{speakerLabels[entry.speaker]} · {when(entry.at)}{awaiting(transcript, entry.sequence, entry.speaker) ? (transcript.progress && endedStates.has(transcript.progress.state) ? ' · ответа нет' : ' · сохранено, ждёт исполнения') : ''}</Text>
         {entry.withheld ? <Text size="sm" c="dimmed">Скрыто: основание сообщения отозвано, истекло или удалено.</Text>
           : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{entry.text}</Text>}

@@ -681,3 +681,37 @@ class WorkplaceFileContent(Contract):
         if self.withheld != (self.text is None) or (self.withheld and self.truncated):
             raise ValueError("WITHHELD_TEXT")
         return self
+
+
+class EgressRequest(Contract):
+    """One request through the persona's internet gateway, as its local log recorded it.
+
+    HTTP has the full URL, HTTPS only ``host:port`` (no certificate substitution). Local
+    diagnostics for the operator: it may hold personal data and never leaves the host.
+    """
+
+    at: UTC
+    attempt: str = Field(max_length=128)
+    method: str = Field(max_length=16)
+    target: str = Field(max_length=2048)
+    status: Literal["ok", "denied", "limit", "error"]
+    reason: str | None = Field(default=None, max_length=64)
+    up: int = Field(strict=True, ge=0)
+    down: int = Field(strict=True, ge=0)
+    seconds: float = Field(ge=0)
+
+
+class EgressLog(Contract):
+    """The persona's internet traffic of one UTC day, newest first (W3b)."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    used_bytes: int = Field(strict=True, ge=0)
+    daily_limit_bytes: int | None = Field(default=None, strict=True, ge=1)
+    turn_limit_bytes: int | None = Field(default=None, strict=True, ge=1)
+    requests: int = Field(strict=True, ge=0)
+    denied: int = Field(strict=True, ge=0)
+    items: list[EgressRequest] = Field(max_length=200)
+    complete: bool = Field(strict=True)
+    checked_at: UTC

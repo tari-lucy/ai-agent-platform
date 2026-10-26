@@ -120,3 +120,25 @@ def test_proxy_refuses_denied_destinations_and_stops_at_the_byte_limit(monkeypat
         ("denied", "EGRESS_LIMIT"),
     ]
     assert rows[2]["target"].endswith("/path?q=1") and rows[2]["down"] <= 3000 + 65536
+
+
+def test_proxy_names_the_daily_limit_when_the_host_lowered_it(capsys):
+    async def scenario():
+        config = dict(
+            deny=[], deny_ports=[25], max_bytes=0, connect_timeout=5, max_connections=4,
+            limit_reason="EGRESS_DAILY_LIMIT",
+        )  # fmt: skip
+        server = await asyncio.start_server(Proxy(config).handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(b"CONNECT example.com:443 HTTP/1.1\r\nHost: x\r\n\r\n")
+        await writer.drain()
+        answer = await reader.read()
+        writer.close()
+        server.close()
+        return answer
+
+    answer = asyncio.run(scenario())
+    assert answer.startswith(b"HTTP/1.1 403") and b"EGRESS_DAILY_LIMIT" in answer
+    (row,) = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert row["status"] == "denied" and row["reason"] == "EGRESS_DAILY_LIMIT"

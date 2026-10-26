@@ -129,6 +129,13 @@ class Views:
                 resets_at=None if budget is None else budget.reset_at(now),
                 checked_at=now,
             )
+        if resource == "egress-log" and identifier is not None:
+            from .work_session_egress import log_view
+
+            try:
+                return log_view(self.runtime.session_egress, scope, identifier)
+            except ValueError:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
         if resource == "workplace-file" and identifier is not None:
             from .workplace import file_content
 

@@ -10,7 +10,7 @@ import {
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
-  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, nativeAgents, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent,
+  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, nativeAgents, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent, egressLog,
   characterStates, costCalculations, encounters, laboratoryReports, people, promises, relationships, topics, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
@@ -41,7 +41,7 @@ export const failureMessage = (error: unknown) =>
 type Fetcher = typeof fetch;
 type ReadResource = 'api-limits' | 'memory-cycles' | 'private-api-status' | 'owner-operations' | 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
-  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises' | 'tickets' | 'ticket-messages' | 'capability-manifests' | 'capability-bindings' | 'workplace-library' | 'workplace-access' | 'work-tasks' | 'work-attempts' | 'work-sessions' | 'work-session-transcript' | 'workplace-file';
+  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises' | 'tickets' | 'ticket-messages' | 'capability-manifests' | 'capability-bindings' | 'workplace-library' | 'workplace-access' | 'work-tasks' | 'work-attempts' | 'work-sessions' | 'work-session-transcript' | 'workplace-file' | 'egress-log';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -192,6 +192,9 @@ export class PanelApi {
   }
   async workplaceFile(scope: Scope, fileId: string, signal?: AbortSignal): Promise<import('./contracts.ts').WorkplaceFileContent> {
     return workplaceFileContent(await this.#read('workplace-file', scope, signal, undefined, fileId), scope, fileId);
+  }
+  async egressLog(scope: Scope, day: string, signal?: AbortSignal): Promise<import('./contracts.ts').EgressLog> {
+    return egressLog(await this.#read('egress-log', scope, signal, undefined, day), scope, day);
   }
   async workSessions(scope: Scope, signal?: AbortSignal, cursor?: string): Promise<import('./contracts.ts').WorkSessionPage> {
     return workSessions(await this.#read('work-sessions', scope, signal, cursor), scope);

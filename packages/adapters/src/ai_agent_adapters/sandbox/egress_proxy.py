@@ -55,6 +55,8 @@ class Proxy:
         self.deny = [ipaddress.ip_network(item) for item in config["deny"]]
         self.deny_ports = set(config["deny_ports"])
         self.max_bytes = config["max_bytes"]
+        # The host lowers max_bytes to what is left of the persona's day and says so here.
+        self.limit_reason = config.get("limit_reason", "EGRESS_LIMIT")
         self.timeout = config["connect_timeout"]
         self.slots = asyncio.Semaphore(config["max_connections"])
         self.used = 0
@@ -121,7 +123,7 @@ class Proxy:
             if port in self.deny_ports:
                 reason = "EGRESS_PORT_DENIED"
             elif self.used >= self.max_bytes:
-                reason = "EGRESS_LIMIT"
+                reason = self.limit_reason
             if reason is None:
                 try:
                     stats["ip"] = address = await self.resolve(host, port)

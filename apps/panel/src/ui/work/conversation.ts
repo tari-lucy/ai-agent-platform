@@ -22,7 +22,7 @@ export function titleProblem(title: string): string | null {
 }
 // Messages the person's session has not taken yet: stored, waiting for execution.
 export const pending = (transcript: WorkSessionTranscript, sequence: number, speaker: string) =>
-  speaker === 'operator' && sequence > (transcript.processed_sequence ?? 0);
+  speaker !== 'character' && sequence > (transcript.processed_sequence ?? 0);
 // Whose move. A stored message is not an answer: no reply is promised before the session runs it.
 export function turn(transcript: WorkSessionTranscript, running: boolean): string {
   if (transcript.state === 'closed') return 'Разговор закрыт';

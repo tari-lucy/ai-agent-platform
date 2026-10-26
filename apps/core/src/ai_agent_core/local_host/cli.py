@@ -37,6 +37,7 @@ SESSION_LIMITS = (
     "resident_idle_seconds",
     "egress_max_mb",
     "egress_connections",
+    "egress_daily_mb",
     "home_quota_mb",
     "memory_mb",
     "pids",

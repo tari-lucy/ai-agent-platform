@@ -2194,6 +2194,171 @@
         "title": "EditCommand",
         "type": "object"
       },
+      "EgressLog": {
+        "additionalProperties": false,
+        "description": "The persona's internet traffic of one UTC day, newest first (W3b).",
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "daily_limit_bytes": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Daily Limit Bytes"
+          },
+          "day": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Day",
+            "type": "string"
+          },
+          "denied": {
+            "minimum": 0,
+            "title": "Denied",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EgressRequest"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          },
+          "requests": {
+            "minimum": 0,
+            "title": "Requests",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "turn_limit_bytes": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Limit Bytes"
+          },
+          "used_bytes": {
+            "minimum": 0,
+            "title": "Used Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "enabled",
+          "day",
+          "used_bytes",
+          "requests",
+          "denied",
+          "items",
+          "complete",
+          "checked_at"
+        ],
+        "title": "EgressLog",
+        "type": "object"
+      },
+      "EgressRequest": {
+        "additionalProperties": false,
+        "description": "One request through the persona's internet gateway, as its local log recorded it.\n\nHTTP has the full URL, HTTPS only ``host:port`` (no certificate substitution). Local\ndiagnostics for the operator: it may hold personal data and never leaves the host.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "attempt": {
+            "maxLength": 128,
+            "title": "Attempt",
+            "type": "string"
+          },
+          "down": {
+            "minimum": 0,
+            "title": "Down",
+            "type": "integer"
+          },
+          "method": {
+            "maxLength": 16,
+            "title": "Method",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          },
+          "seconds": {
+            "minimum": 0,
+            "title": "Seconds",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "denied",
+              "limit",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "maxLength": 2048,
+            "title": "Target",
+            "type": "string"
+          },
+          "up": {
+            "minimum": 0,
+            "title": "Up",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "attempt",
+          "method",
+          "target",
+          "status",
+          "up",
+          "down",
+          "seconds"
+        ],
+        "title": "EgressRequest",
+        "type": "object"
+      },
       "Encounter": {
         "additionalProperties": false,
         "properties": {
@@ -17927,6 +18092,75 @@
               }
             },
             "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/egress-log/{day}": {
+      "get": {
+        "operationId": "read_EgressLog",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          },
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EgressLog"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
           },
           "409": {
             "$ref": "#/components/responses/ApiError"

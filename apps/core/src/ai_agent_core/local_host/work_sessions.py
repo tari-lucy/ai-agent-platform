@@ -214,6 +214,7 @@ def install(
                 deny=settings.egress_deny,
             ),
             egress_log,
+            settings.egress_daily_mb * 1024 * 1024 if settings.egress_daily_mb else None,
         )
         if settings.egress_enabled
         else None,

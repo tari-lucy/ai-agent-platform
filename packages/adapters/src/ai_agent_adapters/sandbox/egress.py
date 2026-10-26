@@ -65,10 +65,16 @@ class Egress:
     """
 
     def __init__(
-        self, image_id: str, limits: EgressLimits, record: Callable[[dict[str, Any]], None]
+        self,
+        image_id: str,
+        limits: EgressLimits,
+        record: Callable[[dict[str, Any]], None],
+        remaining: int | None = None,
     ) -> None:
+        """``remaining``: bytes left of a daily budget; below ``max_bytes`` it becomes the cap."""
         suffix = uuid4().hex
         self.image_id, self.limits, self.record = image_id, limits, record
+        self.remaining = remaining
         self.network = "aw-net-" + suffix
         self.name = "aw-egress-" + suffix
         self.process: asyncio.subprocess.Process | None = None
@@ -134,7 +140,11 @@ class Egress:
             limit=MAX_FRAME,
         )
         assert self.process.stdin is not None and self.process.stdout is not None
-        self.process.stdin.write(json.dumps(self.limits.wire()).encode() + b"\n")
+        config = self.limits.wire()
+        if self.remaining is not None and self.remaining < self.limits.max_bytes:
+            config["max_bytes"] = max(self.remaining, 0)
+            config["limit_reason"] = "EGRESS_DAILY_LIMIT"
+        self.process.stdin.write(json.dumps(config).encode() + b"\n")
         await self.process.stdin.drain()
         ready = await asyncio.wait_for(self.process.stdout.readline(), 20)
         if ready != b'{"kind": "ready"}\n':
