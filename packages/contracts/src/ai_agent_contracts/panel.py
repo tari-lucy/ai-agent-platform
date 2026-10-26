@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, JsonValue, model_validator
 
+from .agent_workplace import ToolStep
 from .api import Receipt
 from .common import (
     UTC,
@@ -538,6 +539,9 @@ class WorkSessionEntry(Contract):
     withheld: bool = Field(strict=True)
     at: UTC
     reply_to_sequence: int | None = Field(default=None, strict=True, ge=1)
+    # The tool journal of the turn that produced this reply, while its basis is released.
+    steps: list[ToolStep] = Field(default_factory=list, max_length=40)
+    steps_omitted: int = Field(default=0, strict=True, ge=0)
 
     @model_validator(mode="after")
     def text_or_withheld(self) -> Self:
@@ -606,6 +610,8 @@ class WorkSessionProgress(Contract):
     model_calls: WorkSessionModelCalls | None = None
     files: list[WorkSessionResultFile] = Field(default_factory=list, max_length=50)
     error_code: ShortText | None = None
+    steps: list[ToolStep] = Field(default_factory=list, max_length=40)
+    steps_omitted: int = Field(default=0, strict=True, ge=0)
 
 
 class WorkSessionTranscript(Contract):

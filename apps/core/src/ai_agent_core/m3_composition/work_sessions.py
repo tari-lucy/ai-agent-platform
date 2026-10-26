@@ -211,6 +211,26 @@ async def transcript(rt: Runtime, scope: Scope, session_id: str) -> WorkSessionT
                     reply_to_sequence=row.reply_to_sequence,
                 )
             )
+    if any(e.speaker == "character" and not e.withheld for e in entries):
+        from .activity import book as activity_book
+        from .work_session_journal import released, replies
+
+        turns = replies(await activity_book(rt).session_attempts(stable, session.id))
+        journaled = []
+        for entry in entries:
+            done = turns.get(entry.reply_to_sequence or 0)
+            if (
+                entry.speaker == "character"
+                and not entry.withheld
+                and done is not None
+                and (done.tool_steps or done.tool_steps_omitted)
+                and await released(rt, done)
+            ):
+                entry = entry.model_copy(
+                    update={"steps": done.tool_steps, "steps_omitted": done.tool_steps_omitted}
+                )
+            journaled.append(entry)
+        entries = journaled
     from .work_session_delivery import draft
 
     pending = await draft(rt, session)

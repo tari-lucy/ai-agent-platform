@@ -7,13 +7,14 @@ operation and records its inputs. Every write is one owner transaction keyed by 
 import builtins
 import hashlib
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 
 from ai_agent_contracts.agent_sessions import SessionTicketRef, WorkSession
 from ai_agent_contracts.agent_workplace import (
     AttemptState,
     HelperRun,
+    ToolStep,
     WorkAttempt,
     WorkOrigin,
     WorkTask,
@@ -378,6 +379,32 @@ class ActivityBook:
         )
         await self._commit(
             f"helper-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
+        )
+        return revised
+
+    async def record_steps(
+        self, attempt: WorkAttempt, steps: Sequence[ToolStep], omitted: int
+    ) -> WorkAttempt:
+        """The turn's tool journal, written once while the attempt is still submitted."""
+        if attempt.state != "submitted":
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        if not steps and not omitted:
+            return attempt
+        if attempt.tool_steps or attempt.tool_steps_omitted:
+            if (attempt.tool_steps, attempt.tool_steps_omitted) == (list(steps), omitted):
+                return attempt
+            raise ContractError(ErrorCode.IDEMPOTENCY_CONFLICT)
+        revised = WorkAttempt.model_validate(
+            dict(
+                attempt.model_dump(),
+                tool_steps=[step.model_dump() for step in steps],
+                tool_steps_omitted=omitted,
+                version=attempt.version + 1,
+                updated_at=self.clock(),
+            )
+        )
+        await self._commit(
+            f"steps-{attempt.id}-{attempt.version}", attempt.scope, [(revised, attempt.version)]
         )
         return revised
 

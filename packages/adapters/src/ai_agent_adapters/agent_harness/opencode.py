@@ -13,12 +13,23 @@ from ai_agent_application.agent_workplace.ports import (
     WorkAdmission,
 )
 from ai_agent_application.workspace_files.guard import current
+from ai_agent_contracts.agent_workplace import ToolStep
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
-from .worker import MAX_INSTRUCTION, MAX_TEXT
+from .worker import MAX_INSTRUCTION, MAX_STEPS, MAX_TEXT
 
 PREFIX = ("/usr/local/bin/python", "-I", "/opt/agent-harness/worker.py")
+
+
+def journal(row: dict[str, object]) -> tuple[tuple[ToolStep, ...], int]:
+    """The worker's clipped journal; absent from images built before it (no steps then)."""
+    steps, omitted = row.get("steps", []), row.get("steps_omitted", 0)
+    if not isinstance(steps, list) or len(steps) > MAX_STEPS:
+        raise ValueError()
+    if type(omitted) is not int or omitted < 0:
+        raise ValueError()
+    return tuple(ToolStep.model_validate(step) for step in steps), omitted
 
 
 class OpenCodeHarness:
@@ -65,8 +76,15 @@ class OpenCodeHarness:
                 return [HarnessEvent(kind, "SANDBOX_" + result.status.upper())]
             try:
                 row = json.loads(result.stdout_tail)
-                if not isinstance(row, dict) or row.get("status") != "completed":
-                    return [HarnessEvent("failed", "OPENCODE_FAILED")]
+                if not isinstance(row, dict):
+                    raise ValueError()
+                steps, omitted = journal(row)
+                if row.get("status") != "completed":
+                    return [
+                        HarnessEvent(
+                            "failed", "OPENCODE_FAILED", steps=steps, steps_omitted=omitted
+                        )
+                    ]
                 text = row.get("text")
                 errors = row.get("tool_errors", [])
                 if (
@@ -80,7 +98,11 @@ class OpenCodeHarness:
                 events = [
                     HarnessEvent("progress", "SANDBOX_TOOL_FAILED:" + tool) for tool in errors
                 ]
-                events.append(HarnessEvent("result", text, files=result.outputs))
+                events.append(
+                    HarnessEvent(
+                        "result", text, files=result.outputs, steps=steps, steps_omitted=omitted
+                    )
+                )
                 return events
             except ValueError, TypeError, RecursionError:
                 return [HarnessEvent("failed", "OPENCODE_RESULT_INVALID")]

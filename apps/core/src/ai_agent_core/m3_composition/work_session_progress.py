@@ -1,9 +1,10 @@
 """Read-only progress of a work conversation's current turn (no second queue or registry).
 
 Derived from the session owner (SessionBook), its WorkAttempt, the job's state and the LLM
-journal at read time. Only confirmed facts: recorded times, model call counts and the files the
-turn saved through the file owner. No prompt, tool argument, message text or secret is read
-into it. Reading it never submits, retries or acknowledges anything.
+journal at read time. Only confirmed facts: recorded times, model call counts, the files the
+turn saved through the file owner and its clipped tool journal while the turn's basis is
+released. No prompt, message text or secret is read into it. Reading it never submits,
+retries or acknowledges anything.
 """
 
 from typing import TYPE_CHECKING, Literal
@@ -148,7 +149,10 @@ async def progress(
     else:
         state = ENDED_ATTEMPT[attempt.state]
     if state == "done" and not attempt.result_files:
-        return None  # the reply is in the history; nothing more to report
+        return None  # the reply is in the history with its journal; nothing more to report
+    from .work_session_journal import released
+
+    journal = (attempt.tool_steps or attempt.tool_steps_omitted) and await released(rt, attempt)
     return WorkSessionProgress(
         state=state,
         since=attempt.updated_at if state != "running" else attempt.created_at,
@@ -158,4 +162,6 @@ async def progress(
         error_code=await _error(rt, attempt)
         if state in ("failed", "cancelled", "unknown")
         else None,
+        steps=attempt.tool_steps if journal else [],
+        steps_omitted=attempt.tool_steps_omitted if journal else 0,
     )

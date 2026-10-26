@@ -6,14 +6,21 @@ All state is ephemeral tmpfs; logical continuation is rebuilt by platform owners
 
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any
 
 MAX_INSTRUCTION = 20000
-MAX_EVENTS_BYTES = 200000
-MAX_LINE_BYTES = 65536
+# A tool event carries the whole tool output (a read file): bounded per line, not per turn.
+MAX_LINE_BYTES = 8 * 1024 * 1024
 MAX_TEXT = 16000
+MAX_STEPS = 40
+MAX_JOURNAL_BYTES = 16384
+STEP_INPUT = 300
+STEP_OUTPUT = 400
+SHELL_TOOLS = {"read", "write", "edit", "bash"}
+TOOL_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 def configuration(
@@ -113,17 +120,25 @@ def configuration(
     }
 
 
-def parse_events(data: bytes, returncode: int) -> dict[str, Any]:
-    """Only a final stopped message is a response. Never return raw remote/CLI errors."""
-    if returncode != 0 or len(data) > MAX_EVENTS_BYTES:
-        return {"status": "failed", "code": "OPENCODE_FAILED"}
-    texts: dict[str, str] = {}
-    final: str | None = None
-    denied: set[str] = set()
-    try:
-        for line in data.splitlines():
-            if not line.strip():
-                continue
+class Events:
+    """Incremental reader of ``opencode run --format json``; memory bounded per line.
+
+    Only a final stopped message is a response. Finished tool calls become a bounded
+    journal (observation for the operator and the next turn, never authority).
+    """
+
+    def __init__(self) -> None:
+        self.texts: dict[str, str] = {}
+        self.final: str | None = None
+        self.denied: set[str] = set()
+        self.steps: list[dict[str, Any]] = []
+        self.omitted = 0
+        self.invalid = False
+
+    def feed(self, line: bytes) -> None:
+        if self.invalid or not line.strip():
+            return
+        try:
             if len(line) > MAX_LINE_BYTES:
                 raise ValueError()
             event = json.loads(line)
@@ -137,23 +152,86 @@ def parse_events(data: bytes, returncode: int) -> dict[str, Any]:
                 text = part.get("text")
                 if not isinstance(message, str) or not isinstance(text, str):
                     raise ValueError()
-                texts[message] = texts.get(message, "") + text
-                if sum(map(len, texts.values())) > MAX_TEXT:
+                self.texts[message] = self.texts.get(message, "") + text
+                if sum(map(len, self.texts.values())) > MAX_TEXT:
                     raise ValueError()
             elif event.get("type") == "step_finish":
-                final = message if part.get("reason") == "stop" else None
+                if part.get("reason") == "stop":
+                    self.final = message
+                else:
+                    # Narration of an intermediate step is not the response.
+                    self.final = None
+                    if isinstance(message, str):
+                        self.texts.pop(message, None)
             elif event.get("type") == "tool_use":
-                state = part.get("state", {})
-                tool = part.get("tool")
-                # Do not reproduce arbitrary tool name or the denied file/error text.
-                if isinstance(state, dict) and state.get("status") == "error":
-                    denied.add(tool if tool in {"read", "write", "edit", "bash"} else "tool")
-        text = texts.get(final or "", "")
-        if not text.strip():
-            raise ValueError()
-        return {"status": "completed", "text": text, "tool_errors": sorted(denied)}
-    except ValueError, TypeError, KeyError, RecursionError:
-        return {"status": "failed", "code": "OPENCODE_RESULT_INVALID"}
+                step = tool_step(part)
+                if step is not None:
+                    self.add(step)
+        except ValueError, TypeError, KeyError, RecursionError:
+            self.invalid = True
+
+    def add(self, step: dict[str, Any]) -> None:
+        if step["status"] == "error":
+            self.denied.add(step["tool"] if step["tool"] in SHELL_TOOLS else "tool")
+        self.steps.append(step)
+        if len(self.steps) > MAX_STEPS:
+            self.steps.pop(0)
+            self.omitted += 1
+
+    def result(self, returncode: int) -> dict[str, Any]:
+        steps, omitted = journal(self.steps, self.omitted)
+        trace = {"steps": steps, "steps_omitted": omitted}
+        if returncode != 0:
+            return {"status": "failed", "code": "OPENCODE_FAILED", **trace}
+        text = self.texts.get(self.final or "", "")
+        if self.invalid or not text.strip():
+            return {"status": "failed", "code": "OPENCODE_RESULT_INVALID", **trace}
+        return {"status": "completed", "text": text, "tool_errors": sorted(self.denied), **trace}
+
+
+def clip(value: Any, limit: int) -> str:
+    text = (
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    )
+    return text if len(text) <= limit else text[: limit - 1] + "\u2026"
+
+
+def tool_step(part: Any) -> dict[str, Any] | None:
+    """One finished tool call, clipped. Anything else (running, malformed) is not a step."""
+    if not isinstance(part, dict) or part.get("type", "tool") != "tool":
+        return None
+    state, tool = part.get("state"), part.get("tool")
+    if not isinstance(state, dict) or state.get("status") not in ("completed", "error"):
+        return None
+    status = state["status"]
+    output = state.get("output" if status == "completed" else "error")
+    output = output if isinstance(output, str) else ""
+    return {
+        "tool": tool if isinstance(tool, str) and TOOL_NAME.fullmatch(tool) else "tool",
+        "status": status,
+        "input": clip(state.get("input", {}), STEP_INPUT),
+        "output": clip(output, STEP_OUTPUT),
+        "output_chars": len(output),
+    }
+
+
+def journal(steps: list[dict[str, Any]], omitted: int) -> tuple[list[dict[str, Any]], int]:
+    """The latest steps that fit the journal budget; the rest are only counted."""
+    kept = steps[-MAX_STEPS:]
+    omitted += len(steps) - len(kept)
+    while kept and len(json.dumps(kept, ensure_ascii=False).encode()) > MAX_JOURNAL_BYTES:
+        kept.pop(0)
+        omitted += 1
+    return kept, omitted
+
+
+def parse_events(data: bytes, returncode: int) -> dict[str, Any]:
+    events = Events()
+    for line in data.splitlines():
+        events.feed(line)
+    return events.result(returncode)
 
 
 def main() -> None:
@@ -205,15 +283,17 @@ def main() -> None:
         env=environment,
     )
     assert child.stdout is not None
-    data = bytearray()
-    while chunk := child.stdout.read(min(8192, MAX_EVENTS_BYTES + 1 - len(data))):
-        data.extend(chunk)
-        if len(data) > MAX_EVENTS_BYTES:
+    events = Events()
+    while line := child.stdout.readline(MAX_LINE_BYTES + 1):
+        if len(line) > MAX_LINE_BYTES:
+            # One oversized event cannot be parsed safely: the turn is invalid, not unbounded.
+            events.invalid = True
             child.kill()
             break
+        events.feed(line)
     child.stdout.close()
     child.wait()
-    print(json.dumps(parse_events(bytes(data), child.returncode), ensure_ascii=False), flush=True)
+    print(json.dumps(events.result(child.returncode), ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

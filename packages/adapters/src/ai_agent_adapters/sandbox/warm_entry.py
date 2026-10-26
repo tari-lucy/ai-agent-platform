@@ -36,14 +36,15 @@ backend = subprocess.Popen(["/usr/local/bin/opencode", "serve", "--hostname", "1
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
 
-def http(path, data=None, timeout=None):
+def http(path, data=None, timeout=None, limit=None):
     request = urllib.request.Request("http://127.0.0.1:4100" + path,
         data=None if data is None else json.dumps(data).encode(),
         headers={"Content-Type": "application/json"})
     wait = cap["wall_seconds"] if timeout is None else timeout
+    limit = cap["output_bytes"] * 4 if limit is None else limit
     with urllib.request.urlopen(request, timeout=wait) as response:
-        raw = response.read(cap["output_bytes"] * 4 + 1)
-        if len(raw) > cap["output_bytes"] * 4:
+        raw = response.read(limit + 1)
+        if len(raw) > limit:
             raise ValueError("WARM_RESULT_LIMIT")
         return json.loads(raw)
 
@@ -88,12 +89,28 @@ try:
     text = "".join(part["text"] for part in parts if part.get("type") == "text")
     if not text.strip() or len(text) > worker["MAX_TEXT"]:
         raise ValueError()
-    errors = sorted({part.get("tool") if part.get("tool") in {"read", "write", "edit", "bash"}
-                     else "tool" for part in parts
-                     if part.get("type") == "tool"
-                     and part.get("state", {}).get("status") == "error"})
-    output = bytearray(json.dumps({"status": "completed", "text": text,
-                                  "tool_errors": errors}, ensure_ascii=False).encode())
+    # Each loop step is its own assistant message: the journal reads all of them.
+    # Tool outputs are whole here (a read file), so the listing has its own bound.
+    if "Events" in worker:
+        events = worker["Events"]()
+        for row in http("/session/" + session["id"] + "/message",
+                        limit=worker["MAX_LINE_BYTES"]):
+            if row["info"].get("role") == "assistant":
+                for part in row["parts"]:
+                    step = worker["tool_step"](part)
+                    if step is not None:
+                        events.add(step)
+        steps, omitted = worker["journal"](events.steps, events.omitted)
+        trace = {"tool_errors": sorted(events.denied), "steps": steps,
+                 "steps_omitted": omitted}
+    else:
+        # An image built before the journal: the previous final-message errors only.
+        trace = {"tool_errors": sorted({
+            part.get("tool") if part.get("tool") in {"read", "write", "edit", "bash"}
+            else "tool" for part in parts if part.get("type") == "tool"
+            and part.get("state", {}).get("status") == "error"})}
+    output = bytearray(json.dumps({"status": "completed", "text": text, **trace},
+                                  ensure_ascii=False).encode())
     if len(output) > cap["output_bytes"]:
         raise ValueError()
     state, child.returncode = "succeeded", 0

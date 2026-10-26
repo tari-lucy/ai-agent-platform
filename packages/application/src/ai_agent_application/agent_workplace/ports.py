@@ -17,6 +17,7 @@ from ai_agent_contracts.agent_workplace import (
     ManagedFile,
     Ticket,
     TicketMessage,
+    ToolStep,
     WorkAttempt,
 )
 from ai_agent_contracts.common import ArtifactRef, Scope, SourceRef
@@ -220,6 +221,9 @@ class HarnessEvent:
     detail: str
     capability_id: str | None = None
     files: tuple[RunnerOutput, ...] = ()
+    # Journal of the turn's finished tool calls (result/failed only); an observation.
+    steps: tuple[ToolStep, ...] = ()
+    steps_omitted: int = 0
 
 
 class AgentHarness(Protocol):

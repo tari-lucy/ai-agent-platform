@@ -13567,6 +13567,49 @@
       "title": "TokenUsage",
       "type": "object"
     },
+    "ToolStep": {
+      "additionalProperties": false,
+      "description": "One finished tool call of a turn, as the harness observed it (clipped journal).\n\nAn observation for the operator and the next turn; never a receipt, right or result.",
+      "properties": {
+        "input": {
+          "maxLength": 300,
+          "title": "Input",
+          "type": "string"
+        },
+        "output": {
+          "maxLength": 400,
+          "title": "Output",
+          "type": "string"
+        },
+        "output_chars": {
+          "minimum": 0,
+          "title": "Output Chars",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool": {
+          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "status",
+        "input",
+        "output",
+        "output_chars"
+      ],
+      "title": "ToolStep",
+      "type": "object"
+    },
     "Topic": {
       "additionalProperties": false,
       "properties": {
@@ -14118,6 +14161,20 @@
           "default": null,
           "title": "Task Id"
         },
+        "tool_steps": {
+          "items": {
+            "$ref": "#/$defs/ToolStep"
+          },
+          "maxItems": 40,
+          "title": "Tool Steps",
+          "type": "array"
+        },
+        "tool_steps_omitted": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Steps Omitted",
+          "type": "integer"
+        },
         "updated_at": {
           "format": "date-time",
           "title": "Updated At",
@@ -14424,6 +14481,20 @@
           "title": "Speaker",
           "type": "string"
         },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ToolStep"
+          },
+          "maxItems": 40,
+          "title": "Steps",
+          "type": "array"
+        },
+        "steps_omitted": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Steps Omitted",
+          "type": "integer"
+        },
         "text": {
           "anyOf": [
             {
@@ -14701,6 +14772,20 @@
           ],
           "title": "State",
           "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ToolStep"
+          },
+          "maxItems": 40,
+          "title": "Steps",
+          "type": "array"
+        },
+        "steps_omitted": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Steps Omitted",
+          "type": "integer"
         }
       },
       "required": [

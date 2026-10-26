@@ -172,6 +172,19 @@ class HelperRun(Contract):
     outputs: list[ArtifactRef] = Field(default_factory=list, max_length=20)
 
 
+class ToolStep(Contract):
+    """One finished tool call of a turn, as the harness observed it (clipped journal).
+
+    An observation for the operator and the next turn; never a receipt, right or result.
+    """
+
+    tool: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    status: Literal["completed", "error"]
+    input: str = Field(max_length=300)
+    output: str = Field(max_length=400)
+    output_chars: int = Field(strict=True, ge=0)
+
+
 class WorkAttempt(VersionedRecord):
     """One task step or conversation turn, bound to exactly one job operation.
 
@@ -196,6 +209,8 @@ class WorkAttempt(VersionedRecord):
     result_id: Id | None = None
     session_tickets: list[SessionTicketRef] = Field(default_factory=list, max_length=20)
     helper_runs: list[HelperRun] = Field(default_factory=list, max_length=16)
+    tool_steps: list[ToolStep] = Field(default_factory=list, max_length=40)
+    tool_steps_omitted: int = Field(default=0, strict=True, ge=0)
 
     @model_validator(mode="after")
     def run_bound(self) -> Self:
