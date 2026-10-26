@@ -34,6 +34,7 @@ from .model_protocol import model_request, wire_calls, workspace_request
 from .policy import Home, RunnerTemplate, create_args
 
 if TYPE_CHECKING:
+    from .egress import Egress
     from .warm import WarmSandbox
 
 
@@ -107,6 +108,7 @@ class DockerTaskRunner:
         helpers: WorkspaceGateway | None = None,
         prepared: WarmSandbox | None = None,
         home: Home | None = None,
+        egress: Callable[[], Egress] | None = None,
     ) -> None:
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
@@ -119,6 +121,10 @@ class DockerTaskRunner:
         if prepared is not None and prepared.home_volume != (home.volume if home else None):
             raise ValueError("RUNNER_HOME_MISMATCH")
         self.home = home
+        # A prepared sandbox is created without a network; egress turns always start cold.
+        if prepared is not None and egress is not None:
+            raise ValueError("RUNNER_EGRESS_PREPARED")
+        self.egress = egress
         self.models = models
         self.workspace = workspace
         self.helpers = helpers
@@ -485,6 +491,8 @@ class DockerTaskRunner:
         result = RunnerOutcome("unknown", None, (), "")
         contents: dict[RunnerOutput, bytes] = {}
         attached: asyncio.Task[bytes] | None = None
+        gateway: Egress | None = None
+        proxy: str | None = None
         try:
             attempt = await self._attempt(admission)
             if attempt.capability_id != template.id:
@@ -514,11 +522,22 @@ class DockerTaskRunner:
                 if self.prepared is None:
                     await self.ensure_home(self.home.volume)
             await self._verify(admission, attempt)
+            if self.egress is not None:
+                created = self.egress()
+                await self.lifecycle(admission, created.name, "register")
+                gateway = created
+                proxy = await gateway.open()
+                await self._verify(admission, attempt)
             await self.lifecycle(admission, name, "register")
             registered = True
             if self.prepared is None:
                 args = create_args(
-                    template, task, name, ENTRY, self.home.volume if self.home else None
+                    template,
+                    task,
+                    name,
+                    ENTRY,
+                    self.home.volume if self.home else None,
+                    gateway.network if gateway is not None else None,
                 )
                 args[1:1] = ["--label", "ai-agent-platform.instance=" + name]
                 await cli(*args)
@@ -535,6 +554,7 @@ class DockerTaskRunner:
                     "workspace": self.workspace is not None and template.max_workspace_calls > 0,
                     "helper": self.helpers is not None and template.max_helper_calls > 0,
                     "home": self.home.wire() if self.home is not None else None,
+                    **({"proxy": proxy} if proxy is not None else {}),
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096
@@ -559,19 +579,24 @@ class DockerTaskRunner:
         finally:
             if attached is not None:
                 attached.cancel()
-            if registered:
-                removal = asyncio.create_task(self._remove(name))
-                try:
-                    cleanup = await asyncio.shield(removal)
-                except asyncio.CancelledError:
-                    cleanup = await removal
+            try:
+                if registered:
+                    removal = asyncio.create_task(self._remove(name))
+                    try:
+                        cleanup = await asyncio.shield(removal)
+                    except asyncio.CancelledError:
+                        cleanup = await removal
+                        if not cleanup:
+                            self._residual = name
+                        await self.lifecycle(admission, name, "removed" if cleanup else "unknown")
+                        raise
                     if not cleanup:
                         self._residual = name
                     await self.lifecycle(admission, name, "removed" if cleanup else "unknown")
-                    raise
-                if not cleanup:
-                    self._residual = name
-                await self.lifecycle(admission, name, "removed" if cleanup else "unknown")
+            finally:
+                # After the agent container: the network is removable only without it.
+                if gateway is not None and not await self._close_gateway(admission, gateway):
+                    cleanup = False
             # Stop the container before awaiting any late technical LLM receipt.
             if attached is not None:
                 with contextlib.suppress(BaseException):
@@ -590,6 +615,17 @@ class DockerTaskRunner:
                 self.cache_seconds, self._clear_cache
             )
         return result
+
+    async def _close_gateway(self, admission: WorkAdmission, gateway: Egress) -> bool:
+        closing = asyncio.create_task(gateway.close())
+        try:
+            closed = await asyncio.shield(closing)
+        except asyncio.CancelledError:
+            closed = await closing
+            await self.lifecycle(admission, gateway.name, "removed" if closed else "unknown")
+            raise
+        await self.lifecycle(admission, gateway.name, "removed" if closed else "unknown")
+        return closed
 
     async def staged(self, admission: WorkAdmission, output: RunnerOutput) -> bytes:
         cached = self._cache

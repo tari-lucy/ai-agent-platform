@@ -34,6 +34,7 @@ def configuration(
     workspace: bool = False,
     helpers: bool = False,
     home: bool = False,
+    internet: bool = False,
 ) -> dict[str, Any]:
     # OpenCode uses paths relative to its worktree, which is / without VCS.
     paths = {
@@ -60,6 +61,9 @@ def configuration(
         if home
         else {}
     )
+    if internet:
+        # Through the turn's egress gateway only (proxy environment); search stays off.
+        free = {**free, "webfetch": "allow"}
     if home:
         paths = {"*": "allow"}
         outputs = {**outputs, "workspace/*": "allow", "workspace": "allow"}
@@ -287,6 +291,7 @@ def main() -> None:
                     workspace="AI_WORKPLACE_WORKSPACE_URL" in environment,
                     helpers="AI_WORKPLACE_HELPER_URL" in environment,
                     home="AI_WORKPLACE_HOME" in environment,
+                    internet="AI_WORKPLACE_PROXY" in environment,
                 )
             ),
         }

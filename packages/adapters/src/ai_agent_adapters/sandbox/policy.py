@@ -135,18 +135,26 @@ def limits(value: RunnerLimits) -> None:
 
 
 def create_args(
-    template: RunnerTemplate, task: RunnerTask, name: str, entry: str, home: str | None = None
+    template: RunnerTemplate,
+    task: RunnerTask,
+    name: str,
+    entry: str,
+    home: str | None = None,
+    network: str | None = None,
 ) -> list[str]:
     """No host mounts/ports/keys/socket. Writable task disk is a kernel-bounded tmpfs.
 
     ``home`` adds the persona's named volume at /workspace and a small tmpfs for /guide;
-    everything else stays read-only or disappears with the container.
+    everything else stays read-only or disappears with the container. ``network`` is the
+    turn's internal egress network (no DNS, no route out except the gateway proxy).
     """
     template.check(task)
     if re.fullmatch(r"aw-task-[0-9a-f]{32}", name) is None:
         raise ValueError("RUNNER_NAME_INVALID")
     if home is not None and HOME_VOLUME.fullmatch(home) is None:
         raise ValueError("RUNNER_HOME_INVALID")
+    if network is not None and re.fullmatch(r"aw-net-[0-9a-f]{32}", network) is None:
+        raise ValueError("RUNNER_NETWORK_INVALID")
     cap = task.limits
     mounts = (
         [
@@ -166,7 +174,7 @@ def create_args(
         "--label",
         "ai-agent-platform.runner=aw-04",
         "--interactive",
-        "--network=none",
+        "--network=" + (network or "none"),
         "--read-only",
         "--user=65532:65532",
         "--cap-drop=ALL",

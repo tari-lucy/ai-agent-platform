@@ -30,6 +30,13 @@ if home is not None:
                 "PIP_CACHE_DIR": "/workspace/.cache/pip"})
     for directory in ("inbox", "share"):
         os.makedirs("/workspace/" + directory, 0o700, exist_ok=True)
+# W3: the turn's egress gateway. Loopback (the model facade) never goes through it.
+proxy = payload.get("proxy")
+if proxy is not None:
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        env[key] = env[key.lower()] = proxy
+    env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
+    env["AI_WORKPLACE_PROXY"] = proxy
 """
 
 # Written fresh every turn from the platform's copy: changing it inside has no lasting effect.
