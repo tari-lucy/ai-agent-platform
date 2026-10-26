@@ -109,7 +109,9 @@ class DockerTaskRunner:
         prepared: WarmSandbox | None = None,
         home: Home | None = None,
         egress: Callable[[], Egress] | None = None,
+        usage: Callable[[float], None] | None = None,
     ) -> None:
+        """``usage`` receives the CPU seconds of each decoded turn (local accounting only)."""
         if not templates or len({t.id for t in templates}) != len(templates):
             raise ValueError("RUNNER_TEMPLATES_INVALID")
         if not 0 < cache_seconds <= 300:
@@ -125,6 +127,7 @@ class DockerTaskRunner:
         if prepared is not None and egress is not None:
             raise ValueError("RUNNER_EGRESS_PREPARED")
         self.egress = egress
+        self.usage = usage
         self.models = models
         self.workspace = workspace
         self.helpers = helpers
@@ -415,8 +418,21 @@ class DockerTaskRunner:
             raise ValueError("RUNNER_RESULT_LIMIT")
         if state != "succeeded" and files:
             raise ValueError("RUNNER_RESULT_INVALID")
+        cpu = row.get("cpu_usec")
+        if cpu is not None and (type(cpu) is not int or not 0 <= cpu <= 10**13):
+            raise ValueError("RUNNER_RESULT_INVALID")
+        seconds = None if cpu is None else cpu / 1_000_000
+        if seconds is not None and self.usage is not None:
+            try:
+                self.usage(seconds)
+            except OSError:
+                logging.getLogger(__name__).warning("CPU usage record failed")
         return RunnerOutcome(
-            cast(Any, state), exit_code, tuple(files), stdout.decode("utf-8", "replace")
+            cast(Any, state),
+            exit_code,
+            tuple(files),
+            stdout.decode("utf-8", "replace"),
+            seconds,
         ), files
 
     async def run(self, admission: WorkAdmission, task: RunnerTask) -> RunnerOutcome:

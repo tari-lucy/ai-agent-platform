@@ -101,6 +101,7 @@ DOMAIN_OWNERS = frozenset(
 if TYPE_CHECKING:
     from ai_agent_adapters.sandbox.home_files import HomeFiles
 
+    from .work_session_cpu import CpuSettings
     from .work_session_egress import EgressSettings
     from .work_session_wake import AutonomousWake
 
@@ -338,6 +339,8 @@ class Runtime:
         # W3: the internet capability served by the session's egress gateway.
         self.session_egress_capability: str | None = None
         self.session_egress: EgressSettings | None = None
+        # W7b: the CPU journal of work turns and the daily budget of the agent's own wake-ups.
+        self.session_cpu: CpuSettings | None = None
         # W4: operator access to persona home volumes, set when homes are enabled.
         self.session_home_files: HomeFiles | None = None
         # W7: the agent's own wake-ups, fired by the tick only while ACTIVE and autonomous.

@@ -193,6 +193,8 @@ class RunnerOutcome:
     exit_code: int | None
     outputs: tuple[RunnerOutput, ...]
     stdout_tail: str
+    # CPU the sandbox used for this turn, as its own cgroup counted it (W7b); None: unknown.
+    cpu_seconds: float | None = None
 
 
 class TaskRunner(Protocol):

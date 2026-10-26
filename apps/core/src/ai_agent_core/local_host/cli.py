@@ -38,6 +38,7 @@ SESSION_LIMITS = (
     "egress_max_mb",
     "egress_connections",
     "egress_daily_mb",
+    "cpu_daily_minutes",
     "home_quota_mb",
     "memory_mb",
     "pids",

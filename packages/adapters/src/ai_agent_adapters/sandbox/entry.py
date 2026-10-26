@@ -175,9 +175,19 @@ if state == "succeeded":
             break
 if state != "succeeded":
     files = []
+# W7b: CPU of this container's cgroup since the previous result (a resident sandbox counts
+# background work between turns in the next one); None where the counter is unavailable.
+cpu_used = None
+try:
+    with open("/sys/fs/cgroup/cpu.stat", encoding="ascii") as stream:
+        cpu_now = int(dict(line.split() for line in stream)["usage_usec"])
+    cpu_used = max(0, cpu_now - globals().get("cpu_seen", 0))
+    cpu_seen = cpu_now
+except (OSError, KeyError, ValueError):
+    pass
 wire({"kind": "result", "status": state, "exit_code": child.returncode,
                   "stdout": base64.b64encode(output[:cap["output_bytes"]]).decode("ascii"),
-                  "files": files})
+                  "files": files, "cpu_usec": cpu_used})
 """
 
 # No interpreter finalisation while the daemon stdin reader holds a buffered lock.

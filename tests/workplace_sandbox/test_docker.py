@@ -114,6 +114,8 @@ print('done')
         result = await w.runner.run(w.admission, w.task(code))
         assert result.status == "succeeded", result
         assert result.stdout_tail == "done\n"
+        # W7b: the container's own cgroup counter reaches the host.
+        assert result.cpu_seconds is not None and 0 < result.cpu_seconds < 30
         assert await w.runner.staged(w.admission, result.outputs[0]) == b"synthetic result"
         w.revoked = True
         with pytest.raises(ContractError):
@@ -229,7 +231,7 @@ with send('/chat/completions', body) as reply:
 try:
     send('/chat/completions', body)
 except urllib.error.HTTPError as e:
-    assert e.code == 429
+    assert e.code == 403  # a final refusal, not a retryable 429 (b3eca99)
 else:
     raise AssertionError('budget bypass')
 try:

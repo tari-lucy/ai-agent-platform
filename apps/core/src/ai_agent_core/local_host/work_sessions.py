@@ -219,6 +219,14 @@ def install(
         if settings.egress_enabled
         else None,
     ).install()
+    if egress_log is not None:
+        from ai_agent_core.m3_composition.work_session_cpu import CpuSettings
+
+        # Beside the traffic log: local accounting, possibly personal, never in Git.
+        runtime.session_cpu = CpuSettings(
+            egress_log.parent / "usage",
+            settings.cpu_daily_minutes * 60 if settings.cpu_daily_minutes else None,
+        )
     if settings.wake_enabled:
         from ai_agent_core.m3_composition.work_session_wake import AutonomousWake, WakeSettings
 

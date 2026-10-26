@@ -26,6 +26,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 from ai_agent_contracts.states import ErrorCode
 
+from .work_session_cpu import writer as cpu_writer
 from .work_session_egress import EgressSettings, resident_factory
 from .work_session_egress import factory as egress_factory
 from .work_session_home import OFFLINE as HOME_OFFLINE
@@ -382,6 +383,9 @@ class OpenCodeSessions:
             home=home,
             egress=egress_factory(self.egress, admission)
             if self.egress is not None and internet is not None and prepared is None
+            else None,
+            usage=cpu_writer(rt.session_cpu, admission.scope.persona_id, admission.attempt_id)
+            if rt.session_cpu is not None
             else None,
         )
         self.runners[admission.attempt_id] = runner

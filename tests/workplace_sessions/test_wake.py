@@ -178,4 +178,12 @@ def test_wake_when_background_work_writes_its_marker(tmp_path, monkeypatch):
             waker.next_check = waker.next_markers = 0.0
             assert await waker.tick() == "NONE"  # fired once
 
+            # Over the daily CPU budget the agent's own wake-ups sleep until the next day.
+            from ai_agent_core.m3_composition.work_session_cpu import CpuSettings, writer
+
+            rt.session_cpu = CpuSettings(tmp_path / "usage", 60)
+            writer(rt.session_cpu, scope.persona_id, "a-1")(61.0)
+            waker.next_check = 0.0
+            assert await waker.tick() == "CPU_BUDGET"
+
     asyncio.run(scenario())

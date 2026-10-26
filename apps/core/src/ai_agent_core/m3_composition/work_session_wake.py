@@ -56,6 +56,8 @@ GUIDE = (
     "/workspace/.platform/done/имя' & — и поставь wake_me с when_done=имя (латиница, цифры, "
     "дефис): будильник сработает по появлении файла (проверка раз в минуту) или через "
     "minutes, что раньше. Фоновая работа переживает ход только в долгоживущем контейнере. "
+    "Процессорное время самостоятельной работы ограничено за сутки: исчерпав его, "
+    "будильники ждут следующих суток UTC; расширение — обращением. "
 )
 
 
@@ -199,6 +201,10 @@ class AutonomousWake:
         if self.settings.quiet_at(now):
             return "QUIET_HOURS"
         scope = area(run.scope)
+        from .work_session_cpu import exhausted
+
+        if exhausted(rt.session_cpu, scope.persona_id):
+            return "CPU_BUDGET"  # sleep until the next UTC day; the timers stay pending
 
         def authorize(stable: Scope) -> None:
             snapshot = rt.supervisor.snapshot
