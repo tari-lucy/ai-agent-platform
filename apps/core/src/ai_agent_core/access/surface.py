@@ -109,6 +109,16 @@ class Downloads(Protocol):
     ) -> tuple[ArtifactRef, bytes]: ...
 
 
+class HomeAccess(Protocol):
+    """W4: the operator's view of a persona's home volume; no host path is exposed."""
+
+    async def list(self, scope: Scope, path: str) -> dict[str, object] | None: ...
+
+    async def read(self, scope: Scope, path: str) -> dict[str, object] | None: ...
+
+    async def put(self, scope: Scope, name: str, data: bytes) -> dict[str, object] | None: ...
+
+
 class Mutations(Protocol):
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
 
@@ -127,6 +137,7 @@ class AccessPorts:
     scopes: tuple[Scope, ...] | None = None
     limits: AccessLimits | None = None
     downloads: Downloads | None = None
+    home: HomeAccess | None = None
 
 
 class Rejection(Exception):

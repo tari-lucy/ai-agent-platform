@@ -22,7 +22,7 @@ from starlette.types import Message, Receive
 from starlette.types import Scope as ASGIScope
 
 from ai_agent_core.access.sessions import SessionAuthority
-from ai_agent_core.access.surface import Rejection, _body, _headers, _json
+from ai_agent_core.access.surface import Rejection, _body, _headers, _json, _octet
 
 from .protocol import COMMANDS, PREFIX, AgentCard, Catalogue, SessionCard, SessionPage, directory
 
@@ -37,6 +37,45 @@ READS = {
     "files": "workplace-library",
 }
 DETAIL = re.compile(r"(sessions|files|operations)/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})")
+# W4: the persona's home volume. Logical path in the URL (the query keys are fixed).
+HOME = re.compile(r"(home|home-file|home-inbox)(?:/(.*))?")
+HOME_UPLOAD_MAX = 32 * 1024 * 1024
+
+
+async def _home(
+    surface: Surface,
+    asgi: ASGIScope,
+    receive: Receive,
+    authority: SessionAuthority,
+    scope: Scope,
+    method: str,
+    kind: str,
+    path: str | None,
+) -> Response:
+    """List/read read-only; the one write is a new operator file in inbox/."""
+    if surface.ports.home is None:
+        raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+    if surface.query(asgi, reading=method == "GET"):
+        raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+    path = path or ""
+    if kind == "home-inbox":
+        if method != "POST" or not path:
+            raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+        data = await _octet(_headers(asgi), receive, HOME_UPLOAD_MAX)
+        surface.sessions.check_scope(authority, scope)  # expiry during the upload
+        result = await surface.ports.home.put(scope, path, data)
+    elif method != "GET":
+        raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+    elif kind == "home":
+        result = await surface.ports.home.list(scope, path)
+    else:
+        result = await surface.ports.home.read(scope, path)
+    surface.sessions.check_scope(authority, scope)
+    if result is None:
+        raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
+    return JSONResponse(
+        result, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    )
 
 
 async def _read(
@@ -139,6 +178,9 @@ async def dispatch(
             return {"type": "http.request", "body": raw, "more_body": False}
 
         return await surface.http({**asgi, "path": "/api/v1/commands"}, body)
+    home = HOME.fullmatch(action)
+    if home is not None:
+        return await _home(surface, asgi, receive, authority, selected, method, *home.groups())
     if method != "GET":
         raise Rejection(404, ErrorCode.INVALID_ARGUMENTS)
     if action in READS:

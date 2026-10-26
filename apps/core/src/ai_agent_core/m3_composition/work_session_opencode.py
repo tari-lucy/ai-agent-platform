@@ -218,6 +218,10 @@ class OpenCodeSessions:
         self.rt.session_output_area = self.output_area
         self.rt.session_helper_capability = self.helper_capability
         self.rt.session_egress_capability = self.egress.capability_id if self.egress else None
+        if self.home is not None:
+            from ai_agent_adapters.sandbox.home_files import HomeFiles
+
+            self.rt.session_home_files = HomeFiles(self.template.image_id)
         self.rt.session_prewarmer = self.warm
 
     async def create(

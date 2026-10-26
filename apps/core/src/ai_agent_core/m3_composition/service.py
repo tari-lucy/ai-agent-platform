@@ -9,7 +9,7 @@ from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from functools import lru_cache
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
 from ai_agent_adapters.control.journal import SQLiteRunJournal
@@ -97,6 +97,9 @@ DOMAIN_OWNERS = frozenset(
         Owner.SKILLS,
     }
 )
+
+if TYPE_CHECKING:
+    from ai_agent_adapters.sandbox.home_files import HomeFiles
 
 
 RENEW_ATTEMPTS = 3  # one renewal request, replayed only after a lapsed proof
@@ -331,6 +334,8 @@ class Runtime:
         self.session_helper_capability: str | None = None
         # W3: the internet capability served by the session's egress gateway.
         self.session_egress_capability: str | None = None
+        # W4: operator access to persona home volumes, set when homes are enabled.
+        self.session_home_files: HomeFiles | None = None
         # Fixed code why configured work conversations are not wired on this host (launcher).
         self.session_unavailable: str | None = None
         self.tool_executors: dict[str, ToolExecutor] = {}
@@ -446,6 +451,7 @@ class Runtime:
 
         from .access import Mutations
         from .downloads import Downloads
+        from .home_view import HomeView
         from .ticket_reads import ReleasedReader
         from .views import Views
 
@@ -458,6 +464,7 @@ class Runtime:
             events=self.events,
             extensions=self.registry,
             scopes=self.scopes,
+            home=HomeView(self),
         )
 
     async def open(self) -> None:
