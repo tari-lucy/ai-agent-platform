@@ -112,7 +112,43 @@ const transcript = (directory: string, sessionID: string) =>
 // Path space is /<area>/<logical path> of the platform catalogue. No host path is ever shown or
 // resolved; every read goes through the same owner projection and release checks as the panel.
 const AREAS = ["inbox", "knowledge", "projects", "skills", "exports"] as const
-const UPLOAD_AREAS = ["inbox", "knowledge", "projects"] as const
+const UPLOAD_AREAS = ["inbox", "knowledge", "projects", "workspace"] as const
+// The persona's own persistent folder (W4): read through the platform, never mounted here.
+const HOME = "workspace"
+type HomeEntry = { name: string; type: "directory" | "file" | "link" | "other"; size: number }
+const homePath = (path: string) => path.split("/").filter(Boolean).map(encodeURIComponent).join("/")
+async function homeNodes(directory: string, dir: string) {
+  const inner = dir.replace(/^\/+|\/+$/g, "").slice(HOME.length).replace(/^\/+/, "")
+  try {
+    const view = await bridge<{ entries: HomeEntry[] }>(`/agents/${directory}/home/${homePath(inner)}`)
+    return view.entries
+      .filter((entry) => entry.type === "directory" || entry.type === "file")
+      .map((entry) => treeNode(entry.name, `/${HOME}/${inner ? inner + "/" : ""}${entry.name}`, entry.type as "file" | "directory"))
+      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1))
+  } catch {
+    return [] // homes off (503) or a missing folder: an empty node, not an error page
+  }
+}
+const isHome = (path: string) => {
+  const clean = path.replace(/^\/+/, "")
+  return clean === HOME || clean.startsWith(HOME + "/")
+}
+async function homeContent(directory: string, virtualPath: string): Promise<Response> {
+  const inner = virtualPath.replace(/^\/+/, "").slice(HOME.length + 1)
+  try {
+    const view = await bridge<{ text: string | null; size: number; truncated: boolean }>(
+      `/agents/${directory}/home-file/${homePath(inner)}`,
+    )
+    if (view.text === null) return json({ type: "binary", content: "", mimeType: "application/octet-stream" })
+    return json({
+      type: "text",
+      content: view.truncated ? view.text + `\n\n… платформа: показано начало, всего ${view.size} байт.` : view.text,
+      mimeType: "text/plain",
+    })
+  } catch {
+    return json({ name: "NotFound" }, 404)
+  }
+}
 type LibraryFile = {
   id: string; area: string; path: string; title: string; version: number
   reference: { checksum: string; size_bytes: number; media_type: string }
@@ -131,7 +167,7 @@ const treeNode = (name: string, full: string, type: "file" | "directory") => ({
 })
 function treeNodes(files: LibraryFile[], dir: string) {
   const clean = dir.replace(/^\/+|\/+$/g, "")
-  if (!clean) return AREAS.map((area) => treeNode(area, "/" + area, "directory"))
+  if (!clean) return [...AREAS, HOME].map((area) => treeNode(area, "/" + area, "directory"))
   const segments = clean.split("/")
   const [area, ...rest] = segments
   const wanted = rest.join("/")
@@ -200,6 +236,18 @@ export async function awUploadFile(directory: string, name: string, mime: string
   if (!UPLOAD_AREAS.includes(area as (typeof UPLOAD_AREAS)[number])) {
     window.alert(`Недопустимая область «${area}». Доступны: ${UPLOAD_AREAS.join(", ")}.`)
     return null
+  }
+  if (area === HOME) {
+    // Straight into the persona's own inbox/ (W4); never overwrites an existing file.
+    const response = await fetch(`${BRIDGE}/agents/${agent.directory}/home-inbox/${encodeURIComponent(logicalName)}`, {
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "content-type": "application/octet-stream", "x-csrf-token": await token() },
+      body: bytes,
+    })
+    if (response.status === 401) { csrf = null; location.assign("/"); return null }
+    if (response.status === 409) { window.alert(`В inbox уже есть «${logicalName}». Переименуйте файл.`); return null }
+    if (!response.ok) throw Object.assign(new Error("AW_UPLOAD_" + response.status), { status: response.status })
+    return { area, path: "inbox/" + logicalName, file_id: "", version: 0 }
   }
   const query = new URLSearchParams({
     workspace_id: String(agent.scope.workspace_id ?? ""),
@@ -514,16 +562,21 @@ async function route(method: string, path: string, url: URL, body: () => Promise
   if (path === "/file" && method === "GET") {
     const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
     if (!directory) return json([])
-    return json(treeNodes(await library(directory), url.searchParams.get("path") ?? ""))
+    const wanted = url.searchParams.get("path") ?? ""
+    if (isHome(wanted)) return json(await homeNodes(directory, wanted))
+    return json(treeNodes(await library(directory), wanted))
   }
   if (path === "/file/content" && method === "GET") {
     const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
     if (!directory) return json({ name: "NotFound" }, 404)
-    return fileContent(directory, url.searchParams.get("path") ?? "")
+    const wanted = url.searchParams.get("path") ?? ""
+    if (isHome(wanted)) return homeContent(directory, wanted)
+    return fileContent(directory, wanted)
   }
   if (path === "/api/fs/list" && method === "GET") {
     const directory = queryDirectory(url) ?? (await agentOf(undefined))?.directory
-    const rows = directory ? treeNodes(await library(directory), url.searchParams.get("path") ?? "") : []
+    const wanted = url.searchParams.get("path") ?? ""
+    const rows = !directory ? [] : isHome(wanted) ? await homeNodes(directory, wanted) : treeNodes(await library(directory), wanted)
     return json({ location: locationOf(directory ?? ""), data: rows.map((row) => ({ path: row.path, type: row.type })) })
   }
   if (path === "/api/fs/find" && method === "GET") {
