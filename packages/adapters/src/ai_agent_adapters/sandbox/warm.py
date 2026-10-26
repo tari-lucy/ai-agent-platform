@@ -74,8 +74,10 @@ class WarmSandbox:
             network="gateway",
         )
         self.valid()
-        await DockerTaskRunner._image(self.template, home=self.home is not None)
-        if self.home_volume is not None:
+        if self.home_volume is None:
+            await DockerTaskRunner._image(self.template)
+        else:
+            await DockerTaskRunner._image(self.template, home=True)
             await DockerTaskRunner.ensure_home(self.home_volume)
         self.valid()
         await self.registered(self.name)

@@ -507,9 +507,12 @@ class DockerTaskRunner:
                         "content": base64.b64encode(data).decode("ascii"),
                     }
                 )
-            await self._image(template, home=self.home is not None)
-            if self.home is not None and self.prepared is None:
-                await self.ensure_home(self.home.volume)
+            if self.home is None:
+                await self._image(template)
+            else:
+                await self._image(template, home=True)
+                if self.prepared is None:
+                    await self.ensure_home(self.home.volume)
             await self._verify(admission, attempt)
             await self.lifecycle(admission, name, "register")
             registered = True

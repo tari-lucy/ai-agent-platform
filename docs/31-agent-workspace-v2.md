@@ -206,6 +206,8 @@ LAN-устройства) — отдельные подключения плат
 
 W1 не зависит от остальных и нужен сразу. Статус W1: реализован на Linux,
 проверка образа и окна на Windows — Codex ([отчёт](implementation-reports/W1-turn-journal.md)).
+Статус W2: реализован и проверен на Linux с настоящим Docker/OpenCode, Windows — Codex
+([отчёт](implementation-reports/W2-persistent-home.md), [инструкция](agent-workspace.md)).
  W3 обязателен до открытия сети.
 W7 опирается на W5 (долгоживущий контейнер) и W6 (бюджет в профиле).
 

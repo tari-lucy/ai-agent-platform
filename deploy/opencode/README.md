@@ -88,3 +88,8 @@ Python helpers подключаются через `enable-work-sessions --helpe
 harness: `scripts/refresh_opencode_harness.py` использует существующий pinned
 образ без установки зависимостей. Инструкция и ограничения:
 [Python-песочница](../../docs/opencode-python-sandbox.md).
+
+Постоянная рабочая папка личности (`/workspace`, W2) включается
+`enable-work-sessions --home` с образом, несущим метку
+`ai-agent-platform.workspace.protocol=1` (тот же `refresh_opencode_harness.py`):
+[инструкция](../../docs/agent-workspace.md).

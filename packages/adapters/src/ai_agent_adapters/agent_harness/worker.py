@@ -49,6 +49,8 @@ def configuration(
     free = (
         {
             "bash": "allow",
+            # OpenCode's directory is /work; /workspace and /guide are "external" to it.
+            "external_directory": "allow",
             "glob": "allow",
             "grep": "allow",
             "list": "allow",

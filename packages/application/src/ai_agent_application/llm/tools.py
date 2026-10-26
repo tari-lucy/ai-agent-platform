@@ -53,7 +53,8 @@ def object_json(value: str) -> dict[str, Any]:
 
 class ToolDefinition(Contract):
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    description: str = Field(default="", max_length=4000)
+    # OpenCode's own bash description is ~4.6k chars; the whole prompt keeps its own bound.
+    description: str = Field(default="", max_length=16000)
     # Immutable string: no shared mutable schema can change while a request waits.
     parameters_json: str = Field(max_length=MAX_TOOL_JSON)
 
