@@ -14,7 +14,7 @@ import {
 } from './conversation.ts';
 
 const when = (value: string) => formatTime(value, 'short');
-const speakerLabels = { operator: 'Вы', character: 'Агент' } as const;
+const speakerLabels = { operator: 'Вы', character: 'Агент', wake: '⏰ Будильник' } as const;
 
 function PendingReply({ api, draft, running, refresh }: {
   api: PanelApi; draft: WorkSessionDraft; running: boolean; refresh: () => void;
