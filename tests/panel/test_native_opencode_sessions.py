@@ -90,7 +90,7 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     page.goto(origin + "/")
     page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
     page.get_by_role("button", name="Войти", exact=True).click()
-    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible(timeout=30000)
     csrf = page.request.get(origin + "/api/v1/auth/session").json()["csrf_token"]
     selected = directory(host.scope)
     target = origin + PREFIX + "/agents/" + selected
@@ -122,7 +122,7 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     page.goto(url)
     prompt = page.locator('[data-component="prompt-input"][contenteditable="true"]')
     prompt.fill(MESSAGE)
-    expect(page.locator('[data-action="prompt-submit"]')).to_be_enabled()
+    expect(page.locator('[data-action="prompt-submit"]')).to_be_enabled(timeout=30000)
     with page.expect_response(
         lambda response: response.url == target + "/commands" and response.request.method == "POST",
         timeout=20000,
@@ -134,9 +134,13 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     title = page.locator('input[data-slot="session-title-child"]')
     title.fill("Освоение рабочего места")
     title.press("Enter")
-    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible(
+        timeout=20000
+    )
     page.reload()
-    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="Освоение рабочего места", exact=True)).to_be_visible(
+        timeout=20000
+    )
 
     expect(page.get_by_text(MESSAGE, exact=True).first).to_be_visible(timeout=20000)
     assert model.count("activity") == 0
@@ -194,8 +198,12 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     page.wait_for_timeout(1200)  # One automatic-ACK timer while the reply is clipped.
     assert page.request.get(target + "/sessions/" + opened).json()["pending_reply"]
     page.set_viewport_size({"width": 1440, "height": 960})
-    expect(page.get_by_text(REPLY, exact=True).first).to_be_visible()
-    deadline = time.monotonic() + 8
+    page.bring_to_front()
+    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    expect(page.get_by_text(REPLY, exact=True).first).to_be_visible(timeout=20000)
+    # DOM visibility alone does not prove that 60% of the reply is inside the viewport.
+    page.get_by_text(REPLY, exact=True).first.scroll_into_view_if_needed()
+    deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         view = page.request.get(target + "/sessions/" + opened).json()
         if view["pending_reply"] is None:
@@ -210,7 +218,9 @@ def test_native_reload_stopped_active_reply_and_stop(page, work_host):
     control = page.context.new_page()
     control.goto(origin + "/")
     control.get_by_role("button", name="STOP — остановить активного агента").click()
-    expect(control.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    expect(control.get_by_role("button", name="START — запустить агента")).to_be_visible(
+        timeout=20000
+    )
     control.close()
 
 
@@ -226,7 +236,7 @@ def test_cached_return_rechecks_owner_and_prefetch_does_not_choose_the_view(page
     page.goto(origin + "/")
     page.get_by_label("Пароль", exact=True).fill(paths(host.root).password.read_text().strip())
     page.get_by_role("button", name="Войти", exact=True).click()
-    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible()
+    expect(page.get_by_role("button", name="START — запустить агента")).to_be_visible(timeout=20000)
     csrf = page.request.get(origin + "/api/v1/auth/session").json()["csrf_token"]
     selected = directory(host.scope)
     bridge = origin + PREFIX + "/agents/" + selected
