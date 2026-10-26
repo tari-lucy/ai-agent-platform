@@ -15,8 +15,12 @@ type SessionRow = {
   id: string; scope: Scope; title: string; version: number; state: string
   last_sequence: number; processed_sequence: number; created_at?: string; updated_at?: string
 }
-type Entry = { sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null }
-type Progress = { state: string; since: string }
+type Step = { tool: string; status: "completed" | "error"; input: string; output: string; output_chars: number }
+type Entry = {
+  sequence: number; speaker: "operator" | "character"; text: string | null; withheld: boolean; at: string; reply_to_sequence?: number | null
+  steps?: Step[]
+}
+type Progress = { state: string; since: string; steps?: Step[] }
 type Draft = { scope: Scope; utterance_id: string; version: number; revision: number; text: string | null; withheld: boolean; acknowledgeable: boolean }
 type Transcript = {
   scope: Scope; session_id: string; session_version: number; state: string; title: string
@@ -248,10 +252,29 @@ const personAgent = (agent: Agent) => ({
 // Native part caches are shared across sessions of a directory: every owner id is session-scoped.
 const scopedID = (view: Transcript, id: string) => `${view.session_id}-${id}`
 const replyID = (view: Transcript, sequence: number, n = 1) => scopedID(view, n === 1 ? `reply-${sequence}` : `reply-${sequence}-${n}`)
-const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean) => ({
+// The platform's journal of the turn (clipped observations of finished tool calls) as native
+// tool items before the reply text; the input is clipped JSON, kept raw when it no longer parses.
+const toolInput = (input: string): Record<string, unknown> => {
+  try {
+    const value: unknown = JSON.parse(input)
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
+  } catch {}
+  return { input }
+}
+const toolItems = (id: string, at: string, steps: Step[] = []) =>
+  steps.map((step, index) => {
+    const output = step.output_chars > step.output.length
+      ? `${step.output}\n… платформа: показано начало, всего ${step.output_chars} симв.`
+      : step.output
+    const base = { type: "tool", id: `${id}-step-${index}`, name: step.tool, time: { created: ms(at), completed: ms(at) } }
+    return step.status === "error"
+      ? { ...base, state: { status: "error", input: toolInput(step.input), content: [], structured: {}, error: { type: "unknown", message: output } } }
+      : { ...base, state: { status: "completed", input: toolInput(step.input), content: [{ type: "text", text: output }], structured: {} } }
+  })
+const assistant = (view: Transcript, id: string, text: string, at: string, done: boolean, steps?: Step[]) => ({
   id, type: "assistant", agent: view.scope.persona_id ?? "", model,
   time: done ? { created: ms(at), completed: ms(at) } : { created: ms(at) }, finish: done ? "stop" : undefined,
-  content: [{ type: "text", text }],
+  content: [...toolItems(id, at, steps), { type: "text", text }],
 })
 // The platform's own words about the current turn: a system note, never the person's text.
 const PROGRESS: Record<string, string> = {
@@ -277,14 +300,15 @@ function messages(view: Transcript) {
       const answered = entry.reply_to_sequence ?? entry.sequence
       const n = (replies.get(answered) ?? 0) + 1
       replies.set(answered, n)
-      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true))
+      rows.push(assistant(view, replyID(view, answered, n), text, entry.at, true, entry.steps))
     }
   }
   // A reply after a ticket answer is a further reply to the same operator message.
   const next = replyID(view, lastOperator, (replies.get(lastOperator) ?? 0) + 1)
   const draft = view.pending_reply
   if (draft && !draft.withheld && draft.text) {
-    rows.push(assistant(view, next, draft.text, view.checked_at, true))
+    const steps = view.progress?.state === "reply_ready" ? view.progress.steps : undefined
+    rows.push(assistant(view, next, draft.text, view.checked_at, true, steps))
     if (draft.acknowledgeable) watchReceipt(draft, view.session_id, next)
   } else if (view.invalidated_reason && !lastOperator) {
     // The stopped conversation's history is no longer shown: a platform placeholder in the
@@ -300,7 +324,8 @@ function messages(view: Transcript) {
   } else if (view.progress && NOTICE.has(view.progress.state) && PROGRESS[view.progress.state]) {
     // A platform notice in the reply's place (never the person's words); a later reply for
     // the same operator message takes this place. Queued/running use the native busy state.
-    rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since))
+    // A failed/cancelled/unknown turn still shows what it actually executed.
+    rows.push(notice(view, next, PROGRESS[view.progress.state], view.progress.since, view.progress.steps))
   }
   return rows
 }
@@ -308,9 +333,9 @@ const NOTICE = new Set(["waiting_start", "failed", "cancelled", "unknown"])
 const waitingTicket = (ticketID: string) =>
   `Агент ждёт вашего ответа в обращении. Ответьте в панели: ${location.origin}/#/tickets?ticket=${encodeURIComponent(ticketID)} — разговор продолжится сам.`
 const STOPPED = "Платформа: разговор остановлен — сообщение оператора отозвано, удалено или истекло и не исполнялось. Начните новый разговор."
-const notice = (view: Transcript, id: string, text: string, at: string) => ({
+const notice = (view: Transcript, id: string, text: string, at: string, steps?: Step[]) => ({
   id, type: "assistant", agent: view.scope.persona_id ?? "", model, time: { created: ms(at), completed: ms(at) },
-  finish: "error", content: [], error: { type: "PlatformNotice", message: text },
+  finish: "error", content: toolItems(id, at, steps), error: { type: "PlatformNotice", message: text },
 })
 const running = (view: Transcript) => view.progress?.state === "running" || view.progress?.state === "queued"
 
