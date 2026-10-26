@@ -221,6 +221,22 @@ class WorkSessionsConfig(BaseModel):
     monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
     prewarm_enabled: bool = Field(default=False, strict=True)
     prewarm_idle_seconds: int = Field(default=120, strict=True, ge=10, le=300)
+    # Managed Python helpers: a second networkless container beside the session container,
+    # asked by the person through the scripts tool. Ceilings are the operator's own config;
+    # the capability still needs its own explicit permission decision to do anything.
+    helper_enabled: bool = Field(default=False, strict=True)
+    helper_capability_id: str = Field(
+        default="workplace.scripts", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    )
+    helper_max_calls: int = Field(default=4, strict=True, ge=1, le=16)
+    helper_wall_seconds: int = Field(default=60, strict=True, ge=5, le=1800)
+    helper_cpu_seconds: int = Field(default=60, strict=True, ge=5, le=1800)
+    helper_memory_mb: int = Field(default=2048, strict=True, ge=256, le=8192)
+    helper_pids: int = Field(default=128, strict=True, ge=16, le=1024)
+    helper_disk_mb: int = Field(default=512, strict=True, ge=16, le=1024)
+    helper_output_bytes: int = Field(default=1048576, strict=True, ge=1024, le=1048576)
+    helper_max_files: int = Field(default=16, strict=True, ge=1, le=16)
+    helper_max_input_bytes: int = Field(default=67108864, strict=True, ge=1024, le=134217728)
 
     @model_validator(mode="after")
     def bounds(self) -> Self:
@@ -229,6 +245,12 @@ class WorkSessionsConfig(BaseModel):
             or self.output_area not in WRITABLE_AREAS
             or len(set(self.areas)) != len(self.areas)
             or self.cpu_seconds > self.wall_seconds
+        ):
+            raise ValueError("WORK_SESSIONS_LIMITS")
+        if self.helper_enabled and (
+            self.helper_capability_id == self.capability_id
+            or self.helper_cpu_seconds > self.helper_wall_seconds
+            or self.helper_wall_seconds >= self.wall_seconds
         ):
             raise ValueError("WORK_SESSIONS_LIMITS")
         return self
