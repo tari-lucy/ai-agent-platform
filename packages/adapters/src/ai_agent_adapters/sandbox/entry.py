@@ -92,6 +92,34 @@ if home is not None:
     guide_file("connections.md", home["connections"] + space)
     guide_file("workspace-readme.md", "Начало /workspace/README.md (до 8000 байт; "
                "полный файл читай сам):\n\n" + head("/workspace/README.md", 8000))
+
+    def summary(text):
+        # The front matter "description:" of SKILL.md, else its first plain line.
+        lines = text.splitlines()
+        if lines and lines[0].strip() == "---":
+            for line in lines[1:40]:
+                if line.strip() == "---":
+                    break
+                if line.lower().startswith("description:"):
+                    return line.split(":", 1)[1].strip()
+        for line in lines:
+            if line.strip() and not line.startswith(("#", "---")):
+                return line.strip()
+        return ""
+
+    skills = []
+    try:
+        names = sorted(os.listdir("/workspace/skills"))
+    except OSError:
+        names = []
+    for name in names[:100]:
+        if len(skills) >= 50:
+            break
+        text = head("/workspace/skills/" + name + "/SKILL.md", 2000)
+        if text:
+            skills.append("- %s: %s" % (name[:64], summary(text)[:200]))
+    guide_file("skills.md", "Твои навыки (/workspace/skills/<имя>/SKILL.md; полный текст "
+               "читай сам, когда навык нужен):\n\n" + ("\n".join(skills) or "пока нет"))
     os.chmod("/guide", 0o555)
 """
 

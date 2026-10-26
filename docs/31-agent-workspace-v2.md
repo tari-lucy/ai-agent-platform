@@ -212,7 +212,7 @@ W1 не зависит от остальных и нужен сразу. Ста�
 настоящим Docker/OpenCode; образ «руки» и просмотр журнала в панели — W3b
 ([отчёт](implementation-reports/W3-egress-gateway.md)).
 Статус W4: просмотр папки оператором и загрузка в её inbox/ реализованы (Linux,
-настоящий Docker); навыки как файлы и заморозка helper_mcp — W4b
+настоящий Docker); оглавление навыков `skills/*/SKILL.md` в каждом ходе — сделано (W4b); заморозка helper_mcp — позже
 ([отчёт](implementation-reports/W4-home-files.md)).
 Статус W5: долгоживущий контейнер (`--resident`) реализован и проверен на Linux с
 настоящим OpenCode, в том числе со шлюзом (W5b) ([отчёт](implementation-reports/W5-resident-sandbox.md)).

@@ -12,6 +12,7 @@
 ```
 /guide/AGENTS.md          правила оператора (только чтение, обновляются каждый ход)
 /guide/connections.md     устройство среды и занятое место (пишет платформа)
+/guide/skills.md          оглавление навыков агента: skills/<имя>/SKILL.md → description
 /workspace/README.md      порядок папки; ведёт сам агент, начало подаётся в каждый ход
 /workspace/playbook/      приёмы
 /workspace/skills/        навыки

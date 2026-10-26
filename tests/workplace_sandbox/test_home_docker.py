@@ -56,6 +56,13 @@ tool = home / '.local/bin/synthetic-tool'
 tool.write_text('#!/bin/sh\\necho tool works\\n')
 tool.chmod(0o755)
 (home / 'README.md').write_text('Synthetic own order')
+assert 'пока нет' in pathlib.Path('/guide/skills.md').read_text()
+(home / 'skills/build-check').mkdir(parents=True)
+(home / 'skills/build-check/SKILL.md').write_text(
+    '---\\nname: build-check\\ndescription: Проверять сборку перед ответом\\n---\\n# Body\\n')
+(home / 'skills/plain').mkdir()
+(home / 'skills/plain/SKILL.md').write_text('# Title\\nFirst plain line\\n')
+os.symlink('/etc', home / 'skills/door')
 print('first')
 """
 
