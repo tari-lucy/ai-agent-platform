@@ -51,6 +51,16 @@ except OSError:
 s = socket.socket()
 s.settimeout(2)
 out['direct'] = s.connect_ex(('1.1.1.1', 443))
+# SOCKS5 on the same gateway port, the name resolved by the gateway (socks5h).
+host, port = os.environ['AI_WORKPLACE_SOCKS'].removeprefix('socks5h://').rsplit(':', 1)
+s = socket.create_connection((host, int(port)), timeout=20)
+name = b'example.com'
+s.sendall(b'\\x05\\x01\\x00' + b'\\x05\\x01\\x00\\x03' + bytes([len(name)]) + name + (80).to_bytes(2))
+reply = b''
+while len(reply) < 12 and (chunk := s.recv(12 - len(reply))):
+    reply += chunk
+s.sendall(b'GET / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n')
+out['socks'] = [reply.hex(), s.recv(12).decode('latin-1')]
 print(json.dumps(out))
 """
 
@@ -83,10 +93,12 @@ def test_agent_reaches_internet_only_through_the_gateway():
             assert out[name][0] == 403 and "EGRESS_DESTINATION_DENIED" in out[name][1], out
         assert out["mail"][0] == 403 and "EGRESS_PORT_DENIED" in out["mail"][1]
         assert out["dns"] == "none" and out["direct"] != 0
+        assert out["socks"][0].startswith("0500" + "0500") and out["socks"][1].startswith("HTTP/1.")
         # The log: full URL for plain HTTP, host:port for the HTTPS tunnel.
         targets = {(row["method"], row["target"], row["status"]) for row in rows}
         assert ("GET", "http://example.com/?q=1", "ok") in targets
         assert ("CONNECT", "example.com:443", "ok") in targets
+        assert ("SOCKS", "example.com:80", "ok") in targets
         assert sum(row["status"] == "denied" for row in rows) == 4
         # Agent container, proxy and network all removed with the turn.
         phases = [phase for _, phase in world.names]

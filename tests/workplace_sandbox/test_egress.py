@@ -142,3 +142,53 @@ def test_proxy_names_the_daily_limit_when_the_host_lowered_it(capsys):
     assert answer.startswith(b"HTTP/1.1 403") and b"EGRESS_DAILY_LIMIT" in answer
     (row,) = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert row["status"] == "denied" and row["reason"] == "EGRESS_DAILY_LIMIT"
+
+
+def test_socks5_connect_follows_the_same_policy_and_log(monkeypatch, capsys):
+    async def scenario():
+        async def upstream(reader, writer):
+            writer.write(b"pong:" + await reader.readexactly(4))
+            await writer.drain()
+            writer.close()
+
+        origin = await asyncio.start_server(upstream, "127.0.0.1", 0)
+        port = origin.sockets[0].getsockname()[1]
+        config = dict(
+            deny=[], deny_ports=[25], max_bytes=10_000, connect_timeout=5, max_connections=4
+        )
+        server = await asyncio.start_server(Proxy(config).handle, "127.0.0.1", 0)
+        proxy_port = server.sockets[0].getsockname()[1]
+
+        async def socks(request: bytes, greeting=b"\x05\x01\x00", payload=b""):
+            reader, writer = await asyncio.open_connection("127.0.0.1", proxy_port)
+            writer.write(greeting + request + payload)
+            await writer.drain()
+            data = await reader.read()
+            writer.close()
+            return data
+
+        name = b"localhost"
+        by_name = b"\x05\x01\x00\x03" + bytes([len(name)]) + name + port.to_bytes(2)
+        # Loopback by name is refused by the real policy: reply 2 (not allowed by ruleset).
+        assert (await socks(by_name)) == b"\x05\x00" + b"\x05\x02" + b"\x00\x01" + bytes(6)
+        mail = b"\x05\x01\x00\x01" + bytes([93, 184, 215, 14]) + (25).to_bytes(2)
+        assert (await socks(mail))[2:4] == b"\x05\x02"
+        bind = b"\x05\x02\x00\x01" + bytes(4) + (80).to_bytes(2)
+        assert (await socks(bind))[2:4] == b"\x05\x07"
+        assert (await socks(b"", greeting=b"\x05\x01\x02")) == b"\x05\xff"  # password only
+        monkeypatch.setattr(egress_proxy, "allowed", lambda address, deny: True)
+        ok = await socks(by_name, payload=b"ping")
+        assert ok == b"\x05\x00\x05\x00\x00\x01" + bytes(6) + b"pong:ping"
+        server.close()
+        origin.close()
+
+    asyncio.run(scenario())
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [(row["method"], row["status"], row.get("reason")) for row in rows] == [
+        ("SOCKS", "denied", "EGRESS_DESTINATION_DENIED"),
+        ("SOCKS", "denied", "EGRESS_PORT_DENIED"),
+        ("SOCKS", "error", "EGRESS_SOCKS_COMMAND"),
+        ("SOCKS", "error", "EGRESS_SOCKS_AUTH"),
+        ("SOCKS", "ok", None),
+    ]
+    assert rows[-1]["target"].startswith("localhost:") and rows[-1]["up"] == 4

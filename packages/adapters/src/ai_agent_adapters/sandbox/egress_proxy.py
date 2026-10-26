@@ -1,13 +1,15 @@
 """Trusted egress proxy: PID 1 of the per-turn gateway container (``python -I -u -c``).
 
-Standalone, standard library only, no platform imports. Serves HTTP CONNECT and absolute-form
-``http://`` requests. Resolves names itself (the agent's network has no DNS and no route out)
-and connects only to public addresses outside the denied networks and ports. One JSON line per
-request goes to stdout; the host keeps that log and removes this container at the end of the
-turn or on STOP. HTTPS is tunnelled, so only its host and port are known here.
+Standalone, standard library only, no platform imports. Serves HTTP CONNECT, absolute-form
+``http://`` requests and SOCKS5 CONNECT on the same port (a first byte 0x05 is SOCKS).
+Resolves names itself (the agent's network has no DNS and no route out) and connects only to
+public addresses outside the denied networks and ports. One JSON line per request goes to
+stdout; the host keeps that log and removes this container at the end of the turn or on STOP.
+HTTPS is tunnelled, so only its host and port are known here.
 """
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import os
@@ -23,6 +25,8 @@ PORT = 3128
 MAX_HEAD = 16384
 MAX_TARGET = 2048
 IDLE_SECONDS = 300
+# SOCKS5 reply with a code; the bound address is not meaningful here and stays zero.
+SOCKS_REPLY = b"\x05%c\x00\x01\x00\x00\x00\x00\x00\x00"
 DROPPED = {"proxy-connection", "proxy-authorization", "connection", "keep-alive"}
 
 
@@ -102,22 +106,56 @@ class Proxy:
         async with self.slots:
             await self.serve(reader, writer)
 
+    async def socks(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> str:
+        """SOCKS5 greeting and request (no authentication, CONNECT only) -> ``host:port``."""
+        methods = await reader.readexactly((await reader.readexactly(1))[0])
+        if 0 not in methods:
+            writer.write(b"\x05\xff")
+            raise ValueError("EGRESS_SOCKS_AUTH")
+        writer.write(b"\x05\x00")
+        version, command, _, kind = await reader.readexactly(4)
+        if kind == 1:
+            host = socket.inet_ntop(socket.AF_INET, await reader.readexactly(4))
+        elif kind == 4:
+            host = "[" + socket.inet_ntop(socket.AF_INET6, await reader.readexactly(16)) + "]"
+        elif kind == 3:
+            host = (await reader.readexactly((await reader.readexactly(1))[0])).decode("ascii")
+        else:
+            raise ValueError("EGRESS_TARGET")
+        port = int.from_bytes(await reader.readexactly(2))
+        if version != 5 or command != 1:
+            writer.write(SOCKS_REPLY % 7)  # command not supported: no BIND/UDP
+            raise ValueError("EGRESS_SOCKS_COMMAND")
+        return f"{host}:{port}"
+
     async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         started = time.monotonic()
         stats: dict[str, Any] = {"method": "", "target": "", "status": "error", "up": 0, "down": 0}
         address = ""
         upstream = None
+        socks = False
         try:
-            head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 30)
-            line, *headers = head.decode("latin-1").split("\r\n")
-            method, raw, version = line.split(" ")
+            first = await asyncio.wait_for(reader.readexactly(1), 30)
+            if first == b"\x05":
+                socks = True
+                stats["method"] = "SOCKS"
+                raw = await asyncio.wait_for(self.socks(reader, writer), 30)
+                method, version = "SOCKS", ""
+            else:
+                head = first + await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 30)
+                line, *headers = head.decode("latin-1").split("\r\n")
+                method, raw, version = line.split(" ")
             stats["method"], stats["target"] = method, raw[:MAX_TARGET]
             try:
-                host, port, path = target(method, raw)
+                host, port, path = target("CONNECT" if socks else method, raw)
             except ValueError as error:
                 stats["status"] = "denied"
                 stats["reason"] = str(error)
-                writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+                writer.write(
+                    SOCKS_REPLY % 1
+                    if socks
+                    else b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"
+                )
                 return
             reason = None
             if port in self.deny_ports:
@@ -133,13 +171,18 @@ class Proxy:
                 stats["status"], stats["reason"] = "denied", reason
                 body = reason.encode()
                 writer.write(
-                    b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n"
+                    SOCKS_REPLY % 2  # connection not allowed by ruleset
+                    if socks
+                    else b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n"
                     + b"Content-Length: %d\r\n\r\n" % len(body)
                     + body
                 )
                 return
             upstream = await asyncio.wait_for(asyncio.open_connection(address, port), self.timeout)
-            if method == "CONNECT":
+            if socks:
+                writer.write(SOCKS_REPLY % 0)
+                await writer.drain()
+            elif method == "CONNECT":
                 writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
                 await writer.drain()
             else:
@@ -154,7 +197,13 @@ class Proxy:
         except (OSError, ValueError, TimeoutError, asyncio.IncompleteReadError,
                 asyncio.LimitOverrunError) as error:  # fmt: skip
             if stats["status"] == "error":
-                stats["reason"] = type(error).__name__
+                stats["reason"] = (
+                    str(error) if str(error).startswith("EGRESS_") else type(error).__name__
+                )
+                # The greeting errors already answered; others get "general failure".
+                if socks and upstream is None and not stats["reason"].startswith("EGRESS_SOCKS"):
+                    with contextlib.suppress(OSError):
+                        writer.write(SOCKS_REPLY % 1)
         finally:
             stats["seconds"] = round(time.monotonic() - started, 3)
             self.log(**stats)

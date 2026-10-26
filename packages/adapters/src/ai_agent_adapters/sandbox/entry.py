@@ -39,6 +39,8 @@ if proxy is not None:
         env[key] = env[key.lower()] = proxy
     env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
     env["AI_WORKPLACE_PROXY"] = proxy
+    # The same gateway port speaks SOCKS5 (CONNECT, names resolved by the gateway).
+    env["AI_WORKPLACE_SOCKS"] = "socks5h://" + proxy.removeprefix("http://")
 """
 
 # Written fresh every turn from the platform's copy: changing it inside has no lasting effect.
