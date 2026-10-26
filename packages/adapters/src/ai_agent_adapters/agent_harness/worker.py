@@ -92,6 +92,9 @@ def configuration(
                     "helpers": {
                         "type": "local",
                         "enabled": True,
+                        # Runner wall/STOP remains authoritative (host ceiling <= 3600 s).
+                        # MCP must not cut a valid longer helper at its SDK default timeout.
+                        "timeout": 3600000,
                         "command": [
                             "/usr/local/bin/python",
                             "-I",

@@ -65,7 +65,7 @@ def respond(request: dict[str, Any]) -> dict[str, Any]:
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(wire, timeout=60) as response:
+    with urllib.request.urlopen(wire, timeout=3600) as response:
         raw = response.read(65537)
     if len(raw) > 65536:
         raise ValueError()

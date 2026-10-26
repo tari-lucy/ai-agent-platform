@@ -78,3 +78,70 @@ def test_new_input_cancels_a_queued_old_sequence_before_context_or_model(monkeyp
     with pytest.raises(ContractError) as caught:
         asyncio.run(work_session_runtime.perform(ex))
     assert caught.value.error.code == ErrorCode.STALE_CONTEXT
+
+
+def test_unknown_helper_cannot_be_bypassed_by_an_automatic_session_attempt(monkeypatch):
+    from datetime import UTC, datetime
+
+    from ai_agent_contracts.common import Scope
+
+    from ai_agent_core.m3_composition import activity, work_session_runtime, work_sessions
+
+    scope = Scope(
+        workspace_id="workspace", persona_id="persona", memory_space_id="memory", memory_mode="work"
+    )
+    now = datetime.now(UTC)
+    session = SimpleNamespace(
+        id="session",
+        scope=scope,
+        state="open",
+        pending_reply=None,
+        generation=1,
+        version=1,
+        last_sequence=1,
+        processed_sequence=0,
+        updated_at=now,
+    )
+    run = SimpleNamespace(status="unknown")
+    attempt = SimpleNamespace(session_sequence=1, helper_runs=[run], state="failed", updated_at=now)
+
+    async def listed(**kwargs):
+        return [session]
+
+    async def get(*args):
+        return session
+
+    async def attempts(*args):
+        return [attempt]
+
+    async def messages(*args, **kwargs):
+        return [SimpleNamespace(speaker="operator")]
+
+    async def available(*args, **kwargs):
+        return [SimpleNamespace(available=True, manifest=SimpleNamespace(capability_id="parent"))]
+
+    async def valid(*args):
+        return None
+
+    monkeypatch.setattr(activity, "book", lambda _: SimpleNamespace(session_attempts=attempts))
+    monkeypatch.setattr(activity, "tools", available)
+    monkeypatch.setattr(
+        work_sessions, "sessions", lambda _: SimpleNamespace(messages=messages, get=get)
+    )
+    monkeypatch.setattr(work_session_runtime, "unavailable", valid)
+    rt = SimpleNamespace(
+        store=SimpleNamespace(repository=lambda *a: SimpleNamespace(list=listed, get=get)),
+        supervisor=SimpleNamespace(
+            snapshot=SimpleNamespace(scope=scope), clock=SimpleNamespace(utc=lambda: now)
+        ),
+        session_harness=object(),
+        session_capability="parent",
+        activity=SimpleNamespace(max_attempts_per_task=3, cooldown_seconds=0),
+    )
+
+    async def scenario():
+        assert await work_session_runtime.select(rt, scope) is None
+        run.status = "failed"  # A known outcome follows ordinary bounded retry policy.
+        assert await work_session_runtime.select(rt, scope) is not None
+
+    asyncio.run(scenario())

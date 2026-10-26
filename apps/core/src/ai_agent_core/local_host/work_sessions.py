@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 ADAPTER = "opencode"
 VERSION = "1.19.3"  # the pinned release of deploy/opencode; the image carries it as a label
 LABEL = "ai-agent-platform.opencode.version"
+HELPER_LABEL = "ai-agent-platform.helper.protocol"
 SUMMARY = "Рабочий разговор: ответить оператору, работая с файлами и навыками рабочего места."
 INSTRUCTIONS = (
     "Исполняется в изолированной песочнице без сети; модель — через общий gateway и бюджет. "
@@ -83,6 +84,8 @@ def check(settings: WorkSessionsConfig, *, timeout: float = 10.0) -> str | None:
         labels = info["Config"].get("Labels") or {}
         if info["Id"] != settings.image_id or info["Os"] != "linux" or labels.get(LABEL) != VERSION:
             return "OPENCODE_IMAGE_UNEXPECTED"
+        if settings.helper_enabled and labels.get(HELPER_LABEL) != "1":
+            return "OPENCODE_HELPER_IMAGE_UNEXPECTED"
     except ValueError, KeyError, TypeError:
         return "OPENCODE_IMAGE_UNEXPECTED"
     return None
@@ -181,7 +184,7 @@ def install(runtime: Runtime, config: HostConfig) -> str | None:
 
 async def enable_work_sessions(
     root: Path, *, image_id: str, areas: list[str], output_area: str,
-    ceiling_days: int | None = None, monitor_interval_seconds: float = 1.0,
+    ceiling_days: int | None = None, monitor_interval_seconds: float | None = None,
     prewarm_enabled: bool | None = None, prewarm_idle_seconds: int | None = None,
     helper_enabled: bool | None = None, helper_capability_id: str | None = None, **limits: int,
 ) -> WorkSessionsConfig:  # fmt: skip
@@ -197,11 +200,18 @@ async def enable_work_sessions(
             raise HostError("WORK_SESSIONS_ACTIVITY_REQUIRED")
         try:
             settings = WorkSessionsConfig.model_validate(
-                dict(
+                (config.work_sessions.model_dump() if config.work_sessions else {})
+                | dict(
                     image_id=image_id,
                     areas=tuple(areas),
                     output_area=output_area,
-                    monitor_interval_seconds=monitor_interval_seconds,
+                    monitor_interval_seconds=(
+                        monitor_interval_seconds
+                        if monitor_interval_seconds is not None
+                        else config.work_sessions.monitor_interval_seconds
+                        if config.work_sessions
+                        else 1.0
+                    ),
                     prewarm_enabled=(
                         prewarm_enabled
                         if prewarm_enabled is not None
@@ -351,15 +361,69 @@ async def enable_work_sessions(
             )
         workspace = PRINCIPALS[Owner.WORKSPACE]
         try:
+            # A helper must not reuse a pre-existing library/other capability's grant.
+            if settings.helper_enabled:
+                all_manifests = await store.repository(CapabilityManifest, workspace, scope).list(
+                    limit=200
+                )
+                all_bindings = await store.repository(CapabilityBinding, workspace, scope).list(
+                    limit=200
+                )
+                for existing in all_manifests:
+                    if existing.capability_id == settings.helper_capability_id and (
+                        existing.id != "manifest-" + settings.helper_capability_id
+                        or existing.network != "none"
+                        or not existing.runner_required
+                        or existing.input_schema_id != "session.instruction"
+                        or existing.output_schema_id != "session.result"
+                        or existing.effect != "local_write"
+                        or existing.areas != list(settings.areas)
+                        or existing.summary != HELPER_SUMMARY
+                    ):
+                        raise HostError("WORK_SESSIONS_HELPER_BINDING_CONFLICT")
+                if any(
+                    b.capability_id == settings.helper_capability_id
+                    and (
+                        b.id != ADAPTER + "." + settings.helper_capability_id
+                        or b.adapter_id != ADAPTER
+                        or b.adapter_version != VERSION
+                        or b.state != "ready"
+                        or b.capability_version != 1
+                    )
+                    for b in all_bindings
+                ):
+                    raise HostError("WORK_SESSIONS_HELPER_BINDING_CONFLICT")
             for name, row in seeded:
-                if await store.repository(type(row), workspace, scope).get(row.id):
-                    continue  # written by an earlier or interrupted run; never replaced here
+                previous_row = await store.repository(type(row), workspace, scope).get(row.id)
+                if previous_row is not None:
+                    # Never silently accept a conflicting prepared owner record.
+                    expected = row.model_dump(
+                        exclude={
+                            "created_at",
+                            "updated_at",
+                            "verified_at",
+                            "version",
+                            "instructions",
+                        }
+                    )
+                    actual = previous_row.model_dump(
+                        exclude={
+                            "created_at",
+                            "updated_at",
+                            "verified_at",
+                            "version",
+                            "instructions",
+                        }
+                    )
+                    if actual != expected:
+                        raise HostError("WORK_SESSIONS_BINDING_CONFLICT")
+                    continue
                 await put(
                     store,
                     registry,
                     Owner.WORKSPACE,
                     scope,
-                    f"work-sessions-{name}",
+                    f"work-sessions-{name}-{row.id}",
                     row,
                     None,
                     rights.record_readers(),

@@ -1,0 +1,6 @@
+# Build context contains only the three trusted Python harness modules.
+# BASE_IMAGE must be an already installed, verified immutable OpenCode image.
+ARG BASE_IMAGE=ai-agent-platform:harness-base-unconfigured
+FROM ${BASE_IMAGE}
+COPY worker.py workspace_mcp.py helper_mcp.py /opt/agent-harness/
+LABEL ai-agent-platform.helper.protocol="1"

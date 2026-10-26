@@ -14,11 +14,13 @@ from ai_agent_application.agent_workplace.ports import (
     WorkspaceRequest,
 )
 from ai_agent_application.memory import derived_id
+from ai_agent_application.storage import Owner
 from ai_agent_contracts.agent_workplace import FileWrite, HelperRun
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 from .activity import book
+from .helper_publication import publication_check
 from .work_session_outputs import save_outputs
 from .work_session_runtime import Release
 
@@ -179,16 +181,26 @@ class Helpers:
                         raise ContractError(ErrorCode.ACCESS_DENIED)
                     return contents[output]
 
-            saved = await save_outputs(
-                ex, cast(AgentHarness, Staged()), admission, attempt, tuple(contents)
-            )
-            await guard.verify(admission, attempt.inputs, saved, "api_transfer")
-            await ex.verify()
-            completed = run.model_copy(update={"status": outcome.status, "outputs": list(saved)})
-            latest = await owner.attempts_repo(admission.scope).get(attempt.id)
-            if latest is None:
-                raise ContractError(ErrorCode.STALE_CONTEXT)
-            await owner.helper_receipt(latest, completed)
+            async def authorize_publication() -> None:
+                await self.runner.authorize(admission, self.template.id)
+
+            check = await publication_check(rt, admission, authorize_publication)
+            with rt.store.authorize_writes(
+                check, owners=frozenset({Owner.CATALOGUE, Owner.ACTIVITY})
+            ):
+                saved = await save_outputs(
+                    ex, cast(AgentHarness, Staged()), admission, attempt, tuple(contents)
+                )
+                await guard.verify(admission, attempt.inputs, saved, "api_transfer")
+                await ex.verify()
+                await authorize_publication()
+                completed = run.model_copy(
+                    update={"status": outcome.status, "outputs": list(saved)}
+                )
+                latest = await owner.attempts_repo(admission.scope).get(attempt.id)
+                if latest is None:
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+                await owner.helper_receipt(latest, completed)
             rt.notify("work.changed", admission.scope, attempt.id)
             return self.receipt(completed)
         finally:

@@ -83,4 +83,8 @@ OpenCode и Docker настоящие. Включение на личном host
 Штатное подключение к host — `enable-work-sessions` и обычный `serve`:
 [launcher](../../docs/implementation-reports/opencode-launcher.md).
 
-**Ещё не готово:** helpers через launcher и включение на личном host.
+Python helpers подключаются через `enable-work-sessions --helper`, после
+отдельного решения оператора. Старому образу требуется обновление доверенного
+harness: `scripts/refresh_opencode_harness.py` использует существующий pinned
+образ без установки зависимостей. Инструкция и ограничения:
+[Python-песочница](../../docs/opencode-python-sandbox.md).

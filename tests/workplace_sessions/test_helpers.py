@@ -81,6 +81,17 @@ async def setup(w, monkeypatch):
     monkeypatch.setattr(module, "book", lambda _: owner)
     monkeypatch.setattr(module, "Release", lambda _: w.guard)
     runner = Runner()
+    rt.store = w.store
+
+    async def fake_publication(runtime, admission, authorize):
+        await authorize()
+
+        async def check(connection):
+            await authorize()
+
+        return check
+
+    monkeypatch.setattr(module, "publication_check", fake_publication)
     template = RunnerTemplate(
         "files.write",
         "sha256:" + "a" * 64,
@@ -151,5 +162,27 @@ def test_helper_failure_never_becomes_an_uncontrolled_retry(tmp_path, monkeypatc
         with pytest.raises(ContractError):
             await helpers.call(gate, request)
         assert runner.calls == (1 if failure == "unknown" else 0)
+
+    run(tmp_path, scenario)
+
+
+def test_revocation_after_stdout_only_execution_prevents_publication(tmp_path, monkeypatch):
+    async def scenario(w):
+        helpers, gate, owner, runner, request, source = await setup(w, monkeypatch)
+        before = await w.files.list(gate.scope, "knowledge")
+
+        async def returned_then_revoked(admission, task):
+            runner.calls += 1
+            runner.allowed = False
+            return RunnerOutcome("succeeded", 0, (), "Synthetic stdout must not be published")
+
+        runner.run = returned_then_revoked
+        with pytest.raises(ContractError):
+            await helpers.call(gate, request)
+        assert [row.id for row in await w.files.list(gate.scope, "knowledge")] == [
+            row.id for row in before
+        ]
+        attempt = await owner.attempts_repo(gate.scope).get(gate.attempt_id)
+        assert attempt.helper_runs[0].status == "prepared"  # unknown is not silently retried
 
     run(tmp_path, scenario)

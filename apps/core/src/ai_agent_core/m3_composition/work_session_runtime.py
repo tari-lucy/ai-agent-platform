@@ -308,6 +308,12 @@ async def select(rt: Runtime, scope: Scope) -> TaskInput | None:
                 blocked = True  # no blind replay of an uncertain or already produced result
         if blocked:
             continue
+        if any(
+            run.status in ("prepared", "unknown")
+            for attempt in attempts
+            for run in attempt.helper_runs
+        ):
+            continue  # Never create a new automatic attempt around an uncertain helper execution.
         if len(attempts) >= settings.max_attempts_per_task:
             continue
         if (

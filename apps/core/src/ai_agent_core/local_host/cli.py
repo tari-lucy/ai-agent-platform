@@ -162,7 +162,7 @@ def parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--monitor-interval-seconds",
         type=float,
-        default=1.0,
+        default=None,
         help="background full-proof spacing, 0.1..1.0 s; STOP polling stays 0.1 s",
     )
     sessions.add_argument(
@@ -369,16 +369,7 @@ def main(argv: list[str] | None = None) -> int:
                     arguments.root,
                     blob_dir=arguments.blob_dir,
                     ceiling_days=arguments.ceiling_days,
-                    helper_enabled=arguments.helper,
-                    helper_capability_id=arguments.helper_capability_id,
-                    **{
-                        **limits,
-                        **{
-                            name: getattr(arguments, name)
-                            for name in HELPER_LIMITS
-                            if getattr(arguments, name) is not None
-                        },
-                    },
+                    **limits,
                 )
             )
             print("workplace files enabled; no rights granted to the agent; agent stays STOPPED")
@@ -399,7 +390,16 @@ def main(argv: list[str] | None = None) -> int:
                     prewarm_enabled=arguments.prewarm,
                     prewarm_idle_seconds=arguments.prewarm_idle_seconds,
                     ceiling_days=arguments.ceiling_days,
-                    **limits,
+                    helper_enabled=arguments.helper,
+                    helper_capability_id=arguments.helper_capability_id,
+                    **{
+                        **limits,
+                        **{
+                            name: getattr(arguments, name)
+                            for name in HELPER_LIMITS
+                            if getattr(arguments, name) is not None
+                        },
+                    },
                 )
             )
             print("work conversations enabled; no rights granted to the agent; agent stays STOPPED")
