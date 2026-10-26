@@ -56,7 +56,8 @@ Claude Code, 2026-10-26. План: [doc31 §4, §9](../31-agent-workspace-v2.md)
   агента, прокси и сеть.
 - **Настоящий OpenCode** (`test_real_home.py`, синтетическая модель): bash (Python
   urllib) и `webfetch` OpenCode получают example.com через шлюз; оба шага в журнале хода.
-- Полный gate: см. итог ниже.
+- Полный gate (`scripts/check_combined.py`, Linux): 1581 passed, 51 skipped, 1 failed —
+  `test_import_has_no_effects`, известный сбой окружения VPS (как в W1/W2).
 
 Не проверено: Windows/Docker Desktop (внутренние сети, `docker network connect`
 на созданном контейнере, адрес Docker-хоста там другой), живая модель, решение
