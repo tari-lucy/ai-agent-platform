@@ -313,7 +313,7 @@ def test_live_provider_refuses_foreign_roles_models_and_unbounded_parameters(tmp
     from ai_agent_application.llm import ChatMessage, ProviderCall, ProviderError
     from ai_agent_application.llm.model import GenerationParameters, ResolvedAssignment
 
-    live = LiveConfig(model_id="fixture-model")
+    live = LiveConfig(model_id="fixture-model", max_prompt_chars=24000)
     factory = provider_factory("live", live=live, env_file=binding(tmp_path / "binding.env"))
     provider = factory(ADAPTER_ID)
     assignment = ResolvedAssignment(

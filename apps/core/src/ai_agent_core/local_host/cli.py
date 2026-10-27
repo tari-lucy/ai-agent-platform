@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from ai_agent_core.local_artifacts import ArtifactsError
 
 from .activity import configure_activity
-from .budget import configure_budget
+from .budget import configure_budget, configure_prompt_limit
 from .finish_restore import finish_restore
 from .gm import configure_gm
 from .http_transport import configure_http_transport
@@ -125,6 +125,12 @@ def parser() -> argparse.ArgumentParser:
     budget.add_argument("--root", type=Path, required=True)
     budget.add_argument("--attempt-limit", type=int, required=True)
     budget.add_argument("--period", choices=("lifetime", "utc_day"), required=True)
+    prompt = commands.add_parser(
+        "configure-prompt-limit",
+        help="explicit offline live prompt size cap (1000..40000 chars); stop the server first",
+    )
+    prompt.add_argument("--root", type=Path, required=True)
+    prompt.add_argument("--max-prompt-chars", type=int, required=True)
     memory = commands.add_parser(
         "enable-memory", help="explicit offline automatic memory admission"
     )
@@ -462,6 +468,10 @@ def main(argv: list[str] | None = None) -> int:
             if reason is not None:
                 raise HostError(reason)
             print("work conversations ready: Docker and the pinned OpenCode image found")
+            return 0
+        if arguments.command == "configure-prompt-limit":
+            configure_prompt_limit(arguments.root, max_prompt_chars=arguments.max_prompt_chars)
+            print("Live prompt limit configured; restart remains STOPPED")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)
