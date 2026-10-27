@@ -22,6 +22,9 @@ from .egress import Egress
 from .policy import Home, RunnerTemplate, create_args
 from .warm_entry import WARM_ENTRY
 
+# RLIMIT_CPU of each process in a resident sandbox, over its whole life (not per turn).
+RESIDENT_CPU_SECONDS = 24 * 3600
+
 
 def settings(
     template: RunnerTemplate, *, workspace: bool, helper: bool, home: Home | None = None
@@ -116,6 +119,7 @@ class WarmSandbox:
                     WARM_ENTRY,
                     self.home_volume,
                     self.gateway.network if self.gateway is not None else None,
+                    RESIDENT_CPU_SECONDS if self.resident else None,
                 )
                 args[1:1] = ["--label", "ai-agent-platform.instance=" + self.name]
                 # Cancellation of the CLI client is not cancellation at Docker daemon.

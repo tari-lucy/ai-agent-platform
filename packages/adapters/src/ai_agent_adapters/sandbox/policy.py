@@ -160,8 +160,13 @@ def create_args(
     entry: str,
     home: str | None = None,
     network: str | None = None,
+    process_cpu_seconds: int | None = None,
 ) -> list[str]:
     """No host mounts/ports/keys/socket. Writable task disk is a kernel-bounded tmpfs.
+
+    ``process_cpu_seconds`` replaces the per-turn CPU rlimit for a resident sandbox: RLIMIT_CPU
+    counts a process's whole life, so its ``opencode serve`` would otherwise die after a few
+    turns. Each turn stays bounded by wall time and ``--cpus``; the day by the CPU budget.
 
     ``home`` adds the persona's named volume at /workspace and a small tmpfs for /guide;
     everything else stays read-only or disappears with the container. ``network`` is the
@@ -175,6 +180,9 @@ def create_args(
     if network is not None and re.fullmatch(r"aw-net-[0-9a-f]{32}", network) is None:
         raise ValueError("RUNNER_NETWORK_INVALID")
     cap = task.limits
+    cpu = cap.cpu_seconds if process_cpu_seconds is None else process_cpu_seconds
+    if not cap.cpu_seconds <= cpu <= 7 * 86400:
+        raise ValueError("RUNNER_CPU_INVALID")
     mounts = (
         [
             "--mount",
@@ -210,7 +218,7 @@ def create_args(
         "--memory-swap",
         f"{cap.memory_mb}m",
         "--ulimit",
-        f"cpu={cap.cpu_seconds}:{cap.cpu_seconds}",
+        f"cpu={cpu}:{cpu}",
         "--ulimit",
         "nofile=128:128",
         "--ulimit",

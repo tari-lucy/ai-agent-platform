@@ -57,6 +57,7 @@ async def turn(
     calls: list[list[object]] | None = None,
     egress=None,
     resident: WarmSandbox | None = None,
+    cap: RunnerLimits = CAP,
 ) -> tuple[list, ScriptedProvider]:
     """One harness turn; ``warm`` prepares the sandbox first with that (older) guide.
 
@@ -68,7 +69,7 @@ async def turn(
         w.runner.templates["python-task"],
         image_id=os.environ["AW_HOME_IMAGE_ID"],
         executable_prefix=PREFIX,
-        ceiling=CAP,
+        ceiling=cap,
         model_role_id="activity",
         max_model_calls=4,
         max_prompt_chars=100000,
@@ -104,7 +105,7 @@ async def turn(
 
     slot = None
     if resident is not None:
-        task = RunnerTask(template.id, PREFIX, (), CAP, network="gateway")
+        task = RunnerTask(template.id, PREFIX, (), cap, network="gateway")
         assert resident.claim(template, task, home.volume, resident.internet)
     elif warm is not None:
 
@@ -119,7 +120,7 @@ async def turn(
             registered=registered, released=released, home=warm,
         )  # fmt: skip
         await slot.prepare()
-        task = RunnerTask(template.id, PREFIX, (), CAP, network="gateway")
+        task = RunnerTask(template.id, PREFIX, (), cap, network="gateway")
         assert not slot.claim(template, task, "aw-home-" + "0" * 32)  # another persona's home
         assert slot.claim(template, task, home.volume)
     runner = DockerTaskRunner(
@@ -127,7 +128,7 @@ async def turn(
         models=Models(), home=home, prepared=slot or resident, egress=egress,
     )  # fmt: skip
     try:
-        events = await OpenCodeHarness(runner, template.id, CAP).turn(
+        events = await OpenCodeHarness(runner, template.id, cap).turn(
             w.admission, HarnessTurn("synthetic-session", "Synthetic instruction.", (), ())
         )
     finally:
@@ -366,5 +367,57 @@ def test_resident_sandbox_with_its_own_gateway(monkeypatch):
             "ps", "--all", "--filter", "name=" + gateways[0].name, "--format", "{{.ID}}"
         )
         assert not net.strip() and not proxy.strip()
+
+    asyncio.run(scenario())
+
+
+BURN = (
+    'nohup python3 -c "import time\nt = time.process_time()\n'
+    "while time.process_time() - t < 8: pass\n"
+    "open('/workspace/burn.txt', 'w').write('burned')\" >/dev/null 2>&1 & echo started-burn"
+)
+
+
+def test_resident_cpu_rlimit_is_not_the_per_turn_limit(monkeypatch):
+    """RLIMIT_CPU counts a process's life: in a resident sandbox the per-turn value would kill
+    its background work and ``opencode serve`` after a few turns (Windows soak, 6th turn)."""
+    monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", os.environ["AW_HOME_IMAGE_ID"])
+    cap = replace(CAP, cpu_seconds=5)
+
+    async def scenario():
+        home = Home("aw-home-" + uuid4().hex, "Synthetic rule", "Synthetic facts", "Starter", 64)
+        template = replace(
+            World().runner.templates["python-task"],
+            image_id=os.environ["AW_HOME_IMAGE_ID"],
+            executable_prefix=PREFIX,
+            ceiling=cap,
+            model_role_id="activity",
+            max_model_calls=4,
+            max_prompt_chars=100000,
+            max_model_tokens=256,
+        )
+
+        async def nothing(*args):
+            pass
+
+        slot = WarmSandbox(
+            template, workspace=False, helper=False, idle_seconds=60, valid=lambda: None,
+            registered=nothing, released=nothing, home=home, resident=True,
+            resident_idle_seconds=120,
+        )  # fmt: skip
+        try:
+            await slot.prepare()
+            events, _ = await turn(home, BURN, "Burn started", resident=slot, cap=cap)
+            assert [e.detail for e in events if e.kind == "result"] == ["Burn started"]
+            await asyncio.sleep(14)  # 8 s of CPU under --cpus=1, past the 5 s turn value
+            events, provider = await turn(
+                home, "cat /workspace/burn.txt", "Checked", resident=slot, cap=cap
+            )
+            assert "burned" in tool_output(provider), tool_output(provider)
+        finally:
+            await slot.close()
+            subprocess.run(
+                ["docker", "volume", "rm", home.volume], capture_output=True, check=False
+            )
 
     asyncio.run(scenario())
