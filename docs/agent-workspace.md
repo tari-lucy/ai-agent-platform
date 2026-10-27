@@ -88,8 +88,9 @@
 
 `pip`, `npm`, `curl`, Python `urllib` и `webfetch` OpenCode работают через
 переменные `HTTP(S)_PROXY`. Установленное (`pip --user`, `npm -g`) и кэши
-сохраняются в `/workspace`. Прогретый контейнер с интернетом не используется:
-такой ход стартует холодным.
+сохраняются в `/workspace`. При `--resident --internet` контейнер и его шлюз
+могут сохраняться между ходами; допуск к модели между ходами закрыт. STOP,
+отзыв разрешения и закрытие по простою завершают контейнер и шлюз.
 
 Журнал виден в панели: **Работа** → блок **Интернет** → «Показать журнал»: итог
 за сутки (запросы, отказы, объём и лимиты) и последние 200 запросов; «Раньше» и
@@ -113,6 +114,31 @@ python -m ai_agent_core.local_host enable-work-sessions --root <root> --image-id
 агент ставит в `/workspace`. Список инструментов агент видит в `/guide/tools.md`.
 После обновления harness (`refresh_opencode_harness.py`) его можно применить и
 поверх образа «руки».
+
+Windows-проверка W3b выявила особенность Chromium внутри OpenCode: он наследует
+`XDG_CONFIG_HOME`, указывающий на защищённую конфигурацию OpenCode. Для процесса
+Python/Chromium нужен отдельный записываемый каталог. Проверенный запуск:
+
+```bash
+XDG_CONFIG_HOME=/work/browser-config python3 - <<'PY'
+import os
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    browser = p.chromium.launch(
+        executable_path='/usr/bin/chromium',
+        args=['--no-sandbox', '--disable-dev-shm-usage'],
+        proxy={'server': os.environ['HTTP_PROXY']},
+    )
+    page = browser.new_page()
+    page.goto('https://example.com/', timeout=60000)
+    print(page.title())
+    browser.close()
+PY
+```
+
+Это настройка только дочернего инструмента, не изменение защищённой конфигурации
+OpenCode или сетевых разрешений. Пока этот рецепт не закреплён в `/guide/tools.md`,
+самостоятельный выбор правильного запуска агентом не подтверждён.
 
 Проверка: разрешить интернет, попросить агента «установи через pip пакет
 `requests` и скачай заголовок example.com»; в журнале `data/egress` появятся
