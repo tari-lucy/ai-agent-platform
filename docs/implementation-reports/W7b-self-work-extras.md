@@ -33,7 +33,9 @@ Claude Code, 2026-10-27. План: [doc31 §7, W4/D71](../31-agent-workspace-v2.
   суткам, битые/отрицательные строки (`test_cpu_budget.py`). Профиль W6 с домом — без scripts.
 - Настоящий Docker: контейнер возвращает `cpu_seconds` (~1 с на пробу), `test_docker.py`
   15 passed.
-- Полный gate: см. ниже.
+- Полный gate (`scripts/check_combined.py`, Linux, W3b+W7b+приёмка Codex): 1594 passed,
+  56 skipped, 2 failed — `test_import_has_no_effects` (известное окружение VPS) и
+  `test_memory_cycles` (`RESOURCE_BUSY` под нагрузкой; отдельно 3 passed).
 
 Не проверено: Windows (`cpu.stat` в Docker Desktop/WSL2 — ожидается cgroup v2), живая
 модель с `when_done`, CPU долгоживущего контейнера на часах работы.
