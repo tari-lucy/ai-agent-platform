@@ -1,6 +1,8 @@
 """Only trusted templates select immutable images and absolute executables."""
 
+import base64
 import re
+import zlib
 from dataclasses import dataclass
 
 from ai_agent_application.agent_workplace.ports import RunnerLimits, RunnerTask
@@ -134,6 +136,23 @@ def limits(value: RunnerLimits) -> None:
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
 
 
+def entry_argument(source: str) -> str:
+    """Keep trusted PID 1 code below Windows' CreateProcess command-line ceiling.
+
+    Only platform entry code is packed, never a model command or task payload.
+    The same source executes inside the same isolated Python process; no file,
+    host mount, shell or network is introduced.
+    """
+    if len(source) <= 4096:
+        return source
+    packed = base64.b64encode(zlib.compress(source.encode("utf-8"), 9)).decode("ascii")
+    return (
+        "import base64,zlib;exec(compile(zlib.decompress(base64.b64decode('"
+        + packed
+        + "')),'<platform-entry>','exec'))"
+    )
+
+
 def create_args(
     template: RunnerTemplate,
     task: RunnerTask,
@@ -205,5 +224,5 @@ def create_args(
         "-I",
         "-u",
         "-c",
-        entry,
+        entry_argument(entry),
     ]
