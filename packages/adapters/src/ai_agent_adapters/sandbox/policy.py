@@ -39,13 +39,13 @@ class RunnerTemplate:
             or self.model_role_id is not None
             and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", self.model_role_id) is None
             or type(self.max_model_calls) is not int
-            or not 1 <= self.max_model_calls <= 16
+            or not 1 <= self.max_model_calls <= 1000
             or type(self.max_prompt_chars) is not int
-            or not 1 <= self.max_prompt_chars <= 100000
+            or not 1 <= self.max_prompt_chars <= 2_000_000
             or type(self.max_model_tokens) is not int
             or not 1 <= self.max_model_tokens <= 65536
             or type(self.max_workspace_calls) is not int
-            or not 0 <= self.max_workspace_calls <= 64
+            or not 0 <= self.max_workspace_calls <= 10_000
             or self.max_workspace_calls > 0
             and self.model_role_id is None
             or type(self.max_helper_calls) is not int

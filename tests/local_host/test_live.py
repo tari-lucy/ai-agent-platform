@@ -77,7 +77,12 @@ def test_real_adapter_private_http_ledger_errors_stop_and_durable_budget(
 ):
     async def scenario():
         root = tmp_path / "host"
-        live = LiveConfig(model_id="fixture-model", attempt_limit=6, attempt_period=period)
+        live = LiveConfig(
+            model_id="fixture-model",
+            attempt_limit=6,
+            attempt_period=period,
+            max_output_tokens=512,
+        )
         config = await initialise(root, profile_markdown=REFERENCE_PROFILE, live=live)
         env = binding(tmp_path / "binding.env")
         calls = []
@@ -313,7 +318,9 @@ def test_live_provider_refuses_foreign_roles_models_and_unbounded_parameters(tmp
     from ai_agent_application.llm import ChatMessage, ProviderCall, ProviderError
     from ai_agent_application.llm.model import GenerationParameters, ResolvedAssignment
 
-    live = LiveConfig(model_id="fixture-model", max_prompt_chars=24000)
+    live = LiveConfig(
+        model_id="fixture-model", max_prompt_chars=24000, max_output_tokens=512, timeout_seconds=60
+    )
     factory = provider_factory("live", live=live, env_file=binding(tmp_path / "binding.env"))
     provider = factory(ADAPTER_ID)
     assignment = ResolvedAssignment(

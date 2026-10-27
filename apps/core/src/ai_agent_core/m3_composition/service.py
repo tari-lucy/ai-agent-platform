@@ -188,7 +188,7 @@ class PrivateAPIBudget:
             raise ValueError("PRIVATE_API_PERIOD")
         if not self.connection_id or type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("PRIVATE_API_BUDGET")
-        if not 1000 <= self.max_prompt_chars <= 40000:
+        if not 1000 <= self.max_prompt_chars <= 2_000_000:
             raise ValueError("PRIVATE_API_PROMPT_LIMIT")
         if type(self.memory_processing) is not bool or type(self.memory_daily_calls) is not int:
             raise ValueError("PRIVATE_MEMORY_BUDGET")

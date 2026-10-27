@@ -105,7 +105,8 @@ def template(settings: WorkSessionsConfig) -> RunnerTemplate:
         settings.image_id,
         PREFIX,
         RunnerLimits(
-            settings.cpu_seconds,
+            # With --cpus=1 a turn cannot use more CPU than its wall time.
+            min(settings.cpu_seconds, settings.wall_seconds),
             settings.memory_mb,
             settings.pids,
             settings.wall_seconds,

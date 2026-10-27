@@ -97,8 +97,9 @@ class TaskResult(Contract):
 
 
 class PermitLimits(Contract):
-    max_calls: Annotated[int, Field(strict=True, ge=1, le=8)] = 8
-    max_output_tokens: Annotated[int, Field(strict=True, ge=1, le=2048)] = 1024
+    # D76: per-job technical rails against runaway loops; spending is bounded by money.
+    max_calls: Annotated[int, Field(strict=True, ge=1, le=100_000)] = 1000
+    max_output_tokens: Annotated[int, Field(strict=True, ge=1, le=65_536)] = 65_536
 
 
 class StoryVerdict(Contract):
