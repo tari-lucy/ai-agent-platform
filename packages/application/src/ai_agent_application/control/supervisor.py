@@ -2,7 +2,9 @@
 
 import asyncio
 import inspect
+import logging
 import math
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event, get_ident
@@ -27,6 +29,15 @@ from .ports import (
     RunJournal,
     WorkKind,
 )
+
+LOG = logging.getLogger(__name__)
+
+
+def _site(depth: int = 2) -> str:
+    """Where a fault was raised: file:function:line only, never values."""
+    frame = sys._getframe(depth)
+    name = frame.f_code.co_filename.replace("\\", "/").rsplit("/", 1)[-1]
+    return f"{name}:{frame.f_code.co_name}:{frame.f_lineno}"
 
 
 @dataclass
@@ -198,6 +209,13 @@ class Supervisor:
             or abs(wall_gap - gap) > self.limits.sleep_gap_seconds
             or gap < 0
         ):
+            # A sleeping host, a moved clock or an event loop blocked by synchronous work.
+            LOG.warning(
+                "Run clock gap: monotonic=%.2fs wall=%.2fs limit=%.1fs",
+                gap,
+                wall_gap,
+                self.limits.sleep_gap_seconds,
+            )
             self.critical_failure(ErrorCode.STALE_CONTEXT)
         for admission_id, admission in list(self._admissions.items()):
             if elapsed >= admission.expires_at:
@@ -207,6 +225,9 @@ class Supervisor:
             self.critical_failure(ErrorCode.EXPIRED)
         self._settle()
         if self._deadline is not None and elapsed >= self._deadline:
+            LOG.warning(
+                "Run faulted: STOP deadline with %d unconfirmed resources", len(self._pending())
+            )
             self._change(state=RunState.FAULTED, unconfirmed_resource_ids=self._pending())
             self.last_error = ErrorCode.OUTCOME_UNKNOWN
             self._deadline = None
@@ -223,6 +244,8 @@ class Supervisor:
 
     def critical_failure(self, code: ErrorCode = ErrorCode.SERVICE_UNAVAILABLE) -> None:
         self._owned()
+        # The fixed code and the calling site: the only trace of why the run faulted.
+        LOG.warning("Run faulted: %s at %s (was %s)", code.value, _site(), self._run.state.value)
         self._revoke()
         self._change(state=RunState.FAULTED, unconfirmed_resource_ids=self._pending())
         self.last_error = code
