@@ -9,6 +9,7 @@ by itself: the tick submits work only while the run is ACTIVE/OPEN/autonomous an
 
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -82,8 +83,10 @@ class ExecutionModelGateway:
             or admission.lease_version != lease.lease_version
         ):
             return ModelReply("not_admitted", "", "")
+        started = time.monotonic()
         if self.release is not None and not await self.release():
             return ModelReply("not_admitted", "", "")
+        checked = time.monotonic()
         try:
             result = await self.execution.generate(
                 GenerationRequest(
@@ -105,8 +108,16 @@ class ExecutionModelGateway:
                 return ModelReply("not_admitted", "", "")
             raise
         attempt = result.attempts[-1].attempt_id if result.attempts else ""
+        answered = time.monotonic()
         if self.release is not None and not await self.release():
             return ModelReply("not_admitted", "", attempt)
+        # Diagnostics of a work turn's pace: platform rechecks around each model call.
+        LOG.warning(
+            "Work model call timing: recheck=%.2fs model=%.2fs recheck_after=%.2fs",
+            checked - started,
+            answered - checked,
+            time.monotonic() - answered,
+        )
         if result.failure is Failure.NOT_ADMITTED:
             return ModelReply("not_admitted", "", attempt)
         return ModelReply(

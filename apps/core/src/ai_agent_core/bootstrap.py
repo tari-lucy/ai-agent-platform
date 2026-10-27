@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from importlib.metadata import version
-from typing import Protocol
+from typing import Any, Protocol
 
 from ai_agent_adapters.configuration import (
     BootstrapSettings,
@@ -42,6 +42,43 @@ def where(frames: list[traceback.FrameSummary], depth: int = 6) -> str:
         f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.name}:{f.lineno}"
         for f in reversed(frames[-depth:])
     )
+
+
+SLOW_REQUEST_SECONDS = 0.5
+
+
+class SlowRequests:
+    """ASGI wrapper: logs HTTP requests whose response headers take >= SLOW_REQUEST_SECONDS.
+
+    Method and path only (ids, no query, no body); streams count until their first byte.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        started = time.monotonic()
+        reported = False
+
+        async def timed(message: Any) -> None:
+            nonlocal reported
+            if message.get("type") == "http.response.start" and not reported:
+                reported = True
+                spent = time.monotonic() - started
+                if spent >= SLOW_REQUEST_SECONDS:
+                    LOG.warning(
+                        "Slow request %.2fs %s %s -> %s",
+                        spent,
+                        scope.get("method", ""),
+                        scope.get("path", "")[:200],
+                        message.get("status"),
+                    )
+            await send(message)
+
+        await self.app(scope, receive, timed)
 
 
 class LoopStall:
@@ -200,6 +237,7 @@ def create_app(
         openapi_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(SlowRequests)
     app.state.bootstrap = startup
     app.state.supervisor = supervisor
     app.state.telemetry = telemetry

@@ -36,7 +36,8 @@ class Capability(VersionedRecord):
     effect: Literal["none", "local_write", "external_effect", "public_output"]
     required_permissions: list[Id] = Field(max_length=200)
     resource_ids: list[Id] = Field(max_length=200)
-    timeout_ms: int = Field(strict=True, ge=1, le=180000)
+    # D76: a technical rail up to 24 h; the work turn's own wall time and money bound it.
+    timeout_ms: int = Field(strict=True, ge=1, le=86_400_000)
     cancellation_supported: bool = Field(strict=True)
     idempotency: Literal["supported", "unsupported", "unknown"]
     health: Literal["ready", "degraded", "unavailable"]

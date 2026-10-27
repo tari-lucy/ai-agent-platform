@@ -767,7 +767,7 @@
           "type": "array"
         },
         "timeout_ms": {
-          "maximum": 180000,
+          "maximum": 86400000,
           "minimum": 1,
           "title": "Timeout Ms",
           "type": "integer"

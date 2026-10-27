@@ -26,3 +26,11 @@ def test_cpu_above_wall_is_clamped_not_refused():
         dict(image_id=IMAGE, areas=("projects",), output_area="projects", wall_seconds=600)
     )
     assert template(settings).ceiling.cpu_seconds == 600
+
+
+def test_a_job_is_not_capped_at_three_minutes():
+    from ai_agent_application.jobs.ports import JobLimits
+
+    from ai_agent_core.local_host.activity import ACTIVITY_TIMEOUT_MS
+
+    assert JobLimits().total_seconds == 86400 and ACTIVITY_TIMEOUT_MS == 86_400_000
