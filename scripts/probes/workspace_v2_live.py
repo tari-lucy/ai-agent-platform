@@ -13,6 +13,7 @@ import time
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -32,6 +33,8 @@ from ai_agent_core.m3_composition.work_session_home import volume
 
 ROOT = Path(__file__).resolve().parents[2]
 ORIGIN = "http://127.0.0.1:8765"
+# Swapped for the probe's counted transport and restored; not a second credential path.
+PROVIDER = "OpenAICompatibleProvider"
 PROMPT = """Это вымышленная приёмочная задача, не подключение к настоящему аккаунту.
 Самостоятельно осмотрись в /guide, в том числе tools.md. Работай в /workspace через bash.
 Создай короткую заметку README о результате, при необходимости навык в skills/.
@@ -51,27 +54,27 @@ proxy={'server': os.environ['HTTP_PROXY']}. Используй Python heredoc, �
 
 
 class Counted(httpx.AsyncBaseTransport):
-    def __init__(self, limit):
+    def __init__(self, limit: int) -> None:
         self.limit = limit
         self.calls = 0
         self.inner = httpx.AsyncHTTPTransport()
 
-    async def handle_async_request(self, request):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if self.calls >= self.limit:
             raise httpx.TransportError("PROBE_CALL_LIMIT")
         self.calls += 1
         return await self.inner.handle_async_request(request)
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         await self.inner.aclose()
 
 
-async def run(a):
+async def run(a: argparse.Namespace) -> int:
     if not a.workdir.is_absolute() or a.workdir.exists():
         raise ValueError("NEW_ABSOLUTE_WORKDIR_REQUIRED")
     private_dir(a.workdir)
     root = a.workdir / "host"
-    report = {
+    report: dict[str, Any] = {
         "paid_probe": True,
         "max_calls": a.max_calls,
         "calls": 0,
@@ -80,7 +83,7 @@ async def run(a):
         "browser_config_hint": True,
     }
 
-    def save():
+    def save() -> None:
         (a.workdir / "result.json").write_text(json.dumps(report, indent=2), encoding="utf8")
 
     save()
@@ -135,12 +138,14 @@ async def run(a):
         for k in ("workspace_id", "persona_id", "memory_space_id", "memory_mode")
     }
     wire = Counted(a.max_calls)
-    original = providers.OpenAICompatibleProvider
+    original = getattr(providers, PROVIDER)  # restored below
     async with httpx.AsyncClient(
         transport=wire, timeout=httpx.Timeout(90, connect=10), follow_redirects=False
     ) as client:
-        providers.OpenAICompatibleProvider = lambda settings: OpenAICompatibleProvider(
-            settings, client
+        setattr(
+            providers,
+            PROVIDER,
+            lambda settings: OpenAICompatibleProvider(settings, client),
         )
         app, close = build(paths(root), cfg, provider="live", env_file=a.env_file)
         rt = app.state.runtime
@@ -157,7 +162,13 @@ async def run(a):
                     assert auth.status_code == 200
                     headers = {"Origin": ORIGIN, "x-csrf-token": auth.json()["csrf_token"]}
 
-                    async def post(kind, target, args, version=None, chosen=None):
+                    async def post(
+                        kind: str,
+                        target: str,
+                        args: dict[str, Any],
+                        version: int | None = None,
+                        chosen: Any = None,
+                    ) -> Any:
                         body = dict(
                             type=kind,
                             request_id="probe-" + uuid4().hex,
@@ -172,14 +183,14 @@ async def run(a):
                             raise ValueError("COMMAND_" + str(r.status_code))
                         return r.json()
 
-                    async def view(session):
+                    async def view(session: str) -> Any:
                         r = await http.get(
                             "/api/v1/work-session-transcript/" + session, params=query
                         )
                         assert r.status_code == 200
                         return r.json()
 
-                    async def reply(session, timeout):
+                    async def reply(session: str, timeout: float) -> Any:
                         deadline = time.monotonic() + timeout
                         while time.monotonic() < deadline:
                             v = await view(session)
@@ -195,7 +206,7 @@ async def run(a):
                             await asyncio.sleep(0.5)
                         raise ValueError("REPLY_TIMEOUT")
 
-                    async def ack(v):
+                    async def ack(v: Any) -> None:
                         d = v["pending_reply"]
                         from ai_agent_contracts.common import Scope
 
@@ -331,14 +342,14 @@ async def run(a):
                         save()
         finally:
             close()
-            providers.OpenAICompatibleProvider = original
+            setattr(providers, PROVIDER, original)
     report["calls"] = wire.calls
     save()
     print(json.dumps(report))
     return 0 if report["success"] else 2
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--i-understand-this-makes-paid-api-calls", action="store_true", required=True)
     p.add_argument("--workdir", type=Path, required=True)
