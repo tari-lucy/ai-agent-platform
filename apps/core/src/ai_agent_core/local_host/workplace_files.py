@@ -90,7 +90,7 @@ async def enable_workplace_files(
         if ceiling_days is not None:
             ceilings.update(
                 {
-                    key: PermissionCeiling(level="automatic", max_days=ceiling_days)
+                    key: PermissionCeiling(level="automatic", max_days=ceiling_days or None)
                     for key in CAPABILITIES
                 }
             )

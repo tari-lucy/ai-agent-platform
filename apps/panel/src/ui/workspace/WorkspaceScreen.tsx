@@ -1,4 +1,4 @@
-import { formatTime } from '../time.ts';
+import { formatTime, untilText } from '../time.ts';
 import { Alert, Badge, Button, Checkbox, Group, Paper, Select, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
@@ -114,7 +114,7 @@ function Rights({ api, scope, run }: { api: PanelApi; scope: Scope; run: RunSess
           const state = permissionState(permission, now);
           return <li key={permission.id}><Paper withBorder p="xs"><Group justify="space-between" wrap="nowrap">
             <div><Text size="sm" fw={600}>{permission.capability_id} · {permission.operation_type}</Text>
-              <Text size="xs" c="dimmed">Субъект {permission.principal_id} · до {when(permission.expires_at)}</Text></div>
+              <Text size="xs" c="dimmed">Субъект {permission.principal_id} · {untilText(permission.expires_at)}</Text></div>
             <Group gap="xs"><Badge variant="light" color={state === 'active' ? 'teal' : 'gray'}>{state === 'revoked' ? 'Отозвано' : state === 'expired' ? 'Срок истёк' : levelLabels[permission.level]}</Badge>
               {state === 'active' && <Button size="compact-xs" variant="subtle" onClick={() => { setDraft({ permission, level: permission.level }); setTicked(false); setSaved(false); }}>Изменить</Button>}</Group></Group></Paper></li>;
         })}</Stack>}
@@ -165,7 +165,9 @@ function InitialAccess({ api, scope }: { api: PanelApi; scope: Scope }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const executing = useRef<string | null>(null);
-  const chosen = Number(days ?? ceiling);
+  const standing = status.data?.standing ?? false;
+  const picked = days ?? (standing ? 'standing' : String(ceiling));
+  const chosen = picked === 'standing' ? null : Number(picked);
   const blocked = accessBlocked(status.data, chosen);
   const reload = () => Promise.all(['permissions', 'tickets', 'workplace-access']
     .map((resource) => cache.invalidateQueries({ queryKey: projectionKey(resource, scope) })));
@@ -197,10 +199,11 @@ function InitialAccess({ api, scope }: { api: PanelApi; scope: Scope }) {
         {status.data.members.map((member) => <Group key={member.capability_id} gap="xs" role="listitem" aria-label={member.capability_id}>
           <Badge variant="light" color={member.available ? 'teal' : 'gray'}>{member.available ? 'Разрешено' : 'Не выдано'}</Badge>
           <Text size="sm">{member.summary}</Text>
-          {member.expires_at && <Text size="xs" c="dimmed">до {when(member.expires_at)}</Text>}</Group>)}
+          {member.expires_at && <Text size="xs" c="dimmed">{untilText(member.expires_at)}</Text>}</Group>)}
         <Group gap="sm" align="end">
-          <Select label="Срок, дней" w={140} value={String(chosen)} allowDeselect={false} disabled={!!plan}
-            onChange={(value) => { setDays(value); setDone(false); }} data={Array.from({ length: ceiling }, (_, index) => String(index + 1))} />
+          <Select label="Срок" w={160} value={picked} allowDeselect={false} disabled={!!plan}
+            onChange={(value) => { setDays(value); setDone(false); }}
+            data={[...(standing ? [{ value: 'standing', label: 'До отзыва' }] : []), ...Array.from({ length: ceiling }, (_, index) => ({ value: String(index + 1), label: `${index + 1} дн.` }))]} />
           <TextInput label="Условия (необязательно)" maxLength={500} value={constraints} style={{ flex: 1 }} disabled={!!plan}
             onChange={(event) => setConstraints(event.currentTarget.value)} /></Group>
         {!plan && <Group><Button variant="light" loading={busy} disabled={!!blocked} onClick={() => void preview()}>Подготовить начальный доступ</Button></Group>}

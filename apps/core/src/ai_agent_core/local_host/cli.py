@@ -156,7 +156,7 @@ def parser() -> argparse.ArgumentParser:
     files.add_argument(
         "--ceiling-days",
         type=int,
-        help="let the operator grant these capabilities up to N days (needs enable-tickets)",
+        help="operator may grant these capabilities up to N days; 0: until revoked (needs tickets)",
     )
     files.add_argument("--max-file-bytes", type=int)
     files.add_argument("--max-scope-bytes", type=int)
@@ -184,7 +184,7 @@ def parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--ceiling-days",
         type=int,
-        help="let the operator grant the capability up to N days",
+        help="let the operator grant the capability up to N days; 0: until revoked",
     )
     for name in SESSION_LIMITS:
         sessions.add_argument("--" + name.replace("_", "-"), type=int)

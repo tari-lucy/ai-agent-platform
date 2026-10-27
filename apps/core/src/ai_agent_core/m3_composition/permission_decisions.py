@@ -8,7 +8,7 @@ binding ready, does not start a STOPPED agent and does not bypass moderation or 
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
 from ai_agent_application.control.ports import ControlAuthority
@@ -49,7 +49,24 @@ PLAN_MINUTES = 5
 @dataclass(frozen=True)
 class Ceiling:
     level: Level
-    seconds: int
+    seconds: int | None  # None: any term, including until revoked (D78)
+
+
+def within(duration: int | None, limit: int | None) -> bool:
+    """A term inside the host ceiling; until-revoked (None) needs a ceiling without a limit."""
+    if limit is None:
+        return True
+    return duration is not None and duration <= limit
+
+
+def until(now: datetime, duration: int | None) -> datetime:
+    from ai_agent_contracts.workplace_access import STANDING_UNTIL
+
+    return STANDING_UNTIL if duration is None else now + timedelta(seconds=duration)
+
+
+def term_text(duration: int | None) -> str:
+    return "до отзыва" if duration is None else f"на {duration // 86400} дн."
 
 
 @dataclass(frozen=True)
@@ -121,7 +138,7 @@ def check(rt: Runtime, decision: PermissionDecisionArguments, pins: Pinned) -> N
     """
     if decision.action == "grant":
         limit = ceiling(rt, decision)
-        assert decision.level is not None and decision.duration_seconds is not None
+        assert decision.level is not None
         ticket = pins.ticket
         if (
             ticket is None
@@ -135,7 +152,7 @@ def check(rt: Runtime, decision: PermissionDecisionArguments, pins: Pinned) -> N
             raise ContractError(ErrorCode.VERSION_CONFLICT, None, ticket.version)
         if (
             RANK[decision.level] > RANK[limit.level]
-            or decision.duration_seconds > limit.seconds
+            or not within(decision.duration_seconds, limit.seconds)
             or not set(decision.areas) <= set(pins.manifest.areas)
             # A public effect is never automatic, whatever the configured ceiling says.
             or (pins.manifest.effect == "public_output" and decision.level == "automatic")
@@ -171,7 +188,7 @@ def summary(decision: PermissionDecisionArguments, pins: Pinned) -> str:
             "Задачи, зависящие от него, остановятся на следующей проверке; уже начатый внешний "
             "эффект показывается честно, поздний результат не сохраняется."
         )
-    days = (decision.duration_seconds or 0) // 86400
+    term = term_text(decision.duration_seconds)
     areas = ", ".join(decision.areas) or "без файловых областей"
     binding = (
         "подключение проверено"
@@ -179,7 +196,7 @@ def summary(decision: PermissionDecisionArguments, pins: Pinned) -> str:
         else "подключение ещё не готово: тикет останется в работе до проверки"
     )
     return (
-        f"Выдать агенту право «{decision.capability_id}» уровня {decision.level} на {days} дн. "
+        f"Выдать агенту право «{decision.capability_id}» уровня {decision.level} {term} "
         f"({areas}). Ограничения: {decision.constraints or 'нет'}. Основание — обращение "
         f"{decision.ticket_id} версии {decision.ticket_version}; {binding}. Право не запускает "
         "агента и не отменяет модерацию и права источников."
@@ -297,7 +314,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
         pins = await pinned(rt, decision, request.scope)
     current = pins.current
     if decision.action == "grant":
-        assert decision.level is not None and decision.duration_seconds is not None
+        assert decision.level is not None
         version = current.version + 1 if current else 1
         permission = record(
             rt.registry,
@@ -329,7 +346,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
             ),
             policy_version=proof.policy_version,
             author_id=authority.principal_id,
-            expires_at=now + timedelta(seconds=decision.duration_seconds),
+            expires_at=until(now, decision.duration_seconds),
         )
     else:
         assert current is not None

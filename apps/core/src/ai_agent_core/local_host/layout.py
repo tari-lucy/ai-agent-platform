@@ -175,7 +175,8 @@ class PermissionCeiling(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     level: Literal["prepare_only", "operator_decision", "automatic"]
-    max_days: int = Field(ge=1, le=365)
+    # None: no limit on the term, rights may be granted until revoked (D78).
+    max_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class WorkplaceFilesConfig(BaseModel):
