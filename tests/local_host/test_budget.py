@@ -75,7 +75,7 @@ def test_offline_prompt_limit_update_keeps_everything_else(tmp_path):
     asyncio.run(initialise(root, profile_markdown=REFERENCE_PROFILE, live=live))
     host = paths(root)
     before = load_config(host)
-    assert LiveConfig(model_id="fixture-model").max_prompt_chars == 40000  # new hosts
+    assert LiveConfig(model_id="fixture-model").max_prompt_chars == 400000  # new hosts (D76)
     with exclusive_host(root):
         with pytest.raises(HostError, match="HOST_ALREADY_RUNNING"):
             configure_prompt_limit(root, max_prompt_chars=40000)
@@ -84,7 +84,7 @@ def test_offline_prompt_limit_update_keeps_everything_else(tmp_path):
     assert updated.live.max_prompt_chars == 40000
     assert updated.live.budget_version == before.live.budget_version  # not a budget change
     assert updated.model_copy(update={"live": before.live}) == before
-    for bad in (999, 40001, True):
+    for bad in (999, 2_000_001, True):
         with pytest.raises(HostError, match="INVALID_OPTION"):
             configure_prompt_limit(root, max_prompt_chars=bad)
     assert load_config(host) == updated

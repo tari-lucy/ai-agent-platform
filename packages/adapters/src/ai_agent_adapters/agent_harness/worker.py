@@ -11,7 +11,7 @@ import subprocess
 import sys
 from typing import Any
 
-MAX_INSTRUCTION = 20000
+MAX_INSTRUCTION = 2_000_000
 # A tool event carries the whole tool output (a read file): bounded per line, not per turn.
 MAX_LINE_BYTES = 8 * 1024 * 1024
 MAX_TEXT = 16000

@@ -74,10 +74,11 @@ class LiveConfig(BaseModel):
     budget_receipt: ApiLimitChange | None = None
     memory_processing: bool = Field(default=False, strict=True)
     memory_daily_calls: int = Field(default=8, strict=True, ge=3, le=32)
-    max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
-    # A work turn with the home and internet sends ~22k of tools and environment text alone.
-    max_prompt_chars: int = Field(default=40000, strict=True, ge=1000, le=40000)
-    timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    max_output_tokens: int = Field(default=8192, strict=True, ge=32, le=65536)
+    # A work turn with the home and internet sends ~22k of tools and environment text alone;
+    # D76: a technical rail, the provider's context window and money bound it in practice.
+    max_prompt_chars: int = Field(default=400000, strict=True, ge=1000, le=2000000)
+    timeout_seconds: float = Field(default=300.0, gt=0, le=300)
     http_keepalive_seconds: int = Field(default=120, strict=True, ge=0, le=3600)
     gm: GmConfig = Field(default_factory=GmConfig)
     activity: ActivityConfig = Field(default_factory=ActivityConfig)
@@ -210,16 +211,17 @@ class WorkSessionsConfig(BaseModel):
     output_area: WorkplaceArea
     memory_mb: int = Field(default=1024, strict=True, ge=256, le=8192)
     pids: int = Field(default=128, strict=True, ge=16, le=1024)
-    cpu_seconds: int = Field(default=60, strict=True, ge=5, le=3600)
-    wall_seconds: int = Field(default=120, strict=True, ge=10, le=3600)
+    # D76: technical rails of one turn (4 h by default, 24 h at most); money bounds spending.
+    cpu_seconds: int = Field(default=14400, strict=True, ge=5, le=86400)
+    wall_seconds: int = Field(default=14400, strict=True, ge=10, le=86400)
     disk_mb: int = Field(default=32, strict=True, ge=8, le=1024)
     output_bytes: int = Field(default=65536, strict=True, ge=1024, le=1048576)
     max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=134217728)
     max_files: int = Field(default=16, strict=True, ge=1, le=200)
-    max_model_calls: int = Field(default=6, strict=True, ge=1, le=16)
-    max_prompt_chars: int = Field(default=100000, strict=True, ge=1000, le=100000)
-    max_model_tokens: int = Field(default=1024, strict=True, ge=64, le=65536)
-    max_workspace_calls: int = Field(default=16, strict=True, ge=0, le=64)
+    max_model_calls: int = Field(default=200, strict=True, ge=1, le=1000)
+    max_prompt_chars: int = Field(default=400000, strict=True, ge=1000, le=2000000)
+    max_model_tokens: int = Field(default=8192, strict=True, ge=64, le=65536)
+    max_workspace_calls: int = Field(default=1000, strict=True, ge=0, le=10000)
     monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
     prewarm_enabled: bool = Field(default=False, strict=True)
     prewarm_idle_seconds: int = Field(default=120, strict=True, ge=10, le=300)
@@ -272,7 +274,6 @@ class WorkSessionsConfig(BaseModel):
             self.output_area not in self.areas
             or self.output_area not in WRITABLE_AREAS
             or len(set(self.areas)) != len(self.areas)
-            or self.cpu_seconds > self.wall_seconds
         ):
             raise ValueError("WORK_SESSIONS_LIMITS")
         if self.egress_enabled and self.egress_capability_id in {
