@@ -214,7 +214,7 @@ class WorkSessionsConfig(BaseModel):
     wall_seconds: int = Field(default=120, strict=True, ge=10, le=3600)
     disk_mb: int = Field(default=32, strict=True, ge=8, le=1024)
     output_bytes: int = Field(default=65536, strict=True, ge=1024, le=1048576)
-    max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=16777216)
+    max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=134217728)
     max_files: int = Field(default=16, strict=True, ge=1, le=200)
     max_model_calls: int = Field(default=6, strict=True, ge=1, le=16)
     max_prompt_chars: int = Field(default=100000, strict=True, ge=1000, le=100000)

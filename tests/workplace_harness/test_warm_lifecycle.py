@@ -215,6 +215,17 @@ def test_claim_and_activation_require_live_process_time_and_actual_task():
         with pytest.raises(ContractError):
             slot.activate(TEMPLATE, task)
 
+        slot.refresh_claim(TEMPLATE, task)
+        assert slot.activate(TEMPLATE, task) is slot.process
+        with pytest.raises(ContractError):
+            slot.refresh_claim(TEMPLATE, replace(task, network="none"))
+        assert slot.activate(TEMPLATE, task) is slot.process
+        slot.valid = lambda: (_ for _ in ()).throw(ContractError(ErrorCode.STALE_CONTEXT))
+        previous = slot.claimed_at
+        with pytest.raises(ContractError):
+            slot.refresh_claim(TEMPLATE, task)
+        assert slot.claimed_at == previous
+
     asyncio.run(scenario())
 
 

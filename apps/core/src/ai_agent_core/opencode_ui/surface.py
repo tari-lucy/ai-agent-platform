@@ -22,7 +22,7 @@ from starlette.types import Message, Receive
 from starlette.types import Scope as ASGIScope
 
 from ai_agent_core.access.sessions import SessionAuthority
-from ai_agent_core.access.surface import Rejection, _body, _headers, _json, _octet
+from ai_agent_core.access.surface import UPLOAD_MAX_BYTES, Rejection, _body, _headers, _json, _octet
 
 from .protocol import COMMANDS, PREFIX, AgentCard, Catalogue, SessionCard, SessionPage, directory
 
@@ -39,7 +39,7 @@ READS = {
 DETAIL = re.compile(r"(sessions|files|operations)/([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})")
 # W4: the persona's home volume. Logical path in the URL (the query keys are fixed).
 HOME = re.compile(r"(home|home-file|home-inbox)(?:/(.*))?")
-HOME_UPLOAD_MAX = 32 * 1024 * 1024
+HOME_UPLOAD_MAX = UPLOAD_MAX_BYTES
 
 
 async def _home(
