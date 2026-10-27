@@ -75,3 +75,47 @@ def test_an_exception_in_the_runtime_tick_is_logged_before_the_fault(tmp_path, m
     assert "broken_tick_for_the_test" in text and "service.py:tick" in text
     assert "Run faulted: SERVICE_UNAVAILABLE at bootstrap.py:runtime_watchdog" in text
     assert "synthetic secret text" not in text  # the message is never logged
+
+
+def test_stop_during_the_heartbeat_refresh_stops_without_a_fault(tmp_path, monkeypatch):
+    """The double-STOP of the personal host: a STOP landing between the tick's state check and
+    its heartbeat refresh used to fault the already stopping run."""
+    from ai_agent_contracts.codec import ContractError
+
+    async def scenario():
+        host = await prepared_host(tmp_path, Model(), monkeypatch)
+        async with host.open():
+            rt = host.env.runtime
+            await host.start()
+            supervisor, raced = rt.supervisor, []
+            original = supervisor.refresh
+
+            async def refresh_racing_a_stop(admission, **kwargs):
+                if not raced:
+                    raced.append(True)
+                    run = supervisor.snapshot
+                    response = await host.env.client.post(
+                        f"/api/v1/agents/{run.agent_id}/stop",
+                        json=dict(
+                            type="agent.stop",
+                            request_id="race-stop",
+                            target=run.agent_id,
+                            scope=run.scope.model_dump(mode="json"),
+                        ),
+                        headers=host.env.headers,
+                    )
+                    assert response.status_code == 200, response.text
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+                return await original(admission, **kwargs)
+
+            monkeypatch.setattr(supervisor, "refresh", refresh_racing_a_stop)
+            rt._refresh_at = 0
+            rt.wake()
+            for _ in range(100):
+                if raced and supervisor.snapshot.state is RunState.STOPPED:
+                    break
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(0.5)  # a few more ticks: no fault appears afterwards
+            assert raced and supervisor.snapshot.state is RunState.STOPPED
+
+    asyncio.run(scenario())

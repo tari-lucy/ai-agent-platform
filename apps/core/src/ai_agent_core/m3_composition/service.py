@@ -641,6 +641,10 @@ class Runtime:
                 self._heartbeat = await self.supervisor.refresh(self._heartbeat)
             except ContractError:
                 self._heartbeat = None
+                # A STOP (or pause) between the state check and the refresh revokes the
+                # heartbeat: that is the STOP itself, not a fault of a run already stopping.
+                if self.supervisor.snapshot.state != RunState.ACTIVE:
+                    return
                 self.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                 raise
             self._refresh_at = now + 5
@@ -650,8 +654,14 @@ class Runtime:
         if self._active is not None:
             if not self._active.done():
                 return
-            self._active.result()
-            self._active = None
+            active, self._active = self._active, None
+            try:
+                active.result()
+            except ContractError:
+                # A job claimed or settled just as the run left ACTIVE (STOP) is refused by
+                # its own checks; only a refusal while the run is still active is a fault.
+                if self.supervisor.snapshot.state == RunState.ACTIVE:
+                    raise
         if self.session_prewarmer is not None:
             self.session_prewarmer.tick()
         await self.daily_memory.tick()
