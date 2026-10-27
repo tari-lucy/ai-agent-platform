@@ -14,7 +14,7 @@ from .policy import HOME_VOLUME
 
 MAX_ENTRIES = 1000
 MAX_READ = 1024 * 1024
-MAX_UPLOAD = 32 * 1024 * 1024
+MAX_UPLOAD = 100 * 1024 * 1024
 SEGMENT = re.compile(r"[^/\x00-\x1f\x7f]{1,255}")
 
 # Runs as PID 1 of the helper container; payload is the first stdin line, bytes may follow.
@@ -128,7 +128,9 @@ class HomeFiles:
             "-I", "-c", SCRIPT,
             data=json.dumps(request).encode() + b"\n" + data,
             cap=MAX_READ * 2 + 65536,
-            timeout=9,
+            # Upload carries binary stdin, not a model prompt. Allow bounded time
+            # for a 100 MiB pipe over Desktop/WSL; read/list keep their short limit.
+            timeout=9 + (len(data) + (2 << 20) - 1) // (2 << 20),
         )  # fmt: skip
         result = json.loads(raw)
         if not isinstance(result, dict):
