@@ -46,10 +46,14 @@ if proxy is not None:
 HANDS_TOOLS = (
     "Инструменты образа: git, curl, wget, jq, zip/unzip, ssh-клиент, dig, nc; ffmpeg, "
     "ImageMagick; Java 17 (JRE); Node.js и npm; Chromium (/usr/bin/chromium) и Python "
-    "Playwright: chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox', "
-    "'--disable-dev-shm-usage']); прокси шлюза Chromium берёт из --proxy-server=$HTTP_PROXY. "
-    "Корень образа только для чтения: свои пакеты ставь в /workspace (pip install --user, "
-    "npm --prefix). Полные списки: /opt/agent-harness/hands-packages.txt, hands-python.txt."
+    "Playwright. Браузер запускай из отдельного процесса Python с записываемым каталогом "
+    "настроек (каталог OpenCode только для чтения, без этого Chromium падает): "
+    "XDG_CONFIG_HOME=/work/browser-config python3 скрипт.py, а в скрипте "
+    "p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox', "
+    "'--disable-dev-shm-usage'], proxy={'server': os.environ['HTTP_PROXY']}) — без proxy "
+    "браузер не выйдет в сеть. Корень образа только для чтения: свои пакеты ставь в "
+    "/workspace (pip install --user, npm --prefix). Полные списки: "
+    "/opt/agent-harness/hands-packages.txt, hands-python.txt."
 )
 
 # Written fresh every turn from the platform's copy: changing it inside has no lasting effect.
