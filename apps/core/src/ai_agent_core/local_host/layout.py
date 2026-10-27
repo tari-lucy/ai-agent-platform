@@ -210,12 +210,13 @@ class WorkSessionsConfig(BaseModel):
     areas: tuple[WorkplaceArea, ...] = Field(min_length=1, max_length=8)
     output_area: WorkplaceArea
     memory_mb: int = Field(default=1024, strict=True, ge=256, le=8192)
-    pids: int = Field(default=128, strict=True, ge=16, le=1024)
+    pids: int = Field(default=1024, strict=True, ge=16, le=8192)
     # D76: technical rails of one turn (4 h by default, 24 h at most); money bounds spending.
     cpu_seconds: int = Field(default=14400, strict=True, ge=5, le=86400)
     wall_seconds: int = Field(default=14400, strict=True, ge=10, le=86400)
     disk_mb: int = Field(default=32, strict=True, ge=8, le=1024)
-    output_bytes: int = Field(default=65536, strict=True, ge=1024, le=1048576)
+    # Result files of one turn, carried back through the trusted frame (D76: 16 MiB, rail 64).
+    output_bytes: int = Field(default=16777216, strict=True, ge=1024, le=67108864)
     max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=16777216)
     max_files: int = Field(default=16, strict=True, ge=1, le=200)
     max_model_calls: int = Field(default=200, strict=True, ge=1, le=1000)
@@ -260,10 +261,10 @@ class WorkSessionsConfig(BaseModel):
     egress_capability_id: str = Field(
         default="workplace.internet", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
     )
-    egress_max_mb: int = Field(default=256, strict=True, ge=1, le=65536)
+    egress_max_mb: int = Field(default=4096, strict=True, ge=1, le=65536)
     egress_connections: int = Field(default=32, strict=True, ge=1, le=256)
     # W3b: traffic per persona per UTC day across all turns; 0 leaves only the per-turn limit.
-    egress_daily_mb: int = Field(default=2048, strict=True, ge=0, le=1048576)
+    egress_daily_mb: int = Field(default=20480, strict=True, ge=0, le=1048576)
     # W7b: CPU minutes per persona per UTC day for its own wake-ups; 0 turns the budget off.
     cpu_daily_minutes: int = Field(default=240, strict=True, ge=0, le=1440)
     egress_deny: tuple[str, ...] = Field(default=(), max_length=64)

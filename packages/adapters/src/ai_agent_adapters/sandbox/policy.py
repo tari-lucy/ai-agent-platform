@@ -220,7 +220,7 @@ def create_args(
         "--ulimit",
         f"cpu={cpu}:{cpu}",
         "--ulimit",
-        "nofile=128:128",
+        "nofile=8192:8192",  # builds, Node and a browser open thousands of files
         "--ulimit",
         "core=0:0",
         "--tmpfs",

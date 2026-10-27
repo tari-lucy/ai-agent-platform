@@ -48,6 +48,8 @@ SESSION_LIMITS = (
     "max_model_calls",
     "max_model_tokens",
     "max_workspace_calls",
+    "max_prompt_chars",
+    "output_bytes",
 )
 
 HELPER_LIMITS = (
