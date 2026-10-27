@@ -518,6 +518,7 @@ class DockerTaskRunner:
         attached: asyncio.Task[bytes] | None = None
         gateway: Egress | None = None
         proxy: str | None = None
+        phase = "inputs"
         try:
             attempt = await self._attempt(admission)
             if attempt.capability_id != template.id:
@@ -540,6 +541,7 @@ class DockerTaskRunner:
                         "content": base64.b64encode(data).decode("ascii"),
                     }
                 )
+            phase = "prepare"
             if self.home is None:
                 await self._image(template)
             else:
@@ -583,6 +585,13 @@ class DockerTaskRunner:
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096
+            phase = "activate"
+            if self.prepared is not None:
+                # Input reads, hashing and serialization may take longer than the
+                # short claim window. Prove authority and sources again BEFORE
+                # renewing it. STOP/epoch is also checked by the slot's valid().
+                await self._verify(admission, attempt)
+                self.prepared.refresh_claim(template, task)
             attached = asyncio.create_task(
                 self._attach(name, payload, task, admission, attempt, template, wire_cap)
             )
@@ -605,7 +614,14 @@ class DockerTaskRunner:
                         {},
                     )
                 await self._verify(admission, attempt)
-        except OSError, ValueError, KeyError, IndexError, TypeError, TimeoutError:
+        except (OSError, ValueError, KeyError, IndexError, TypeError, TimeoutError) as error:
+            code = error.error.code.value if isinstance(error, ContractError) else "TECHNICAL"
+            logging.getLogger(__name__).warning(
+                "Sandbox turn failed: phase=%s kind=%s code=%s",
+                phase,
+                type(error).__name__,
+                code,
+            )
             result, contents = RunnerOutcome("unknown", None, (), ""), {}
         finally:
             if attached is not None:

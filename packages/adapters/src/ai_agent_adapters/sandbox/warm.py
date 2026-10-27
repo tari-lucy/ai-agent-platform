@@ -222,7 +222,19 @@ class WarmSandbox:
         self.claimed = False
         return True
 
-    def activate(self, template: RunnerTemplate, task: RunnerTask) -> asyncio.subprocess.Process:
+    def refresh_claim(self, template: RunnerTemplate, task: RunnerTask) -> None:
+        """Trusted runner calls this only after fresh input/authority proof, before attach.
+
+        Preparing released files may outlive the claim-to-activation window. This
+        renews that short window, not an admission, Permission or supervisor lease.
+        """
+        self.valid()
+        self._claimed_process(template, task)
+        self.claimed_at = time.monotonic()
+
+    def _claimed_process(
+        self, template: RunnerTemplate, task: RunnerTask
+    ) -> asyncio.subprocess.Process:
         template.check(task)
         if (
             self.closed
@@ -232,10 +244,15 @@ class WarmSandbox:
             or template != self.template
             or task.limits != template.ceiling
             or task.network != "gateway"
-            or time.monotonic() - self.claimed_at >= 5
         ):
             raise ContractError(ErrorCode.STALE_CONTEXT)
         return self.process
+
+    def activate(self, template: RunnerTemplate, task: RunnerTask) -> asyncio.subprocess.Process:
+        process = self._claimed_process(template, task)
+        if time.monotonic() - self.claimed_at >= 5:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        return process
 
     async def close(self) -> None:
         async with self._lock:
