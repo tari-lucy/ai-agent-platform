@@ -1299,15 +1299,35 @@ class Execution:
         self.extra_sources: tuple[SourceRef, ...] = ()
         # The fixed code of the last live call this job refused before the provider, if any.
         self.refusal: str | None = None
+        # Why this job lost its admission (logged once), if it did.
+        self.lost_reason: str | None = None
 
     def guard(self) -> None:
         if self.cancel.is_set() or self.runtime.supervisor.clock.utc() >= self.lease.expires_at:
+            if not self.cancel.is_set():  # our own cancel also ends every job normally
+                self._lost("JOB_LEASE_EXPIRED")
             raise ContractError(ErrorCode.STALE_CONTEXT)
-        self.runtime.supervisor.resolve(
-            self.command.cancellation_id, scope=self.command.scope, freshness=self.command.freshness
-        )
+        try:
+            self.runtime.supervisor.resolve(
+                self.command.cancellation_id,
+                scope=self.command.scope,
+                freshness=self.command.freshness,
+            )
+        except ContractError:
+            self._lost(
+                self.runtime.supervisor.lost(self.command.cancellation_id, self.command.freshness)
+            )
+            raise
         if self.budget is not None:
             self.runtime.scheduler.verify(self.budget)
+
+    def _lost(self, reason: str) -> None:
+        """Log once per job why it lost its admission: a fixed code, never data."""
+        if self.lost_reason is None:
+            self.lost_reason = reason
+            logging.getLogger(__name__).warning(
+                "Job admission lost: %s kind=%s", reason, self.args.request.kind
+            )
 
     def allowed(self) -> bool:
         try:
@@ -1368,7 +1388,9 @@ class Execution:
                         ):
                             raise
                         self.guard()
-        except ContractError:
+        except ContractError as error:
+            if not self.cancel.is_set():
+                self._lost("JOB_RENEW_FAILED:" + error.error.code.value)
             self.cancel.set()
 
     async def begin(self, report: AttemptReport) -> None:
