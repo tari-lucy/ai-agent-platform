@@ -9,7 +9,6 @@ from dataclasses import replace
 from uuid import uuid4
 
 import pytest
-import test_real_home as harness
 from ai_agent_adapters.agent_harness.opencode import PREFIX
 from ai_agent_adapters.sandbox.docker import DockerTaskRunner, cli
 from ai_agent_adapters.sandbox.egress import Egress, EgressLimits
@@ -31,10 +30,9 @@ def test_resident_hour_soak_with_gateway_and_cpu(monkeypatch, tmp_path):
     assert 3600 <= seconds <= 7200
     monkeypatch.setenv("AW_HOME_IMAGE_ID", image)
     monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", image)
-    # The short helper fixture has a 30 CPU-second lifetime rlimit; it is not a
-    # production hour-long resident profile. Keep the normal 120-second bound.
+    # Pass the soak profile explicitly: turn() captures its short-test default
+    # at definition time, so replacing the module's CAP would not change it.
     cap = RunnerLimits(120, 1536, 256, 180, 65536, 512 << 20)
-    monkeypatch.setattr(harness, "CAP", cap)
     cpu = []
     original = DockerTaskRunner.run
 
@@ -99,7 +97,7 @@ def test_resident_hour_soak_with_gateway_and_cpu(monkeypatch, tmp_path):
                     )
                 )
                 answer = "Synthetic soak turn " + str(turns)
-                events, provider = await turn(home, command, answer, resident=slot)
+                events, provider = await turn(home, command, answer, resident=slot, cap=cap)
                 assert [e.detail for e in events if e.kind == "result"] == [answer]
                 assert slot.name == container and not slot.closed and slot.turns == turns + 1
                 assert len(gateways) == 1 and all(c is not None and c > 0 for c in cpu)

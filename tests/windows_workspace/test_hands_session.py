@@ -22,7 +22,7 @@ def test_chromium_through_real_opencode(monkeypatch):
     image = os.environ["AW_HANDS_IMAGE_ID"]
     monkeypatch.setenv("AW_SANDBOX_IMAGE_ID", image)
     monkeypatch.setenv("AW_HOME_IMAGE_ID", image)
-    monkeypatch.setattr(harness, "CAP", RunnerLimits(100, 2048, 256, 120, 65536, 512 << 20))
+    cap = RunnerLimits(100, 2048, 256, 120, 65536, 512 << 20)
 
     async def scenario():
         rows = []
@@ -34,6 +34,7 @@ def test_chromium_through_real_opencode(monkeypatch):
                 home,
                 command,
                 "Browser checked",
+                cap=cap,
                 egress=lambda: Egress(image, EgressLimits(max_bytes=8 << 20), rows.append),
             )
             assert [e.detail for e in events if e.kind == "result"] == ["Browser checked"]
