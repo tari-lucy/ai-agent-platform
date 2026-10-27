@@ -46,3 +46,27 @@ def test_template_uses_the_existing_capability_id_namespace():
     template.check(replace(TASK, template_id="workplace.python"))
     with pytest.raises(ValueError):
         replace(TEMPLATE, id="../other")
+
+
+def test_large_trusted_entry_is_losslessly_packed():
+    from ai_agent_adapters.sandbox.policy import entry_argument
+
+    source = "marker = 'синтетическая строка'\n" * 1000
+    packed = entry_argument(source)
+    namespace = {}
+    exec(packed, namespace)
+    assert namespace["marker"] == "синтетическая строка"
+    assert len(packed) < len(source)
+    assert entry_argument("pass") == "pass"
+
+
+def test_current_warm_entry_fits_windows_command_line_without_changing_isolation():
+    import subprocess
+
+    from ai_agent_adapters.sandbox.warm_entry import WARM_ENTRY
+
+    name = "aw-task-" + "b" * 32
+    short = create_args(TEMPLATE, TASK, name, "trusted entry")
+    warm = create_args(TEMPLATE, TASK, name, WARM_ENTRY)
+    assert warm[:-1] == short[:-1]
+    assert len(subprocess.list2cmdline(["docker", *warm])) < 16000
