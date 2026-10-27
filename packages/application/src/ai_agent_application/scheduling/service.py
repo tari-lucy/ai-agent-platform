@@ -267,7 +267,8 @@ class ResourceScheduler:
                     raise ContractError(code)
         if len(self._pending) >= self.limits.pending:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        remaining = min(180.0, (command.deadline - self.clock.utc()).total_seconds())
+        # D76: a long work turn holds its resources up to its job deadline (24 h rail).
+        remaining = min(86400.0, (command.deadline - self.clock.utc()).total_seconds())
         now = self.clock.elapsed()
         request = Request(
             uuid4().hex,
