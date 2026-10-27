@@ -3209,15 +3209,20 @@
           "type": "string"
         },
         "duration_seconds": {
-          "maximum": 31536000,
-          "minimum": 60,
-          "title": "Duration Seconds",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
         }
       },
-      "required": [
-        "duration_seconds"
-      ],
       "title": "InitialAccessArguments",
       "type": "object"
     },
@@ -3486,6 +3491,11 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "standing": {
+          "default": false,
+          "title": "Standing",
+          "type": "boolean"
         },
         "unavailable_reason": {
           "anyOf": [
@@ -9157,18 +9167,23 @@
     },
     "PermissionLimits": {
       "additionalProperties": false,
-      "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.",
+      "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.\n\nNone: granted until revoked (D78).",
       "properties": {
         "duration_seconds": {
-          "maximum": 31536000,
-          "minimum": 60,
-          "title": "Duration Seconds",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
         }
       },
-      "required": [
-        "duration_seconds"
-      ],
       "title": "PermissionLimits",
       "type": "object"
     },

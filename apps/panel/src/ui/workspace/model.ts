@@ -133,18 +133,20 @@ export function recoveryProblem(plan: ConsequencePlan, kind: Recovery, backupId:
 }
 // OC-05: one decision for the whole configured set; the owner re-checks ceiling and versions.
 export const DAY = 86400;
-export function accessPreview(scope: Scope, days: number, constraints: string, requestId: string): PlanCommand {
+// days null: until revoked (D78), allowed only when the host ceiling has no term limit.
+export function accessPreview(scope: Scope, days: number | null, constraints: string, requestId: string): PlanCommand {
   return { type: 'workplace.access.preview', request_id: requestId, scope, target: 'initial-access', expected_version: 1,
-    arguments: { schema_id: 'workplace.access-args', data: { duration_seconds: days * DAY, constraints } } };
+    arguments: { schema_id: 'workplace.access-args', data: { duration_seconds: days === null ? null : days * DAY, constraints } } };
 }
 export function accessExecute(scope: Scope, plan: ConsequencePlan, requestId: string): ExecutePlanCommand {
   return { type: 'workplace.access.execute', request_id: requestId, scope, target: 'initial-access', expected_version: 1,
     arguments: { plan_id: plan.id, plan_version: plan.version } };
 }
-export function accessBlocked(status: InitialAccessStatus | undefined, days: number): string | null {
+export function accessBlocked(status: InitialAccessStatus | undefined, days: number | null): string | null {
   if (!status) return 'Сведения о наборе ещё не получены.';
   if (!status.configured) return 'Набор начального доступа на этом хосте не настроен.';
   if (!status.ready) return 'Не все возможности набора готовы к работе: допуск сейчас выдать нельзя.';
+  if (days === null) return status.standing ? null : 'Бессрочный доступ на этом хосте не разрешён: выберите срок.';
   if (!Number.isSafeInteger(days) || days < 1 || days * DAY > status.max_duration_seconds) return 'Срок вне потолка хоста.';
   return null;
 }

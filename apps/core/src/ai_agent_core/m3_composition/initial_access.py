@@ -48,7 +48,7 @@ from ai_agent_contracts.workspace import Workspace
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .permission_decisions import HOLDER, PLAN_MINUTES
+from .permission_decisions import HOLDER, PLAN_MINUTES, term_text, until, within
 from .state import PRINCIPALS, extension, record
 
 if TYPE_CHECKING:
@@ -114,9 +114,14 @@ async def members(rt: Runtime, scope: Scope) -> list[Member]:
     return found[:8]
 
 
-def _max_seconds(rt: Runtime, rows: list[Member]) -> int:
+def _max_seconds(rt: Runtime, rows: list[Member]) -> int | None:
+    """The common ceiling of the set; None when every member may be granted until revoked."""
     table = rt.permission_ceiling or {}
-    return min((table[m.manifest.capability_id].seconds for m in rows), default=0)
+    if not rows:
+        return 0
+    limits = [table[m.manifest.capability_id].seconds for m in rows]
+    bounded = [limit for limit in limits if limit is not None]
+    return min(bounded) if bounded else None
 
 
 async def status(rt: Runtime, scope: Scope) -> InitialAccessStatus:
@@ -131,7 +136,8 @@ async def status(rt: Runtime, scope: Scope) -> InitialAccessStatus:
         scope=scope,
         configured=bool(rows),
         ready=reason is None,
-        max_duration_seconds=min(_max_seconds(rt, rows), 31_536_000),
+        max_duration_seconds=min(_max_seconds(rt, rows) or 31_536_000, 31_536_000),
+        standing=bool(rows) and _max_seconds(rt, rows) is None,
         members=[
             InitialAccessCapability(
                 capability_id=m.manifest.capability_id,
@@ -187,14 +193,14 @@ def _pins(scope: Scope, rows: list[Member]) -> list[InitialAccessMember]:
 
 
 def summary(decision: InitialAccessArguments, rows: list[Member]) -> str:
-    days = decision.duration_seconds // 86400
+    term = term_text(decision.duration_seconds)
     lines = [
         f"«{m.manifest.summary}» ({', '.join(m.manifest.areas) or 'без файловых областей'})"
         + ("; прежнее право продлевается" if m.current is not None else "")
         for m in rows
     ]
     return (
-        f"Выдать агенту начальный доступ на {days} дн., уровень «автоматически»: "
+        f"Выдать агенту начальный доступ {term}, уровень «автоматически»: "
         + "; ".join(lines)
         + f". Ограничения: {decision.constraints or 'нет'}. Открытые запросы этих возможностей "
         "будут закрыты как решённые. Возможность, добавленная позже, этот допуск не получает. "
@@ -216,7 +222,7 @@ async def preview(rt: Runtime, authority: ControlAuthority, request: PlanCommand
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
     if any(m.binding is None for m in rows):
         raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
-    if decision.duration_seconds > _max_seconds(rt, rows):
+    if not within(decision.duration_seconds, _max_seconds(rt, rows)):
         raise ContractError(ErrorCode.ACCESS_DENIED)
     workspace = await _workspace(rt, request.scope)
     now = rt.supervisor.clock.utc()
@@ -323,7 +329,7 @@ class _Bases:
             limit = ceiling.get(capability)
             if limit is None or limit.level != "automatic":
                 raise ContractError(ErrorCode.VERSION_CONFLICT)
-            if self.proof.decision.duration_seconds > limit.seconds:
+            if not within(self.proof.decision.duration_seconds, limit.seconds):
                 raise ContractError(ErrorCode.ACCESS_DENIED)
 
     async def check(self, connection: AsyncConnection) -> None:
@@ -376,7 +382,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
     workspace = await _workspace(rt, request.scope)
     if not _unchanged(proof, rows, workspace):
         raise ContractError(ErrorCode.VERSION_CONFLICT)
-    if proof.decision.duration_seconds > _max_seconds(rt, rows):
+    if not within(proof.decision.duration_seconds, _max_seconds(rt, rows)):
         raise ContractError(ErrorCode.ACCESS_DENIED)  # the host ceiling was lowered
     by_capability = {m.manifest.capability_id: m for m in rows}
     rights: list[tuple[Permission, int | None]] = []
@@ -414,7 +420,7 @@ async def execute(rt: Runtime, authority: ControlAuthority, request: ExecutePlan
                     ),
                     policy_version=proof.policy_version,
                     author_id=authority.principal_id,
-                    expires_at=now + timedelta(seconds=proof.decision.duration_seconds),
+                    expires_at=until(now, proof.decision.duration_seconds),
                 ),
                 pin.permission_version,
             )

@@ -197,7 +197,7 @@ def _build(
         from ai_agent_core.m3_composition.permission_decisions import Ceiling
 
         runtime.permission_ceiling = {
-            key: Ceiling(value.level, value.max_days * 86400)
+            key: Ceiling(value.level, None if value.max_days is None else value.max_days * 86400)
             for key, value in config.workplace_permissions.items()
         }
     if config.live is not None and config.live.gm.enabled:

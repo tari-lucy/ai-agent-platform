@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router';
 import type { ConsequencePlan, Permission, RunSession, Scope, Ticket } from '../../shared/contracts.ts';
 import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
-import { formatTime } from '../time.ts';
+import { formatTime, untilText } from '../time.ts';
 import {
   conversation, groups, kindLabels, nextConversationCursor, MAX_REPLY, partyLabels, priorityLabels, readCommand, replyProblem,
   stateLabels, statusText, terminal, turnLabel, unread, answerCommand, finishCommand, refuseCommand, noteProblem, actionProblem,
@@ -211,18 +211,18 @@ function AccessRequest({ api, scope, ticket, onResult, waiting }: { api: PanelAp
   if (!manifest) return <Alert color="gray">Эта возможность не зарегистрирована на этом host, поэтому выдать доступ здесь нельзя. Ответьте агенту текстом или откажите.</Alert>;
   const decision = edited ?? proposedDecision(ticket, manifest, binding);
   const allowed = (manifest.areas ?? []) as string[];
-  const until = new Date(now + decision.days * 86400000);
+  const term = decision.days === null ? 'до отзыва' : `${decision.days} дн., до ${when(new Date(now + decision.days * 86400000).toISOString())}`;
   const set = (change: Partial<Decision>) => { setEdited({ ...decision, ...change }); grant.cancel(); };
   const problem = binding ? decisionProblem(decision, [binding]) : null;
   return <Paper withBorder p="sm" aria-label="Запрос доступа">
     <Text size="sm" fw={600}>Нужна возможность: {manifest.summary}</Text>
     <Stack gap={2} mt={4}>
       <Text size="sm">Области: {decision.areas.length ? areaList(decision.areas) : 'без доступа к файлам'}</Text>
-      <Text size="sm">Срок: {decision.days} дн. (до {when(until.toISOString())})</Text>
+      <Text size="sm">Срок: {term}</Text>
       <Text size="sm">Подключение: {!binding ? 'нет' : binding.state === 'ready' ? 'проверено' : 'ещё не готово — доступ заработает после проверки'}</Text>
     </Stack>
     {grants.map((row: Permission) => <Group key={row.id} justify="space-between" mt={6}>
-      <Text size="sm" c="teal.8">Доступ уже выдан до {when(row.expires_at)}</Text>
+      <Text size="sm" c="teal.8">Доступ уже выдан {untilText(row.expires_at)}</Text>
       <Button size="compact-xs" variant="subtle" color="red" onClick={() => void revoke.preview(revokePreview(scope, row, crypto.randomUUID()))}>Отозвать…</Button></Group>)}
     <PlanView state={revoke} capabilityId={request.capability_id} confirmLabel="Подтвердить отзыв" onDone={() => onResult('Доступ отозван.')} />
     {!binding ? <Alert color="orange" mt="xs">Для этой возможности на host нет подключения, поэтому доступ выдать нельзя. Подготовьте подключение
@@ -231,19 +231,20 @@ function AccessRequest({ api, scope, ticket, onResult, waiting }: { api: PanelAp
         onClick={() => void grant.preview(grantPreview(scope, ticket, decision, crypto.randomUUID()))}>Разрешить…</Button></Group>}
     {problem && <Alert color="orange" role="alert" mt={4}>{problem}</Alert>}
     <PlanView state={grant} capabilityId={request.capability_id} confirmLabel="Подтвердить выдачу доступа"
-      onDone={() => onResult(`Доступ выдан до ${when(until.toISOString())}. Агента это не запускает.`)}
+      onDone={() => onResult(`Доступ выдан: ${term}. Агента это не запускает.`)}
       summary={<Stack gap={2} mb={6} aria-label="Что вы разрешаете">
         <Text size="sm" fw={600}>Что вы разрешаете</Text>
         <Text size="sm">Возможность: {manifest.summary}</Text>
         <Text size="sm">Области: {decision.areas.length ? areaList(decision.areas) : 'без доступа к файлам'}</Text>
-        <Text size="sm">Срок: {decision.days} дн., до {when(until.toISOString())} · уровень: {levelLabels[decision.level]}</Text>
+        <Text size="sm">Срок: {term} · уровень: {levelLabels[decision.level]}</Text>
         <Text size="sm" className="plain-text">Ограничения: {decision.constraints.trim() || 'не указаны'}</Text>
       </Stack>} />
     <Details summary="Подробности решения">
       <Text size="xs" c="dimmed">Возможность: {request.capability_id} · эффект: {manifest.effect} · подключение: {binding ? `${binding.binding_id} (${binding.adapter_id}, ${binding.state})` : 'нет'} · обращение версии {ticket.version}</Text>
       <SegmentedControl size="xs" value={decision.level} onChange={(value) => set({ level: value as Level })}
         data={(Object.keys(levelLabels) as Level[]).map((value) => ({ value, label: levelLabels[value] }))} />
-      <NumberInput label="Срок, дней" min={1} max={365} value={decision.days} onChange={(value) => set({ days: Number(value) })} />
+      <Checkbox label="До отзыва" checked={decision.days === null} onChange={(e) => set({ days: e.currentTarget.checked ? null : 7 })} />
+      {decision.days !== null && <NumberInput label="Срок, дней" min={1} max={365} value={decision.days} onChange={(value) => set({ days: Number(value) })} />}
       {!!allowed.length && <Group gap="xs">{allowed.map((item) => <Checkbox key={item} label={areaLabels[item as keyof typeof areaLabels] ?? item} checked={decision.areas.includes(item)}
         onChange={(e) => set({ areas: e.currentTarget.checked ? [...decision.areas, item] : decision.areas.filter((x) => x !== item) })} />)}</Group>}
       <Textarea label="Ограничения" autosize minRows={1} maxLength={4000} value={decision.constraints} onChange={(e) => set({ constraints: e.currentTarget.value })} />
