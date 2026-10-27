@@ -4,6 +4,7 @@ import os
 import stat
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from ai_agent_application.storage import Owner
@@ -103,7 +104,16 @@ def test_serve_refuses_a_readable_secret(tmp_path):
 
 
 def test_import_has_no_effects(tmp_path):
-    code = "import ai_agent_core.local_host.cli, ai_agent_core.local_host.serve"
+    # -I ignores PYTHONPATH and the cwd; give it exactly this checkout's sources, and drop an
+    # editable install's finder that would map the packages to another checkout first.
+    root = Path(rights.__file__).resolve().parents[5]  # apps/core/src/ai_agent_core/local_host
+    sources = sorted(str(path) for path in root.glob("*/*/src") if path.is_dir())
+    code = (
+        f"import sys; sys.path[:0] = {sources!r}; "
+        "sys.meta_path[:] = [f for f in sys.meta_path "
+        "if not getattr(f, '__module__', '').startswith('__editable__')]; "
+        "import ai_agent_core.local_host.cli, ai_agent_core.local_host.serve"
+    )
     done = subprocess.run(
         [sys.executable, "-I", "-c", code], cwd=tmp_path, capture_output=True, check=False
     )
