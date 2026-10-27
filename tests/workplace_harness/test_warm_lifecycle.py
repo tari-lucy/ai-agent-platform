@@ -324,3 +324,47 @@ def test_unknown_create_cannot_be_settled_by_initial_absence(monkeypatch):
         assert receipts == [False] and not slot.closed
 
     asyncio.run(scenario())
+
+
+def test_unknown_create_still_removes_the_sandboxs_own_gateway(monkeypatch):
+    """A refused create (e.g. Windows command line too long) must not leave proxy/network."""
+    from ai_agent_adapters.sandbox import warm
+    from ai_agent_adapters.sandbox.docker import DockerTaskRunner
+
+    class Gateway:
+        network, closed = "aw-net-" + "c" * 32, 0
+
+        async def open(self):
+            return "http://10.0.0.2:3128"
+
+        async def close(self):
+            self.closed += 1
+            return True
+
+    async def cli(*args, **kwargs):
+        raise OSError("create refused")
+
+    async def image(*args, **kwargs):
+        return None
+
+    async def scenario():
+        gateway, released = Gateway(), []
+
+        async def registered(name):
+            return None
+
+        async def note(name, removed):
+            released.append(removed)
+
+        monkeypatch.setattr(warm, "cli", cli)
+        monkeypatch.setattr(DockerTaskRunner, "_image", staticmethod(image))
+        slot = WarmSandbox(
+            TEMPLATE, workspace=True, helper=False, idle_seconds=30, valid=lambda: None,
+            registered=registered, released=note, egress=lambda: gateway,
+        )  # fmt: skip
+        with pytest.raises(ContractError) as error:
+            await slot.prepare()
+        assert error.value.error.code is ErrorCode.OUTCOME_UNKNOWN
+        assert gateway.closed == 1 and released == [False]
+
+    asyncio.run(scenario())

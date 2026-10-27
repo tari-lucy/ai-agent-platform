@@ -249,6 +249,10 @@ class WarmSandbox:
                     if labels.get("ai-agent-platform.instance") != self.name:
                         raise ValueError("WARM_INSTANCE_MISMATCH")
                 except OSError, TimeoutError, ValueError, KeyError, IndexError:
+                    if self.gateway is not None:
+                        # The proxy and network are ours whatever happened to the create; the
+                        # network stays (receipt False) only if an agent container holds it.
+                        await self.gateway.close()
                     await self.released(self.name, False)
                     raise ContractError(ErrorCode.OUTCOME_UNKNOWN) from None
             removed = await DockerTaskRunner._remove(self.name)
