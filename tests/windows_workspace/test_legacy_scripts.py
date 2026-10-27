@@ -1,4 +1,4 @@
-"""Existing scripts configuration stays inert after home is enabled; expose its UI residue."""
+"""Existing scripts configuration is frozen when home is enabled, and thaws without it."""
 
 import asyncio
 
@@ -12,7 +12,7 @@ from ai_agent_core.local_host.workplace_files import enable_workplace_files
 from ai_agent_core.m3_composition.activity import tools
 
 
-def test_existing_scripts_are_frozen_but_still_listed(tmp_path, monkeypatch):
+def test_existing_scripts_are_frozen_and_leave_the_access_card(tmp_path, monkeypatch):
     async def scenario():
         host = await prepared(tmp_path, monkeypatch, WorkModel())
         await enable_recovery(
@@ -34,11 +34,20 @@ def test_existing_scripts_are_frozen_but_still_listed(tmp_path, monkeypatch):
             status = (
                 await env.client.get("/api/v1/workplace-access", params=scope_params(scope))
             ).json()
-            # This is a documented migration/UI issue, not an available execution path.
-            assert "workplace.scripts" in {m["capability_id"] for m in status["members"]}
+            # Frozen (W7b): disabled records, no ceiling, so not in the access card either.
+            assert "workplace.scripts" not in {m["capability_id"] for m in status["members"]}
             assert rt.session_helper_capability is None
             assert not any(
                 t.available and t.manifest.capability_id == "workplace.scripts"
+                for t in await tools(rt, scope, session=True)
+            )
+        # Without the home again, the same records are ready again (no conflict).
+        await enable_work_sessions(host.root, **args, home_enabled=False)
+        async with host.open():
+            rt, scope = host.runtime, host.scope
+            assert rt.session_helper_capability == "workplace.scripts"
+            assert any(
+                t.manifest.capability_id == "workplace.scripts"
                 for t in await tools(rt, scope, session=True)
             )
 

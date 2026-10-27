@@ -378,6 +378,9 @@ async def enable_work_sessions(
                 ceilings[settings.egress_capability_id] = PermissionCeiling(
                     level="automatic", max_days=ceiling_days
                 )
+        if settings.home_enabled:
+            # W7b: the script container is frozen with a home; not part of the starter set.
+            ceilings.pop(settings.helper_capability_id, None)
         updated = config.model_copy(
             update={"work_sessions": settings, "workplace_permissions": ceilings or None}
         )
@@ -544,7 +547,7 @@ async def enable_work_sessions(
                         b.id != ADAPTER + "." + settings.helper_capability_id
                         or b.adapter_id != ADAPTER
                         or b.adapter_version != VERSION
-                        or b.state != "ready"
+                        or b.state not in ("ready", "disabled")  # disabled: frozen by a home
                         or b.capability_version != 1
                     )
                     for b in all_bindings
@@ -554,25 +557,35 @@ async def enable_work_sessions(
                 previous_row = await store.repository(type(row), workspace, scope).get(row.id)
                 if previous_row is not None:
                     # Never silently accept a conflicting prepared owner record.
-                    expected = row.model_dump(
-                        exclude={
-                            "created_at",
-                            "updated_at",
-                            "verified_at",
-                            "version",
-                            "instructions",
-                        }
-                    )
-                    actual = previous_row.model_dump(
-                        exclude={
-                            "created_at",
-                            "updated_at",
-                            "verified_at",
-                            "version",
-                            "instructions",
-                        }
-                    )
-                    if actual != expected:
+                    loose = {
+                        "created_at",
+                        "updated_at",
+                        "verified_at",
+                        "version",
+                        "instructions",
+                        "state",
+                    }
+                    if previous_row.model_dump(exclude=loose) != row.model_dump(exclude=loose):
+                        raise HostError("WORK_SESSIONS_BINDING_CONFLICT")
+                    was, wanted = getattr(previous_row, "state", None), getattr(row, "state", None)
+                    if was == "disabled" and wanted == "ready":
+                        # Scripts frozen by an earlier home, enabled again without one.
+                        await put(
+                            store,
+                            registry,
+                            Owner.WORKSPACE,
+                            scope,
+                            f"work-sessions-thaw-{row.id}-{previous_row.version}",
+                            row.model_copy(
+                                update={
+                                    "version": previous_row.version + 1,
+                                    "created_at": previous_row.created_at,
+                                }
+                            ),
+                            previous_row.version,
+                            rights.record_readers(),
+                        )
+                    elif was != wanted:
                         raise HostError("WORK_SESSIONS_BINDING_CONFLICT")
                     continue
                 await put(
@@ -585,6 +598,31 @@ async def enable_work_sessions(
                     None,
                     rights.record_readers(),
                 )
+            if settings.home_enabled:
+                # An earlier scripts binding stays as history but is no longer offered:
+                # disabled, it has no executor, no tool and no place in the access card.
+                record_id = ADAPTER + "." + settings.helper_capability_id
+                old = await store.repository(CapabilityBinding, workspace, scope).get(record_id)
+                if old is not None and old.state == "ready":
+                    frozen = CapabilityBinding.model_validate(
+                        old.model_dump()
+                        | {
+                            "version": old.version + 1,
+                            "updated_at": now,
+                            "state": "disabled",
+                            "verified_at": None,
+                        }
+                    )
+                    await put(
+                        store,
+                        registry,
+                        Owner.WORKSPACE,
+                        scope,
+                        f"work-sessions-freeze-{record_id}-{old.version}",
+                        frozen,
+                        old.version,
+                        rights.record_readers(),
+                    )
         finally:
             await store.close()
         # Records first: a crash before this line leaves work conversations off.
