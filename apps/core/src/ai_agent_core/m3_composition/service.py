@@ -125,6 +125,40 @@ def _gm_jobs(partition: tuple[str, str, str, str], day: date) -> frozenset[str]:
     )
 
 
+class ModelRefused(ContractError):
+    """A live model call refused by the platform before any provider call or attempt record.
+
+    The error code stays CAPABILITY_UNAVAILABLE (no right or limit changes); ``reason`` is a
+    fixed diagnostic code and ``detail`` holds sizes only, never prompt content or secrets.
+    """
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(ErrorCode.CAPABILITY_UNAVAILABLE)
+        self.reason, self.detail = reason, detail
+
+
+def live_refusal(
+    budget: PrivateAPIBudget | None,
+    connection_id: str,
+    role_id: str,
+    kind: str | None,
+    memory_mode: str,
+    prompt_chars: int,
+) -> tuple[str, str] | None:
+    """Why the shared private budget refuses this live call, or None when it is admitted."""
+    if budget is None:
+        return "MODEL_BUDGET_MISSING", ""
+    if connection_id != budget.connection_id:
+        return "MODEL_CONNECTION_MISMATCH", ""
+    if not budget.allows(role_id, kind):
+        return "MODEL_ROLE_NOT_ALLOWED", f"role={role_id} kind={kind}"
+    if memory_mode != "work":
+        return "MODEL_TEST_MEMORY", ""
+    if prompt_chars > budget.max_prompt_chars:
+        return "MODEL_PROMPT_LIMIT", f"prompt_chars={prompt_chars} limit={budget.max_prompt_chars}"
+    return None
+
+
 @dataclass(frozen=True)
 class PrivateAPIBudget:
     """Durable bounded API admission; calendar resets require explicit operator configuration.
@@ -1263,6 +1297,8 @@ class Execution:
         self.cancel = asyncio.Event()
         self.current_attempt: str | None = None
         self.extra_sources: tuple[SourceRef, ...] = ()
+        # The fixed code of the last live call this job refused before the provider, if any.
+        self.refusal: str | None = None
 
     def guard(self) -> None:
         if self.cancel.is_set() or self.runtime.supervisor.clock.utc() >= self.lease.expires_at:
@@ -1437,14 +1473,29 @@ class Execution:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
         budget = self.runtime.private_api_budget
         live = binding.adapter_id != "mock"
-        if live and (
-            budget is None
-            or binding.connection_id != budget.connection_id
-            or not budget.allows(request.role_id, self.args.request.kind)
-            or self.command.scope.memory_mode != "work"
-            or prompt_size(request.messages, request.tools) > budget.max_prompt_chars
-        ):
-            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        refused = (
+            live_refusal(
+                budget,
+                binding.connection_id,
+                request.role_id,
+                self.args.request.kind,
+                self.command.scope.memory_mode,
+                prompt_size(request.messages, request.tools),
+            )
+            if live
+            else None
+        )
+        if refused is not None:
+            reason, detail = refused
+            # Before any provider call or attempt record: the log is the only trace of it.
+            logging.getLogger(__name__).warning(
+                "Model call refused before the provider: %s role=%s %s",
+                reason,
+                request.role_id,
+                detail,
+            )
+            self.refusal = reason
+            raise ModelRefused(reason, detail)
         unique = (
             self.command.operation_id
             + "."

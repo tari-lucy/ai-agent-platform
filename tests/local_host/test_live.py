@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -254,8 +255,16 @@ def test_real_adapter_private_http_ledger_errors_stop_and_durable_budget(
                     # An oversized prompt is refused before a provider call or ledger reservation.
                     budget = rt.private_api_budget
                     rt.private_api_budget = replace(budget, max_prompt_chars=1000)
-                    await message("context-over-limit")
+                    with caplog.at_level(logging.WARNING):
+                        await message("context-over-limit")
                     assert len(calls) == 5
+                    # The exact reason with sizes only, not the generic CAPABILITY_UNAVAILABLE.
+                    refused = [
+                        r for r in caplog.records if "refused before the provider" in r.message
+                    ]
+                    assert refused and "MODEL_PROMPT_LIMIT" in refused[-1].message
+                    assert "limit=1000" in refused[-1].message
+                    assert "context-over-limit" not in caplog.text  # no prompt content
                     rt.private_api_budget = budget
                     mode = "pause"
                     await message("late-stop", wait=False)

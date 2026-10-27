@@ -70,6 +70,7 @@ class ExecutionModelGateway:
     def __init__(self, execution: Execution) -> None:
         self.execution = execution
         self.release: Callable[[], Awaitable[bool]] | None = None
+        self.refused: str | None = None
 
     async def generate(self, admission: WorkAdmission, request: ModelRequest) -> ModelReply:
         command, lease = self.execution.command, self.execution.lease
@@ -97,6 +98,10 @@ class ExecutionModelGateway:
             )
         except ContractError as error:
             if error.error.code in (ErrorCode.RESOURCE_BUSY, ErrorCode.CAPABILITY_UNAVAILABLE):
+                # The harness only learns "not admitted"; the exact reason stays here and in
+                # the log (Execution.generate), so a failed turn can be told from a model error.
+                self.refused = getattr(error, "reason", None) or error.error.code.value
+                LOG.warning("Work model call not admitted: %s", self.refused)
                 return ModelReply("not_admitted", "", "")
             raise
         attempt = result.attempts[-1].attempt_id if result.attempts else ""
