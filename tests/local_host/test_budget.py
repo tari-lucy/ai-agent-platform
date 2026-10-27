@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from ai_agent_application.laboratory.profile import REFERENCE_PROFILE
 
-from ai_agent_core.local_host.budget import configure_budget
+from ai_agent_core.local_host.budget import configure_budget, configure_prompt_limit
 from ai_agent_core.local_host.init import initialise
 from ai_agent_core.local_host.layout import HostError, LiveConfig, load_config, paths
 from ai_agent_core.local_host.process import exclusive_host
@@ -67,3 +67,24 @@ def test_budget_has_no_fixed_business_ceiling(limit):
 def test_runtime_rejects_invalid_budget_types(limit):
     with pytest.raises(ValueError, match="PRIVATE_API_BUDGET"):
         PrivateAPIBudget("conn", limit, 24000, "utc_day")
+
+
+def test_offline_prompt_limit_update_keeps_everything_else(tmp_path):
+    root = tmp_path / "host"
+    live = LiveConfig(model_id="fixture-model", max_prompt_chars=24000)  # an older host
+    asyncio.run(initialise(root, profile_markdown=REFERENCE_PROFILE, live=live))
+    host = paths(root)
+    before = load_config(host)
+    assert LiveConfig(model_id="fixture-model").max_prompt_chars == 40000  # new hosts
+    with exclusive_host(root):
+        with pytest.raises(HostError, match="HOST_ALREADY_RUNNING"):
+            configure_prompt_limit(root, max_prompt_chars=40000)
+    configure_prompt_limit(root, max_prompt_chars=40000)
+    updated = load_config(host)
+    assert updated.live.max_prompt_chars == 40000
+    assert updated.live.budget_version == before.live.budget_version  # not a budget change
+    assert updated.model_copy(update={"live": before.live}) == before
+    for bad in (999, 40001, True):
+        with pytest.raises(HostError, match="INVALID_OPTION"):
+            configure_prompt_limit(root, max_prompt_chars=bad)
+    assert load_config(host) == updated
