@@ -583,6 +583,32 @@ class Supervisor:
         self._admissions[admission.id] = admission
         return admission
 
+    def lost(self, admission_id: str, freshness: Freshness) -> str:
+        """Why an admission is no longer valid, as a fixed code (diagnostics only)."""
+        admission = self._admissions.get(admission_id)
+        if admission is None:
+            return "ADMISSION_GONE"  # expired and swept, revoked by STOP/fault, or never issued
+        checks = (
+            (admission.cancelled.is_set(), "ADMISSION_CANCELLED"),
+            (admission.freshness != freshness, "ADMISSION_FRESHNESS"),
+            (admission.freshness.run_id != self._run.run_id, "RUN_CHANGED"),
+            (admission.freshness.control_epoch != self._run.control_epoch, "EPOCH_CHANGED"),
+            (self._approval is None, "NO_APPROVAL"),
+            (
+                self._approval is not None
+                and admission.freshness.profile_version != self._approval.profile_version,
+                "PROFILE_VERSION_CHANGED",
+            ),
+            (
+                self._approval is not None
+                and admission.freshness.policy_version != self._approval.policy_version,
+                "POLICY_VERSION_CHANGED",
+            ),
+            (not self._eligible(admission.kind), "NOT_ELIGIBLE:" + self._run.state.value),
+            (self.clock.elapsed() >= admission.expires_at, "ADMISSION_EXPIRED"),
+        )
+        return next((code for failed, code in checks if failed), "VALID")
+
     def validate(self, admission: Admission) -> None:
         self.poll()
         if (
