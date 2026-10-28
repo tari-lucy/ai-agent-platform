@@ -789,7 +789,7 @@ def test_expired_lease_and_rejected_final_policy_close_new_io(tmp_path):
             with pytest.raises(ContractError):
                 await f.owner.verify(f.worker, claim.lease)
             f.policy.denied = False
-            f.time.advance(f.supervisor, 21)
+            f.time.advance(f.supervisor, 61)  # past the 60 s lease
             with pytest.raises(ContractError):
                 await f.owner.verify(f.worker, claim.lease)
             with pytest.raises(ContractError):

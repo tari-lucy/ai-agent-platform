@@ -180,7 +180,7 @@ def test_expired_admission_closes_lease_but_does_not_free_resource():
     f = fixture()
     cap = f.capability("normal", {"foreground": 1})
     lease = f.acquire(cap)
-    f.time.advance(21)
+    f.time.advance(61)  # past the 60 s admission
     with pytest.raises(ContractError):
         f.scheduler.verify(lease)
     assert used(f, "foreground") == 1

@@ -126,7 +126,8 @@ class JobLimits:
     pending: int = 256
     batch: int = 50
     attempts: int = 2
-    lease_seconds: float = 20
+    # Renewed every ~5 s; 60 s survives a slow renewal (2–4 s seen on Windows, more on big hosts).
+    lease_seconds: float = 60
     # D76: a long work turn of the agent is one job; its own wall time bounds it first.
     total_seconds: float = 86400
     retry_seconds: float = 1
@@ -143,7 +144,7 @@ class JobLimits:
         ):
             if not math.isfinite(value) or not 0 < value <= 86400:
                 raise ValueError("JOB_LIMIT")
-        if self.lease_seconds > 20 or self.retry_seconds > 180 or self.dispatch_seconds > 180:
+        if self.lease_seconds > 60 or self.retry_seconds > 180 or self.dispatch_seconds > 180:
             raise ValueError("JOB_LIMIT")
 
 
