@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 LOG = logging.getLogger(__name__)
 # A call without reported usage is charged as if it were this large: unknown is never zero.
 UNKNOWN_INPUT, UNKNOWN_OUTPUT = 32000, 4096
+HTTP_STARTUP_TIMEOUT = 60.0
 
 
 @dataclass(frozen=True)
@@ -320,6 +321,7 @@ class HarnessHost:
                 proxy=proxy,
             )
             gateway.agent(address)
+            await self._wait_ready(epoch)
             self.ready = True
             LOG.warning("Harness ready: opencode attach http://127.0.0.1:%d", s.port)
             budget_at = 0.0
@@ -373,6 +375,35 @@ class HarnessHost:
             raise ContractError(ErrorCode.STALE_CONTEXT)
         if method not in ("GET", "POST") or not path.startswith("/"):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        return await self._request_opencode(method, path, body, timeout=timeout)
+
+    async def _wait_ready(self, epoch: int) -> None:
+        """A Docker address is not yet a listening OpenCode HTTP server."""
+        deadline = time.monotonic() + HTTP_STARTUP_TIMEOUT
+
+        def guard() -> None:
+            run = self.rt.supervisor.snapshot
+            if self.closed or run.state != RunState.ACTIVE or run.control_epoch != epoch:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+
+        while time.monotonic() < deadline:
+            guard()
+            try:
+                health = await asyncio.wait_for(
+                    self._request_opencode("GET", "/global/health", timeout=2),
+                    timeout=min(2.0, max(0.001, deadline - time.monotonic())),
+                )
+            except (OSError, ValueError, TimeoutError):
+                health = None
+            guard()
+            if isinstance(health, dict) and health.get("healthy") is True:
+                return
+            await asyncio.sleep(0.25)
+        raise OSError("HARNESS_HTTP_NOT_READY")
+
+    async def _request_opencode(
+        self, method: str, path: str, body: dict[str, Any] | None = None, *, timeout: float
+    ) -> Any:
         import base64
         import urllib.request
 
