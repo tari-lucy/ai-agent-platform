@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
@@ -649,7 +650,9 @@ class Runtime:
                 raise
             self._refresh_at = now + 5
         if now >= self._reconcile_at:
+            started = time.monotonic()
             await self.jobs.reconcile()
+            self._slow("reconcile", started)
             self._reconcile_at = now + 5
         if self._active is not None:
             if not self._active.done():
@@ -664,14 +667,20 @@ class Runtime:
                     raise
         if self.session_prewarmer is not None:
             self.session_prewarmer.tick()
+        started = time.monotonic()
         await self.daily_memory.tick()
+        self._slow("daily_memory", started)
+        started = time.monotonic()
         await self.autonomous_gm.tick()
+        self._slow("gm", started)
         if self.autonomous_wake is not None:
             try:
                 await self.autonomous_wake.tick()
             except ContractError as error:
                 logging.getLogger(__name__).info("Wake tick skipped: %s", error.error.code.value)
+        started = time.monotonic()
         await self.autonomous_activity.tick()
+        self._slow("activity", started)
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:
             if (
@@ -682,6 +691,13 @@ class Runtime:
                 self._active = asyncio.create_task(self.execute(job))
                 self._active.add_done_callback(lambda _: self.wake())
                 break
+
+    @staticmethod
+    def _slow(step: str, started: float) -> None:
+        """Diagnostics: a tick step long enough to starve heartbeat and lease refreshes."""
+        spent = time.monotonic() - started
+        if spent >= 5:
+            logging.getLogger(__name__).warning("Slow runtime tick step %s: %.2fs", step, spent)
 
     def authorize_submission(
         self, authority: ControlAuthority | None, scope: Scope, request: TaskInput
@@ -1392,7 +1408,13 @@ class Execution:
                 )
                 for attempt in range(RENEW_ATTEMPTS):
                     try:
+                        started = time.monotonic()
                         self.lease = await self.runtime.jobs.renew(self.runtime.worker, request)
+                        spent = time.monotonic() - started
+                        if spent >= 2:  # diagnostics: a 20 s lease lapses behind slow renewals
+                            logging.getLogger(__name__).warning(
+                                "Slow job lease renewal: %.2fs (attempt %d)", spent, attempt + 1
+                            )
                         break
                     except ContractError as error:
                         # The 2 s policy proof can lapse during a slow write of the renewal
