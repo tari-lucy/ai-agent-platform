@@ -143,7 +143,7 @@ def test_missing_cancel_receipt_becomes_unknown_then_late_receipt_settles_only()
     lease = f.acquire(cap)
     f.stop()
     assert f.scheduler.decision(lease.request).state == BudgetState.CANCELLING
-    f.time.advance(2.1)
+    f.time.advance(30.1)  # past the 30 s cancellation grace
     f.scheduler.poll()
     assert f.scheduler.decision(lease.request).state == BudgetState.UNKNOWN
     assert f.supervisor.snapshot.state == RunState.FAULTED
@@ -159,7 +159,7 @@ def test_queue_wait_deadline_is_explicit_and_not_extended_by_duplicate():
     f.acquire(cap)
     command = f.command(cap)
     request = f.scheduler.request(command)
-    f.time.advance(2.1)
+    f.time.advance(30.1)  # past the 30 s cancellation grace
     decision = f.scheduler.decision(request)
     assert decision.outcome == Outcome.EXPIRED and decision.error == ErrorCode.EXPIRED
     assert f.scheduler.request(command) is request
@@ -327,7 +327,7 @@ def test_health_recovery_does_not_revive_cancelled_budget_or_hide_unknown():
     f.telemetry.update_health("provider", HealthState.UNAVAILABLE)
     assert f.scheduler.decision(lease.request).state == BudgetState.CANCELLING
     f.telemetry.update_health("provider", HealthState.READY)
-    f.time.advance(2.1)
+    f.time.advance(30.1)  # past the 30 s cancellation grace
     assert f.scheduler.decision(lease.request).state == BudgetState.UNKNOWN
     assert used(f, "llm") == 1
 

@@ -71,6 +71,8 @@ class Supervisor:
         self._write_lock = asyncio.Lock()
         self._recovered = False
         self._recovering = False
+        # FAULTED only because STOP's receipts came late: settles to STOPPED once they arrive.
+        self._late_stop = False
         self._transitioning = False
         self._dirty = False
         self._deadline: float | None = None
@@ -192,6 +194,14 @@ class Supervisor:
                 state=RunState.STOPPED, ended_at=self.clock.utc(), unconfirmed_resource_ids=[]
             )
             self._deadline = None
+        elif self._run.state == RunState.FAULTED and self._late_stop and not pending:
+            # The removal receipts of a STOP arrived after its deadline: nothing is unknown now.
+            LOG.warning("Late STOP receipts confirmed: run settles to STOPPED")
+            self._change(
+                state=RunState.STOPPED, ended_at=self.clock.utc(), unconfirmed_resource_ids=[]
+            )
+            self._late_stop = False
+            self.last_error = None
         elif self._run.activity == ActivityState.PAUSING and not self._pending(
             frozenset({"activity", "voice", "gm", "reflection", "dialogue"})
         ):
@@ -231,6 +241,7 @@ class Supervisor:
             self._change(state=RunState.FAULTED, unconfirmed_resource_ids=self._pending())
             self.last_error = ErrorCode.OUTCOME_UNKNOWN
             self._deadline = None
+            self._late_stop = True
         if self._pause_deadline is not None and elapsed >= self._pause_deadline:
             self.critical_failure(ErrorCode.OUTCOME_UNKNOWN)
             self._change(activity=ActivityState.PAUSED)
@@ -244,6 +255,7 @@ class Supervisor:
 
     def critical_failure(self, code: ErrorCode = ErrorCode.SERVICE_UNAVAILABLE) -> None:
         self._owned()
+        self._late_stop = False  # a real fault never settles by itself
         # The fixed code and the calling site: the only trace of why the run faulted.
         LOG.warning("Run faulted: %s at %s (was %s)", code.value, _site(), self._run.state.value)
         self._revoke()
