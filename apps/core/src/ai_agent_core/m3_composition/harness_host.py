@@ -47,6 +47,7 @@ class HarnessSettings:
     memory_mb: int = 4096
     pids: int = 1024
     rules: Path | None = None
+    agent_name: str = "persona"
 
 
 class Usage:
@@ -167,16 +168,16 @@ class HarnessHost:
                     "options": {"baseURL": model_url, "apiKey": "platform-gateway"},
                     "models": {
                         "bound": {
-                            "name": "Личность",
+                            "name": s.model,
                             "limit": {"context": s.context_tokens, "output": s.output_tokens},
                             "tool_call": True,
                         }
                     },
                 }
             },
-            "default_agent": "persona",
+            "default_agent": s.agent_name,
             "agent": {
-                "persona": {
+                s.agent_name: {
                     "mode": "primary",
                     "description": "Личность в своём рабочем месте",
                     "prompt": prompt,

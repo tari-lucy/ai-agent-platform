@@ -316,6 +316,8 @@ class HarnessConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     enabled: bool = Field(default=True, strict=True)
     port: int = Field(default=4096, strict=True, ge=1024, le=65535)
+    # The name the operator sees for the agent in OpenCode (the persona's own name).
+    agent_name: str = Field(default="persona", pattern=r"^[\w-]{1,40}$")
     daily_budget: float = Field(default=3000.0, ge=0, le=1_000_000)
     currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
     input_rate: float | None = Field(default=None, ge=0, le=1_000_000)

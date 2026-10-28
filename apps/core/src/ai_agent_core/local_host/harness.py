@@ -122,6 +122,7 @@ def install(
             context_tokens=settings.context_tokens,
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
+            agent_name=settings.agent_name,
         ),
         home=lambda: volume(scope()),
         prompt=prompt,
