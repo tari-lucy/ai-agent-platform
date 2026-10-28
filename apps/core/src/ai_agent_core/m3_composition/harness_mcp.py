@@ -66,7 +66,8 @@ TOOLS: list[dict[str, Any]] = [
         "name": "wake_me",
         "description": "Поставить себе будильник: через minutes минут платформа сама напишет "
         "тебе text в разговор, даже если оператора нет. Для долгих сборок, ожидания и "
-        "продолжения работы позже. Работает только в запущенном агенте (после START).",
+        "продолжения работы позже. Срабатывает после START в автономном режиме, если "
+        "самостоятельная работа включена, вне тихих часов и в пределах бюджета.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -162,7 +163,14 @@ class PlatformMcp:
             minutes = a.get("minutes", "").strip()
             if not minutes.isdigit():
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
-            wake = await self.wakes.set(int(minutes), a.get("text", ""))
+            epoch = self.rt.supervisor.snapshot.control_epoch
+
+            def guard() -> bool:
+                self._current()
+                current = self.rt.supervisor.snapshot
+                return current.scope.partition == scope.partition and current.control_epoch == epoch
+
+            wake = await self.wakes.set(int(minutes), a.get("text", ""), scope=scope, guard=guard)
             return _text(f"Будильник {wake.id} на {wake.due_at.isoformat(timespec='minutes')} UTC.")
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
 

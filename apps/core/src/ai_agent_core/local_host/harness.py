@@ -82,6 +82,7 @@ def install(
         return "HARNESS_IMAGE_REQUIRED"
     if config.live is None or providers.binding is None:
         return "HARNESS_LIVE_REQUIRED"
+    from ai_agent_core.m3_composition.harness_autonomy import AutonomyPart
     from ai_agent_core.m3_composition.harness_host import HarnessHost, HarnessSettings
     from ai_agent_core.m3_composition.harness_learning import LearningPart
     from ai_agent_core.m3_composition.work_session_egress import (
@@ -89,6 +90,7 @@ def install(
         resident_factory,
     )
     from ai_agent_core.m3_composition.work_session_home import rules, volume
+    from ai_agent_core.m3_composition.work_session_wake import WakeSettings
     from ai_agent_core.m3_composition.workplace_experience import session_context
 
     work = config.work_sessions
@@ -163,7 +165,16 @@ def install(
 
     # Local, possibly personal: the agent's alarm texts never go to Git or reports.
     runtime.harness.wakes = HarnessWakes(host.root / "data" / "harness" / "wakes.json")
+    runtime.autonomous_wake = None  # Native wakes own this path; do not feed the old SessionBook.
     runtime.harness.attach(LearningPart(runtime, host.root / "data" / "harness" / "learning"))
+    if work.wake_enabled:
+        quiet = work.wake_quiet_hours
+        if quiet:
+            begin, end = quiet.split("-")
+            hours = (int(begin), int(end))
+        else:
+            hours = None
+        runtime.harness.attach(AutonomyPart(runtime, WakeSettings(work.wake_max_per_hour, hours)))
     return None
 
 

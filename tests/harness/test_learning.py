@@ -6,12 +6,15 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from ai_agent_application.storage import Grant, Owner, RecordAccess
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.memory import Episode, Source
 from ai_agent_contracts.states import ErrorCode, Provenance
-from memory_support import MEMORY, NOW, command, make_scope, new_world
+from memory_support import GRANTS, MEMORY, NOW, command, make_scope, new_world
 
-from ai_agent_core.m3_composition.harness_learning import HarnessLearning
+from ai_agent_core.m3_composition.harness_learning import HarnessLearning, LearningPart
+from ai_agent_core.m3_composition.memory_cycles import pairs
+from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
 
 SCOPE = make_scope()
 TEXT = "Вымышленный маяк светит синим."
@@ -192,6 +195,97 @@ def test_old_history_does_not_starve_an_independent_fresh_session(tmp_path):
             sources = await world.store.repository(Source, MEMORY, SCOPE).list(limit=20)
             assert len(sources) == 2
             assert (await learning.notices(SCOPE))["ses_old"].reason == "source_unavailable"
+        finally:
+            await world.store.close()
+
+    asyncio.run(scenario())
+
+
+def test_part_restart_and_existing_memory_cycle_boundary_with_revocation(tmp_path):
+    async def scenario():
+        readers = (RecordAccess(OPERATOR.id, api_transfer=True),)
+        world = await new_world(tmp_path, [SCOPE], with_index=False, reader_access=readers)
+        try:
+            await world.provision(
+                SCOPE,
+                (
+                    *GRANTS,
+                    Grant(
+                        PRINCIPALS[Owner.MEMORY],
+                        Owner.MEMORY,
+                        read=True,
+                        write=True,
+                        api_transfer=True,
+                    ),
+                    Grant(OPERATOR, Owner.MEMORY, read=True, api_transfer=True),
+                ),
+            )
+            host = Host()
+            ready = [True]
+            host.current = lambda: ready[0]
+            snapshot = SimpleNamespace(scope=SCOPE, control_epoch=1)
+            rt = SimpleNamespace(
+                harness=host,
+                store=world.store,
+                registry=world.memory.extensions,
+                dialogue_index=None,
+                readers=readers,
+                private_api_budget=SimpleNamespace(memory_processing=True),
+                maintenance=SimpleNamespace(ledger=Ledger()),
+                supervisor=SimpleNamespace(
+                    snapshot=snapshot, clock=SimpleNamespace(utc=world.clock)
+                ),
+            )
+            part = LearningPart(rt, tmp_path / "learning")
+            part.tick()
+            assert await part.task == 2
+            episodes = await world.store.repository(Episode, MEMORY, SCOPE).list(limit=10)
+            selected, sources = await pairs(rt, SCOPE, [episodes[0].id])
+            assert len(selected) == 1 and len(sources) == 2
+            ready[0] = False
+            await part.close()
+            part.tick()
+            assert part.task is None
+            snapshot.control_epoch, ready[0] = 2, True
+            host.rows.append(row("msg_c", "user", text="Новая реплика после START."))
+            part.tick()
+            assert await part.task == 1
+            await part.close()
+            source = sources[0]
+            await world.memory.set_rights(
+                command(SCOPE),
+                source.id,
+                source.version,
+                read_allowed=True,
+                api_transfer_allowed=False,
+                public_disclosure_allowed=False,
+            )
+            with pytest.raises(ContractError):
+                await pairs(rt, SCOPE, [episodes[0].id])
+            ready[0] = False
+            before = len(host.calls)
+            notice = (await part.notices(SCOPE))["ses_a"]
+            assert notice.reason == "source_unavailable"
+            assert source.id in {ref.source_id for ref in notice.sources}
+            assert len(host.calls) == before
+        finally:
+            await world.store.close()
+
+    asyncio.run(scenario())
+
+
+def test_large_message_is_explicitly_skipped_without_starving_fresh_messages(tmp_path):
+    async def scenario():
+        world = await new_world(tmp_path, [SCOPE], with_index=False)
+        try:
+            host, path = Host(), tmp_path / "cursor.json"
+            host.rows.insert(0, row("msg_large", "user", text="x" * 16001))
+            learning = HarnessLearning(host, world.memory, Ledger(), path, lambda s: None)
+            assert await learning.tick(SCOPE) == 2
+            assert list(json.loads(path.read_text(encoding="utf-8"))["skipped"].values()) == [
+                "text_limit"
+            ]
+            assert await learning.tick(SCOPE) == 0
         finally:
             await world.store.close()
 

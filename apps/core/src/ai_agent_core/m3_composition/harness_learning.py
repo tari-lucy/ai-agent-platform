@@ -59,6 +59,7 @@ class SessionNotice(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: Literal["source_unavailable", "message_changed"]
     sources: list[SourceRef] = Field(default_factory=list, max_length=200)
+    complete: bool = True
 
 
 class Cursor(BaseModel):
@@ -66,6 +67,7 @@ class Cursor(BaseModel):
     version: Literal[1] = 1
     partition: tuple[str, str, str, str]
     messages: dict[str, Imported] = Field(default_factory=dict, max_length=10000)
+    skipped: dict[str, Literal["text_limit"]] = Field(default_factory=dict, max_length=10000)
     # A sticky warning: a pre-existing harness history may still contain removed text.
     notices: dict[str, SessionNotice] = Field(default_factory=dict, max_length=200)
 
@@ -77,7 +79,10 @@ class Cursor(BaseModel):
     ) -> None:
         notice = self.notices.setdefault(session, SessionNotice(reason=reason))
         if source is not None and source not in notice.sources:
-            notice.sources.append(source)
+            if len(notice.sources) < 200:
+                notice.sources.append(source)
+            else:
+                notice.complete = False
 
 
 def atomic_json(path: Path, value: BaseModel) -> None:
@@ -89,6 +94,8 @@ def atomic_json(path: Path, value: BaseModel) -> None:
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             encoded = value.model_dump_json()
+            if len(encoded.encode("utf-8")) > 8 * 1024 * 1024:
+                raise ValueError("HARNESS_CHECKPOINT_LIMIT")
             type(value).model_validate_json(encoded)
             stream.write(encoded)
             stream.flush()
@@ -101,6 +108,12 @@ def atomic_json(path: Path, value: BaseModel) -> None:
                 if attempt == 3:
                     raise
                 time.sleep(0.02)  # short-lived Windows readers/scanners; never unlink the cursor
+        if os.name != "nt":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         if os.path.exists(name):
             os.unlink(name)
@@ -154,30 +167,35 @@ class HarnessLearning:
 
     async def notices(self, scope: Scope) -> dict[str, SessionNotice]:
         """Metadata for a panel projection; never returns harness message text."""
-        return dict(self._load(scope).notices)
+        cursor = self._load(scope)
+        await self._audit(scope, cursor)
+        return dict(cursor.notices)
+
+    async def _audit(self, scope: Scope, cursor: Cursor) -> set[str]:
+        blocked = {entry.source_id for entry in await self.ledger.entries(scope)}
+        for imported in cursor.messages.values():
+            source = await self.memory.get_source(scope, imported.source.source_id)
+            if (
+                imported.source.scope.partition != scope.partition
+                or source is None
+                or source.version != imported.source.version
+                or source.id in blocked
+                or source.availability != "available"
+                or not source.read_allowed
+                or (
+                    source.retention.expires_at is not None
+                    and source.retention.expires_at <= self.memory.clock()
+                )
+                or (self.api_transfer and not source.api_transfer_allowed)
+            ):
+                cursor.mark(imported.session, "source_unavailable", imported.source)
+        return blocked
 
     async def tick(self, scope: Scope) -> int:
         async with self.lock:
             self._current(scope)
             cursor = self._load(scope)
-            blocked = {entry.source_id for entry in await self.ledger.entries(scope)}
-            self._current(scope)
-            for imported in cursor.messages.values():
-                source = await self.memory.get_source(scope, imported.source.source_id)
-                if (
-                    imported.source.scope.partition != scope.partition
-                    or source is None
-                    or source.version != imported.source.version
-                    or source.id in blocked
-                    or source.availability != "available"
-                    or not source.read_allowed
-                    or (
-                        source.retention.expires_at is not None
-                        and source.retention.expires_at <= self.memory.clock()
-                    )
-                    or (self.api_transfer and not source.api_transfer_allowed)
-                ):
-                    cursor.mark(imported.session, "source_unavailable", imported.source)
+            blocked = await self._audit(scope, cursor)
             self._current(scope)
             atomic_json(self.path, cursor)
             rows = await self.host.opencode("GET", "/session")
@@ -216,6 +234,9 @@ class HarnessLearning:
         ):
             return 0  # never turn a draft, reasoning or a failed turn into confirmed experience
         mid = identifier(info.get("id"))
+        key = derived_id("harness-message", scope, session, mid)
+        if key in cursor.skipped:
+            return 0
         parts = row.get("parts")
         if not isinstance(parts, list):
             raise ValueError("HARNESS_PARTS_SHAPE")
@@ -232,12 +253,17 @@ class HarnessLearning:
         if not text.strip():
             return 0
         if len(text) > 16000:
-            raise ValueError("HARNESS_TEXT_LIMIT")  # no silent truncation/claim of full import
+            # Explicit incomplete outcome, no truncation; unrelated fresh messages still flow.
+            if len(cursor.skipped) >= 10000:
+                raise ValueError("HARNESS_CHECKPOINT_LIMIT")
+            cursor.skipped[key] = "text_limit"
+            atomic_json(self.path, cursor)
+            LOG.warning("Harness learning deferred: HARNESS_TEXT_LIMIT")
+            return 0
         stamp = times.get("created")
         if type(stamp) not in (int, float):
             raise ValueError("HARNESS_TIME_SHAPE")
         occurred = datetime.fromtimestamp(stamp / 1000, UTC)
-        key = derived_id("harness-message", scope, session, mid)
         digest = hashlib.sha256(json.dumps([role, text, stamp]).encode()).hexdigest()
         previous = cursor.messages.get(key)
         added = previous is None
@@ -376,10 +402,27 @@ class LearningPart:
         path = self.path(scope)
         if not path.exists():
             return {}
-        cursor = Cursor.model_validate_json(path.read_bytes())
-        if cursor.partition != scope.partition:
-            raise ContractError(ErrorCode.ACCESS_DENIED)
-        return dict(cursor.notices)
+        ledger, host = getattr(self.rt.maintenance, "ledger", None), self.rt.harness
+        if ledger is None or host is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        from .state import PRINCIPALS
+
+        owner = MemoryService(
+            self.rt.store,
+            PRINCIPALS[Owner.MEMORY],
+            self.rt.registry,
+            clock=self.rt.supervisor.clock.utc,
+        )
+        budget = self.rt.private_api_budget
+        view = HarnessLearning(
+            host,
+            owner,
+            ledger,
+            path,
+            lambda _: None,
+            api_transfer=budget is not None and budget.memory_processing,
+        )
+        return await view.notices(scope)  # read-only; works while STOPPED, no OpenCode API needed
 
     def tick(self) -> None:
         host = self.rt.harness

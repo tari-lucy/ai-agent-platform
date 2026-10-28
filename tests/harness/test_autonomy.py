@@ -2,13 +2,20 @@
 
 import asyncio
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 
-from ai_agent_core.m3_composition.harness_autonomy import DueWake, HarnessAutonomy, WakeRun
+from ai_agent_core.m3_composition.harness_autonomy import (
+    DueWake,
+    HarnessAutonomy,
+    NativeWakeOwner,
+    WakeRun,
+)
+from ai_agent_core.m3_composition.harness_wakes import HarnessWakes
 from ai_agent_core.m3_composition.work_session_wake import WakeSettings
 
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
@@ -77,6 +84,48 @@ def test_uncertain_post_reconciles_without_repeating_the_paid_turn():
         owner.state, host.rows = "pending", []
         assert await service.tick() == "OUTCOME_UNKNOWN"
         assert host.calls.count("POST") == 1
+
+    asyncio.run(scenario())
+
+
+def test_real_wake_owner_keeps_original_session_after_restart_and_latest_session_changes(tmp_path):
+    async def scenario():
+        now = [NOW]
+        host = Host()
+        host.wakes = HarnessWakes(tmp_path / "wakes.json", lambda: now[0])
+        await host.wakes.set(1, "продолжить", scope=SCOPE, guard=lambda: True)
+        now[0] += timedelta(minutes=2)
+        api = host.opencode
+        newest = ["ses_a"]
+
+        async def read(method, path, body=None, *, timeout=60):
+            if path == "/session":
+                return [{"id": newest[0], "time": {"updated": 1}}]
+            assert path == "/session/ses_a/message"
+            return await api(method, path, body, timeout=timeout)
+
+        host.opencode = read
+        rt = SimpleNamespace(harness=host)
+
+        def service():
+            return HarnessAutonomy(
+                host,
+                NativeWakeOwner(rt),
+                lambda: WakeRun(SCOPE, 1, True, True, True, True),
+                lambda s, e: None,
+                lambda: now[0],
+                lambda: 1,
+                WakeSettings(),
+            )
+
+        host.fail = True
+        with pytest.raises(TimeoutError):
+            await service().tick()
+        newest[0] = "ses_b"
+        host.wakes = HarnessWakes(tmp_path / "wakes.json", lambda: now[0])
+        assert await service().tick() == "FIRED"
+        assert host.calls == ["POST", "GET"]
+        assert await host.wakes.pending(scope=SCOPE) == []
 
     asyncio.run(scenario())
 
