@@ -967,3 +967,41 @@ def test_cancel_ack_does_not_rewrite_successful_attempt_history(tmp_path):
             await f.db.close()
 
     asyncio.run(scenario())
+
+
+def test_a_renewal_whose_slow_write_outlives_the_proof_keeps_the_saved_lease(tmp_path):
+    """Windows personal host: a renewal write took longer than the 2 s policy proof. The new
+    lease was saved, the call then failed, the executor kept the old lease and the job was
+    cancelled (JOB_LEASE_EXPIRED / JOB_RENEW_FAILED). The saved lease must stay usable."""
+
+    async def scenario():
+        f = await create(tmp_path)
+        try:
+            claim, _, _ = await f.claimed()
+            original = f.owner._save
+
+            async def slow_save(*args, **kwargs):
+                await original(*args, **kwargs)
+                f.time.advance(f.supervisor, 11)  # the write outlives the proof (10 s here)
+
+            f.owner._save = slow_save
+            lease = claim.lease
+            for _ in range(5):  # far past the original 60 s lease only if renewals hold
+                f.time.advance(f.supervisor, 5)
+                lease = await f.owner.renew(
+                    f.worker,
+                    ServiceLeaseCommand(
+                        request_id=uuid4().hex,
+                        type="job.renew",
+                        scope=f.scope,
+                        target=lease.operation_id,
+                        operation_id=lease.operation_id,
+                        lease=lease,
+                    ),
+                )
+            f.owner._save = original
+            assert (await f.owner.verify(f.worker, lease)).id == claim.command.id
+        finally:
+            await f.db.close()
+
+    asyncio.run(scenario())
