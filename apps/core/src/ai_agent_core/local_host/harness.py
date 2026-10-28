@@ -89,7 +89,14 @@ def install(
             text += released.text() + "\n\n"
         except Exception:  # noqa: BLE001 - no persona text is a weaker prompt, not a stop
             text += "(Сведения о личности сейчас недоступны.)\n\n"
-        text += "## Рабочее место\n" + GUIDE.split("Корень контейнера")[0] + "\n\n"
+        text += "## Рабочее место\n" + GUIDE.split("Корень контейнера")[0] + "\n"
+        if settings.files_dir:
+            text += (
+                "inbox/ и share/ — обычные папки на компьютере оператора: он кладёт файлы в "
+                "inbox/ из Проводника и открывает share/ у себя. Готовое для оператора клади в "
+                "share/ и называй путь в ответе.\n"
+            )
+        text += "\n"
         text += "## Правила оператора\n" + rules(host.guide) + "\n"
         return text
 
@@ -123,6 +130,7 @@ def install(
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
             agent_name=settings.agent_name,
+            files_dir=Path(settings.files_dir) if settings.files_dir else None,
         ),
         home=lambda: volume(scope()),
         prompt=prompt,

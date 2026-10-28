@@ -318,6 +318,9 @@ class HarnessConfig(BaseModel):
     port: int = Field(default=4096, strict=True, ge=1024, le=65535)
     # The name the operator sees for the agent in OpenCode (the persona's own name).
     agent_name: str = Field(default="persona", pattern=r"^[\w-]{1,40}$")
+    # The operator's inbox/ and share/ as plain folders on the host disk; None keeps them
+    # inside the volume. An absolute path without a comma (a Docker mount separator).
+    files_dir: str | None = Field(default=None, max_length=400, pattern=r"^[^,]+$")
     daily_budget: float = Field(default=3000.0, ge=0, le=1_000_000)
     currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
     input_rate: float | None = Field(default=None, ge=0, le=1_000_000)

@@ -219,9 +219,24 @@ class AgentGateway:
 class HarnessContainer:
     """The persona's ``opencode serve``: its home volume, an internal network, no keys."""
 
-    def __init__(self, image_id: str, home: str, *, memory_mb: int, pids: int) -> None:
+    def __init__(
+        self,
+        image_id: str,
+        home: str,
+        *,
+        memory_mb: int,
+        pids: int,
+        shared: dict[str, str] | None = None,
+    ) -> None:
+        """``shared``: operator folders on the host disk mounted over ``/workspace/<name>``
+        (``inbox``/``share``), so files move by drag and drop; the rest stays in the volume."""
         if HOME_VOLUME.fullmatch(home) is None:
             raise ValueError("RUNNER_HOME_INVALID")
+        if any(
+            name not in ("inbox", "share") or "," in path for name, path in (shared or {}).items()
+        ):
+            raise ValueError("HARNESS_SHARED_INVALID")
+        self.shared = dict(shared or {})
         self.image_id, self.home = image_id, home
         self.memory_mb, self.pids = memory_mb, pids
         self.name = "aw-harness-" + uuid4().hex
@@ -251,6 +266,11 @@ class HarnessContainer:
             "/work:rw,nosuid,nodev,size=1073741824,nr_inodes=65536,mode=0700,uid=65532,gid=65532",
             "--mount",
             f"type=volume,src={self.home},dst=/workspace",
+            *(
+                item
+                for name, path in sorted(self.shared.items())
+                for item in ("--mount", f"type=bind,src={path},dst=/workspace/{name}")
+            ),
             "--workdir=/workspace",
             "--entrypoint=/usr/local/bin/python",
             self.image_id,

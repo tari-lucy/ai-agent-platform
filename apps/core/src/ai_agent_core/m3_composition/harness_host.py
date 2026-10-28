@@ -48,6 +48,7 @@ class HarnessSettings:
     pids: int = 1024
     rules: Path | None = None
     agent_name: str = "persona"
+    files_dir: Path | None = None  # operator's inbox/ and share/ on the host disk
 
 
 class Usage:
@@ -193,7 +194,14 @@ class HarnessHost:
         admission = rt.supervisor.admit("observation")
         ticket = rt.supervisor.register(admission, "harness-" + uuid4().hex)
         gateway = AgentGateway(s.image_id, s.port, self.usage.record)
-        agent = HarnessContainer(s.image_id, self.home(), memory_mb=s.memory_mb, pids=s.pids)
+        shared: dict[str, str] = {}
+        if s.files_dir is not None:
+            for name in ("inbox", "share"):
+                (s.files_dir / name).mkdir(parents=True, exist_ok=True)
+                shared[name] = str((s.files_dir / name).resolve())
+        agent = HarnessContainer(
+            s.image_id, self.home(), memory_mb=s.memory_mb, pids=s.pids, shared=shared
+        )
         egress: Egress | None = None
         try:
             prompt = await self.prompt()
