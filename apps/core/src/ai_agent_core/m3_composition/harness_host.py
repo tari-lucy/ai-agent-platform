@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from ai_agent_adapters.sandbox.agent_gateway import AgentGateway, HarnessContainer
@@ -107,6 +107,20 @@ class Usage:
         return self.settings.daily_budget - self.spent()
 
 
+class HarnessPart(Protocol):
+    """A platform owner working beside the harness (stage 3: learning, autonomy).
+
+    ``tick`` is called about every 0.5 s, only while the harness is ready in the epoch it
+    started with; it must not block (schedule work as tasks) and checks ``host.current()``
+    again before any effect. ``close`` is awaited before the containers go, on STOP, an
+    epoch change or a failure; a later START ticks the same part again.
+    """
+
+    def tick(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+
 class HarnessHost:
     def __init__(
         self,
@@ -125,6 +139,7 @@ class HarnessHost:
         self.ready = False
         self.closed = False
         self.epoch: int | None = None
+        self.parts: list[HarnessPart] = []
 
     def tick(self) -> None:
         if self.closed or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
@@ -140,6 +155,14 @@ class HarnessHost:
             self.task = None
         if time.monotonic() >= self.next_try:
             self.task = asyncio.create_task(self._run())
+
+    def attach(self, part: HarnessPart) -> None:
+        self.parts.append(part)
+
+    def current(self) -> bool:
+        """Ready, ACTIVE and still in the epoch this harness started with."""
+        run = self.rt.supervisor.snapshot
+        return self.ready and run.state == RunState.ACTIVE and run.control_epoch == self.epoch
 
     def persona(self) -> str:
         return self.rt.supervisor.snapshot.scope.persona_id
@@ -275,9 +298,19 @@ class HarnessHost:
                 if time.monotonic() >= budget_at:
                     gateway.budget(self.usage.remaining())
                     budget_at = time.monotonic() + 5
+                for part in self.parts:
+                    try:
+                        part.tick()
+                    except Exception:  # noqa: BLE001 - one part never stops the harness
+                        LOG.warning("Harness part tick failed", exc_info=True)
                 await asyncio.sleep(0.5)
         finally:
             self.ready = False
+            for part in self.parts:
+                try:
+                    await asyncio.wait_for(part.close(), 10)
+                except Exception:  # noqa: BLE001 - containers close regardless
+                    LOG.warning("Harness part close failed", exc_info=True)
             gateway.stop()
             removed = await agent.close()
             removed = await gateway.close() and removed
@@ -302,7 +335,7 @@ class HarnessHost:
         Stage 3 (learning, autonomy) reads and writes conversations only through this: the
         harness owns them. Refused unless the harness is ready in an ACTIVE run.
         """
-        if not self.ready or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
+        if not self.current():
             raise ContractError(ErrorCode.STALE_CONTEXT)
         if method not in ("GET", "POST") or not path.startswith("/"):
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
