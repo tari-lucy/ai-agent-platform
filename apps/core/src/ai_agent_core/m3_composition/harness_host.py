@@ -279,6 +279,36 @@ class HarnessHost:
                 pass
             LOG.warning("Harness closed (removed=%s)", removed)
 
+    async def opencode(
+        self, method: str, path: str, body: dict[str, Any] | None = None, *, timeout: float = 60
+    ) -> Any:
+        """The running harness's own OpenCode API (sessions, messages), for platform owners.
+
+        Stage 3 (learning, autonomy) reads and writes conversations only through this: the
+        harness owns them. Refused unless the harness is ready in an ACTIVE run.
+        """
+        if not self.ready or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+        if method not in ("GET", "POST") or not path.startswith("/"):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        import base64
+        import urllib.request
+
+        auth = base64.b64encode(f"opencode:{self.settings.password}".encode()).decode()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.settings.port}{path}",
+            data=None if body is None else json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "Authorization": "Basic " + auth},
+            method=method,
+        )
+
+        def call() -> Any:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read(64 * 1024 * 1024)
+            return json.loads(raw) if raw else None
+
+        return await asyncio.to_thread(call)
+
     async def close(self) -> None:
         self.closed = True
         if self.task is not None:
