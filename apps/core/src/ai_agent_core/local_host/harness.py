@@ -149,6 +149,7 @@ def install(
             model=config.live.model_id,
             usage_dir=host.egress_log.parent / "usage",
             daily_budget=settings.daily_budget,
+            currency=settings.currency,
             input_rate=settings.input_rate,
             output_rate=settings.output_rate,
             cached_rate=settings.cached_rate,

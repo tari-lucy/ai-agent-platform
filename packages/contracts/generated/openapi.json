@@ -3268,6 +3268,38 @@
             "default": null,
             "title": "Agent Name"
           },
+          "calls_today": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Calls Today",
+            "type": "integer"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Currency"
+          },
+          "daily_budget": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Daily Budget"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -3286,6 +3318,19 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
+          },
+          "spent_today": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spent Today"
           },
           "url": {
             "anyOf": [

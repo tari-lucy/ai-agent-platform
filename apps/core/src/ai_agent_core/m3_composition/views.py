@@ -162,6 +162,12 @@ class Views:
                 url=f"http://127.0.0.1:{harness.settings.port}/",
                 agent_name=harness.agent_name(),
                 notices=notices,
+                currency=harness.settings.currency,
+                daily_budget=harness.settings.daily_budget,
+                spent_today=None
+                if harness.usage.remaining() is None
+                else round(harness.usage.spent(), 2),
+                calls_today=harness.usage.calls(),
             )
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view

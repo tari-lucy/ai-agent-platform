@@ -155,6 +155,11 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
           title={harness.ready ? 'Окно агента в OpenCode' : 'Агент не запущен: нажмите START'}>
           Открыть OpenCode{harness.ready ? '' : ' · не запущен'}</Button>
           : nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
+        {harness?.enabled && <Text size="xs" c={harness.spent_today != null && harness.daily_budget && harness.spent_today >= harness.daily_budget ? 'red' : 'dimmed'}
+          title="Расход модели за сегодня (UTC) по журналу шлюза агента">
+          {harness.spent_today == null ? 'Тариф не задан' :
+            `Сегодня ${harness.spent_today.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} из ${harness.daily_budget?.toLocaleString('ru-RU')} ${harness.currency === 'RUB' ? '₽' : harness.currency ?? ''} · вызовов ${harness.calls_today ?? 0}`}
+        </Text>}
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
