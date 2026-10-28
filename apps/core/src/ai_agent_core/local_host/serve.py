@@ -239,6 +239,20 @@ def _build(
         if reason is not None:
             print(f"NOTICE: work conversations unavailable: {reason}", file=sys.stderr)
 
+    if config.harness is not None:
+        # doc33: the persona's own OpenCode server; it replaces the old work loop while on.
+        from .harness import install as install_harness
+
+        reason = install_harness(runtime, config, host, factory)
+        if reason is not None:
+            print(f"NOTICE: harness unavailable: {reason}", file=sys.stderr)
+        elif runtime.harness is not None:
+            print(
+                f"Harness: opencode attach http://127.0.0.1:{config.harness.port} "
+                "(after START; password in data/harness/password)",
+                file=sys.stderr,
+            )
+
     if config.live is not None and config.operator_controls:
         from .live_budget import LiveBudget
 

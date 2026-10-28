@@ -221,6 +221,8 @@ class LocalProviders:
 
     def __init__(self, mock: MockProvider, live: PrivateLiveProvider | None) -> None:
         self.mock, self.live = mock, live
+        # The checked base URL and key for the harness gateway (doc33); never logged.
+        self.binding: tuple[str, str] | None = None
 
     def __call__(self, adapter_id: str) -> MockProvider | PrivateLiveProvider:
         if adapter_id == "mock":
@@ -283,5 +285,8 @@ def provider_factory(
         )
         actual.provider.configure_keepalive(live.http_keepalive_seconds)
         actual.provider.stream_tools = live.activity.stream_tools
+        providers = LocalProviders(mock, actual)
+        providers.binding = (endpoint, credential)
+        return providers
 
     return LocalProviders(mock, actual)

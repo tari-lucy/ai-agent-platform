@@ -136,6 +136,20 @@ def parser() -> argparse.ArgumentParser:
     prompt.add_argument("--max-prompt-chars", type=int)
     prompt.add_argument("--max-output-tokens", type=int)
     prompt.add_argument("--timeout-seconds", type=float)
+    harness = commands.add_parser(
+        "configure-harness",
+        help="offline doc33 harness: own OpenCode server, budget and rates; stop the server first",
+    )
+    harness.add_argument("--root", type=Path, required=True)
+    harness.add_argument("--port", type=int)
+    harness.add_argument("--daily-budget", type=float)
+    harness.add_argument("--currency")
+    harness.add_argument("--input-rate", type=float, help="per 1M input tokens")
+    harness.add_argument("--output-rate", type=float, help="per 1M output tokens")
+    harness.add_argument("--context-tokens", type=int)
+    harness.add_argument("--output-tokens", type=int)
+    harness.add_argument("--memory-mb", type=int)
+    harness.add_argument("--disable", action="store_true")
     memory = commands.add_parser(
         "enable-memory", help="explicit offline automatic memory admission"
     )
@@ -482,6 +496,33 @@ def main(argv: list[str] | None = None) -> int:
                 timeout_seconds=arguments.timeout_seconds,
             )
             print("Live limits configured; run configure-activity to apply; stays STOPPED")
+            return 0
+        if arguments.command == "configure-harness":
+            from .harness import configure as configure_harness
+            from .harness import password_file
+
+            try:
+                configured = configure_harness(
+                    arguments.root,
+                    enabled=False if arguments.disable else True,
+                    port=arguments.port,
+                    daily_budget=arguments.daily_budget,
+                    currency=arguments.currency,
+                    input_rate=arguments.input_rate,
+                    output_rate=arguments.output_rate,
+                    context_tokens=arguments.context_tokens,
+                    output_tokens=arguments.output_tokens,
+                    memory_mb=arguments.memory_mb,
+                )
+            except ValidationError:
+                raise HostError("INVALID_OPTION") from None
+            rates = configured.input_rate is not None and configured.output_rate is not None
+            print(
+                f"Harness {'enabled' if configured.enabled else 'disabled'}: "
+                f"port {configured.port}, {configured.daily_budget:g} {configured.currency}/day"
+                + ("" if rates else "; set --input-rate and --output-rate before use")
+            )
+            print(f"Password file: {password_file(paths(arguments.root))}")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)

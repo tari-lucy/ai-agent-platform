@@ -102,6 +102,7 @@ DOMAIN_OWNERS = frozenset(
 if TYPE_CHECKING:
     from ai_agent_adapters.sandbox.home_files import HomeFiles
 
+    from .harness_host import HarnessHost
     from .work_session_cpu import CpuSettings
     from .work_session_egress import EgressSettings
     from .work_session_wake import AutonomousWake
@@ -367,6 +368,8 @@ class Runtime:
         from .work_session_runtime import HarnessFactory
 
         self.session_prewarmer: SessionPrewarmer | None = None
+        # doc33: the persona's own harness; when set, it is the agent's only work loop.
+        self.harness: HarnessHost | None = None
         self.session_harness: HarnessFactory | None = None
         self.session_capability: str | None = None
         self.session_output_area: str | None = None
@@ -590,6 +593,8 @@ class Runtime:
             await self.state.checkpoint_time(self.supervisor.snapshot.scope, self.active_seconds())
         if self.session_prewarmer is not None:
             await self.session_prewarmer.close()
+        if self.harness is not None:
+            await self.harness.close()
         await self.supervisor.flush()
         if self.maintenance is not None:
             await self.maintenance.close()
@@ -665,7 +670,9 @@ class Runtime:
                 # its own checks; only a refusal while the run is still active is a fault.
                 if self.supervisor.snapshot.state == RunState.ACTIVE:
                     raise
-        if self.session_prewarmer is not None:
+        if self.harness is not None:
+            self.harness.tick()
+        elif self.session_prewarmer is not None:
             self.session_prewarmer.tick()
         started = time.monotonic()
         await self.daily_memory.tick()
@@ -679,7 +686,8 @@ class Runtime:
             except ContractError as error:
                 logging.getLogger(__name__).info("Wake tick skipped: %s", error.error.code.value)
         started = time.monotonic()
-        await self.autonomous_activity.tick()
+        if self.harness is None:  # the harness runs its own loop; no second brain beside it
+            await self.autonomous_activity.tick()
         self._slow("activity", started)
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:

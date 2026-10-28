@@ -306,6 +306,25 @@ class InactivePersona(BaseModel):
     profile_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class HarnessConfig(BaseModel):
+    """doc33 stage 1: the persona's own OpenCode server, attached to directly by the operator.
+
+    Rates are per 1M tokens in the budget currency; without them no model call is admitted
+    (an unknown price is never zero). Grants no right beyond the work sessions' image.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: bool = Field(default=True, strict=True)
+    port: int = Field(default=4096, strict=True, ge=1024, le=65535)
+    daily_budget: float = Field(default=3000.0, ge=0, le=1_000_000)
+    currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
+    input_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    output_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
+    output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
+    memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
+
+
 class HostConfig(BaseModel):
     """Nonsecret result of `init`. Its presence (without the marker) means a finished init."""
 
@@ -336,6 +355,8 @@ class HostConfig(BaseModel):
     workplace_files: WorkplaceFilesConfig | None = None
     # Work conversations through real OpenCode only after `enable-work-sessions`; off otherwise.
     work_sessions: WorkSessionsConfig | None = None
+    # doc33 harness only after `configure-harness`; off otherwise.
+    harness: HarnessConfig | None = None
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:
