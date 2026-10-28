@@ -42,6 +42,7 @@ MODELS = (
     panel.WorkplaceFileContent,
     panel.EgressRequest,
     panel.EgressLog,
+    panel.HarnessNotice,
     panel.HarnessStatus,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,

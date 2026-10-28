@@ -167,6 +167,12 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
     <main id="content" tabIndex={-1} className="main-content">
+      {harness?.notices && harness.notices.length > 0 && <Alert color="yellow" mb="lg" title="В разговорах есть удалённое из памяти">
+        {harness.notices.length === 1 ? 'Один разговор' : `Разговоров: ${harness.notices.length}`} в OpenCode
+        {' '}содержит то, что вы удалили или изменили в памяти. Пока такой разговор открыт, модель может это видеть.
+        {' '}Начните в OpenCode новый разговор и продолжайте там.
+        {harness.url && <Button component="a" href={harness.url} target="_blank" rel="noopener" variant="subtle" size="compact-sm" ml="sm">Открыть OpenCode</Button>}
+      </Alert>}
       {errors && <Alert color="orange" mb="lg" title="Часть состояния недоступна">
         Последние данные могут быть устаревшими. STOP использует отдельный HTTP-запрос.
         <Button variant="subtle" size="compact-sm" ml="sm" onClick={() => void cache.invalidateQueries({ queryKey: ['projection'] })}>Обновить данные</Button>

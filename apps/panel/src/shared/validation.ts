@@ -743,6 +743,10 @@ export function harnessStatus(value: unknown, selected: Scope): import('./contra
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
     typeof value.enabled === 'boolean' && typeof value.ready === 'boolean' &&
     (value.url == null || (typeof value.url === 'string' && /^http:\/\/127\.0\.0\.1:\d{4,5}\/$/.test(value.url))) &&
-    (value.agent_name == null || text(value.agent_name, 40)));
+    (value.agent_name == null || text(value.agent_name, 40)) &&
+    (value.notices == null || (Array.isArray(value.notices) && value.notices.length <= 200)));
+  demand(((value as { notices?: unknown[] }).notices ?? []).every((item) => object(item) &&
+    text(item.session_id, 128) && (item.reason === 'source_unavailable' || item.reason === 'message_changed') &&
+    count(item.sources) && typeof item.complete === 'boolean'));
   return value as import('./contracts.ts').HarnessStatus;
 }

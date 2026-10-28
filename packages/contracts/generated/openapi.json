@@ -3213,6 +3213,44 @@
         "title": "GmRuntimeState",
         "type": "object"
       },
+      "HarnessNotice": {
+        "additionalProperties": false,
+        "description": "A harness conversation holding memory that was deleted or changed (doc33 §6).",
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "source_unavailable",
+              "message_changed"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sources": {
+            "maximum": 200,
+            "minimum": 0,
+            "title": "Sources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "reason",
+          "sources",
+          "complete"
+        ],
+        "title": "HarnessNotice",
+        "type": "object"
+      },
       "HarnessStatus": {
         "additionalProperties": false,
         "description": "doc33: the persona's own OpenCode window on this host, for the panel's button.",
@@ -3233,6 +3271,14 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/HarnessNotice"
+            },
+            "maxItems": 200,
+            "title": "Notices",
+            "type": "array"
           },
           "ready": {
             "title": "Ready",
