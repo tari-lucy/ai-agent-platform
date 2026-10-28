@@ -159,6 +159,10 @@ def install(
         prompt=prompt,
         internet=internet,
     )
+    from ai_agent_core.m3_composition.harness_wakes import HarnessWakes
+
+    # Local, possibly personal: the agent's alarm texts never go to Git or reports.
+    runtime.harness.wakes = HarnessWakes(host.root / "data" / "harness" / "wakes.json")
     runtime.harness.attach(LearningPart(runtime, host.root / "data" / "harness" / "learning"))
     return None
 

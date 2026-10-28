@@ -22,7 +22,7 @@ def test_initialize_list_and_notifications():
     assert init["result"]["capabilities"] == {"tools": {"listChanged": False}}  # type: ignore[index]
     tools = call(mcp, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = [tool["name"] for tool in tools["result"]["tools"]]  # type: ignore[index]
-    assert names == ["persona_brief", "memory_recall", "ticket_raise", "tickets"]
+    assert names == ["persona_brief", "memory_recall", "ticket_raise", "wake_me", "tickets"]
     assert call(mcp, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     missing = call(mcp, {"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
     assert missing["error"]["code"] == -32601  # type: ignore[index]
