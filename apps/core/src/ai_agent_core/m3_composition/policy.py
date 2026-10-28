@@ -339,5 +339,16 @@ class Readiness:
         )
 
     async def reconcile(self, previous: RunSession) -> tuple[str, ...]:
-        # JobOwner reconciles old epochs on open. No external effects are dispatched by M3.
-        return tuple(previous.unconfirmed_resource_ids)
+        """Resources of a run that ended without receipts (a crash, a host reboot).
+
+        JobOwner reconciles old epochs on open. The platform's own sandbox containers and
+        gateways are checked in Docker and removed when left over; only what Docker cannot
+        confirm stays unknown, so a reboot no longer locks START for good.
+        """
+        from ai_agent_adapters.sandbox.docker import reclaim
+
+        unknown = []
+        for resource_id in previous.unconfirmed_resource_ids:
+            if not await reclaim(resource_id):
+                unknown.append(resource_id)
+        return tuple(unknown)

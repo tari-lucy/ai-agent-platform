@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -90,6 +91,54 @@ async def cli(*args: str, data: bytes = b"", cap: int = 65536, timeout: float = 
         if process.returncode is None:
             process.kill()
             await process.wait()
+
+
+async def _gateway_of(name: str) -> str | None:
+    """The egress suffix of the internal network a leftover agent container was attached to."""
+    try:
+        networks = json.loads(
+            await cli("inspect", "--format", "{{json .NetworkSettings.Networks}}", name)
+        )
+    except OSError, TimeoutError, ValueError:
+        return None  # gone already (or unreadable): nothing to follow
+    for key in networks or {}:
+        found = re.fullmatch(r"aw-net-([0-9a-f]{32})", key)
+        if found is not None:
+            return found.group(1)
+    return None
+
+
+# Resource ids the runner, the warm sandbox and the gateway register for their containers.
+OWN_RESOURCE = re.compile(r"(?:warm-)?(aw-(?:task|egress)-([0-9a-f]{32}))")
+
+
+async def reclaim(resource_id: str) -> bool:
+    """After a crash: True once this platform-owned container (and a gateway's network) is gone.
+
+    A leftover container is removed only when its instance label names it exactly; any other
+    id, a foreign container or an unreachable Docker stays unconfirmed (False).
+    """
+    found = OWN_RESOURCE.fullmatch(resource_id)
+    if found is None:
+        return False
+    name, suffix = found.groups()
+    gateway = suffix if name.startswith("aw-egress-") else await _gateway_of(name)
+    if not await DockerTaskRunner._remove(name):
+        return False
+    if gateway is not None:
+        # A warm sandbox's gateway is not a resource of its own: it goes with the sandbox.
+        if gateway != suffix and not await DockerTaskRunner._remove("aw-egress-" + gateway):
+            return False
+        network = "aw-net-" + gateway
+        try:
+            listed = await cli(
+                "network", "ls", "--filter", "name=^" + network + "$", "--format", "{{.ID}}"
+            )
+            if listed.strip():
+                await cli("network", "rm", network)
+        except OSError, TimeoutError:
+            return False
+    return True
 
 
 class DockerTaskRunner:
