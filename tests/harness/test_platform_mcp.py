@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from ai_agent_contracts.states import RunState
+
 from ai_agent_core.m3_composition.harness_mcp import PlatformMcp
 
 
