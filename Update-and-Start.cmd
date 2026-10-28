@@ -10,7 +10,11 @@ if not exist "%updater%" (
   pause
   exit /b 78
 )
-powershell.exe -NoProfile -File "%updater%" -Config "%~dp0config\local.launcher.json" %*
+if "%~1"=="" (
+  powershell.exe -NoProfile -File "%updater%" -Config "%~dp0config\local.launcher.json" -Menu
+) else (
+  powershell.exe -NoProfile -File "%updater%" -Config "%~dp0config\local.launcher.json" %*
+)
 set "result=%errorlevel%"
 echo.
 pause

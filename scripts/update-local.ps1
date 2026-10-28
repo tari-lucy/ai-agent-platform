@@ -1,6 +1,8 @@
 param(
     [string]$Config = (Join-Path (Split-Path $PSScriptRoot -Parent) 'config\local.launcher.json'),
-    [switch]$Check
+    [switch]$Check,
+    [switch]$Menu,
+    [switch]$StartOnly
 )
 $ErrorActionPreference = 'Stop'
 try {
@@ -13,6 +15,8 @@ try {
     if (-not (Test-Path -LiteralPath $settings.python -PathType Leaf)) { throw 'UPDATE_PYTHON_UNAVAILABLE' }
     $arguments = @('-I', '-X', 'utf8', '-B', (Join-Path $PSScriptRoot 'update_local.py'), '--config', $Config)
     if ($Check) { $arguments += '--check' }
+    if ($Menu) { $arguments += '--menu' }
+    if ($StartOnly) { $arguments += '--start-only' }
     & $settings.python @arguments
     exit $LASTEXITCODE
 } catch {

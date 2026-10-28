@@ -67,6 +67,29 @@ def test_candidate_preserves_local_commits_and_original_checkout(repositories, t
     assert not (active / "incoming.txt").exists()
 
 
+def test_candidate_updates_tracked_diagnostics_and_main(repositories, tmp_path):
+    source, active = repositories
+    git(source, "switch", "-c", "diagnostics")
+    commit(source, "diagnostic.txt", "initial diagnostics")
+    git(source, "push", "origin", "diagnostics")
+    git(active, "fetch", "origin")
+    git(active, "switch", "-c", "personal", "--track", "origin/diagnostics")
+    commit(active, "local.txt", "local deployment fix")
+    commit(source, "diagnostic.txt", "new diagnostics")
+    git(source, "push", "origin", "diagnostics")
+    git(source, "switch", "main")
+    commit(source, "main.txt", "main change")
+    git(source, "push", "origin", "main")
+    original = git(active, "rev-parse", "HEAD")
+    target = tmp_path / "candidate"
+    updater.candidate(active, target, "tracked-branch")
+    assert (target / "diagnostic.txt").read_text() == "new diagnostics"
+    assert (target / "main.txt").read_text() == "main change"
+    assert (target / "local.txt").read_text() == "local deployment fix"
+    assert git(target, "rev-parse", "--abbrev-ref", "@{upstream}") == "origin/diagnostics"
+    assert git(active, "rev-parse", "HEAD") == original
+
+
 def test_no_change_and_dirty_checkout(repositories, tmp_path):
     _, active = repositories
     target = tmp_path / "candidate"
@@ -77,6 +100,29 @@ def test_no_change_and_dirty_checkout(repositories, tmp_path):
         updater.candidate(active, target, "dirty")
     assert (active / "base.txt").read_text() == "unfinished work"
     assert not target.exists()
+
+
+def test_linux_dependency_link_removed_only_in_candidate(repositories, tmp_path):
+    source, active = repositories
+    link = "apps/panel/node_modules"
+    commit(active, link, "/home/synthetic/node_modules")
+    blob = git(active, "rev-parse", "HEAD:" + link)
+    git(active, "update-index", "--cacheinfo", "120000," + blob + "," + link)
+    git(active, "commit", "-m", "synthetic non-portable dependency link")
+    (active / link).unlink()
+    original = git(active, "rev-parse", "HEAD")
+    # Simulate Windows: generated dependencies replace the missing Unix link.
+    (active / link).mkdir()
+    (active / link / "keep.txt").write_text("installed dependencies")
+    target = tmp_path / "candidate"
+    assert updater.candidate(active, target, "link-cleanup") == target
+    assert not git(target, "ls-tree", "HEAD", "--", link)
+    assert git(active, "rev-parse", "HEAD") == original
+    assert (active / link / "keep.txt").read_text() == "installed dependencies"
+    # A source edit is still rejected alongside this artifact exception.
+    (active / "base.txt").write_text("unfinished source")
+    with pytest.raises(updater.UpdateError, match="DIRTY"):
+        updater.require_clean(active)
 
 
 def test_conflict_aborts_only_new_candidate(repositories, tmp_path):
@@ -245,12 +291,23 @@ def test_startup_rejects_an_unrelated_listener(tmp_path, monkeypatch):
         pid=42, poll=lambda: None, terminate=lambda: stopped.append(True), wait=lambda **_: 0
     )
     monkeypatch.setattr(updater.subprocess, "Popen", lambda *_: child)
+    monkeypatch.setattr(updater, "close_launch", lambda *_: stopped.append(True))
     monkeypatch.setattr(updater.httpx, "get", lambda *_, **__: SimpleNamespace(status_code=200))
     monkeypatch.setattr(updater, "process_at", lambda _: (99, "unrelated"))
+    monkeypatch.setattr(updater, "launched_by", lambda *_: False)
     with pytest.raises(updater.UpdateError, match="PORT"):
         updater.launch(settings, config, previous, 8765)
     assert stopped == [True]
     assert json.loads(config.read_text()) == previous
+
+
+def test_browser_error_is_nonfatal(monkeypatch, capsys):
+    def reject(*_):
+        raise OSError("synthetic browser failure")
+
+    monkeypatch.setattr(updater.webbrowser, "open", reject)
+    updater.open_page({"opencode_ui_dir": "configured"}, 12345)
+    assert "http://127.0.0.1:12345/opencode/" in capsys.readouterr().out
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows file locks")

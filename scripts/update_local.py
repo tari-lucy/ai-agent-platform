@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import webbrowser
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,6 +43,7 @@ MESSAGES = {
     "LOCK": "Сервер или другое обновление ещё удерживает каталог. Повторный запуск запрещён.",
     "BACKUP": "Резервная копия не создана или не прошла проверку. Launcher не переключён.",
     "STARTUP": "Новый сервер не запустился. Прежний launcher возвращён; данные не заменялись.",
+    "CLEANUP": "Не подтверждено закрытие нового сервера. Не запускайте второй; нужна диагностика.",
     "INTERNAL": "Обновление остановлено из-за технической ошибки. Старая версия сохранена.",
 }
 
@@ -110,8 +112,21 @@ def require_clean(root: Path) -> None:
         path = Path(git(root, "rev-parse", "--git-path", name))
         if (path if path.is_absolute() else root / path).exists():
             raise UpdateError("GIT_BUSY")
-    if git(root, "status", "--porcelain", "--untracked-files=normal"):
+    changes = git(root, "status", "--porcelain", "--untracked-files=normal")
+    # This exact build artifact was accidentally committed as a Linux symlink.
+    # Its Windows removal is preserved; only our fresh candidate drops it from Git.
+    if dependency_link(root):
+        changes = "\n".join(
+            line
+            for line in changes.splitlines()
+            if line not in {" D apps/panel/node_modules", "D apps/panel/node_modules"}
+        )
+    if changes:
         raise UpdateError("DIRTY")
+
+
+def dependency_link(root: Path) -> bool:
+    return git(root, "ls-tree", "HEAD", "--", "apps/panel/node_modules").startswith("120000 ")
 
 
 def release_needed(paths: list[str]) -> bool:
@@ -132,12 +147,20 @@ def candidate(root: Path, target: Path, stamp: str) -> Path:
     require_clean(root)
     head = git(root, "rev-parse", "HEAD")
     git(root, "fetch", "origin")
-    incoming = git(root, "rev-list", "HEAD..origin/main", "--count")
-    if incoming == "0":
+    try:
+        tracked = git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    except UpdateError:
+        tracked = "origin/main"
+    if not re.fullmatch(r"origin/[A-Za-z0-9._/-]+", tracked):
+        raise UpdateError("GIT")
+    refs = list(dict.fromkeys([tracked, "origin/main"]))
+    incoming = [ref for ref in refs if git(root, "rev-list", f"HEAD..{ref}", "--count") != "0"]
+    if not incoming and not dependency_link(root):
         return root
     git(root, "worktree", "add", "-b", "codex/local-update-" + stamp, str(target), head)
     try:
-        git(target, "merge", "--no-edit", "origin/main")
+        for ref in incoming:
+            git(target, "merge", "--no-edit", ref)
     except UpdateError:
         merge = Path(git(target, "rev-parse", "--git-path", "MERGE_HEAD"))
         if (merge if merge.is_absolute() else target / merge).exists():
@@ -145,6 +168,11 @@ def candidate(root: Path, target: Path, stamp: str) -> Path:
         raise UpdateError("CONFLICT") from None
     if release_needed(git(target, "diff", "--name-only", head, "HEAD").splitlines()):
         raise UpdateError("MANUAL_RELEASE")
+    if dependency_link(target):
+        # target was just created, before any dependency install. Never touch the old tree.
+        git(target, "rm", "-f", "--", "apps/panel/node_modules")
+        git(target, "commit", "-m", "Remove non-portable dependency link from deployment")
+    git(target, "branch", "--set-upstream-to=" + tracked)
     return target
 
 
@@ -183,8 +211,12 @@ def tools(root: Path) -> tuple[str, str, dict[str, str]]:
 
 def prepare(root: Path, old_python: str) -> Path:
     uv, npm, env = tools(root)
+    env["UV_PROJECT_ENVIRONMENT"] = str(root / ".venv")
+    base_python = run(
+        [old_python, "-I", "-X", "utf8", "-c", "import sys; print(sys._base_executable)"]
+    )
     run(
-        [uv, "sync", "--locked", "--offline", "--python", old_python, "--no-python-downloads"],
+        [uv, "sync", "--locked", "--offline", "--python", base_python, "--no-python-downloads"],
         cwd=root,
         code="DEPENDENCIES",
         timeout=300,
@@ -248,6 +280,25 @@ def own_command(command: str, host: Path) -> bool:
         return False
     finally:
         ctypes.windll.kernel32.LocalFree(args)
+
+
+def launched_by(pid: int, child: subprocess.Popen[bytes]) -> bool:
+    if pid == child.pid:
+        return True
+    if sys.platform != "win32" or child.poll() is not None:
+        return False
+    # Windows venv python.exe is a redirector: the real interpreter owns the socket.
+    parent = run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').ParentProcessId",
+        ],
+        code="PORT",
+        timeout=10,
+    )
+    return parent == str(child.pid) and child.poll() is None
 
 
 def settled_jobs(host: Path) -> bool:
@@ -374,6 +425,55 @@ def write_launcher(path: Path, value: dict[str, str]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def open_page(settings: dict[str, str], port: int) -> None:
+    suffix = "/opencode/" if settings.get("opencode_ui_dir") else "/"
+    url = f"http://127.0.0.1:{port}{suffix}"
+    try:
+        opened = webbrowser.open(url)
+    except Exception:
+        opened = False
+    if not opened:
+        print("Откройте адрес в браузере: " + url, flush=True)
+
+
+def close_launch(child: subprocess.Popen[bytes], settings: dict[str, str], port: int) -> None:
+    """Close only this launch, including the Windows venv interpreter child."""
+    try:
+        listener = process_at(port)
+        host = Path(settings["host_root"])
+        if (
+            listener is not None
+            and own_command(listener[1], host)
+            and launched_by(listener[0], child)
+        ):
+            # If our server is listening, first use the ordinary independent STOP.
+            stop_server(host, port, host / "secrets/operator-password.txt")
+        if child.poll() is None:
+            if sys.platform == "win32":
+                try:
+                    # The Popen handle pins this exact root PID; never select by image name.
+                    run(
+                        ["taskkill.exe", "/PID", str(child.pid), "/T", "/F"],
+                        code="CLEANUP",
+                        timeout=15,
+                    )
+                except UpdateError:
+                    if child.poll() is None:
+                        raise
+            else:
+                child.terminate()
+        child.wait(timeout=15)
+        remaining = process_at(port)
+        if remaining is not None and own_command(remaining[1], host):
+            raise UpdateError("CLEANUP")
+        from ai_agent_core.local_host.process import exclusive_host
+
+        with exclusive_host(host):
+            pass  # Also excludes a pre-bind orphan interpreter holding the host lock.
+    except Exception:
+        raise UpdateError("CLEANUP") from None
+
+
 def launch(
     settings: dict[str, str], config: Path, previous: dict[str, str], port: int
 ) -> subprocess.Popen[bytes]:
@@ -389,7 +489,6 @@ def launch(
         settings["provider"],
         "--panel-dir",
         settings["panel_dir"],
-        "--open-browser",
     ]
     if settings.get("opencode_ui_dir"):
         args += ["--opencode-ui-dir", settings["opencode_ui_dir"]]
@@ -404,7 +503,6 @@ def launch(
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             if child.poll() is not None:
-                write_launcher(config, previous)
                 raise UpdateError("STARTUP")
             try:
                 # No login/model call: the loopback page is enough for server startup.
@@ -415,7 +513,7 @@ def launch(
                     listener = process_at(port)
                     if (
                         listener is None
-                        or listener[0] != child.pid
+                        or not launched_by(listener[0], child)
                         or not own_command(listener[1], Path(settings["host_root"]))
                     ):
                         raise UpdateError("PORT")
@@ -423,22 +521,14 @@ def launch(
                         "Сервер запущен. Агент STOPPED; START — в панели. Окно оставьте открытым.",
                         flush=True,
                     )
+                    open_page(settings, port)
                     return child
             except httpx.TransportError:
                 pass
             time.sleep(0.25)
-        child.terminate()
-        child.wait(timeout=15)
-        write_launcher(config, previous)
         raise UpdateError("STARTUP")
-    except KeyboardInterrupt:
-        child.wait(timeout=20)
-        write_launcher(config, previous)
-        raise UpdateError("STARTUP") from None
-    except UpdateError:
-        if child.poll() is None:
-            child.terminate()
-            child.wait(timeout=15)
+    except Exception, KeyboardInterrupt:
+        close_launch(child, settings, port)
         write_launcher(config, previous)
         raise
 
@@ -454,7 +544,23 @@ def update(config: Path, check: bool = False) -> int:
     require_clean(root)
     tools(root)
     if check:
-        print("Проверка пройдена. Сервер, Git и личные данные не менялись.")
+        run(
+            [
+                settings["python"],
+                "-I",
+                "-X",
+                "utf8",
+                str(root / "scripts/check_opencode_deployment.py"),
+                "--config",
+                str(config),
+                "--checkout",
+                str(root),
+            ],
+            code="PREFLIGHT",
+            timeout=45,
+        )
+        print("Готово: настройки, Git, версии, Docker и интерфейс проверены.")
+        print("Сервер и личные данные не менялись.")
         return 0
     state = config.parent.parent / "runtime/operations/updater"
     state.mkdir(parents=True, exist_ok=True)
@@ -462,7 +568,9 @@ def update(config: Path, check: bool = False) -> int:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:6]
         target = config.parent.parent / "runtime/deployment/updates" / stamp
         target.parent.mkdir(parents=True, exist_ok=True)
-        print("Получаем main с GitHub; локальные commits сохраняются…", flush=True)
+        print(
+            "Получаем обновления текущей ветки и main; локальные commits сохраняются…", flush=True
+        )
         ready = candidate(root, target, stamp)
         # Never rebuild the environment that an active server is using.
         if ready != root:
@@ -473,6 +581,7 @@ def update(config: Path, check: bool = False) -> int:
         newer = {**settings, "python": str(python), "panel_dir": str(ready / "apps/panel/dist")}
         staging = state / (stamp + ".candidate.json")
         write_launcher(staging, newer)
+        print("Проверяем готовность новой версии и Docker…", flush=True)
         run(
             [
                 str(python),
@@ -490,13 +599,14 @@ def update(config: Path, check: bool = False) -> int:
         current = load_config(place)
         if current.recovery is None:
             raise UpdateError("BACKUP")
-        print("STOP, проверка завершения заданий и резервная копия…", flush=True)
+        print("Останавливаем агента и проверяем завершение заданий…", flush=True)
         stop_server(place.root, current.port, place.password)
         with exclusive_host(place.root):
             if not settled_jobs(place.root):
                 raise UpdateError("JOBS")
             backup_args = [settings["python"], "-I", "-m", "ai_agent_core.local_backup"]
             common = ["--root", str(place.root), "--store", str(current.recovery.store_dir)]
+            print("Создаём резервную копию. Это может занять несколько минут…", flush=True)
             answer = run(
                 [*backup_args, "create", *common, "--ledger", str(current.recovery.ledger_path)],
                 code="BACKUP",
@@ -504,6 +614,7 @@ def update(config: Path, check: bool = False) -> int:
             match = re.search(r"created: ([A-Za-z0-9_.:-]+) verified=true", answer)
             if match is None:
                 raise UpdateError("BACKUP")
+            print("Проверяем резервную копию…", flush=True)
             run([*backup_args, "verify", *common, "--backup-id", match[1]], code="BACKUP")
             result = {
                 "previous_commit": git(root, "rev-parse", "HEAD"),
@@ -513,7 +624,31 @@ def update(config: Path, check: bool = False) -> int:
             write_launcher(state / (stamp + ".rollback.json"), settings)
             (state / (stamp + ".result.json")).write_text(json.dumps(result), encoding="utf8")
             write_launcher(config, newer)
+        print("Запускаем сервер новой версии…", flush=True)
         child = launch(newer, config, settings, current.port)
+    try:
+        return child.wait()
+    except KeyboardInterrupt:
+        child.wait(timeout=20)
+        return 0
+
+
+def start_current(config: Path) -> int:
+    from ai_agent_core.local_host.layout import load_config, paths
+
+    settings = load_launcher(config)
+    current = load_config(paths(Path(settings["host_root"])))
+    state = config.parent.parent / "runtime/operations/updater"
+    state.mkdir(parents=True, exist_ok=True)
+    with update_lock(state / "update.lock"):
+        listener = process_at(current.port)
+        if listener is not None:
+            if not own_command(listener[1], Path(settings["host_root"])):
+                raise UpdateError("PORT")
+            open_page(settings, current.port)
+            print("Установленный сервер уже работает. Открываю его окно; START не выполнялся.")
+            return 0
+        child = launch(settings, config, settings, current.port)
     try:
         return child.wait()
     except KeyboardInterrupt:
@@ -525,9 +660,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--menu", action="store_true")
+    parser.add_argument("--start-only", action="store_true")
     args = parser.parse_args()
     try:
+        if args.menu:
+            print("\nAI Agent Platform\n")
+            print("  1. Обновить с GitHub и перезапустить (Enter)")
+            print("  2. Открыть установленную версию без обновления")
+            print("  3. Проверить готовность без изменений")
+            print("  0. Выйти\n")
+            while True:
+                choice = input("Выберите действие: ").strip() or "1"
+                if choice in {"0", "1", "2", "3"}:
+                    break
+                print("Введите 1, 2, 3 или 0.")
+            if choice == "0":
+                return 0
+            args.start_only, args.check = choice == "2", choice == "3"
+        if args.start_only:
+            return start_current(args.config.resolve())
         return update(args.config.resolve(), args.check)
+    except KeyboardInterrupt, EOFError:
+        print("Действие отменено.")
+        return 130
     except UpdateError as error:
         code = str(error)
         print("UPDATE_" + code + ": " + MESSAGES.get(code, MESSAGES["INTERNAL"]))
