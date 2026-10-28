@@ -10,7 +10,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from ai_agent_adapters.storage.policy import scope_key
@@ -316,10 +316,12 @@ class HarnessConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     enabled: bool = Field(default=True, strict=True)
     port: int = Field(default=4096, strict=True, ge=1024, le=65535)
-    # The name the operator sees for the agent in OpenCode (the persona's own name).
-    agent_name: str = Field(default="persona", pattern=r"^[\w-]{1,40}$")
-    # The operator's inbox/ and share/ as plain folders on the host disk; None keeps them
-    # inside the volume. An absolute path without a comma (a Docker mount separator).
+    # The name the operator sees in OpenCode, per persona id (the persona's own name).
+    agent_names: dict[str, Annotated[str, Field(pattern=r"^[\w-]{1,40}$")]] = Field(
+        default_factory=dict, max_length=64
+    )
+    # Base of the operator's folders on the host disk: <base>/<persona id>/{inbox,share};
+    # None keeps them inside the volume. A path without a comma (a Docker mount separator).
     files_dir: str | None = Field(default=None, max_length=400, pattern=r"^[^,]+$")
     daily_budget: float = Field(default=3000.0, ge=0, le=1_000_000)
     currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
@@ -328,6 +330,14 @@ class HarnessConfig(BaseModel):
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy(cls, data: Any) -> Any:
+        # A single agent_name of the first stage-1 build; configure-harness sets agent_names.
+        if isinstance(data, dict) and "agent_name" in data:
+            data = {key: value for key, value in data.items() if key != "agent_name"}
+        return data
 
 
 class HostConfig(BaseModel):

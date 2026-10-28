@@ -135,7 +135,7 @@ def install(
             context_tokens=settings.context_tokens,
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
-            agent_name=settings.agent_name,
+            agent_names=dict(settings.agent_names),
             files_dir=Path(settings.files_dir) if settings.files_dir else None,
         ),
         home=lambda: volume(scope()),
@@ -145,8 +145,13 @@ def install(
     return None
 
 
-def configure(root: Path, **values: object) -> HarnessConfig:
-    """Offline: enable or change the harness; unspecified values keep their current setting."""
+def configure(
+    root: Path, *, agent_name: str | None = None, persona: str | None = None, **values: object
+) -> HarnessConfig:
+    """Offline: enable or change the harness; unspecified values keep their current setting.
+
+    ``agent_name`` is the name shown in OpenCode for ``persona`` (default: the main persona).
+    """
     from .layout import paths
 
     host = paths(root)
@@ -155,6 +160,12 @@ def configure(root: Path, **values: object) -> HarnessConfig:
         raise HostError("HARNESS_IMAGE_REQUIRED")
     current = config.harness or HarnessConfig()
     changes = {key: value for key, value in values.items() if value is not None}
+    if agent_name is not None:
+        known = {config.persona_id, *(p.persona_id for p in config.additional_personas)}
+        who = persona or config.persona_id
+        if who not in known:
+            raise HostError("PERSONA_UNKNOWN")
+        changes["agent_names"] = {**current.agent_names, who: agent_name}
     harness = HarnessConfig.model_validate({**current.model_dump(), **changes})
     save_config(host, config.model_copy(update={"harness": harness}))
     password(host)

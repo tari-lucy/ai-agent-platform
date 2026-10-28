@@ -11,7 +11,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,8 +47,10 @@ class HarnessSettings:
     memory_mb: int = 4096
     pids: int = 1024
     rules: Path | None = None
-    agent_name: str = "persona"
-    files_dir: Path | None = None  # operator's inbox/ and share/ on the host disk
+    # The operator-facing name per persona id; a persona without one shows its id.
+    agent_names: dict[str, str] = field(default_factory=dict)
+    # Base of the operator's folders on the host disk: <base>/<persona id>/{inbox,share}.
+    files_dir: Path | None = None
 
 
 class Usage:
@@ -138,8 +140,21 @@ class HarnessHost:
         if time.monotonic() >= self.next_try:
             self.task = asyncio.create_task(self._run())
 
+    def persona(self) -> str:
+        return self.rt.supervisor.snapshot.scope.persona_id
+
+    def agent_name(self) -> str:
+        return self.settings.agent_names.get(self.persona(), self.persona())
+
+    def folders(self) -> Path | None:
+        """Each persona has its own inbox/ and share/; another persona never sees them."""
+        if self.settings.files_dir is None:
+            return None
+        return self.settings.files_dir / self.persona()
+
     def config(self, model_url: str, prompt: str, internet: bool) -> dict[str, Any]:
         s = self.settings
+        name = self.agent_name()
         free = {
             "bash": "allow",
             "edit": "allow",
@@ -176,9 +191,9 @@ class HarnessHost:
                     },
                 }
             },
-            "default_agent": s.agent_name,
+            "default_agent": name,
             "agent": {
-                s.agent_name: {
+                name: {
                     "mode": "primary",
                     "description": "Личность в своём рабочем месте",
                     "prompt": prompt,
@@ -195,10 +210,11 @@ class HarnessHost:
         ticket = rt.supervisor.register(admission, "harness-" + uuid4().hex)
         gateway = AgentGateway(s.image_id, s.port, self.usage.record)
         shared: dict[str, str] = {}
-        if s.files_dir is not None:
+        folders = self.folders()
+        if folders is not None:
             for name in ("inbox", "share"):
-                (s.files_dir / name).mkdir(parents=True, exist_ok=True)
-                shared[name] = str((s.files_dir / name).resolve())
+                (folders / name).mkdir(parents=True, exist_ok=True)
+                shared[name] = str((folders / name).resolve())
         agent = HarnessContainer(
             s.image_id, self.home(), memory_mb=s.memory_mb, pids=s.pids, shared=shared
         )

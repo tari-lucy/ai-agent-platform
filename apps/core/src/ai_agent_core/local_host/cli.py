@@ -143,6 +143,7 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--root", type=Path, required=True)
     harness.add_argument("--port", type=int)
     harness.add_argument("--agent-name", help="the persona's name shown in OpenCode")
+    harness.add_argument("--persona", help="persona id for --agent-name (default: main)")
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -509,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
                     enabled=False if arguments.disable else True,
                     port=arguments.port,
                     agent_name=arguments.agent_name,
+                    persona=arguments.persona,
                     files_dir=arguments.files_dir,
                     daily_budget=arguments.daily_budget,
                     currency=arguments.currency,
