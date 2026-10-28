@@ -44,6 +44,7 @@ class HarnessSettings:
     input_rate: float | None  # per 1M tokens, budget currency; None = no tariff
     output_rate: float | None
     cached_rate: float | None = None  # per 1M cached input tokens; None = the input rate
+    currency: str = "RUB"
     context_tokens: int = 128000
     output_tokens: int = 8192
     memory_mb: int = 4096
@@ -101,6 +102,12 @@ class Usage:
         self.settings.usage_dir.mkdir(parents=True, exist_ok=True)
         with self._path().open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry) + "\n")
+
+    def calls(self) -> int:
+        try:
+            return sum(1 for line in self._path().read_text(encoding="utf-8").splitlines() if line)
+        except OSError:
+            return 0
 
     def spent(self) -> float:
         try:
