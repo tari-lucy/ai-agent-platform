@@ -20,6 +20,7 @@ import ssl
 import sys
 import threading
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_BODY = 32 * 1024 * 1024
@@ -33,6 +34,9 @@ TIMEOUT = float(config.get("timeout", 600))
 state = {"stopped": False, "remaining": config.get("remaining"), "agent": None}
 lock = threading.Lock()
 out = threading.Lock()
+# Platform MCP calls waiting for the host's answer on stdin: id -> [event, reply].
+pending = {}
+MCP_WAIT = 300
 
 
 def emit(row):
@@ -54,6 +58,10 @@ def control():
                 state["agent"] = row.get("address")
             elif row.get("kind") == "stop":
                 state["stopped"] = True
+            elif row.get("kind") == "mcp_reply" and row.get("id") in pending:
+                waiter = pending[row["id"]]
+                waiter[1] = row.get("body")
+                waiter[0].set()
     os._exit(0)
 
 
@@ -94,12 +102,50 @@ class Model(BaseHTTPRequestHandler):
         self.reply(403, {"error": {"message": code, "type": "platform", "code": code}})
         emit({"kind": "refused", "code": code})
 
+    def mcp(self):
+        """Relay one MCP message to the host and its answer back; the host decides."""
+        size = int(self.headers.get("Content-Length", "-1"))
+        if not 0 < size <= MAX_BODY:
+            return self.reply(413, {"error": {"message": "BODY_LIMIT"}})
+        try:
+            body = json.loads(self.rfile.read(size))
+        except ValueError:
+            return self.reply(400, {"error": {"message": "BODY_INVALID"}})
+        with lock:
+            stopped = state["stopped"]
+        if stopped:
+            return self.refuse("STOPPED")
+        identifier = uuid.uuid4().hex
+        waiter = [threading.Event(), None]
+        with lock:
+            pending[identifier] = waiter
+        try:
+            emit({"kind": "mcp", "id": identifier, "body": body})
+            if not waiter[0].wait(MCP_WAIT):
+                return self.reply(504, {"error": {"message": "PLATFORM_TIMEOUT"}})
+        finally:
+            with lock:
+                pending.pop(identifier, None)
+        if waiter[1] is None:
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.reply(200, waiter[1])
+
+    def do_DELETE(self):
+        self.reply(405, {"error": {"message": "NOT_SUPPORTED"}})
+
     def do_GET(self):
+        if self.path.rstrip("/").endswith("/mcp"):
+            return self.reply(405, {"error": {"message": "NO_STREAM"}})
         if self.path.rstrip("/").endswith("/models"):
             return self.reply(200, {"object": "list", "data": [{"id": "bound", "object": "model"}]})
         self.reply(404, {"error": {"message": "NOT_FOUND"}})
 
     def do_POST(self):
+        if self.path.rstrip("/") == "/mcp":
+            return self.mcp()
         if not self.path.rstrip("/").endswith("/chat/completions"):
             return self.reply(404, {"error": {"message": "NOT_FOUND"}})
         size = int(self.headers.get("Content-Length", "-1"))

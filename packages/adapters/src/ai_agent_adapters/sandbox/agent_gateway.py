@@ -13,7 +13,7 @@ import ipaddress
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -22,7 +22,7 @@ from .docker import cli
 from .policy import HOME_VOLUME
 
 GATEWAY = Path(__file__).with_name("agent_gateway_proxy.py").read_text(encoding="utf-8")
-MAX_FRAME = 8192
+MAX_FRAME = 16 * 1024 * 1024  # an MCP message can carry a long text
 LOG = logging.getLogger(__name__)
 
 # Runs as the agent container's entrypoint: directories, environment, then OpenCode itself.
@@ -116,10 +116,18 @@ async def _addresses(name: str) -> dict[str, str]:
 class AgentGateway:
     """One use: ``open`` returns the model URL for the agent, ``close`` removes it."""
 
-    def __init__(self, image_id: str, port: int, record: Callable[[dict[str, Any]], None]) -> None:
+    def __init__(
+        self,
+        image_id: str,
+        port: int,
+        record: Callable[[dict[str, Any]], None],
+        mcp: Callable[[Any], Awaitable[Any]] | None = None,
+    ) -> None:
+        """``mcp`` answers the platform MCP messages the agent sends through the gateway."""
         if not 1024 <= port <= 65535:
             raise ValueError("HARNESS_PORT_INVALID")
-        self.image_id, self.port, self.record = image_id, port, record
+        self.image_id, self.port, self.record, self.mcp = image_id, port, record, mcp
+        self.calls: set[asyncio.Task[None]] = set()
         self.name = "aw-hgw-" + uuid4().hex
         self.process: asyncio.subprocess.Process | None = None
         self.reader: asyncio.Task[None] | None = None
@@ -214,11 +222,35 @@ class AgentGateway:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(row, dict):
+            if isinstance(row, dict) and row.get("kind") == "mcp":
+                task = asyncio.create_task(self._answer(row))
+                self.calls.add(task)
+                task.add_done_callback(self.calls.discard)
+            elif isinstance(row, dict):
                 try:
                     self.record(row)
                 except OSError:
                     LOG.warning("Harness usage write failed")
+
+    async def _answer(self, row: dict[str, Any]) -> None:
+        body: Any = None
+        try:
+            if self.mcp is None:
+                raise LookupError()
+            body = await self.mcp(row.get("body"))
+        except Exception:  # noqa: BLE001 - one failed call must not end the gateway
+            LOG.warning("Platform MCP call failed", exc_info=True)
+            message = row.get("body")
+            identifier = message.get("id") if isinstance(message, dict) else None
+            body = {
+                "jsonrpc": "2.0",
+                "id": identifier,
+                "error": {"code": -32603, "message": "platform error"},
+            }
+        self._send({"kind": "mcp_reply", "id": row.get("id"), "body": body})
+        if self.process is not None and self.process.stdin is not None:
+            with contextlib.suppress(OSError, RuntimeError, ConnectionError):
+                await self.process.stdin.drain()
 
     @property
     def alive(self) -> bool:
@@ -226,6 +258,8 @@ class AgentGateway:
 
     async def close(self) -> bool:
         self.stop()
+        for task in tuple(self.calls):
+            task.cancel()
         if self.process is not None and self.process.returncode is None:
             self.process.kill()
             await self.process.wait()
@@ -321,7 +355,8 @@ class HarnessContainer:
                 "--cap-add=CHOWN", "--security-opt=no-new-privileges", "--log-driver=none",
                 "--mount", f"type=volume,src={self.home},dst=/persist",
                 "--entrypoint=/usr/local/bin/python", self.image_id, "-I", "-c",
-                "import os\nif os.stat('/persist').st_uid != 65532:\n os.chmod('/persist', 0o700); os.chown('/persist', 65532, 65532)",
+                "import os\nif os.stat('/persist').st_uid != 65532:\n"
+                " os.chmod('/persist', 0o700); os.chown('/persist', 65532, 65532)",
                 timeout=120,
             )  # fmt: skip
         await cli(*self.args(network))

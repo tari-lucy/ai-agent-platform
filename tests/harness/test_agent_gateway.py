@@ -210,3 +210,54 @@ def test_the_ui_port_relays_to_the_agent_until_stop_and_host_loss_ends_the_gatew
         assert gateway.process.wait(timeout=5) == 0
     finally:
         gateway.close()
+
+
+def test_an_mcp_message_is_relayed_to_the_host_and_its_answer_back_until_stop():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent)
+
+    def host() -> None:  # the platform side: answer every relayed message
+        seen = 0
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            rows = [r for r in gateway.rows if r.get("kind") == "mcp"]
+            for row in rows[seen:]:
+                body = row["body"]
+                reply = (
+                    None
+                    if "id" not in body
+                    else {"jsonrpc": "2.0", "id": body["id"], "result": {"echo": body["method"]}}
+                )
+                gateway.send({"kind": "mcp_reply", "id": row["id"], "body": reply})
+            seen = len(rows)
+            time.sleep(0.02)
+
+    threading.Thread(target=host, daemon=True).start()
+
+    def call(body: dict) -> tuple[int, bytes]:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{gateway.model_port}/mcp",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    try:
+        status, body = call({"jsonrpc": "2.0", "id": 7, "method": "tools/list"})
+        assert status == 200 and json.loads(body) == {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": {"echo": "tools/list"},
+        }
+        status, body = call({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        assert status == 202 and body == b""
+        gateway.send({"kind": "stop"})
+        time.sleep(0.2)
+        status, body = call({"jsonrpc": "2.0", "id": 8, "method": "tools/list"})
+        assert status == 403 and b"STOPPED" in body
+    finally:
+        gateway.close()

@@ -124,6 +124,7 @@ class HarnessHost:
         self.next_try = 0.0
         self.ready = False
         self.closed = False
+        self.epoch: int | None = None
 
     def tick(self) -> None:
         if self.closed or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
@@ -168,6 +169,7 @@ class HarnessHost:
             # The container is the boundary (D70/D72); paths outside /workspace are its own.
             "external_directory": "allow",
             "webfetch": "allow" if internet else "deny",
+            "platform_*": "allow",
         }
         return {
             "$schema": "https://opencode.ai/config.json",
@@ -191,6 +193,14 @@ class HarnessHost:
                     },
                 }
             },
+            # Platform MCP (stage 2): memory, persona, tickets, relayed by the agent gateway.
+            "mcp": {
+                "platform": {
+                    "type": "remote",
+                    "url": model_url.rsplit("/v1", 1)[0] + "/mcp",
+                    "enabled": True,
+                }
+            },
             "default_agent": name,
             "agent": {
                 name: {
@@ -208,7 +218,12 @@ class HarnessHost:
         epoch = rt.supervisor.snapshot.control_epoch
         admission = rt.supervisor.admit("observation")
         ticket = rt.supervisor.register(admission, "harness-" + uuid4().hex)
-        gateway = AgentGateway(s.image_id, s.port, self.usage.record)
+        from .harness_mcp import PlatformMcp
+
+        self.epoch = epoch
+        gateway = AgentGateway(
+            s.image_id, s.port, self.usage.record, PlatformMcp(rt, lambda: self.epoch).handle
+        )
         folder = self.folders()
         if folder is not None:
             folder.mkdir(parents=True, exist_ok=True)
