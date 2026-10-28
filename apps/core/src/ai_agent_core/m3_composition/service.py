@@ -39,7 +39,7 @@ from ai_agent_application.llm import (
     LLMGateway,
     ProviderFactory,
 )
-from ai_agent_application.llm.model import prompt_size
+from ai_agent_application.llm.model import RETRYABLE, prompt_size
 from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.memory.service import derived_id
@@ -1543,7 +1543,11 @@ class Execution:
             journal=self,
             admission=self.allowed,
             clock=self.runtime.supervisor.clock.utc,
-            max_attempts=1 if live else 2,
+            # A paid call retries once only a dropped connection or a provider server error,
+            # and only when nothing was streamed yet: one blip no longer ends a long work turn.
+            # A rate limit is not retried (the provider asked to wait; it would spend budget).
+            max_attempts=2,
+            retryable=frozenset({Failure.TRANSIENT, Failure.TIMEOUT}) if live else RETRYABLE,
         )
         result = await gateway.generate(
             replace(request, operation_id=unique), self.cancel, on_delta=on_delta

@@ -664,7 +664,15 @@ class DockerTaskRunner:
                     )
                 await self._verify(admission, attempt)
         except (OSError, ValueError, KeyError, IndexError, TypeError, TimeoutError) as error:
-            code = error.error.code.value if isinstance(error, ContractError) else "TECHNICAL"
+            # Platform errors carry fixed codes (RUNNER_FRAME_INVALID, …); other text is not logged.
+            text = str(error)
+            code = (
+                error.error.code.value
+                if isinstance(error, ContractError)
+                else text
+                if re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", text)
+                else "TECHNICAL"
+            )
             logging.getLogger(__name__).warning(
                 "Sandbox turn failed: phase=%s kind=%s code=%s",
                 phase,

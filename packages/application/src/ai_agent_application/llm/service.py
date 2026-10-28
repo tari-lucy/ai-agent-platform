@@ -107,8 +107,10 @@ class LLMGateway:
         base_delay: float = 0.5,
         sleep: Sleep = asyncio.sleep,
         jitter: Callable[[], float] | None = None,
+        retryable: frozenset[Failure] = RETRYABLE,
     ) -> None:
-        if not 1 <= max_attempts <= 2:
+        """``retryable``: failures worth one more attempt when nothing was streamed yet."""
+        if not 1 <= max_attempts <= 2 or not retryable <= RETRYABLE:
             raise ValueError("MAX_ATTEMPTS_BOUNDS")
         self._providers = providers
         self._resolve = resolve
@@ -116,6 +118,7 @@ class LLMGateway:
         self._admission = admission
         self._clock = clock or (lambda: datetime.now(UTC))
         self._max_attempts = max_attempts
+        self._retryable = retryable
         self._base_delay = base_delay
         self._sleep = sleep
         self._jitter = jitter or (lambda: random.uniform(0.75, 1.25))
@@ -167,7 +170,7 @@ class LLMGateway:
                         assignment.assignment_id,
                     )
                 if (
-                    failure in RETRYABLE
+                    failure in self._retryable
                     and not outcome.text
                     and not outcome.tool_buffer.parts
                     and number + 1 < self._max_attempts
@@ -326,7 +329,8 @@ class LLMGateway:
                 # Enum values only. Do not log operation/model ids, previews or exceptions.
                 logging.getLogger(__name__).warning(
                     "LLM attempt ended: status=%s failure=%s",
-                    outcome.status, outcome.failure.value,
+                    outcome.status,
+                    outcome.failure.value,
                 )
             report = AttemptReport(
                 operation_id=request.operation_id,
