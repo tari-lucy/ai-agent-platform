@@ -170,7 +170,9 @@ class Model(BaseHTTPRequestHandler):
         try:
             if upstream.scheme == "https":
                 connection = http.client.HTTPSConnection(
-                    upstream.hostname, upstream.port or 443, timeout=TIMEOUT,
+                    upstream.hostname,
+                    upstream.port or 443,
+                    timeout=TIMEOUT,
                     context=ssl.create_default_context(),
                 )
             else:  # tests only: the host refuses a plain upstream for live use
@@ -178,9 +180,14 @@ class Model(BaseHTTPRequestHandler):
                     upstream.hostname, upstream.port or 80, timeout=TIMEOUT
                 )
             connection.request(
-                "POST", upstream.path.rstrip("/") + "/chat/completions", data,
-                {"Authorization": "Bearer " + KEY, "Content-Type": "application/json",
-                 "Accept": "text/event-stream" if stream else "application/json"},
+                "POST",
+                upstream.path.rstrip("/") + "/chat/completions",
+                data,
+                {
+                    "Authorization": "Bearer " + KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream" if stream else "application/json",
+                },
             )
             response = connection.getresponse()
             status = response.status
@@ -216,20 +223,22 @@ class Model(BaseHTTPRequestHandler):
                 except ValueError:
                     pass
             connection.close()
-        except (OSError, http.client.HTTPException):
+        except OSError, http.client.HTTPException:
             if status == 0:
                 try:
                     self.reply(502, {"error": {"message": "UPSTREAM_UNAVAILABLE"}})
                 except OSError:
                     pass
             status = status or 502
-        emit({
-            "kind": "usage",
-            "status": status,
-            "input": found.get("prompt_tokens"),
-            "output": found.get("completion_tokens"),
-            "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens"),
-        })
+        emit(
+            {
+                "kind": "usage",
+                "status": status,
+                "input": found.get("prompt_tokens"),
+                "output": found.get("completion_tokens"),
+                "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens"),
+            }
+        )
 
 
 def pump(source, target):
@@ -265,6 +274,32 @@ def relay(server):
         threading.Thread(target=pump, args=(client, backend), daemon=True).start()
         threading.Thread(target=pump, args=(backend, client), daemon=True).start()
 
+
+def forward(server, host, port):
+    """An operator-granted connection: one host port, reachable only from the agent network."""
+    while True:
+        client, _ = server.accept()
+        with lock:
+            stopped = state["stopped"]
+        if stopped:
+            client.close()
+            continue
+        try:
+            backend = socket.create_connection((host, port), timeout=10)
+            backend.settimeout(None)
+        except OSError:
+            client.close()
+            continue
+        emit({"kind": "forward", "port": port})
+        threading.Thread(target=pump, args=(client, backend), daemon=True).start()
+        threading.Thread(target=pump, args=(backend, client), daemon=True).start()
+
+
+for item in config.get("forwards", []):
+    listener = socket.create_server((config["model_bind"], item.get("listen", item["port"])))
+    threading.Thread(
+        target=forward, args=(listener, item["host"], item["port"]), daemon=True
+    ).start()
 
 model = ThreadingHTTPServer((config["model_bind"], config.get("model_port", 8080)), Model)
 model.daemon_threads = True

@@ -152,6 +152,7 @@ def install(
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
             agent_names=dict(settings.agent_names),
+            host_ports=dict(settings.host_ports),
             files_dir=Path(settings.files_dir) if settings.files_dir else None,
         ),
         home=lambda: volume(scope()),
@@ -166,7 +167,13 @@ def install(
 
 
 def configure(
-    root: Path, *, agent_name: str | None = None, persona: str | None = None, **values: object
+    root: Path,
+    *,
+    agent_name: str | None = None,
+    persona: str | None = None,
+    grant: str | None = None,
+    revoke: str | None = None,
+    **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
 
@@ -180,6 +187,13 @@ def configure(
         raise HostError("HARNESS_IMAGE_REQUIRED")
     current = config.harness or HarnessConfig()
     changes = {key: value for key, value in values.items() if value is not None}
+    if grant is not None:
+        label, _, port = grant.rpartition("=")
+        if not label or not port.isdigit():
+            raise HostError("INVALID_OPTION")
+        changes["host_ports"] = {**current.host_ports, label: int(port)}
+    if revoke is not None:
+        changes["host_ports"] = {k: v for k, v in current.host_ports.items() if k != revoke}
     if agent_name is not None:
         known = {config.persona_id, *(p.persona_id for p in config.additional_personas)}
         who = persona or config.persona_id

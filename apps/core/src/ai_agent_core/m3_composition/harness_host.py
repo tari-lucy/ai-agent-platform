@@ -52,6 +52,8 @@ class HarnessSettings:
     agent_names: dict[str, str] = field(default_factory=dict)
     # Base of the workspaces on the host disk: <base>/<persona id> is /workspace.
     files_dir: Path | None = None
+    # Operator-granted connections to host ports (name -> port), e.g. a game mod's server.
+    host_ports: dict[str, int] = field(default_factory=dict)
 
 
 class Usage:
@@ -182,6 +184,13 @@ class HarnessHost:
     def config(self, model_url: str, prompt: str, internet: bool) -> dict[str, Any]:
         s = self.settings
         name = self.agent_name()
+        if s.host_ports:
+            host = model_url.split("//", 1)[1].split(":", 1)[0]
+            prompt += "\n\n## Подключения к компьютеру оператора\n" + "\n".join(
+                f"- {label}: {host}:{port} (выдано оператором; другого пути к его компьютеру и "
+                "сети нет, перебирать адреса не нужно)"
+                for label, port in sorted(s.host_ports.items())
+            )
         free = {
             "bash": "allow",
             "edit": "allow",
@@ -252,6 +261,7 @@ class HarnessHost:
             s.port,
             self.usage.record,
             PlatformMcp(rt, lambda: self.epoch, self.wakes).handle,
+            tuple(s.host_ports.values()),
         )
         folder = self.folders()
         if folder is not None:

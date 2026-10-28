@@ -144,6 +144,10 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--port", type=int)
     harness.add_argument("--agent-name", help="the persona's name shown in OpenCode")
     harness.add_argument("--persona", help="persona id for --agent-name (default: main)")
+    harness.add_argument(
+        "--grant-host-port", metavar="NAME=PORT", help="let the agent reach this host port"
+    )
+    harness.add_argument("--revoke-host-port", metavar="NAME", help="withdraw a host port")
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -511,6 +515,8 @@ def main(argv: list[str] | None = None) -> int:
                     port=arguments.port,
                     agent_name=arguments.agent_name,
                     persona=arguments.persona,
+                    grant=arguments.grant_host_port,
+                    revoke=arguments.revoke_host_port,
                     files_dir=arguments.files_dir,
                     daily_budget=arguments.daily_budget,
                     currency=arguments.currency,

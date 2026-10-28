@@ -84,7 +84,13 @@ class Echo:
 
 
 class Gateway:
-    def __init__(self, upstream: Upstream, agent: Echo, remaining: float | None = 100.0):
+    def __init__(
+        self,
+        upstream: Upstream,
+        agent: Echo,
+        remaining: float | None = 100.0,
+        forwards: list[dict] | None = None,
+    ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
             [sys.executable, "-I", "-u", "-c", GATEWAY],
@@ -105,6 +111,7 @@ class Gateway:
                 "model_port": self.model_port,
                 "ui_port": self.ui_port,
                 "agent_port": agent.port,
+                "forwards": forwards or [],
             }
         )
         assert self.process.stdout is not None
@@ -259,5 +266,24 @@ def test_an_mcp_message_is_relayed_to_the_host_and_its_answer_back_until_stop():
         time.sleep(0.2)
         status, body = call({"jsonrpc": "2.0", "id": 8, "method": "tools/list"})
         assert status == 403 and b"STOPPED" in body
+    finally:
+        gateway.close()
+
+
+def test_a_granted_host_port_is_relayed_from_the_agent_side_until_stop():
+    upstream, agent, game = Upstream(), Echo(), Echo()
+    listen = free_port()
+    gateway = Gateway(
+        upstream, agent, forwards=[{"host": "127.0.0.1", "port": game.port, "listen": listen}]
+    )
+    try:
+        with socket.create_connection(("127.0.0.1", listen), timeout=5) as client:
+            client.sendall(b"ping")
+            assert client.recv(16) == b"ping"
+        assert {"kind": "forward", "port": game.port} in gateway.wait_rows(1)
+        gateway.send({"kind": "stop"})
+        time.sleep(0.2)
+        with socket.create_connection(("127.0.0.1", listen), timeout=5) as client:
+            assert client.recv(16) == b""
     finally:
         gateway.close()

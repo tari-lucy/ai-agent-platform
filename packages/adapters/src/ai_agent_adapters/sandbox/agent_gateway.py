@@ -122,10 +122,18 @@ class AgentGateway:
         port: int,
         record: Callable[[dict[str, Any]], None],
         mcp: Callable[[Any], Awaitable[Any]] | None = None,
+        host_ports: tuple[int, ...] = (),
     ) -> None:
-        """``mcp`` answers the platform MCP messages the agent sends through the gateway."""
-        if not 1024 <= port <= 65535:
+        """``mcp`` answers the platform MCP messages the agent sends through the gateway.
+
+        ``host_ports``: operator-granted connections to the host's own ports (a game mod's
+        server), each reachable from the agent network at the gateway's address only.
+        """
+        if not 1024 <= port <= 65535 or any(
+            not 1024 <= p <= 65535 or p in (port, 8080) for p in host_ports
+        ):
             raise ValueError("HARNESS_PORT_INVALID")
+        self.host_ports = tuple(sorted(set(host_ports)))
         self.image_id, self.port, self.record, self.mcp = image_id, port, record, mcp
         self.calls: set[asyncio.Task[None]] = set()
         self.name = "aw-hgw-" + uuid4().hex
@@ -144,6 +152,8 @@ class AgentGateway:
             "ai-agent-platform.harness=1",
             "--interactive",
             "--network=bridge",
+            # The host itself, for granted host ports only (Docker Desktop has it built in).
+            *(("--add-host=host.docker.internal:host-gateway",) if self.host_ports else ()),
             "--publish",
             f"127.0.0.1:{self.port}:4096",
             *_hardening(256, 256),
@@ -191,6 +201,7 @@ class AgentGateway:
                 "remaining": remaining,
                 "model_bind": addresses[network],
                 "ui_bind": addresses["bridge"],
+                "forwards": [{"host": "host.docker.internal", "port": p} for p in self.host_ports],
             }
         )
         await self.process.stdin.drain()

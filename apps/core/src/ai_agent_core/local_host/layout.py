@@ -330,6 +330,12 @@ class HarnessConfig(BaseModel):
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
+    # Operator-granted connections to this computer's own ports (name -> port): the agent
+    # reaches only these, through its gateway. Empty grants nothing.
+    host_ports: dict[
+        Annotated[str, Field(pattern=r"^[\w -]{1,40}$")],
+        Annotated[int, Field(strict=True, ge=1024, le=65535)],
+    ] = Field(default_factory=dict, max_length=8)
 
     @model_validator(mode="before")
     @classmethod
