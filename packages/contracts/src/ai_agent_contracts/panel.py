@@ -701,6 +701,16 @@ class EgressRequest(Contract):
     seconds: float = Field(ge=0)
 
 
+class HarnessStatus(Contract):
+    """doc33: the persona's own OpenCode window on this host, for the panel's button."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    ready: bool = Field(strict=True)  # the agent's server answers (START, not STOP)
+    url: str | None = Field(default=None, pattern=r"^http://127\.0\.0\.1:\d{4,5}/$")
+    agent_name: str | None = Field(default=None, max_length=40)
+
+
 class EgressLog(Contract):
     """The persona's internet traffic of one UTC day, newest first (W3b)."""
 

@@ -129,6 +129,19 @@ class Views:
                 resets_at=None if budget is None else budget.reset_at(now),
                 checked_at=now,
             )
+        if resource == "harness-status" and identifier is None:
+            from ai_agent_contracts.panel import HarnessStatus
+
+            harness = self.runtime.harness
+            if harness is None:
+                return HarnessStatus(scope=scope, enabled=False, ready=False)
+            return HarnessStatus(
+                scope=scope,
+                enabled=True,
+                ready=harness.current(),
+                url=f"http://127.0.0.1:{harness.settings.port}/",
+                agent_name=harness.agent_name(),
+            )
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view
 

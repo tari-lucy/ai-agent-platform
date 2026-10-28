@@ -3213,6 +3213,56 @@
         "title": "GmRuntimeState",
         "type": "object"
       },
+      "HarnessStatus": {
+        "additionalProperties": false,
+        "description": "doc33: the persona's own OpenCode window on this host, for the panel's button.",
+        "properties": {
+          "agent_name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Agent Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "pattern": "^http://127\\.0\\.0\\.1:\\d{4,5}/$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "scope",
+          "enabled",
+          "ready"
+        ],
+        "title": "HarnessStatus",
+        "type": "object"
+      },
       "HelperRun": {
         "additionalProperties": false,
         "description": "Owner receipt in an attempt; prepared/unknown execution is never replayed blindly.",
@@ -18663,6 +18713,66 @@
               }
             },
             "description": "Permitted projection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/harness-status": {
+      "get": {
+        "operationId": "read_HarnessStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarnessStatus"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
           },
           "409": {
             "$ref": "#/components/responses/ApiError"

@@ -64,6 +64,7 @@ export type FileWrite = { "area": WorkplaceArea; "attempt_id"?: (string) | (null
 export type Freshness = { "control_epoch": number; "policy_version": number; "profile_version": number; "run_id": string; };
 export type GmRuntimeState = { "active_seconds": number; "created_at": string; "id": string; "intensity": number; "rules": ExtensionPayload; "rules_version": number; "schema_version"?: "1.0"; "scope": Scope; "updated_at": string; "version": number; };
 export type GmRuntimeStatePage = Page_GmRuntimeState_;
+export type HarnessStatus = { "agent_name"?: (string) | (null); "enabled": boolean; "ready": boolean; "scope": Scope; "url"?: (string) | (null); };
 export type HelperRun = { "call_id": string; "fingerprint": string; "outputs"?: Array<ArtifactRef>; "status": "prepared" | "succeeded" | "failed" | "cancelled" | "timeout" | "limit" | "unknown"; };
 export type InitialAccessArguments = { "constraints"?: string; "duration_seconds"?: (number) | (null); };
 export type InitialAccessCapability = { "areas": Array<WorkplaceArea>; "available": boolean; "capability_id": string; "expires_at": (string) | (null); "summary": string; };

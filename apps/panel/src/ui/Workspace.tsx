@@ -21,7 +21,7 @@ import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 import { groups, screens } from './areas.ts';
-import { NativeEntry, nativeAgent, nativeHref, useNative } from './opencode.ts';
+import { HarnessEntry, NativeEntry, nativeAgent, nativeHref, useHarness, useNative } from './opencode.ts';
 
 
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
@@ -108,6 +108,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const rows = results.flatMap((result) => result.data?.items ?? []);
   const target = stopTarget(rows);
   const scope = auth.scopes.find((item) => scopeKey(item) === selected) ?? auth.scopes[0];
+  const harness = useHarness(api, scope);
   const subscribed = [scope, ...(target ? [partition(target.scope)] : [])].filter(
     (item, index, all) => all.findIndex((other) => scopeKey(other) === scopeKey(item)) === index,
   );
@@ -135,7 +136,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
     try { await onLogout(); } catch (error) { setLogoutError(failureMessage(error)); }
     finally { setLogoutBusy(false); }
   }
-  return <NativeEntry.Provider value={native}><div className="workspace">
+  return <HarnessEntry.Provider value={harness}><NativeEntry.Provider value={native}><div className="workspace">
     <a className="skip-link" href="#content">Перейти к содержимому</a>
     <header ref={header} className="workspace-header">
       <div className="header-brand"><Text className="brand">AI Agent Platform</Text><Text size="xs" c="dimmed">Пространство: {scope.workspace_id}</Text></div>
@@ -149,7 +150,11 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       </div>
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
-        {nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
+        {harness?.enabled && harness.url ? <Button component="a" href={harness.url} target="_blank" rel="noopener"
+          size="compact-sm" variant={harness.ready ? 'filled' : 'light'}
+          title={harness.ready ? 'Окно агента в OpenCode' : 'Агент не запущен: нажмите START'}>
+          Открыть OpenCode{harness.ready ? '' : ' · не запущен'}</Button>
+          : nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
@@ -184,5 +189,5 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       })}
         <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
     </main>
-  </div></NativeEntry.Provider>;
+  </div></NativeEntry.Provider></HarnessEntry.Provider>;
 }

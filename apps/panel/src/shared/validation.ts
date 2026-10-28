@@ -737,3 +737,12 @@ export function egressLog(value: unknown, selected: Scope, day: string): import(
     count(item.up) && count(item.down) && typeof item.seconds === 'number'));
   return value as import('./contracts.ts').EgressLog;
 }
+
+// doc33: the persona's own OpenCode window on this host (the panel's "Открыть OpenCode").
+export function harnessStatus(value: unknown, selected: Scope): import('./contracts.ts').HarnessStatus {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    typeof value.enabled === 'boolean' && typeof value.ready === 'boolean' &&
+    (value.url == null || (typeof value.url === 'string' && /^http:\/\/127\.0\.0\.1:\d{4,5}\/$/.test(value.url))) &&
+    (value.agent_name == null || text(value.agent_name, 40)));
+  return value as import('./contracts.ts').HarnessStatus;
+}

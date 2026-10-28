@@ -3153,6 +3153,56 @@
       "title": "GmRuntimeState",
       "type": "object"
     },
+    "HarnessStatus": {
+      "additionalProperties": false,
+      "description": "doc33: the persona's own OpenCode window on this host, for the panel's button.",
+      "properties": {
+        "agent_name": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Name"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "pattern": "^http://127\\.0\\.0\\.1:\\d{4,5}/$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "scope",
+        "enabled",
+        "ready"
+      ],
+      "title": "HarnessStatus",
+      "type": "object"
+    },
     "HelperRun": {
       "additionalProperties": false,
       "description": "Owner receipt in an attempt; prepared/unknown execution is never replayed blindly.",
@@ -15959,6 +16009,9 @@
     },
     "GmRuntimeStatePage": {
       "$ref": "#/$defs/Page_GmRuntimeState_"
+    },
+    "HarnessStatus": {
+      "$ref": "#/$defs/HarnessStatus"
     },
     "InitialAccessArguments": {
       "$ref": "#/$defs/InitialAccessArguments"
