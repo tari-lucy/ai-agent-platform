@@ -236,7 +236,9 @@ class Model(BaseHTTPRequestHandler):
                 "status": status,
                 "input": found.get("prompt_tokens"),
                 "output": found.get("completion_tokens"),
-                "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                # OpenAI-style details, or the Anthropic-style field some gateways pass through.
+            "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens")
+            or found.get("cache_read_input_tokens"),
             }
         )
 

@@ -153,6 +153,7 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--currency")
     harness.add_argument("--input-rate", type=float, help="per 1M input tokens")
     harness.add_argument("--output-rate", type=float, help="per 1M output tokens")
+    harness.add_argument("--cached-rate", type=float, help="per 1M cached input tokens")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -522,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
                     currency=arguments.currency,
                     input_rate=arguments.input_rate,
                     output_rate=arguments.output_rate,
+                    cached_rate=arguments.cached_rate,
                     context_tokens=arguments.context_tokens,
                     output_tokens=arguments.output_tokens,
                     memory_mb=arguments.memory_mb,

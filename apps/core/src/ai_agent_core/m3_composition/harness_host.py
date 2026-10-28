@@ -43,6 +43,7 @@ class HarnessSettings:
     daily_budget: float
     input_rate: float | None  # per 1M tokens, budget currency; None = no tariff
     output_rate: float | None
+    cached_rate: float | None = None  # per 1M cached input tokens; None = the input rate
     context_tokens: int = 128000
     output_tokens: int = 8192
     memory_mb: int = 4096
@@ -71,7 +72,16 @@ class Usage:
         reported_in, reported_out = row.get("input"), row.get("output")
         tokens_in = reported_in if isinstance(reported_in, int) else UNKNOWN_INPUT
         tokens_out = reported_out if isinstance(reported_out, int) else UNKNOWN_OUTPUT
-        return (tokens_in * s.input_rate + tokens_out * s.output_rate) / 1_000_000
+        reported_cached = row.get("cached")
+        cached = (
+            min(reported_cached, tokens_in)
+            if isinstance(reported_cached, int) and isinstance(reported_in, int)
+            else 0
+        )
+        cached_rate = s.input_rate if s.cached_rate is None else s.cached_rate
+        return (
+            (tokens_in - cached) * s.input_rate + cached * cached_rate + tokens_out * s.output_rate
+        ) / 1_000_000
 
     def record(self, row: dict[str, Any]) -> None:
         if row.get("kind") == "refused":
@@ -85,6 +95,7 @@ class Usage:
             "at": datetime.now(UTC).isoformat(),
             "input": row.get("input"),
             "output": row.get("output"),
+            "cached": row.get("cached"),
             "cost": round(self.cost(row), 6),
         }
         self.settings.usage_dir.mkdir(parents=True, exist_ok=True)

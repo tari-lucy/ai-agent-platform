@@ -151,6 +151,7 @@ def install(
             daily_budget=settings.daily_budget,
             input_rate=settings.input_rate,
             output_rate=settings.output_rate,
+            cached_rate=settings.cached_rate,
             context_tokens=settings.context_tokens,
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
