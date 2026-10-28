@@ -324,6 +324,29 @@ def test_stop_cancels_in_progress_handshake(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_cancel_waiter_after_connect_success_releases_unclaimed_socket(monkeypatch):
+    async def scenario():
+        closed = asyncio.Event()
+
+        class Socket:
+            async def close(self):
+                closed.set()
+
+        async def connecting(*args, **kwargs):
+            asyncio.get_running_loop().call_soon(task.cancel)
+            return Socket()
+
+        monkeypatch.setattr("ai_agent_adapters.voice.soniox.connect", connecting)
+        client = adapter(SonioxConfig())
+        task = asyncio.create_task(client.synthesize_ogg(TEXT, "Maya"))
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert closed.is_set() and not client._connections and not client._tasks
+        await client.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_sender_closes_a_suspended_input_iterator():
     async def scenario():
         sending, closed = asyncio.Event(), asyncio.Event()

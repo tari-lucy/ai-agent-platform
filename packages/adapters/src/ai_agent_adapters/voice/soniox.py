@@ -181,6 +181,15 @@ class SonioxAdapter:
         self._tasks.add(pending)
         try:
             ws = await pending
+        except asyncio.CancelledError:
+            # connect may have succeeded just before the waiter was cancelled: its socket
+            # has not reached _connections yet, so release that successful result here.
+            if pending.done() and not pending.cancelled():
+                try:
+                    await pending.result().close()
+                except Exception:  # noqa: BLE001 - preserve cancellation, never echo cleanup input
+                    pass
+            raise
         except WebSocketException, OSError, TimeoutError:
             raise SonioxError("SONIOX_TRANSPORT_ERROR") from None
         finally:
