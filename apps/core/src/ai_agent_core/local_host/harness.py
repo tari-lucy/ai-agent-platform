@@ -83,6 +83,7 @@ def install(
     if config.live is None or providers.binding is None:
         return "HARNESS_LIVE_REQUIRED"
     from ai_agent_core.m3_composition.harness_host import HarnessHost, HarnessSettings
+    from ai_agent_core.m3_composition.harness_learning import LearningPart
     from ai_agent_core.m3_composition.work_session_egress import (
         EgressSettings,
         resident_factory,
@@ -158,6 +159,7 @@ def install(
         prompt=prompt,
         internet=internet,
     )
+    runtime.harness.attach(LearningPart(runtime, host.root / "data" / "harness" / "learning"))
     return None
 
 
