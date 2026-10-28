@@ -321,7 +321,7 @@ class HarnessContainer:
                 "--cap-add=CHOWN", "--security-opt=no-new-privileges", "--log-driver=none",
                 "--mount", f"type=volume,src={self.home},dst=/persist",
                 "--entrypoint=/usr/local/bin/python", self.image_id, "-I", "-c",
-                "import os; os.chmod('/persist', 0o700); os.chown('/persist', 65532, 65532)",
+                "import os\nif os.stat('/persist').st_uid != 65532:\n os.chmod('/persist', 0o700); os.chown('/persist', 65532, 65532)",
                 timeout=120,
             )  # fmt: skip
         await cli(*self.args(network))
