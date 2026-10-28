@@ -1329,7 +1329,11 @@ class Execution:
             )
             raise
         if self.budget is not None:
-            self.runtime.scheduler.verify(self.budget)
+            try:
+                self.runtime.scheduler.verify(self.budget)
+            except ContractError as error:
+                self._lost("RESOURCE_LEASE_" + error.error.code.value)
+                raise
 
     def _lost(self, reason: str) -> None:
         """Log once per job why it lost its admission: a fixed code, never data."""
