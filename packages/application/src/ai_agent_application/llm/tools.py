@@ -104,6 +104,8 @@ class ToolBuffer:
             raise ToolProtocolError(ToolRejection.INDICES)
         result = []
         for _, part in sorted(self.parts.items()):
+            if not part[2].strip():
+                part[2] = "{}"  # providers send no arguments for a parameterless call
             try:
                 # Validate JSON separately so diagnostics need not render Pydantic's input.
                 object_json(part[2])

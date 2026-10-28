@@ -91,6 +91,7 @@ class _Outcome:
         self.retry_after: float | None = None
         self.tool_buffer = ToolBuffer()
         self.tool_calls: tuple[ToolCall, ...] = ()
+        self.tools_rejected = False  # a finished tool proposal failed validation, unexecuted
 
 
 class LLMGateway:
@@ -169,10 +170,16 @@ class LLMGateway:
                         position > 0,
                         assignment.assignment_id,
                     )
+                # A rejected tool proposal was never executed or shown; its text was shown
+                # only through on_delta. Asking again costs one bounded attempt, not a turn.
+                rejected = outcome.tools_rejected and (on_delta is None or not outcome.text)
                 if (
-                    failure in self._retryable
-                    and not outcome.text
-                    and not outcome.tool_buffer.parts
+                    (
+                        rejected
+                        or failure in self._retryable
+                        and not outcome.text
+                        and not outcome.tool_buffer.parts
+                    )
                     and number + 1 < self._max_attempts
                 ):
                     if not await self._pause(self._delay(number, outcome.retry_after), cancel):
@@ -425,11 +432,13 @@ class LLMGateway:
                 )
             except ToolProtocolError as error:
                 logging.getLogger(__name__).warning("LLM tool rejected: %s", error.code.value)
+                outcome.tools_rejected = True
                 raise ProviderError(Failure.MALFORMED_RESULT) from None
             except ValueError, RecursionError:
                 # Every ToolProtocolError is constructed from a closed enum. No remote text.
                 # The fallback code covers unexpected validation failures without their input.
                 logging.getLogger(__name__).warning("LLM tool rejected: TOOL_CALL_INVALID")
+                outcome.tools_rejected = True
                 raise ProviderError(Failure.MALFORMED_RESULT) from None
             outcome.status = "completed"
             return
