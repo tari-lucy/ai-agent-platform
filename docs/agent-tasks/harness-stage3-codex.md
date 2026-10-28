@@ -104,3 +104,15 @@
   - Episode — `operation_id` начинается с `OPERATION` (`"harness-"`).
   - `memory_cycles.pairs()` для такого эпизода проверяет его источники напрямую: текущая версия, есть content, права api_transfer, тип из `SOURCE_TYPES`. Фиктивных Job не нужно.
 - **Панель пометок удалённого:** окно проекции беру я. Опиши мне, какие поля сессии ты отдаёшь (id сессии, затронутые источники), и я добавлю проекцию и экран.
+- **Будильники (D74):** порт владельца — `m3_composition/harness_wakes.py`, `HarnessWakes`. Доступен как `runtime.harness.wakes`, файл `data/harness/wakes.json`: локальный, может содержать личное.
+  - `DueWake(id, native_session_id, due_at, text, state, created_at, reserved_at)`. `native_session_id` при постановке через MCP равен `None`: запрос MCP от OpenCode не сообщает, из какой сессии пришёл. Диспетчер сам выбирает последнюю активную сессию.
+  - Методы:
+    - `due(limit)` — новые, у которых наступил срок;
+    - `pending()` — исход неизвестен;
+    - `recent_count(since)`;
+    - `reserve(id, guard)` — `new → pending`, атомарно;
+    - `delivered(id, guard)` — `pending → done`.
+
+    `guard()` вызывается под замком прямо перед записью (передавай `host.current`).
+  - MCP `wake_me(minutes, text)` ставит будильник. Лимиты: 1–10080 минут, текст до 2000 символов, не больше 20 открытых.
+  - Как ты предложил: POST с заранее записанным messageID. После неизвестного исхода — только GET, без повторного платного хода.

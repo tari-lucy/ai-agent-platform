@@ -19,6 +19,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from .harness_wakes import HarnessWakes
     from .service import Runtime
 
 LOG = logging.getLogger(__name__)
@@ -62,6 +63,20 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "wake_me",
+        "description": "Поставить себе будильник: через minutes минут платформа сама напишет "
+        "тебе text в разговор, даже если оператора нет. Для долгих сборок, ожидания и "
+        "продолжения работы позже. Работает только в запущенном агенте (после START).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "minutes": {"type": "integer", "minimum": 1, "maximum": 10080},
+                "text": {"type": "string", "description": "что напомнить себе"},
+            },
+            "required": ["minutes", "text"],
+        },
+    },
+    {
         "name": "tickets",
         "description": "Мои обращения, по которым оператор ответил, или одно обращение по id.",
         "inputSchema": {
@@ -73,8 +88,13 @@ TOOLS: list[dict[str, Any]] = [
 
 
 class PlatformMcp:
-    def __init__(self, runtime: Runtime, epoch: Callable[[], int | None]) -> None:
-        self.rt, self.epoch = runtime, epoch
+    def __init__(
+        self,
+        runtime: Runtime,
+        epoch: Callable[[], int | None],
+        wakes: HarnessWakes | None = None,
+    ) -> None:
+        self.rt, self.epoch, self.wakes = runtime, epoch, wakes
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -136,6 +156,14 @@ class PlatformMcp:
             return await self._raise(scope, a)
         if name == "tickets":
             return await self._tickets(scope, a.get("ticket_id", "").strip())
+        if name == "wake_me":
+            if self.wakes is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            minutes = a.get("minutes", "").strip()
+            if not minutes.isdigit():
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            wake = await self.wakes.set(int(minutes), a.get("text", ""))
+            return _text(f"Будильник {wake.id} на {wake.due_at.isoformat(timespec='minutes')} UTC.")
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
 
     async def _raise(self, scope: Any, a: dict[str, str]) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from .harness_wakes import HarnessWakes
     from .service import Runtime
 
 LOG = logging.getLogger(__name__)
@@ -140,6 +141,8 @@ class HarnessHost:
         self.closed = False
         self.epoch: int | None = None
         self.parts: list[HarnessPart] = []
+        # The agent's own alarms (stage 3); set by the host wiring, read by autonomy.
+        self.wakes: HarnessWakes | None = None
 
     def tick(self) -> None:
         if self.closed or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
@@ -245,7 +248,10 @@ class HarnessHost:
 
         self.epoch = epoch
         gateway = AgentGateway(
-            s.image_id, s.port, self.usage.record, PlatformMcp(rt, lambda: self.epoch).handle
+            s.image_id,
+            s.port,
+            self.usage.record,
+            PlatformMcp(rt, lambda: self.epoch, self.wakes).handle,
         )
         folder = self.folders()
         if folder is not None:
