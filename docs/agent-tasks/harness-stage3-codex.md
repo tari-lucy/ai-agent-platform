@@ -51,6 +51,7 @@
 - **Пока харнес включён**, старые `autonomous_activity` и тёплая песочница выключены (`Runtime.tick`).
 - **Папки:** `/workspace` = `<files-dir>/<persona id>` на диске хоста, `/persist` — том личности (кэши, инструменты, сессии OpenCode).
 - **Описание агента** (профиль, память по теме, порядок папок) собирается один раз при START (`local_host/harness.py`, `prompt()`).
+- **Этап 2 (MCP платформы):** сервер MCP `platform` — это `/mcp` шлюза агента. Сообщения JSON-RPC идут хосту через stdin/stdout шлюза (`m3_composition/harness_mcp.py`). Инструменты: `persona_brief`, `memory_recall`, `ticket_raise`, `tickets`. Состояние прогона и эпоха проверяются на каждом вызове.
 - **Как проверял я:**
   - `tests/harness/test_agent_gateway.py` — секунды;
   - smoke на настоящем Docker: поддельный провайдер в контейнере, ответ через OpenCode;
