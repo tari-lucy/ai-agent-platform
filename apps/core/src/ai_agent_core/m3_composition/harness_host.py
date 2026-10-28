@@ -49,7 +49,7 @@ class HarnessSettings:
     rules: Path | None = None
     # The operator-facing name per persona id; a persona without one shows its id.
     agent_names: dict[str, str] = field(default_factory=dict)
-    # Base of the operator's folders on the host disk: <base>/<persona id>/{inbox,share}.
+    # Base of the workspaces on the host disk: <base>/<persona id> is /workspace.
     files_dir: Path | None = None
 
 
@@ -147,7 +147,7 @@ class HarnessHost:
         return self.settings.agent_names.get(self.persona(), self.persona())
 
     def folders(self) -> Path | None:
-        """Each persona has its own inbox/ and share/; another persona never sees them."""
+        """Each persona has its own workspace folder; another persona never sees it."""
         if self.settings.files_dir is None:
             return None
         return self.settings.files_dir / self.persona()
@@ -209,14 +209,15 @@ class HarnessHost:
         admission = rt.supervisor.admit("observation")
         ticket = rt.supervisor.register(admission, "harness-" + uuid4().hex)
         gateway = AgentGateway(s.image_id, s.port, self.usage.record)
-        shared: dict[str, str] = {}
-        folders = self.folders()
-        if folders is not None:
-            for name in ("inbox", "share"):
-                (folders / name).mkdir(parents=True, exist_ok=True)
-                shared[name] = str((folders / name).resolve())
+        folder = self.folders()
+        if folder is not None:
+            folder.mkdir(parents=True, exist_ok=True)
         agent = HarnessContainer(
-            s.image_id, self.home(), memory_mb=s.memory_mb, pids=s.pids, shared=shared
+            s.image_id,
+            self.home(),
+            memory_mb=s.memory_mb,
+            pids=s.pids,
+            workspace=None if folder is None else str(folder.resolve()),
         )
         egress: Egress | None = None
         try:

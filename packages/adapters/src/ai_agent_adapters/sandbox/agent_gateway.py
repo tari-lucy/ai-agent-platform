@@ -27,21 +27,41 @@ LOG = logging.getLogger(__name__)
 
 # Runs as the agent container's entrypoint: directories, environment, then OpenCode itself.
 BOOT = r"""
-import json, os, sys
+import json, os, shutil, sys
 c = json.loads(sys.stdin.readline())
-for d in ("/work/home", "/work/tmp", "/work/config", "/work/cache"):
+P, W = c["persist"], "/workspace"
+for d in ("/work/tmp", "/work/config", P + "/home", P + "/.cache", P + "/.harness/data"):
     os.makedirs(d, mode=0o700, exist_ok=True)
-os.makedirs("/workspace/.harness/data", mode=0o700, exist_ok=True)
-env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/work/home", "TMPDIR": "/work/tmp",
-       "XDG_CONFIG_HOME": "/work/config", "XDG_CACHE_HOME": "/work/cache",
-       "XDG_DATA_HOME": "/workspace/.harness/data", "LANG": "C.UTF-8",
+if P != W:
+    # The operator's folder is the workspace now: copy (never move) what the volume held.
+    for name in sorted(os.listdir(P)):
+        if name in ("home", ".cache", ".harness", ".local", ".npm-global", ".gradle"):
+            continue
+        source, target = os.path.join(P, name), os.path.join(W, name)
+        if not os.path.exists(target):
+            try:
+                if os.path.isdir(source):
+                    shutil.copytree(source, target, symlinks=True)
+                else:
+                    shutil.copy2(source, target)
+            except OSError:
+                pass
+for d in ("playbook", "skills", "projects", "scratch", "inbox", "share"):
+    os.makedirs(os.path.join(W, d), exist_ok=True)
+env = {"PATH": P + "/.local/bin:" + P + "/.npm-global/bin:/usr/local/bin:/usr/bin:/bin",
+       "HOME": P + "/home", "TMPDIR": "/work/tmp",
+       "XDG_CONFIG_HOME": "/work/config", "XDG_CACHE_HOME": P + "/.cache",
+       # Sessions stay in the volume: SQLite is unreliable on a Windows folder mount.
+       "XDG_DATA_HOME": P + "/.harness/data", "LANG": "C.UTF-8",
+       "PYTHONUSERBASE": P + "/.local", "NPM_CONFIG_PREFIX": P + "/.npm-global",
+       "GRADLE_USER_HOME": P + "/.gradle",
        "OPENCODE_SERVER_PASSWORD": c["password"], "OPENCODE_CONFIG_CONTENT": c["config"],
        "OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
        # No project config: the agent cannot rewrite its own rules from /workspace.
        "OPENCODE_DISABLE_PROJECT_CONFIG": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
        "OPENCODE_DISABLE_FFF": "1", "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER": "1"}
 env.update(c["proxy"])
-os.chdir("/workspace")
+os.chdir(W)
 os.execve("/usr/local/bin/opencode",
           ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"], env)
 """
@@ -226,17 +246,15 @@ class HarnessContainer:
         *,
         memory_mb: int,
         pids: int,
-        shared: dict[str, str] | None = None,
+        workspace: str | None = None,
     ) -> None:
-        """``shared``: operator folders on the host disk mounted over ``/workspace/<name>``
-        (``inbox``/``share``), so files move by drag and drop; the rest stays in the volume."""
+        """``workspace``: the operator's folder on the host disk mounted as ``/workspace``;
+        the volume then holds only caches, tools and sessions at ``/persist``."""
         if HOME_VOLUME.fullmatch(home) is None:
             raise ValueError("RUNNER_HOME_INVALID")
-        if any(
-            name not in ("inbox", "share") or "," in path for name, path in (shared or {}).items()
-        ):
-            raise ValueError("HARNESS_SHARED_INVALID")
-        self.shared = dict(shared or {})
+        if workspace is not None and ("," in workspace or not workspace.strip()):
+            raise ValueError("HARNESS_WORKSPACE_INVALID")
+        self.workspace = workspace
         self.image_id, self.home = image_id, home
         self.memory_mb, self.pids = memory_mb, pids
         self.name = "aw-harness-" + uuid4().hex
@@ -264,12 +282,15 @@ class HarnessContainer:
             "nofile=8192:8192",
             "--tmpfs",
             "/work:rw,nosuid,nodev,size=1073741824,nr_inodes=65536,mode=0700,uid=65532,gid=65532",
-            "--mount",
-            f"type=volume,src={self.home},dst=/workspace",
             *(
-                item
-                for name, path in sorted(self.shared.items())
-                for item in ("--mount", f"type=bind,src={path},dst=/workspace/{name}")
+                (
+                    "--mount",
+                    f"type=volume,src={self.home},dst=/persist",
+                    "--mount",
+                    f"type=bind,src={self.workspace},dst=/workspace",
+                )
+                if self.workspace is not None
+                else ("--mount", f"type=volume,src={self.home},dst=/workspace")
             ),
             "--workdir=/workspace",
             "--entrypoint=/usr/local/bin/python",
@@ -292,6 +313,17 @@ class HarnessContainer:
         self, network: str, *, password: str, config: dict[str, Any], proxy: dict[str, str]
     ) -> str:
         await cli("volume", "create", "--label", "ai-agent-platform.home=1", self.home, cap=1024)
+        if self.workspace is not None:
+            # A volume mounted where the image has no agent-owned directory starts root-owned;
+            # one offline root step hands its top directory (not its contents) to the agent.
+            await cli(
+                "run", "--rm", "--pull=never", "--network=none", "--user=0:0", "--cap-drop=ALL",
+                "--cap-add=CHOWN", "--security-opt=no-new-privileges", "--log-driver=none",
+                "--mount", f"type=volume,src={self.home},dst=/persist",
+                "--entrypoint=/usr/local/bin/python", self.image_id, "-I", "-c",
+                "import os; os.chmod('/persist', 0o700); os.chown('/persist', 65532, 65532)",
+                timeout=120,
+            )  # fmt: skip
         await cli(*self.args(network))
         self.process = await asyncio.create_subprocess_exec(
             "docker",
@@ -306,7 +338,12 @@ class HarnessContainer:
         assert self.process.stdin is not None
         self.process.stdin.write(
             json.dumps(
-                {"password": password, "config": json.dumps(config), "proxy": proxy}
+                {
+                    "password": password,
+                    "config": json.dumps(config),
+                    "proxy": proxy,
+                    "persist": "/persist" if self.workspace is not None else "/workspace",
+                }
             ).encode()
             + b"\n"
         )

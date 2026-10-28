@@ -22,6 +22,30 @@ PROMPT = (
 )
 
 
+WORKSPACE = (
+    "## Рабочее место\n"
+    "Твоя постоянная рабочая папка — /workspace, она переживает перезапуск. Порядок:\n"
+    "- README.md — как здесь всё устроено и чем ты занята; держи главное вверху;\n"
+    "- playbook/ — приёмы и лайфхаки «как я решаю такие задачи»; оператор тоже кладёт сюда "
+    "свои заметки — читай их перед похожей задачей;\n"
+    "- skills/<имя>/SKILL.md — повторяемые навыки и их скрипты (это и есть библиотека "
+    "навыков; инструментов платформы для навыков и базы знаний здесь нет, прошлые отказы "
+    "ACCESS_DENIED относятся к старой схеме);\n"
+    "- projects/<имя>/ — проекты, по папке на проект;\n"
+    "- scratch/ — временное, можно чистить;\n"
+    "- inbox/ — файлы от оператора: разобрав файл, перенеси его в нужный проект, чтобы inbox "
+    "оставался пустым;\n"
+    "- share/<проект>/ — готовое для оператора; называй путь в ответе.\n"
+    "bash, чтение и правка файлов внутри контейнера разрешены без согласования шагов; "
+    "проверяй результат выводом команды, а не предположением. Установленное (pip --user, "
+    "npm -g), кэши и настройки живут в /persist и тоже сохраняются."
+)
+VISIBLE = (
+    "/workspace — обычная папка на компьютере оператора: он видит и правит её в Проводнике. "
+    "Не храни там гигабайтные кэши и сборочный мусор: для них /persist."
+)
+
+
 def password_file(host: HostPaths) -> Path:
     """The OpenCode server password; local only, readable by the operator for `attach`."""
     return host.root / "data" / "harness" / "password"
@@ -58,7 +82,7 @@ def install(
         EgressSettings,
         resident_factory,
     )
-    from ai_agent_core.m3_composition.work_session_home import GUIDE, rules, volume
+    from ai_agent_core.m3_composition.work_session_home import rules, volume
     from ai_agent_core.m3_composition.workplace_experience import session_context
 
     work = config.work_sessions
@@ -89,20 +113,7 @@ def install(
             text += released.text() + "\n\n"
         except Exception:  # noqa: BLE001 - no persona text is a weaker prompt, not a stop
             text += "(Сведения о личности сейчас недоступны.)\n\n"
-        text += "## Рабочее место\n" + GUIDE.split("Корень контейнера")[0] + "\n"
-        if settings.files_dir:
-            text += (
-                "inbox/ и share/ — обычные папки на компьютере оператора: он кладёт файлы в "
-                "inbox/ из Проводника и открывает share/ у себя. Готовое для оператора клади в "
-                "share/ и называй путь в ответе.\n"
-            )
-        text += "\n"
-        text += (
-            "Инструментов платформы для навыков и базы знаний в этом окне нет; прошлые отказы "
-            "ACCESS_DENIED относятся к старой схеме. Библиотека навыков — твоя папка "
-            "/workspace/skills, знания и приёмы — /workspace/playbook и проекты; работай с "
-            "этими файлами сама.\n\n"
-        )
+        text += WORKSPACE + ("\n" + VISIBLE if settings.files_dir else "") + "\n\n"
         text += "## Правила оператора\n" + rules(host.guide) + "\n"
         return text
 
