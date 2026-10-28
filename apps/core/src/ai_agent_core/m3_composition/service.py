@@ -1333,10 +1333,12 @@ class Execution:
 
     def _lost(self, reason: str) -> None:
         """Log once per job why it lost its admission: a fixed code, never data."""
-        if self.lost_reason is None:
+        if getattr(self, "lost_reason", None) is None:
             self.lost_reason = reason
             logging.getLogger(__name__).warning(
-                "Job admission lost: %s kind=%s", reason, self.args.request.kind
+                "Job admission lost: %s kind=%s",
+                reason,
+                getattr(getattr(self, "args", None), "request", None) and self.args.request.kind,
             )
 
     def allowed(self) -> bool:
