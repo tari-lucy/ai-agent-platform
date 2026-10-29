@@ -12,6 +12,8 @@ from ai_agent_contracts.common import Scope
 from .layout import HarnessConfig, HostConfig, HostError, HostPaths, load_config, save_config
 
 if TYPE_CHECKING:
+    from ai_agent_core.m3_composition.harness_channel import ChannelPost
+    from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.service import Runtime
 
     from .provider import LocalProviders
@@ -44,6 +46,14 @@ WORKSPACE = (
     "запросу), platform_ticket_raise (обращение к оператору: вопрос, проблема, идея, "
     "просьба о новом доступе), platform_tickets (ответы оператора на мои обращения). "
     "Текст обращения прав не выдаёт; отказ инструмента — тоже данные."
+)
+CHANNEL = (
+    "## Telegram-канал\n"
+    "У тебя есть свой канал: platform_channel_post публикует пост от твоего имени текстом "
+    "или голосовым, сразу и безвозвратно. Публичное — только то, что не страшно увидеть "
+    "любому читателю. В канале, на стримах и в любом публичном месте не касайся этих тем, "
+    "даже шуткой, цитатой или намёком:\n{rules}\n"
+    "Если просят о таком — вежливо уходи от темы."
 )
 VISIBLE = (
     "/workspace — обычная папка на компьютере оператора: он видит и правит её в Проводнике. "
@@ -122,6 +132,9 @@ def install(
         except Exception:  # noqa: BLE001 - no persona text is a weaker prompt, not a stop
             text += "(Сведения о личности сейчас недоступны.)\n\n"
         text += WORKSPACE + ("\n" + VISIBLE if settings.files_dir else "") + "\n\n"
+        post = runtime.harness.channel if runtime.harness else None
+        if post is not None:
+            text += CHANNEL.format(rules=post.rules()) + "\n\n"
         text += "## Правила оператора\n" + rules(host.guide) + "\n"
         return text
 
@@ -166,6 +179,10 @@ def install(
     )
     from ai_agent_core.m3_composition.harness_wakes import HarnessWakes
 
+    runtime.harness.channel = channel(
+        settings, host, providers, runtime.harness.usage, model=config.live.model_id
+    )
+
     # Local, possibly personal: the agent's alarm texts never go to Git or reports.
     runtime.harness.wakes = HarnessWakes(host.root / "data" / "harness" / "wakes.json")
     runtime.autonomous_wake = None  # Native wakes own this path; do not feed the old SessionBook.
@@ -181,6 +198,50 @@ def install(
     return None
 
 
+def channel(
+    settings: HarnessConfig,
+    host: HostPaths,
+    providers: LocalProviders,
+    usage: Usage,
+    *,
+    model: str,
+) -> ChannelPost | None:
+    """The channel_post owner, when the operator configured a channel and the bot token."""
+    from ai_agent_adapters.telegram.bot import TOKEN_SETTING, TelegramBot
+    from pydantic import SecretStr
+
+    from ai_agent_core.m3_composition.harness_channel import (
+        ChannelPost,
+        ChannelSettings,
+        model_check,
+    )
+
+    token = providers.secrets.get(TOKEN_SETTING)
+    if settings.channel is None or token is None or providers.binding is None:
+        return None
+    upstream, key = providers.binding
+    voice = None
+    if settings.channel_voice is not None and "AI_PLATFORM_SONIOX_API_KEY" in providers.secrets:
+        from ai_agent_adapters.voice.soniox import SonioxAdapter
+
+        name = settings.channel_voice
+
+        async def voice(text: str) -> bytes:
+            adapter = SonioxAdapter.from_env(environ=providers.secrets)
+            try:
+                return await adapter.synthesize_ogg(text, name)
+            finally:
+                await adapter.aclose()
+
+    folder = host.root / "data" / "harness"
+    return ChannelPost(
+        ChannelSettings(settings.channel, folder / "channel-rules.txt", folder / "channel.jsonl"),
+        TelegramBot(SecretStr(token)),
+        model_check(upstream, key, model, usage),
+        voice,
+    )
+
+
 def configure(
     root: Path,
     *,
@@ -188,6 +249,7 @@ def configure(
     persona: str | None = None,
     grant: str | None = None,
     revoke: str | None = None,
+    remove_channel: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -209,6 +271,8 @@ def configure(
         changes["host_ports"] = {**current.host_ports, label: int(port)}
     if revoke is not None:
         changes["host_ports"] = {k: v for k, v in current.host_ports.items() if k != revoke}
+    if remove_channel:
+        changes.update(channel=None, channel_voice=None)
     if agent_name is not None:
         known = {config.persona_id, *(p.persona_id for p in config.additional_personas)}
         who = persona or config.persona_id

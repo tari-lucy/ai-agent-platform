@@ -23,6 +23,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from .harness_channel import ChannelPost
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -164,6 +165,7 @@ class HarnessHost:
         self.parts: list[HarnessPart] = []
         # The agent's own alarms (stage 3); set by the host wiring, read by autonomy.
         self.wakes: HarnessWakes | None = None
+        self.channel: ChannelPost | None = None
 
     def tick(self) -> None:
         if self.closed or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
@@ -279,7 +281,7 @@ class HarnessHost:
             s.image_id,
             s.port,
             self.usage.record,
-            PlatformMcp(rt, lambda: self.epoch, self.wakes).handle,
+            PlatformMcp(rt, lambda: self.epoch, self.wakes, self.channel).handle,
             tuple(s.host_ports.values()),
         )
         folder = self.folders()

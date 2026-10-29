@@ -19,6 +19,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from .harness_channel import ChannelPost
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -86,6 +87,21 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+CHANNEL_TOOL: dict[str, Any] = {
+    "name": "channel_post",
+    "description": "Опубликовать пост в свой Telegram-канал от своего имени: текстом или "
+    "голосовым (voice=true, своим голосом, до 1000 знаков). Уходит сразу, вернуть нельзя. "
+    "Перед отправкой короткая проверка на запрещённые темы; отказ проверки — данные: "
+    "перепиши или откажись от поста.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "точный текст поста"},
+            "voice": {"type": "boolean", "description": "голосовым сообщением"},
+        },
+        "required": ["text"],
+    },
+}
 
 
 class PlatformMcp:
@@ -94,8 +110,9 @@ class PlatformMcp:
         runtime: Runtime,
         epoch: Callable[[], int | None],
         wakes: HarnessWakes | None = None,
+        channel: ChannelPost | None = None,
     ) -> None:
-        self.rt, self.epoch, self.wakes = runtime, epoch, wakes
+        self.rt, self.epoch, self.wakes, self.channel = runtime, epoch, wakes, channel
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -127,7 +144,7 @@ class PlatformMcp:
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
-                result = {"tools": TOOLS}
+                result = {"tools": TOOLS + ([CHANNEL_TOOL] if self.channel else [])}
             elif method == "tools/call":
                 result = await self._call(str(params.get("name", "")), params.get("arguments"))
             else:
@@ -157,6 +174,18 @@ class PlatformMcp:
             return await self._raise(scope, a)
         if name == "tickets":
             return await self._tickets(scope, a.get("ticket_id", "").strip())
+        if name == "channel_post":
+            if self.channel is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            epoch = self.rt.supervisor.snapshot.control_epoch
+
+            def current() -> None:
+                self._current()
+                if self.rt.supervisor.snapshot.control_epoch != epoch:
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+
+            voice = a.get("voice", "").strip().lower() in ("true", "1", "yes")
+            return _text(await self.channel.post(a.get("text", ""), voice=voice, current=current))
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

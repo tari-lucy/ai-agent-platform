@@ -148,6 +148,9 @@ def parser() -> argparse.ArgumentParser:
         "--grant-host-port", metavar="NAME=PORT", help="let the agent reach this host port"
     )
     harness.add_argument("--revoke-host-port", metavar="NAME", help="withdraw a host port")
+    harness.add_argument("--channel", help="Telegram channel for posts: @name or chat id")
+    harness.add_argument("--channel-voice", help="Soniox voice for voice posts")
+    harness.add_argument("--remove-channel", action="store_true", help="no more posts")
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -518,6 +521,9 @@ def main(argv: list[str] | None = None) -> int:
                     persona=arguments.persona,
                     grant=arguments.grant_host_port,
                     revoke=arguments.revoke_host_port,
+                    remove_channel=arguments.remove_channel,
+                    channel=arguments.channel,
+                    channel_voice=arguments.channel_voice,
                     files_dir=arguments.files_dir,
                     daily_budget=arguments.daily_budget,
                     currency=arguments.currency,

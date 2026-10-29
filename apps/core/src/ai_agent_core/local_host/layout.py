@@ -337,6 +337,11 @@ class HarnessConfig(BaseModel):
         Annotated[str, Field(pattern=r"^[\w -]{1,40}$")],
         Annotated[int, Field(strict=True, ge=1024, le=65535)],
     ] = Field(default_factory=dict, max_length=8)
+    # The persona's Telegram channel (doc34 V1): @name or a numeric chat id; the bot token is
+    # AI_PLATFORM_TELEGRAM_BOT_TOKEN in the local .env. None: no channel_post tool.
+    channel: str | None = Field(default=None, pattern=r"^(@[A-Za-z0-9_]{4,32}|-?\d{5,20})$")
+    # Soniox voice for voice posts; None: text posts only.
+    channel_voice: str | None = Field(default=None, pattern=r"^[\w -]{1,40}$")
 
     @model_validator(mode="before")
     @classmethod
