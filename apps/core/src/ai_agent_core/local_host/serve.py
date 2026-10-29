@@ -230,9 +230,11 @@ def _build(
         # Callable by activity steps only with the agent's current right (checked per call).
         runtime.tool_executors.update(executors(runtime, runtime.workplace))
 
-    if config.work_sessions is not None:
+    harness_on = config.harness is not None and config.harness.enabled
+    if config.work_sessions is not None and not harness_on:
         # Explicitly prepared offline; the existing session driver over real OpenCode. Not
         # ready (no Docker/image, no activity) keeps conversations waiting, never runs them.
+        # With the doc33 harness on, its settings (image, egress, wakes) serve the harness only.
         from .work_sessions import install
 
         reason = runtime.session_unavailable = install(runtime, config, host.guide, host.egress_log)
