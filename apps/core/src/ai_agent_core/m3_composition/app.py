@@ -57,7 +57,9 @@ def create_m3_app(
             dialogue_index=dialogue_index,
             private_api_budget=private_api_budget,
         )
-        runtime.access_limits = access_limits
+        if access_limits is not None:
+            runtime.access_limits = access_limits
+            runtime.events.limits = access_limits  # one set of limits for the access surface
         return runtime
 
     return create_app(settings, runtime_factory=compose, base_scope=scopes[0], clock=clock)
