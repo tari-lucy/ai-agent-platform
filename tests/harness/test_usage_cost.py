@@ -32,3 +32,17 @@ def test_without_a_cached_rate_or_report_everything_is_full_input():
     assert Usage(settings(1.6)).cost({"input": 10000, "output": 0}) == 0.16
     # Unknown input: the conservative estimate, and a reported cache cannot discount it.
     assert Usage(settings(1.6)).cost({"cached": 32000, "output": 0}) == 32000 * 16 / 1_000_000
+
+
+def test_a_currency_switch_does_not_mix_the_day_sums(tmp_path):
+    from dataclasses import replace
+
+    rub = replace(settings(None), usage_dir=tmp_path)
+    (tmp_path / Usage(rub)._path().name).write_text(
+        '{"cost": 82.0}\n{"cost": 1.5, "currency": "RUB"}\n', encoding="utf-8"
+    )  # legacy rows had no currency: they were RUB
+    assert Usage(rub).spent() == 83.5
+    usd = Usage(replace(rub, currency="USD", daily_budget=1.0, input_rate=0.12, output_rate=0.12))
+    assert usd.spent() == 0 and usd.remaining() == 1.0
+    usd.record({"kind": "usage", "status": 200, "input": 1_000_000, "output": 0})
+    assert usd.calls() == 1 and abs(usd.spent() - 0.12) < 1e-9 and Usage(rub).spent() == 83.5

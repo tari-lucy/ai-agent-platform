@@ -100,29 +100,36 @@ class Usage:
             "output": row.get("output"),
             "cached": row.get("cached"),
             "cost": round(self.cost(row), 6),
+            "currency": self.settings.currency,
         }
         self.settings.usage_dir.mkdir(parents=True, exist_ok=True)
         with self._path().open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry) + "\n")
 
-    def calls(self) -> int:
-        try:
-            return sum(1 for line in self._path().read_text(encoding="utf-8").splitlines() if line)
-        except OSError:
-            return 0
+    def _costs(self) -> list[float]:
+        """Today's costs in the current currency: a switch (RUB -> USD) does not mix sums.
 
-    def spent(self) -> float:
+        Rows written before rows named their currency were RUB, the only currency then.
+        """
         try:
             lines = self._path().read_text(encoding="utf-8").splitlines()
         except OSError:
-            return 0.0
-        total = 0.0
+            return []
+        costs = []
         for line in lines:
             try:
-                total += float(json.loads(line)["cost"])
-            except ValueError, KeyError, TypeError:
+                entry = json.loads(line)
+                if entry.get("currency", "RUB") == self.settings.currency:
+                    costs.append(float(entry["cost"]))
+            except ValueError, KeyError, TypeError, AttributeError:
                 continue
-        return total
+        return costs
+
+    def calls(self) -> int:
+        return len(self._costs())
+
+    def spent(self) -> float:
+        return sum(self._costs())
 
     def remaining(self) -> float | None:
         if self.settings.input_rate is None or self.settings.output_rate is None:
