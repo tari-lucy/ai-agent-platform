@@ -163,7 +163,11 @@ def model_check(upstream: str, key: str, model: str, usage: Usage | None) -> Che
                 }
             ).encode(),
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+                "User-Agent": "ai-agent-platform/1.0",
+            },
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             reply: Any = json.loads(response.read(4 * 1024 * 1024))

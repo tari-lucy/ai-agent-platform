@@ -270,7 +270,12 @@ class OpenAICompatibleProvider:
             body["temperature"] = parameters.temperature
         if parameters.top_p is not None:
             body["top_p"] = parameters.top_p
-        headers = {"Authorization": f"Bearer {credential}", "Accept": "text/event-stream"}
+        headers = {
+            "Authorization": f"Bearer {credential}",
+            "Accept": "text/event-stream",
+            # Some providers sit behind Cloudflare, which refuses library defaults.
+            "User-Agent": "ai-agent-platform/1.0",
+        }
         client, owned = self._http(parameters.timeout_seconds)
         timeout = httpx.Timeout(
             parameters.timeout_seconds, connect=min(parameters.timeout_seconds, 10.0)

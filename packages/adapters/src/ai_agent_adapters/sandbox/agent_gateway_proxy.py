@@ -187,6 +187,8 @@ class Model(BaseHTTPRequestHandler):
                     "Authorization": "Bearer " + KEY,
                     "Content-Type": "application/json",
                     "Accept": "text/event-stream" if stream else "application/json",
+                    # Some providers sit behind Cloudflare, which refuses library defaults.
+                    "User-Agent": "ai-agent-platform/1.0",
                 },
             )
             response = connection.getresponse()
@@ -237,8 +239,8 @@ class Model(BaseHTTPRequestHandler):
                 "input": found.get("prompt_tokens"),
                 "output": found.get("completion_tokens"),
                 # OpenAI-style details, or the Anthropic-style field some gateways pass through.
-            "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens")
-            or found.get("cache_read_input_tokens"),
+                "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens")
+                or found.get("cache_read_input_tokens"),
             }
         )
 
