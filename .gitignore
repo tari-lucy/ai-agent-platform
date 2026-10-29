@@ -24,6 +24,9 @@ backups/
 config/local.*
 profiles/private/
 
+# Local homes, inbox and projects of running agents contain private data.
+/agent-files/
+
 # Tooling and build outputs
 .venv/
 __pycache__/
