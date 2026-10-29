@@ -21,7 +21,7 @@ import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 import { groups, screens } from './areas.ts';
-import { NativeEntry, nativeAgent, nativeHref, useNative } from './opencode.ts';
+import { HarnessEntry, NativeEntry, nativeAgent, nativeHref, useHarness, useNative } from './opencode.ts';
 
 
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
@@ -108,6 +108,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const rows = results.flatMap((result) => result.data?.items ?? []);
   const target = stopTarget(rows);
   const scope = auth.scopes.find((item) => scopeKey(item) === selected) ?? auth.scopes[0];
+  const harness = useHarness(api, scope);
   const subscribed = [scope, ...(target ? [partition(target.scope)] : [])].filter(
     (item, index, all) => all.findIndex((other) => scopeKey(other) === scopeKey(item)) === index,
   );
@@ -135,7 +136,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
     try { await onLogout(); } catch (error) { setLogoutError(failureMessage(error)); }
     finally { setLogoutBusy(false); }
   }
-  return <NativeEntry.Provider value={native}><div className="workspace">
+  return <HarnessEntry.Provider value={harness}><NativeEntry.Provider value={native}><div className="workspace">
     <a className="skip-link" href="#content">Перейти к содержимому</a>
     <header ref={header} className="workspace-header">
       <div className="header-brand"><Text className="brand">AI Agent Platform</Text><Text size="xs" c="dimmed">Пространство: {scope.workspace_id}</Text></div>
@@ -149,7 +150,16 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       </div>
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
-        {nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
+        {harness?.enabled && harness.url ? <Button component="a" href={harness.url} target="_blank" rel="noopener"
+          size="compact-sm" variant={harness.ready ? 'filled' : 'light'}
+          title={harness.ready ? 'Окно агента в OpenCode' : 'Агент не запущен: нажмите START'}>
+          Открыть OpenCode{harness.ready ? '' : ' · не запущен'}</Button>
+          : nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
+        {harness?.enabled && <Text size="xs" c={harness.spent_today != null && harness.daily_budget && harness.spent_today >= harness.daily_budget ? 'red' : 'dimmed'}
+          title="Расход модели за сегодня (UTC) по журналу шлюза агента">
+          {harness.spent_today == null ? 'Тариф не задан' :
+            `Сегодня ${harness.spent_today.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} из ${harness.daily_budget?.toLocaleString('ru-RU')} ${harness.currency === 'RUB' ? '₽' : harness.currency ?? ''} · вызовов ${harness.calls_today ?? 0}`}
+        </Text>}
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>
@@ -162,6 +172,12 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
     <main id="content" tabIndex={-1} className="main-content">
+      {harness?.notices && harness.notices.length > 0 && <Alert color="yellow" mb="lg" title="В разговорах есть удалённое из памяти">
+        {harness.notices.length === 1 ? 'Один разговор' : `Разговоров: ${harness.notices.length}`} в OpenCode
+        {' '}содержит то, что вы удалили или изменили в памяти. Пока такой разговор открыт, модель может это видеть.
+        {' '}Начните в OpenCode новый разговор и продолжайте там.
+        {harness.url && <Button component="a" href={harness.url} target="_blank" rel="noopener" variant="subtle" size="compact-sm" ml="sm">Открыть OpenCode</Button>}
+      </Alert>}
       {errors && <Alert color="orange" mb="lg" title="Часть состояния недоступна">
         Последние данные могут быть устаревшими. STOP использует отдельный HTTP-запрос.
         <Button variant="subtle" size="compact-sm" ml="sm" onClick={() => void cache.invalidateQueries({ queryKey: ['projection'] })}>Обновить данные</Button>
@@ -184,5 +200,5 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       })}
         <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
     </main>
-  </div></NativeEntry.Provider>;
+  </div></NativeEntry.Provider></HarnessEntry.Provider>;
 }

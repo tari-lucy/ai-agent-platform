@@ -7,3 +7,9 @@ export function formatTime(value: unknown, style: keyof typeof formats = 'short'
   const at = typeof value === 'string' ? Date.parse(value) : Number.NaN;
   return Number.isFinite(at) ? formats[style].format(at) : '—';
 }
+
+// D78: a right granted until revoked carries a far expiry; show it in words, not as a date.
+export function untilText(value: unknown): string {
+  const at = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(at) && new Date(at).getUTCFullYear() >= 3000 ? 'до отзыва' : 'до ' + formatTime(value, 'short');
+}

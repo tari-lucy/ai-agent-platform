@@ -2,8 +2,10 @@
 
 import asyncio
 import hashlib
+import logging
 import math
 import random
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -337,19 +339,28 @@ class JobOwner:
     async def renew(self, authority: WorkerAuthority, request: ServiceLeaseCommand) -> Lease:
         if request.type != "job.renew":
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        marks = [("start", time.monotonic())]
         async with self._lock:
+            marks.append(("lock", time.monotonic()))  # waiting behind other jobs' owner calls
             job, schedule = await self._load(request.operation_id, request.scope)
-            self._lease(job, request.lease, authority)
+            marks.append(("load", time.monotonic()))
             if await self.store.receipt(request) is not None:
+                # A replay of a renewal already saved (its caller saw an error after the write):
+                # the stored lease is the truth, so the in-memory expiry follows it first.
+                self._sync_lease(job)
                 self._lease(job, request.lease, authority)
                 command = await self.store.command(job.command_id, job.scope)
                 await self._proof(command, authority.id)
                 self._lease(job, request.lease, authority)
                 assert job.lease is not None
                 return job.lease
+            self._lease(job, request.lease, authority)
             command = await self.store.command(job.command_id, job.scope)
+            marks.append(("command", time.monotonic()))
             proof = await self._proof(command, authority.id)
+            marks.append(("proof", time.monotonic()))
             token = await self.supervisor.refresh(self._admission(command))
+            marks.append(("refresh", time.monotonic()))
             self._lease(job, request.lease, authority)
             self._proof_current(proof, command)
             lease = request.lease.model_copy(
@@ -373,7 +384,20 @@ class JobOwner:
                 previous=job,
                 attempt=Attempt(lease, "running"),
             )
+            marks.append(("save", time.monotonic()))
+            if marks[-1][1] - marks[0][1] >= 2:  # diagnostics: where a slow renewal spends time
+                logging.getLogger(__name__).warning(
+                    "Slow renewal phases: %s",
+                    " ".join(
+                        f"{name}={moment - marks[i][1]:.2f}s"
+                        for i, (name, moment) in enumerate(marks[1:])
+                    ),
+                )
             self._lease(job, request.lease, authority)  # Reject old expiry after slow DB write.
+            if self.clock.elapsed() >= proof.expires_at:
+                # The 2 s proof lapsed during a slow write (Windows): prove again in full rather
+                # than discard a lease already saved; a real revocation still fails here.
+                proof = await self._proof(command, authority.id)
             self._proof_current(proof, command)
             self._leases[lease.attempt_id] = min(
                 token.expires_at,
@@ -381,6 +405,16 @@ class JobOwner:
                 self._deadlines[job.operation_id],
             )
             return lease
+
+    def _sync_lease(self, job: Job) -> None:
+        """Align the in-memory expiry with the stored lease of the same attempt."""
+        if job.lease is None or job.lease.attempt_id not in self._leases:
+            return
+        left = (job.lease.expires_at - self.clock.utc()).total_seconds()
+        self._leases[job.lease.attempt_id] = min(
+            self.clock.elapsed() + max(0.0, min(left, self.limits.lease_seconds)),
+            self._deadlines.get(job.operation_id, math.inf),
+        )
 
     def _ack_resource(self, result: ExecutionResult) -> None:
         if result.status != "OUTCOME_UNKNOWN":

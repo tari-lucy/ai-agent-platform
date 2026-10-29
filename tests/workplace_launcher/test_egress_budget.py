@@ -80,7 +80,7 @@ def test_operator_view_is_this_personas_day_newest_first(tmp_path):
 
 def test_daily_budget_bounds():
     base = dict(image_id=IMAGE, areas=("projects",), output_area="projects")
-    assert WorkSessionsConfig.model_validate(base).egress_daily_mb == 2048
+    assert WorkSessionsConfig.model_validate(base).egress_daily_mb == 20480  # D76 rail
     assert WorkSessionsConfig.model_validate({**base, "egress_daily_mb": 0}).egress_daily_mb == 0
     with pytest.raises(ValueError):
         WorkSessionsConfig.model_validate({**base, "egress_daily_mb": -1})

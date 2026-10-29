@@ -24,6 +24,7 @@ from ai_agent_contracts.memory import Episode, MemoryCycle, Source, Summary
 from ai_agent_contracts.persona import Profile, ReflectionCheckpoint
 from ai_agent_contracts.states import ErrorCode, OperationState
 
+from . import harness_memory
 from .history import PrivateHistory
 from .schemas import JobArguments, TaskInput
 from .state import OPERATOR, PRINCIPALS, put
@@ -101,6 +102,23 @@ async def pairs(
         )
         if episode is None or not episode.outcome_confirmed:
             raise ContractError(ErrorCode.ACCESS_DENIED)
+        if harness_memory.is_harness(episode.operation_id):
+            # doc33 D82: a harness conversation has no dialogue Job; its own sources are the
+            # evidence, each current, with content and released for api_transfer.
+            for ref in episode.sources:
+                source = await rt.store.repository(Source, OPERATOR, scope).get(
+                    ref.source_id, purpose="api_transfer"
+                )
+                if (
+                    source is None
+                    or source.version != ref.version
+                    or source.content is None
+                    or source.source_type not in harness_memory.SOURCE_TYPES
+                ):
+                    raise ContractError(ErrorCode.ACCESS_DENIED)
+                sources[source.id] = source
+            episodes.append(episode)
+            continue
         for ref in episode.sources:
             current = await rt.store.repository(Source, OPERATOR, scope).get(
                 ref.source_id, purpose="api_transfer"

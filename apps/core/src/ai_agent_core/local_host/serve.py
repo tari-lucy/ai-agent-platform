@@ -140,10 +140,14 @@ def _build(
         operator_origin=f"http://{LOOPBACK}:{number}",
         operator_password_hash=SecretStr(secret),
     )
+    from ai_agent_core.access.sessions import AccessLimits
+
     app = create_m3_app(
         settings,
         store,
         registry,
+        # The personal panel on 127.0.0.1: a working day per sign-in, an hour without use.
+        access_limits=AccessLimits(session_seconds=12 * 3600, idle_seconds=3600),
         providers=factory,
         allowed_adapters=frozenset({"mock", ADAPTER_ID} if config.live else {"mock"}),
         private_api_budget=None
@@ -197,7 +201,7 @@ def _build(
         from ai_agent_core.m3_composition.permission_decisions import Ceiling
 
         runtime.permission_ceiling = {
-            key: Ceiling(value.level, value.max_days * 86400)
+            key: Ceiling(value.level, None if value.max_days is None else value.max_days * 86400)
             for key, value in config.workplace_permissions.items()
         }
     if config.live is not None and config.live.gm.enabled:
@@ -230,14 +234,30 @@ def _build(
         # Callable by activity steps only with the agent's current right (checked per call).
         runtime.tool_executors.update(executors(runtime, runtime.workplace))
 
-    if config.work_sessions is not None:
+    harness_on = config.harness is not None and config.harness.enabled
+    if config.work_sessions is not None and not harness_on:
         # Explicitly prepared offline; the existing session driver over real OpenCode. Not
         # ready (no Docker/image, no activity) keeps conversations waiting, never runs them.
+        # With the doc33 harness on, its settings (image, egress, wakes) serve the harness only.
         from .work_sessions import install
 
         reason = runtime.session_unavailable = install(runtime, config, host.guide, host.egress_log)
         if reason is not None:
             print(f"NOTICE: work conversations unavailable: {reason}", file=sys.stderr)
+
+    if config.harness is not None:
+        # doc33: the persona's own OpenCode server; it replaces the old work loop while on.
+        from .harness import install as install_harness
+
+        reason = install_harness(runtime, config, host, factory)
+        if reason is not None:
+            print(f"NOTICE: harness unavailable: {reason}", file=sys.stderr)
+        elif runtime.harness is not None:
+            print(
+                f"Harness: opencode attach http://127.0.0.1:{config.harness.port} "
+                "(after START; password in data/harness/password)",
+                file=sys.stderr,
+            )
 
     if config.live is not None and config.operator_controls:
         from .live_budget import LiveBudget

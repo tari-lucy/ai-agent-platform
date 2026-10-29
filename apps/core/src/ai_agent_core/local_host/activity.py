@@ -35,6 +35,8 @@ from .layout import (
 from .process import exclusive_host
 
 KIND = "activity"
+# D76: the job of one long work turn; the turn's own wall time (4 h by default) ends it first.
+ACTIVITY_TIMEOUT_MS = 86_400_000
 
 
 async def configure_activity(root: Path, **changes: object) -> ActivityConfig:
@@ -64,7 +66,26 @@ async def configure_activity(root: Path, **changes: object) -> ActivityConfig:
         operator = (RecordAccess("operator", api_transfer=True),)
         try:
             workspace = PRINCIPALS[Owner.WORKSPACE]
-            if await store.repository(Capability, workspace, scope).get("m3." + KIND) is None:
+            existing = await store.repository(Capability, workspace, scope).get("m3." + KIND)
+            if existing is not None and existing.timeout_ms != ACTIVITY_TIMEOUT_MS:
+                # D76: hosts prepared with the old 3-minute job limit get the long work turn.
+                await put(
+                    store,
+                    registry,
+                    Owner.WORKSPACE,
+                    scope,
+                    f"activity-capability-timeout-{existing.version}",
+                    existing.model_copy(
+                        update={
+                            "timeout_ms": ACTIVITY_TIMEOUT_MS,
+                            "version": existing.version + 1,
+                            "updated_at": now,
+                        }
+                    ),
+                    existing.version,
+                    llm_access,
+                )
+            if existing is None:
                 capability = record(
                     registry,
                     Capability,
@@ -77,7 +98,7 @@ async def configure_activity(root: Path, **changes: object) -> ActivityConfig:
                     effect="local_write",
                     required_permissions=["permit-" + KIND],
                     resource_ids=["background", "llm"],
-                    timeout_ms=180000,
+                    timeout_ms=ACTIVITY_TIMEOUT_MS,
                     cancellation_supported=True,
                     idempotency="supported",
                     health="ready",

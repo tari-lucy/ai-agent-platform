@@ -48,6 +48,9 @@ SESSION_LIMITS = (
     "max_model_calls",
     "max_model_tokens",
     "max_workspace_calls",
+    "max_input_bytes",
+    "max_prompt_chars",
+    "output_bytes",
 )
 
 HELPER_LIMITS = (
@@ -127,10 +130,37 @@ def parser() -> argparse.ArgumentParser:
     budget.add_argument("--period", choices=("lifetime", "utc_day"), required=True)
     prompt = commands.add_parser(
         "configure-prompt-limit",
-        help="explicit offline live prompt size cap (1000..40000 chars); stop the server first",
+        help="offline live limits (prompt chars, output tokens, timeout); stop the server first",
     )
     prompt.add_argument("--root", type=Path, required=True)
-    prompt.add_argument("--max-prompt-chars", type=int, required=True)
+    prompt.add_argument("--max-prompt-chars", type=int)
+    prompt.add_argument("--max-output-tokens", type=int)
+    prompt.add_argument("--timeout-seconds", type=float)
+    harness = commands.add_parser(
+        "configure-harness",
+        help="offline doc33 harness: own OpenCode server, budget and rates; stop the server first",
+    )
+    harness.add_argument("--root", type=Path, required=True)
+    harness.add_argument("--port", type=int)
+    harness.add_argument("--agent-name", help="the persona's name shown in OpenCode")
+    harness.add_argument("--persona", help="persona id for --agent-name (default: main)")
+    harness.add_argument(
+        "--grant-host-port", metavar="NAME=PORT", help="let the agent reach this host port"
+    )
+    harness.add_argument("--revoke-host-port", metavar="NAME", help="withdraw a host port")
+    harness.add_argument("--channel", help="Telegram channel for posts: @name or chat id")
+    harness.add_argument("--channel-voice", help="Soniox voice for voice posts")
+    harness.add_argument("--remove-channel", action="store_true", help="no more posts")
+    harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
+    harness.add_argument("--daily-budget", type=float)
+    harness.add_argument("--currency")
+    harness.add_argument("--input-rate", type=float, help="per 1M input tokens")
+    harness.add_argument("--output-rate", type=float, help="per 1M output tokens")
+    harness.add_argument("--cached-rate", type=float, help="per 1M cached input tokens")
+    harness.add_argument("--context-tokens", type=int)
+    harness.add_argument("--output-tokens", type=int)
+    harness.add_argument("--memory-mb", type=int)
+    harness.add_argument("--disable", action="store_true")
     memory = commands.add_parser(
         "enable-memory", help="explicit offline automatic memory admission"
     )
@@ -153,7 +183,7 @@ def parser() -> argparse.ArgumentParser:
     files.add_argument(
         "--ceiling-days",
         type=int,
-        help="let the operator grant these capabilities up to N days (needs enable-tickets)",
+        help="operator may grant these capabilities up to N days; 0: until revoked (needs tickets)",
     )
     files.add_argument("--max-file-bytes", type=int)
     files.add_argument("--max-scope-bytes", type=int)
@@ -181,7 +211,7 @@ def parser() -> argparse.ArgumentParser:
     sessions.add_argument(
         "--ceiling-days",
         type=int,
-        help="let the operator grant the capability up to N days",
+        help="let the operator grant the capability up to N days; 0: until revoked",
     )
     for name in SESSION_LIMITS:
         sessions.add_argument("--" + name.replace("_", "-"), type=int)
@@ -470,8 +500,49 @@ def main(argv: list[str] | None = None) -> int:
             print("work conversations ready: Docker and the pinned OpenCode image found")
             return 0
         if arguments.command == "configure-prompt-limit":
-            configure_prompt_limit(arguments.root, max_prompt_chars=arguments.max_prompt_chars)
-            print("Live prompt limit configured; restart remains STOPPED")
+            configure_prompt_limit(
+                arguments.root,
+                max_prompt_chars=arguments.max_prompt_chars,
+                max_output_tokens=arguments.max_output_tokens,
+                timeout_seconds=arguments.timeout_seconds,
+            )
+            print("Live limits configured; run configure-activity to apply; stays STOPPED")
+            return 0
+        if arguments.command == "configure-harness":
+            from .harness import configure as configure_harness
+            from .harness import password_file
+
+            try:
+                configured = configure_harness(
+                    arguments.root,
+                    enabled=False if arguments.disable else True,
+                    port=arguments.port,
+                    agent_name=arguments.agent_name,
+                    persona=arguments.persona,
+                    grant=arguments.grant_host_port,
+                    revoke=arguments.revoke_host_port,
+                    remove_channel=arguments.remove_channel,
+                    channel=arguments.channel,
+                    channel_voice=arguments.channel_voice,
+                    files_dir=arguments.files_dir,
+                    daily_budget=arguments.daily_budget,
+                    currency=arguments.currency,
+                    input_rate=arguments.input_rate,
+                    output_rate=arguments.output_rate,
+                    cached_rate=arguments.cached_rate,
+                    context_tokens=arguments.context_tokens,
+                    output_tokens=arguments.output_tokens,
+                    memory_mb=arguments.memory_mb,
+                )
+            except ValidationError:
+                raise HostError("INVALID_OPTION") from None
+            rates = configured.input_rate is not None and configured.output_rate is not None
+            print(
+                f"Harness {'enabled' if configured.enabled else 'disabled'}: "
+                f"port {configured.port}, {configured.daily_budget:g} {configured.currency}/day"
+                + ("" if rates else "; set --input-rate and --output-rate before use")
+            )
+            print(f"Password file: {password_file(paths(arguments.root))}")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)

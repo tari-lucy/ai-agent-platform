@@ -66,17 +66,18 @@ export type Level = 'prepare_only' | 'operator_decision' | 'automatic';
 export const levelLabels: Record<Level, string> = {
   prepare_only: 'Только подготовка', operator_decision: 'С решением оператора', automatic: 'Автоматически',
 };
-export type Decision = { bindingId: string; level: Level; days: number; areas: string[]; constraints: string };
+// days: null grants until revoked (the default, D78); a number is the term the operator chose.
+export type Decision = { bindingId: string; level: Level; days: number | null; areas: string[]; constraints: string };
 export function decisionProblem(decision: Decision, bindings: CapabilityBinding[]): string | null {
   if (!bindings.some((row) => row.binding_id === decision.bindingId)) return 'Выберите подключение.';
-  if (!Number.isInteger(decision.days) || decision.days < 1 || decision.days > 365) return 'Срок — от 1 до 365 дней.';
+  if (decision.days !== null && (!Number.isInteger(decision.days) || decision.days < 1 || decision.days > 365)) return 'Срок — от 1 до 365 дней.';
   if (decision.constraints.length > 4000) return 'Ограничения длиннее 4000 символов.';
   return null;
 }
 export const grantPreview = (scope: Scope, ticket: Ticket, decision: Decision, requestId: string): PlanCommand => {
   const data: PermissionDecisionArguments = {
     action: 'grant', capability_id: ticket.request!.capability_id, binding_id: decision.bindingId, ticket_id: ticket.id,
-    ticket_version: ticket.version, level: decision.level, duration_seconds: decision.days * 86400, areas: decision.areas as PermissionDecisionArguments['areas'],
+    ticket_version: ticket.version, level: decision.level, duration_seconds: decision.days === null ? null : decision.days * 86400, areas: decision.areas as PermissionDecisionArguments['areas'],
     constraints: decision.constraints.trim(),
   };
   return { type: 'permission.decision.preview', request_id: requestId, scope: area(scope), target: data.capability_id,
@@ -129,7 +130,7 @@ export function proposedDecision(ticket: Ticket, manifest: CapabilityManifest, b
   const request = ticket.request!;
   const allowed = (manifest.areas ?? []) as string[];
   const asked = (request.areas ?? []).filter((item) => allowed.includes(item));
-  const days = request.duration_seconds ? Math.min(365, Math.max(1, Math.ceil(request.duration_seconds / 86400))) : 7;
+  const days = request.duration_seconds ? Math.min(365, Math.max(1, Math.ceil(request.duration_seconds / 86400))) : null;
   return {
     bindingId: binding?.binding_id ?? '', level: manifest.effect === 'public_output' ? 'operator_decision' : 'automatic',
     days, areas: asked.length ? asked : [...allowed], constraints: request.constraints,

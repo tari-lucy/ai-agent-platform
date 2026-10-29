@@ -22,6 +22,8 @@ export function RunPowerControl({ api, run, state, ready, stopBusy, stopError, o
   const unresolved = !!attempt && (!run || !samePartition(run.scope, attempt.command.scope) ||
     (run.run_id === attempt.command.scope.run_id && run.version <= (attempt.command.expected_version ?? 0)));
   const showStart = state === 'STOPPED' && !unresolved && !stopBusy && !stopError;
+  // STOP was accepted and the owner is removing the sandbox: nothing to press again.
+  const stopping = state === 'STOPPING';
   const canStart = !!run && ready && run.state === 'STOPPED' && (run.unconfirmed_resource_ids?.length ?? 0) === 0;
 
   async function start(command: ControlCommand) {
@@ -52,12 +54,13 @@ export function RunPowerControl({ api, run, state, ready, stopBusy, stopError, o
     <Button className={showStart ? 'start-button' : 'stop-button'} color={showStart ? 'teal' : 'red'} size="md"
       aria-label={showStart ? 'START — запустить агента' : 'STOP — остановить активного агента'}
       title={showStart ? canStart ? 'Запустить общение с персонажем' : 'Обновляем подтверждённое состояние ядра' : 'Остановить агента'}
-      disabled={showStart ? !canStart : !run || stopBusy}
+      disabled={showStart ? !canStart : !run || stopBusy || stopping}
       onClick={() => {
         if (showStart) {
           if (canStart && run) void start(controlCommand(run, 'agent.start', 'autonomous', crypto.randomUUID()));
         } else void stop();
-      }}>{showStart ? 'START' : stopBusy ? 'Останавливаем…' : 'STOP'}</Button>
+      }}>{showStart ? 'START' : stopBusy || stopping ? 'Останавливаем…' : 'STOP'}</Button>
+    {stopping && <Text size="xs" c="dimmed" role="status">STOP принят: убираем контейнер и шлюз, это несколько секунд.</Text>}
     {unresolved && !unknown && <Text size="xs" c="dimmed" role="status">Запускаем… STOP доступен.</Text>}
     {error && <Alert color="orange" title={unknown ? 'Результат запуска неизвестен' : 'Запуск не выполнен'} maw={360}>
       {error}

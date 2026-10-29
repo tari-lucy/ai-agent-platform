@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass, replace
@@ -39,7 +40,7 @@ from ai_agent_application.llm import (
     LLMGateway,
     ProviderFactory,
 )
-from ai_agent_application.llm.model import prompt_size
+from ai_agent_application.llm.model import RETRYABLE, prompt_size
 from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.memory.service import derived_id
@@ -101,6 +102,7 @@ DOMAIN_OWNERS = frozenset(
 if TYPE_CHECKING:
     from ai_agent_adapters.sandbox.home_files import HomeFiles
 
+    from .harness_host import HarnessHost
     from .work_session_cpu import CpuSettings
     from .work_session_egress import EgressSettings
     from .work_session_wake import AutonomousWake
@@ -188,7 +190,7 @@ class PrivateAPIBudget:
             raise ValueError("PRIVATE_API_PERIOD")
         if not self.connection_id or type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("PRIVATE_API_BUDGET")
-        if not 1000 <= self.max_prompt_chars <= 40000:
+        if not 1000 <= self.max_prompt_chars <= 2_000_000:
             raise ValueError("PRIVATE_API_PROMPT_LIMIT")
         if type(self.memory_processing) is not bool or type(self.memory_daily_calls) is not int:
             raise ValueError("PRIVATE_MEMORY_BUDGET")
@@ -366,6 +368,8 @@ class Runtime:
         from .work_session_runtime import HarnessFactory
 
         self.session_prewarmer: SessionPrewarmer | None = None
+        # doc33: the persona's own harness; when set, it is the agent's only work loop.
+        self.harness: HarnessHost | None = None
         self.session_harness: HarnessFactory | None = None
         self.session_capability: str | None = None
         self.session_output_area: str | None = None
@@ -402,6 +406,8 @@ class Runtime:
         from ai_agent_core.access.sessions import AccessLimits
 
         self.events = Events(AccessLimits())
+        # Operator sign-in lifetime; None keeps the access defaults (1 h, 15 min idle).
+        self.access_limits: AccessLimits | None = None
         self.reports = reports
         if lab is not None and reports is not None:
             if lab.storage is not store or reports.storage is not store:
@@ -508,6 +514,7 @@ class Runtime:
             extensions=self.registry,
             scopes=self.scopes,
             home=HomeView(self),
+            limits=self.access_limits,
         )
 
     async def open(self) -> None:
@@ -589,6 +596,8 @@ class Runtime:
             await self.state.checkpoint_time(self.supervisor.snapshot.scope, self.active_seconds())
         if self.session_prewarmer is not None:
             await self.session_prewarmer.close()
+        if self.harness is not None:
+            await self.harness.close()
         await self.supervisor.flush()
         if self.maintenance is not None:
             await self.maintenance.close()
@@ -641,27 +650,48 @@ class Runtime:
                 self._heartbeat = await self.supervisor.refresh(self._heartbeat)
             except ContractError:
                 self._heartbeat = None
+                # A STOP (or pause) between the state check and the refresh revokes the
+                # heartbeat: that is the STOP itself, not a fault of a run already stopping.
+                if self.supervisor.snapshot.state != RunState.ACTIVE:
+                    return
                 self.supervisor.critical_failure(ErrorCode.STALE_CONTEXT)
                 raise
             self._refresh_at = now + 5
         if now >= self._reconcile_at:
+            started = time.monotonic()
             await self.jobs.reconcile()
+            self._slow("reconcile", started)
             self._reconcile_at = now + 5
         if self._active is not None:
             if not self._active.done():
                 return
-            self._active.result()
-            self._active = None
-        if self.session_prewarmer is not None:
+            active, self._active = self._active, None
+            try:
+                active.result()
+            except ContractError:
+                # A job claimed or settled just as the run left ACTIVE (STOP) is refused by
+                # its own checks; only a refusal while the run is still active is a fault.
+                if self.supervisor.snapshot.state == RunState.ACTIVE:
+                    raise
+        if self.harness is not None:
+            self.harness.tick()
+        elif self.session_prewarmer is not None:
             self.session_prewarmer.tick()
+        started = time.monotonic()
         await self.daily_memory.tick()
+        self._slow("daily_memory", started)
+        started = time.monotonic()
         await self.autonomous_gm.tick()
+        self._slow("gm", started)
         if self.autonomous_wake is not None:
             try:
                 await self.autonomous_wake.tick()
             except ContractError as error:
                 logging.getLogger(__name__).info("Wake tick skipped: %s", error.error.code.value)
-        await self.autonomous_activity.tick()
+        started = time.monotonic()
+        if self.harness is None:  # the harness runs its own loop; no second brain beside it
+            await self.autonomous_activity.tick()
+        self._slow("activity", started)
         page = await self.jobs.store.active(limit=50)
         for job, schedule in page.items:
             if (
@@ -672,6 +702,13 @@ class Runtime:
                 self._active = asyncio.create_task(self.execute(job))
                 self._active.add_done_callback(lambda _: self.wake())
                 break
+
+    @staticmethod
+    def _slow(step: str, started: float) -> None:
+        """Diagnostics: a tick step long enough to starve heartbeat and lease refreshes."""
+        spent = time.monotonic() - started
+        if spent >= 5:
+            logging.getLogger(__name__).warning("Slow runtime tick step %s: %.2fs", step, spent)
 
     def authorize_submission(
         self, authority: ControlAuthority | None, scope: Scope, request: TaskInput
@@ -1299,15 +1336,41 @@ class Execution:
         self.extra_sources: tuple[SourceRef, ...] = ()
         # The fixed code of the last live call this job refused before the provider, if any.
         self.refusal: str | None = None
+        # Why this job lost its admission (logged once), if it did.
+        self.lost_reason: str | None = None
 
     def guard(self) -> None:
         if self.cancel.is_set() or self.runtime.supervisor.clock.utc() >= self.lease.expires_at:
+            if not self.cancel.is_set():  # our own cancel also ends every job normally
+                self._lost("JOB_LEASE_EXPIRED")
             raise ContractError(ErrorCode.STALE_CONTEXT)
-        self.runtime.supervisor.resolve(
-            self.command.cancellation_id, scope=self.command.scope, freshness=self.command.freshness
-        )
+        try:
+            self.runtime.supervisor.resolve(
+                self.command.cancellation_id,
+                scope=self.command.scope,
+                freshness=self.command.freshness,
+            )
+        except ContractError:
+            self._lost(
+                self.runtime.supervisor.lost(self.command.cancellation_id, self.command.freshness)
+            )
+            raise
         if self.budget is not None:
-            self.runtime.scheduler.verify(self.budget)
+            try:
+                self.runtime.scheduler.verify(self.budget)
+            except ContractError as error:
+                self._lost("RESOURCE_LEASE_" + error.error.code.value)
+                raise
+
+    def _lost(self, reason: str) -> None:
+        """Log once per job why it lost its admission: a fixed code, never data."""
+        if getattr(self, "lost_reason", None) is None:
+            self.lost_reason = reason
+            logging.getLogger(__name__).warning(
+                "Job admission lost: %s kind=%s",
+                reason,
+                getattr(getattr(self, "args", None), "request", None) and self.args.request.kind,
+            )
 
     def allowed(self) -> bool:
         try:
@@ -1356,7 +1419,13 @@ class Execution:
                 )
                 for attempt in range(RENEW_ATTEMPTS):
                     try:
+                        started = time.monotonic()
                         self.lease = await self.runtime.jobs.renew(self.runtime.worker, request)
+                        spent = time.monotonic() - started
+                        if spent >= 2:  # diagnostics: a 20 s lease lapses behind slow renewals
+                            logging.getLogger(__name__).warning(
+                                "Slow job lease renewal: %.2fs (attempt %d)", spent, attempt + 1
+                            )
                         break
                     except ContractError as error:
                         # The 2 s policy proof can lapse during a slow write of the renewal
@@ -1368,7 +1437,9 @@ class Execution:
                         ):
                             raise
                         self.guard()
-        except ContractError:
+        except ContractError as error:
+            if not self.cancel.is_set():
+                self._lost("JOB_RENEW_FAILED:" + error.error.code.value)
             self.cancel.set()
 
     async def begin(self, report: AttemptReport) -> None:
@@ -1509,7 +1580,11 @@ class Execution:
             journal=self,
             admission=self.allowed,
             clock=self.runtime.supervisor.clock.utc,
-            max_attempts=1 if live else 2,
+            # A paid call retries once only a dropped connection or a provider server error,
+            # and only when nothing was streamed yet: one blip no longer ends a long work turn.
+            # A rate limit is not retried (the provider asked to wait; it would spend budget).
+            max_attempts=2,
+            retryable=frozenset({Failure.TRANSIENT, Failure.TIMEOUT}) if live else RETRYABLE,
         )
         result = await gateway.generate(
             replace(request, operation_id=unique), self.cancel, on_delta=on_delta

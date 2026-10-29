@@ -1,13 +1,20 @@
 """One operator decision for the configured initial workplace, not a wildcard permission."""
 
+from datetime import UTC as UTC_ZONE
+from datetime import datetime
+
 from pydantic import Field
 
 from .agent_workplace import WorkplaceArea
 from .common import UTC, Contract, Id, Scope, Text, Version, VersionedRecord
 
+# D78: a right "until revoked" carries this far expiry, so every existing expiry check holds.
+STANDING_UNTIL = datetime(3000, 1, 1, tzinfo=UTC_ZONE)
+
 
 class InitialAccessArguments(Contract):
-    duration_seconds: int = Field(strict=True, ge=60, le=31_536_000)
+    # None (the default): until revoked (D78); a number is the term the operator chose.
+    duration_seconds: int | None = Field(default=None, strict=True, ge=60, le=31_536_000)
     constraints: Text = ""
 
 
@@ -46,5 +53,7 @@ class InitialAccessStatus(Contract):
     configured: bool
     ready: bool
     max_duration_seconds: int = Field(strict=True, ge=0, le=31_536_000)
+    # The host lets this set be granted until revoked (D78); then any term is allowed too.
+    standing: bool = Field(default=False, strict=True)
     members: list[InitialAccessCapability] = Field(max_length=8)
     unavailable_reason: Id | None = None

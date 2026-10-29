@@ -105,7 +105,8 @@ def template(settings: WorkSessionsConfig) -> RunnerTemplate:
         settings.image_id,
         PREFIX,
         RunnerLimits(
-            settings.cpu_seconds,
+            # With --cpus=1 a turn cannot use more CPU than its wall time.
+            min(settings.cpu_seconds, settings.wall_seconds),
             settings.memory_mb,
             settings.pids,
             settings.wall_seconds,
@@ -368,15 +369,15 @@ async def enable_work_sessions(
         ceilings = dict(config.workplace_permissions or {})
         if ceiling_days is not None:
             ceilings[settings.capability_id] = PermissionCeiling(
-                level="automatic", max_days=ceiling_days
+                level="automatic", max_days=ceiling_days or None
             )
             if scripts(settings):
                 ceilings[settings.helper_capability_id] = PermissionCeiling(
-                    level="automatic", max_days=ceiling_days
+                    level="automatic", max_days=ceiling_days or None
                 )
             if settings.egress_enabled:
                 ceilings[settings.egress_capability_id] = PermissionCeiling(
-                    level="automatic", max_days=ceiling_days
+                    level="automatic", max_days=ceiling_days or None
                 )
         if settings.home_enabled:
             # W7b: the script container is frozen with a home; not part of the starter set.

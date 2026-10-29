@@ -15,7 +15,7 @@ import {
 } from './model.ts';
 import { historyNote, PAGE_BUDGET, PAGE_BUDGET_MAX, walk, type Page } from './history.ts';
 import { Timeline } from './Timeline.tsx';
-import { nativeAgent, nativeHref, useNativeEntry } from '../opencode.ts';
+import { nativeAgent, nativeHref, useHarnessEntry, useNativeEntry } from '../opencode.ts';
 
 const when = (value: string) => formatTime(value, 'medium');
 
@@ -189,6 +189,8 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
   const online = useReconnect(scope);
   const native = useNativeEntry();
   const agent = nativeAgent(native, scope);
+  const harness = useHarnessEntry();
+  const nativeUrl = harness?.enabled && harness.url ? harness.url : agent ? nativeHref(agent.directory) : null;
   const [budget, setBudget] = useState(PAGE_BUDGET);
   const [watching, setWatching] = useState(false);
   useEffect(() => {
@@ -324,7 +326,7 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
     {budgetStatus.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
     {native ? <Alert color="blue" title="Разговор теперь в OpenCode">
       Здесь — только чтение прежнего диалога. Новое сообщение напишите в{' '}
-      {agent ? <Anchor href={nativeHref(agent.directory)}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
+      {nativeUrl ? <Anchor href={nativeUrl} target={harness?.enabled ? '_blank' : undefined}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
     </Alert> : <>
     <Composer api={api} run={run} scope={scope} operationRows={operationRows} utteranceRows={utteranceRows}
       onSent={() => setWatching(true)}

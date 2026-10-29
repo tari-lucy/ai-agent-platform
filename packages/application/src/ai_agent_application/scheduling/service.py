@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from collections import OrderedDict
 from dataclasses import dataclass
 from threading import get_ident
@@ -203,6 +204,12 @@ class ResourceScheduler:
                     raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
             except ContractError as error:
                 if work.state == BudgetState.RUNNING:
+                    # Diagnostics: the running job loses its resources here, silently otherwise.
+                    logging.getLogger(__name__).warning(
+                        "Resource lease cancelled: %s capability=%s",
+                        error.error.code.value,
+                        work.request.capability_id,
+                    )
                     work.state, work.error = BudgetState.CANCELLING, error.error.code
                     work.cancellation_at = self.clock.elapsed()
                     self.telemetry.emit(
@@ -267,7 +274,8 @@ class ResourceScheduler:
                     raise ContractError(code)
         if len(self._pending) >= self.limits.pending:
             raise ContractError(ErrorCode.RESOURCE_BUSY)
-        remaining = min(180.0, (command.deadline - self.clock.utc()).total_seconds())
+        # D76: a long work turn holds its resources up to its job deadline (24 h rail).
+        remaining = min(86400.0, (command.deadline - self.clock.utc()).total_seconds())
         now = self.clock.elapsed()
         request = Request(
             uuid4().hex,

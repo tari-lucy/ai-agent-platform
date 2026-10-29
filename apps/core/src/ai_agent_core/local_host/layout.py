@@ -10,7 +10,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from ai_agent_adapters.local_files import PrivatePathError, restrict_private
 from ai_agent_adapters.storage.policy import scope_key
@@ -74,10 +74,11 @@ class LiveConfig(BaseModel):
     budget_receipt: ApiLimitChange | None = None
     memory_processing: bool = Field(default=False, strict=True)
     memory_daily_calls: int = Field(default=8, strict=True, ge=3, le=32)
-    max_output_tokens: int = Field(default=512, strict=True, ge=32, le=1024)
-    # A work turn with the home and internet sends ~22k of tools and environment text alone.
-    max_prompt_chars: int = Field(default=40000, strict=True, ge=1000, le=40000)
-    timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    max_output_tokens: int = Field(default=8192, strict=True, ge=32, le=65536)
+    # A work turn with the home and internet sends ~22k of tools and environment text alone;
+    # D76: a technical rail, the provider's context window and money bound it in practice.
+    max_prompt_chars: int = Field(default=400000, strict=True, ge=1000, le=2000000)
+    timeout_seconds: float = Field(default=300.0, gt=0, le=300)
     http_keepalive_seconds: int = Field(default=120, strict=True, ge=0, le=3600)
     gm: GmConfig = Field(default_factory=GmConfig)
     activity: ActivityConfig = Field(default_factory=ActivityConfig)
@@ -174,7 +175,8 @@ class PermissionCeiling(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     level: Literal["prepare_only", "operator_decision", "automatic"]
-    max_days: int = Field(ge=1, le=365)
+    # None: no limit on the term, rights may be granted until revoked (D78).
+    max_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class WorkplaceFilesConfig(BaseModel):
@@ -209,17 +211,19 @@ class WorkSessionsConfig(BaseModel):
     areas: tuple[WorkplaceArea, ...] = Field(min_length=1, max_length=8)
     output_area: WorkplaceArea
     memory_mb: int = Field(default=1024, strict=True, ge=256, le=8192)
-    pids: int = Field(default=128, strict=True, ge=16, le=1024)
-    cpu_seconds: int = Field(default=60, strict=True, ge=5, le=3600)
-    wall_seconds: int = Field(default=120, strict=True, ge=10, le=3600)
+    pids: int = Field(default=1024, strict=True, ge=16, le=8192)
+    # D76: technical rails of one turn (4 h by default, 24 h at most); money bounds spending.
+    cpu_seconds: int = Field(default=14400, strict=True, ge=5, le=86400)
+    wall_seconds: int = Field(default=14400, strict=True, ge=10, le=86400)
     disk_mb: int = Field(default=32, strict=True, ge=8, le=1024)
-    output_bytes: int = Field(default=65536, strict=True, ge=1024, le=1048576)
-    max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=16777216)
+    # Result files of one turn, carried back through the trusted frame (D76: 16 MiB, rail 64).
+    output_bytes: int = Field(default=16777216, strict=True, ge=1024, le=67108864)
+    max_input_bytes: int = Field(default=262144, strict=True, ge=1024, le=134217728)
     max_files: int = Field(default=16, strict=True, ge=1, le=200)
-    max_model_calls: int = Field(default=6, strict=True, ge=1, le=16)
-    max_prompt_chars: int = Field(default=100000, strict=True, ge=1000, le=100000)
-    max_model_tokens: int = Field(default=1024, strict=True, ge=64, le=65536)
-    max_workspace_calls: int = Field(default=16, strict=True, ge=0, le=64)
+    max_model_calls: int = Field(default=200, strict=True, ge=1, le=1000)
+    max_prompt_chars: int = Field(default=400000, strict=True, ge=1000, le=2000000)
+    max_model_tokens: int = Field(default=8192, strict=True, ge=64, le=65536)
+    max_workspace_calls: int = Field(default=1000, strict=True, ge=0, le=10000)
     monitor_interval_seconds: float = Field(default=1.0, strict=True, ge=0.1, le=1.0)
     prewarm_enabled: bool = Field(default=False, strict=True)
     prewarm_idle_seconds: int = Field(default=120, strict=True, ge=10, le=300)
@@ -258,10 +262,10 @@ class WorkSessionsConfig(BaseModel):
     egress_capability_id: str = Field(
         default="workplace.internet", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
     )
-    egress_max_mb: int = Field(default=256, strict=True, ge=1, le=65536)
+    egress_max_mb: int = Field(default=4096, strict=True, ge=1, le=65536)
     egress_connections: int = Field(default=32, strict=True, ge=1, le=256)
     # W3b: traffic per persona per UTC day across all turns; 0 leaves only the per-turn limit.
-    egress_daily_mb: int = Field(default=2048, strict=True, ge=0, le=1048576)
+    egress_daily_mb: int = Field(default=20480, strict=True, ge=0, le=1048576)
     # W7b: CPU minutes per persona per UTC day for its own wake-ups; 0 turns the budget off.
     cpu_daily_minutes: int = Field(default=240, strict=True, ge=0, le=1440)
     egress_deny: tuple[str, ...] = Field(default=(), max_length=64)
@@ -272,7 +276,6 @@ class WorkSessionsConfig(BaseModel):
             self.output_area not in self.areas
             or self.output_area not in WRITABLE_AREAS
             or len(set(self.areas)) != len(self.areas)
-            or self.cpu_seconds > self.wall_seconds
         ):
             raise ValueError("WORK_SESSIONS_LIMITS")
         if self.egress_enabled and self.egress_capability_id in {
@@ -301,6 +304,52 @@ class InactivePersona(BaseModel):
     persona_id: str = Field(pattern=IDENTIFIER)
     work_space_id: str = Field(pattern=IDENTIFIER)
     profile_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class HarnessConfig(BaseModel):
+    """doc33 stage 1: the persona's own OpenCode server, attached to directly by the operator.
+
+    Rates are per 1M tokens in the budget currency; without them no model call is admitted
+    (an unknown price is never zero). Grants no right beyond the work sessions' image.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: bool = Field(default=True, strict=True)
+    port: int = Field(default=4096, strict=True, ge=1024, le=65535)
+    # The name the operator sees in OpenCode, per persona id (the persona's own name).
+    agent_names: dict[str, Annotated[str, Field(pattern=r"^[\w-]{1,40}$")]] = Field(
+        default_factory=dict, max_length=64
+    )
+    # Base of the operator's folders on the host disk: <base>/<persona id>/{inbox,share};
+    # None keeps them inside the volume. A path without a comma (a Docker mount separator).
+    files_dir: str | None = Field(default=None, max_length=400, pattern=r"^[^,]+$")
+    daily_budget: float = Field(default=3000.0, ge=0, le=1_000_000)
+    currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
+    input_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    output_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    cached_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
+    output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
+    memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
+    # Operator-granted connections to this computer's own ports (name -> port): the agent
+    # reaches only these, through its gateway. Empty grants nothing.
+    host_ports: dict[
+        Annotated[str, Field(pattern=r"^[\w -]{1,40}$")],
+        Annotated[int, Field(strict=True, ge=1024, le=65535)],
+    ] = Field(default_factory=dict, max_length=8)
+    # The persona's Telegram channel (doc34 V1): @name or a numeric chat id; the bot token is
+    # AI_PLATFORM_TELEGRAM_BOT_TOKEN in the local .env. None: no channel_post tool.
+    channel: str | None = Field(default=None, pattern=r"^(@[A-Za-z0-9_]{4,32}|-?\d{5,20})$")
+    # Soniox voice for voice posts; None: text posts only.
+    channel_voice: str | None = Field(default=None, pattern=r"^[\w -]{1,40}$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy(cls, data: Any) -> Any:
+        # A single agent_name of the first stage-1 build; configure-harness sets agent_names.
+        if isinstance(data, dict) and "agent_name" in data:
+            data = {key: value for key, value in data.items() if key != "agent_name"}
+        return data
 
 
 class HostConfig(BaseModel):
@@ -333,6 +382,8 @@ class HostConfig(BaseModel):
     workplace_files: WorkplaceFilesConfig | None = None
     # Work conversations through real OpenCode only after `enable-work-sessions`; off otherwise.
     work_sessions: WorkSessionsConfig | None = None
+    # doc33 harness only after `configure-harness`; off otherwise.
+    harness: HarnessConfig | None = None
 
     @model_validator(mode="after")
     def scope_layout(self) -> Self:

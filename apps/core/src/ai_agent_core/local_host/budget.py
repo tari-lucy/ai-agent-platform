@@ -23,14 +23,27 @@ def configure_budget(root: Path, *, limit: int, period: Literal["lifetime", "utc
         _write(root, data)
 
 
-def configure_prompt_limit(root: Path, *, max_prompt_chars: int) -> None:
-    """The largest live prompt in characters (1000..40000); no grant or usage changes."""
+def configure_prompt_limit(
+    root: Path,
+    *,
+    max_prompt_chars: int | None = None,
+    max_output_tokens: int | None = None,
+    timeout_seconds: float | None = None,
+) -> None:
+    """Live technical rails (prompt chars, output tokens per call, provider timeout); no grant
+    or usage changes. Run configure-activity afterwards to carry them into its assignments."""
     with exclusive_host(root):
         config = load_config(paths(root))
         if config.live is None:
             raise HostError("LIVE_NOT_PREPARED")
         data = config.model_dump(mode="json")
-        data["live"]["max_prompt_chars"] = max_prompt_chars
+        for key, value in (
+            ("max_prompt_chars", max_prompt_chars),
+            ("max_output_tokens", max_output_tokens),
+            ("timeout_seconds", timeout_seconds),
+        ):
+            if value is not None:
+                data["live"][key] = value
         _write(root, data)
 
 

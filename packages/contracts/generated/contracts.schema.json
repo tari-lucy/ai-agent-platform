@@ -767,7 +767,7 @@
           "type": "array"
         },
         "timeout_ms": {
-          "maximum": 180000,
+          "maximum": 86400000,
           "minimum": 1,
           "title": "Timeout Ms",
           "type": "integer"
@@ -3153,6 +3153,147 @@
       "title": "GmRuntimeState",
       "type": "object"
     },
+    "HarnessNotice": {
+      "additionalProperties": false,
+      "description": "A harness conversation holding memory that was deleted or changed (doc33 §6).",
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "reason": {
+          "enum": [
+            "source_unavailable",
+            "message_changed"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "sources": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Sources",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session_id",
+        "reason",
+        "sources",
+        "complete"
+      ],
+      "title": "HarnessNotice",
+      "type": "object"
+    },
+    "HarnessStatus": {
+      "additionalProperties": false,
+      "description": "doc33: the persona's own OpenCode window on this host, for the panel's button.",
+      "properties": {
+        "agent_name": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Name"
+        },
+        "calls_today": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Calls Today",
+          "type": "integer"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "daily_budget": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Budget"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/HarnessNotice"
+          },
+          "maxItems": 200,
+          "title": "Notices",
+          "type": "array"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "spent_today": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spent Today"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "pattern": "^http://127\\.0\\.0\\.1:\\d{4,5}/$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "scope",
+        "enabled",
+        "ready"
+      ],
+      "title": "HarnessStatus",
+      "type": "object"
+    },
     "HelperRun": {
       "additionalProperties": false,
       "description": "Owner receipt in an attempt; prepared/unknown execution is never replayed blindly.",
@@ -3209,15 +3350,20 @@
           "type": "string"
         },
         "duration_seconds": {
-          "maximum": 31536000,
-          "minimum": 60,
-          "title": "Duration Seconds",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
         }
       },
-      "required": [
-        "duration_seconds"
-      ],
       "title": "InitialAccessArguments",
       "type": "object"
     },
@@ -3486,6 +3632,11 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "standing": {
+          "default": false,
+          "title": "Standing",
+          "type": "boolean"
         },
         "unavailable_reason": {
           "anyOf": [
@@ -9157,18 +9308,23 @@
     },
     "PermissionLimits": {
       "additionalProperties": false,
-      "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.",
+      "description": "``workplace.permission-limits``: the granted duration, bounded by the host ceiling.\n\nNone: granted until revoked (D78).",
       "properties": {
         "duration_seconds": {
-          "maximum": 31536000,
-          "minimum": 60,
-          "title": "Duration Seconds",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 60,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
         }
       },
-      "required": [
-        "duration_seconds"
-      ],
       "title": "PermissionLimits",
       "type": "object"
     },
@@ -15944,6 +16100,12 @@
     },
     "GmRuntimeStatePage": {
       "$ref": "#/$defs/Page_GmRuntimeState_"
+    },
+    "HarnessNotice": {
+      "$ref": "#/$defs/HarnessNotice"
+    },
+    "HarnessStatus": {
+      "$ref": "#/$defs/HarnessStatus"
     },
     "InitialAccessArguments": {
       "$ref": "#/$defs/InitialAccessArguments"

@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -90,6 +91,54 @@ async def cli(*args: str, data: bytes = b"", cap: int = 65536, timeout: float = 
         if process.returncode is None:
             process.kill()
             await process.wait()
+
+
+async def _gateway_of(name: str) -> str | None:
+    """The egress suffix of the internal network a leftover agent container was attached to."""
+    try:
+        networks = json.loads(
+            await cli("inspect", "--format", "{{json .NetworkSettings.Networks}}", name)
+        )
+    except OSError, TimeoutError, ValueError:
+        return None  # gone already (or unreadable): nothing to follow
+    for key in networks or {}:
+        found = re.fullmatch(r"aw-net-([0-9a-f]{32})", key)
+        if found is not None:
+            return found.group(1)
+    return None
+
+
+# Resource ids the runner, the warm sandbox and the gateway register for their containers.
+OWN_RESOURCE = re.compile(r"(?:warm-)?(aw-(?:task|egress)-([0-9a-f]{32}))")
+
+
+async def reclaim(resource_id: str) -> bool:
+    """After a crash: True once this platform-owned container (and a gateway's network) is gone.
+
+    A leftover container is removed only when its instance label names it exactly; any other
+    id, a foreign container or an unreachable Docker stays unconfirmed (False).
+    """
+    found = OWN_RESOURCE.fullmatch(resource_id)
+    if found is None:
+        return False
+    name, suffix = found.groups()
+    gateway = suffix if name.startswith("aw-egress-") else await _gateway_of(name)
+    if not await DockerTaskRunner._remove(name):
+        return False
+    if gateway is not None:
+        # A warm sandbox's gateway is not a resource of its own: it goes with the sandbox.
+        if gateway != suffix and not await DockerTaskRunner._remove("aw-egress-" + gateway):
+            return False
+        network = "aw-net-" + gateway
+        try:
+            listed = await cli(
+                "network", "ls", "--filter", "name=^" + network + "$", "--format", "{{.ID}}"
+            )
+            if listed.strip():
+                await cli("network", "rm", network)
+        except OSError, TimeoutError:
+            return False
+    return True
 
 
 class DockerTaskRunner:
@@ -518,6 +567,7 @@ class DockerTaskRunner:
         attached: asyncio.Task[bytes] | None = None
         gateway: Egress | None = None
         proxy: str | None = None
+        phase = "inputs"
         try:
             attempt = await self._attempt(admission)
             if attempt.capability_id != template.id:
@@ -540,6 +590,7 @@ class DockerTaskRunner:
                         "content": base64.b64encode(data).decode("ascii"),
                     }
                 )
+            phase = "prepare"
             if self.home is None:
                 await self._image(template)
             else:
@@ -583,6 +634,13 @@ class DockerTaskRunner:
                 }
             ).encode()
             wire_cap = task.limits.output_bytes * 2 + template.max_files * 1024 + 4096
+            phase = "activate"
+            if self.prepared is not None:
+                # Input reads, hashing and serialization may take longer than the
+                # short claim window. Prove authority and sources again BEFORE
+                # renewing it. STOP/epoch is also checked by the slot's valid().
+                await self._verify(admission, attempt)
+                self.prepared.refresh_claim(template, task)
             attached = asyncio.create_task(
                 self._attach(name, payload, task, admission, attempt, template, wire_cap)
             )
@@ -605,7 +663,22 @@ class DockerTaskRunner:
                         {},
                     )
                 await self._verify(admission, attempt)
-        except OSError, ValueError, KeyError, IndexError, TypeError, TimeoutError:
+        except (OSError, ValueError, KeyError, IndexError, TypeError, TimeoutError) as error:
+            # Platform errors carry fixed codes (RUNNER_FRAME_INVALID, …); other text is not logged.
+            text = str(error)
+            code = (
+                error.error.code.value
+                if isinstance(error, ContractError)
+                else text
+                if re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", text)
+                else "TECHNICAL"
+            )
+            logging.getLogger(__name__).warning(
+                "Sandbox turn failed: phase=%s kind=%s code=%s",
+                phase,
+                type(error).__name__,
+                code,
+            )
             result, contents = RunnerOutcome("unknown", None, (), ""), {}
         finally:
             if attached is not None:

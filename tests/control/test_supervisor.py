@@ -311,15 +311,18 @@ def test_unknown_cancel_faults_and_expiry_is_not_a_receipt():
         old_epoch = owner.snapshot.control_epoch
         owner.stop(authority, request)
         clock.advance(2.1)
+        assert owner.snapshot.state == RunState.STOPPING  # Docker Desktop needs seconds
+        clock.advance(28.0)
         snapshot = owner.snapshot
         assert snapshot.state == RunState.FAULTED
         assert snapshot.unconfirmed_resource_ids == ["unresponsive"]
         assert snapshot.control_epoch > old_epoch
         receipt = owner.stop(authority, request)
         assert receipt.state == RunState.FAULTED
+        # The late removal receipt settles the run: no second STOP is needed (Windows report).
         owner.acknowledge(ticket)
-        assert owner.snapshot.state == RunState.FAULTED
-        assert owner.stop(authority, stop_command(owner, "confirm-stop")).state == RunState.STOPPED
+        assert owner.snapshot.state == RunState.STOPPED
+        assert owner.snapshot.unconfirmed_resource_ids == []
 
     asyncio.run(scenario())
 
@@ -528,7 +531,7 @@ def test_bounded_buffers_keep_stop_available():
         owner.register(one, "one-resource")
         rejected(ErrorCode.RESOURCE_BUSY, lambda: owner.register(two, "two-resource"))
         assert owner.stop(authority, stop_command(owner)).state == RunState.STOPPING
-        clock.advance(2.1)
+        clock.advance(30.1)  # past the 30 s STOP receipt wait
         assert owner.snapshot.state == RunState.FAULTED
 
     asyncio.run(scenario())
@@ -836,7 +839,7 @@ def test_watchdog_settles_timeout_without_ui_poll():
         owner.stop(authority, stop_command(owner))
         watchdog = asyncio.create_task(owner.watchdog())
         await asyncio.sleep(0.01)
-        clock.advance(2.1)
+        clock.advance(30.1)  # past the 30 s STOP receipt wait
         await asyncio.sleep(0.08)
         assert owner._run.state == RunState.FAULTED
         watchdog.cancel()
@@ -925,6 +928,7 @@ def test_wire_cancellation_id_cannot_be_reissued_after_pause_or_stop():
         )
 
     asyncio.run(scenario())
+
 
 def test_refresh_preserves_cancellation_and_extends_only_live_admission():
     async def scenario():

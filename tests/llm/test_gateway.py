@@ -470,3 +470,15 @@ def test_a_fallback_must_be_the_declared_one_of_the_same_role():
     undeclared = resolved("asg-c")
     with pytest.raises(ProviderError):
         resolve_assignment(assignment(), connection(), REGISTRY, undeclared)
+
+
+def test_a_paid_call_retries_a_dropped_connection_but_not_a_rate_limit():
+    live = frozenset({Failure.TRANSIENT, Failure.TIMEOUT})
+    dropped = ScriptedProvider([[ProviderError(Failure.TRANSIENT)], list(FULL)])
+    result = run(gateway(dropped, retryable=live).generate(request()))
+    assert result.status == "completed" and len(result.attempts) == 2
+    limited = ScriptedProvider([[ProviderError(Failure.RATE_LIMITED, 2.0)], list(FULL)])
+    result = run(gateway(limited, retryable=live).generate(request()))
+    assert result.failure is Failure.RATE_LIMITED and len(limited.calls) == 1
+    with pytest.raises(ValueError):
+        gateway(limited, retryable=frozenset({Failure.AUTH}))

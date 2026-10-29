@@ -221,6 +221,10 @@ class LocalProviders:
 
     def __init__(self, mock: MockProvider, live: PrivateLiveProvider | None) -> None:
         self.mock, self.live = mock, live
+        # The checked base URL and key for the harness gateway (doc33); never logged.
+        self.binding: tuple[str, str] | None = None
+        # Host-only service keys from the same explicit .env (doc34): never to the container.
+        self.secrets: dict[str, str] = {}
 
     def __call__(self, adapter_id: str) -> MockProvider | PrivateLiveProvider:
         if adapter_id == "mock":
@@ -232,6 +236,9 @@ class LocalProviders:
     async def aclose(self) -> None:
         if self.live is not None:
             await self.live.provider.aclose()
+
+
+SERVICE_SECRETS = ("AI_PLATFORM_TELEGRAM_BOT_TOKEN", "AI_PLATFORM_SONIOX_API_KEY")
 
 
 def provider_factory(
@@ -283,5 +290,16 @@ def provider_factory(
         )
         actual.provider.configure_keepalive(live.http_keepalive_seconds)
         actual.provider.stream_tools = live.activity.stream_tools
+        providers = LocalProviders(mock, actual)
+        providers.binding = (endpoint, credential)
+        from dotenv import dotenv_values
+
+        values = dotenv_values(env_file, interpolate=False, encoding="utf-8")
+        providers.secrets = {
+            name: value.strip()
+            for name in SERVICE_SECRETS
+            if (value := values.get(name)) and value.strip()
+        }
+        return providers
 
     return LocalProviders(mock, actual)

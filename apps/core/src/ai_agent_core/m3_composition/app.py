@@ -14,6 +14,7 @@ from ai_agent_contracts.common import Scope
 from ai_agent_contracts.extensions import ExtensionRegistry
 from fastapi import FastAPI
 
+from ai_agent_core.access.sessions import AccessLimits
 from ai_agent_core.bootstrap import create_app
 
 from .artifacts import Reports
@@ -35,12 +36,13 @@ def create_m3_app(
     dialogue_index: RecallIndex | None = None,
     private_api_budget: PrivateAPIBudget | None = None,
     clock: Clock | None = None,
+    access_limits: AccessLimits | None = None,
 ) -> FastAPI:
     if not scopes:
         raise ValueError("M3_SCOPES")
 
     def compose(supervisor: Supervisor, scheduler: ResourceScheduler) -> Runtime:
-        return Runtime(
+        runtime = Runtime(
             store,
             registry,
             supervisor,
@@ -55,5 +57,9 @@ def create_m3_app(
             dialogue_index=dialogue_index,
             private_api_budget=private_api_budget,
         )
+        if access_limits is not None:
+            runtime.access_limits = access_limits
+            runtime.events.limits = access_limits  # one set of limits for the access surface
+        return runtime
 
     return create_app(settings, runtime_factory=compose, base_scope=scopes[0], clock=clock)

@@ -2,7 +2,9 @@
 
 import asyncio
 import inspect
+import logging
 import math
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event, get_ident
@@ -27,6 +29,15 @@ from .ports import (
     RunJournal,
     WorkKind,
 )
+
+LOG = logging.getLogger(__name__)
+
+
+def _site(depth: int = 2) -> str:
+    """Where a fault was raised: file:function:line only, never values."""
+    frame = sys._getframe(depth)
+    name = frame.f_code.co_filename.replace("\\", "/").rsplit("/", 1)[-1]
+    return f"{name}:{frame.f_code.co_name}:{frame.f_lineno}"
 
 
 @dataclass
@@ -60,6 +71,8 @@ class Supervisor:
         self._write_lock = asyncio.Lock()
         self._recovered = False
         self._recovering = False
+        # FAULTED only because STOP's receipts came late: settles to STOPPED once they arrive.
+        self._late_stop = False
         self._transitioning = False
         self._dirty = False
         self._deadline: float | None = None
@@ -181,6 +194,14 @@ class Supervisor:
                 state=RunState.STOPPED, ended_at=self.clock.utc(), unconfirmed_resource_ids=[]
             )
             self._deadline = None
+        elif self._run.state == RunState.FAULTED and self._late_stop and not pending:
+            # The removal receipts of a STOP arrived after its deadline: nothing is unknown now.
+            LOG.warning("Late STOP receipts confirmed: run settles to STOPPED")
+            self._change(
+                state=RunState.STOPPED, ended_at=self.clock.utc(), unconfirmed_resource_ids=[]
+            )
+            self._late_stop = False
+            self.last_error = None
         elif self._run.activity == ActivityState.PAUSING and not self._pending(
             frozenset({"activity", "voice", "gm", "reflection", "dialogue"})
         ):
@@ -198,6 +219,13 @@ class Supervisor:
             or abs(wall_gap - gap) > self.limits.sleep_gap_seconds
             or gap < 0
         ):
+            # A sleeping host, a moved clock or an event loop blocked by synchronous work.
+            LOG.warning(
+                "Run clock gap: monotonic=%.2fs wall=%.2fs limit=%.1fs",
+                gap,
+                wall_gap,
+                self.limits.sleep_gap_seconds,
+            )
             self.critical_failure(ErrorCode.STALE_CONTEXT)
         for admission_id, admission in list(self._admissions.items()):
             if elapsed >= admission.expires_at:
@@ -207,9 +235,13 @@ class Supervisor:
             self.critical_failure(ErrorCode.EXPIRED)
         self._settle()
         if self._deadline is not None and elapsed >= self._deadline:
+            LOG.warning(
+                "Run faulted: STOP deadline with %d unconfirmed resources", len(self._pending())
+            )
             self._change(state=RunState.FAULTED, unconfirmed_resource_ids=self._pending())
             self.last_error = ErrorCode.OUTCOME_UNKNOWN
             self._deadline = None
+            self._late_stop = True
         if self._pause_deadline is not None and elapsed >= self._pause_deadline:
             self.critical_failure(ErrorCode.OUTCOME_UNKNOWN)
             self._change(activity=ActivityState.PAUSED)
@@ -223,6 +255,9 @@ class Supervisor:
 
     def critical_failure(self, code: ErrorCode = ErrorCode.SERVICE_UNAVAILABLE) -> None:
         self._owned()
+        self._late_stop = False  # a real fault never settles by itself
+        # The fixed code and the calling site: the only trace of why the run faulted.
+        LOG.warning("Run faulted: %s at %s (was %s)", code.value, _site(), self._run.state.value)
         self._revoke()
         self._change(state=RunState.FAULTED, unconfirmed_resource_ids=self._pending())
         self.last_error = code
@@ -559,6 +594,32 @@ class Supervisor:
         )
         self._admissions[admission.id] = admission
         return admission
+
+    def lost(self, admission_id: str, freshness: Freshness) -> str:
+        """Why an admission is no longer valid, as a fixed code (diagnostics only)."""
+        admission = self._admissions.get(admission_id)
+        if admission is None:
+            return "ADMISSION_GONE"  # expired and swept, revoked by STOP/fault, or never issued
+        checks = (
+            (admission.cancelled.is_set(), "ADMISSION_CANCELLED"),
+            (admission.freshness != freshness, "ADMISSION_FRESHNESS"),
+            (admission.freshness.run_id != self._run.run_id, "RUN_CHANGED"),
+            (admission.freshness.control_epoch != self._run.control_epoch, "EPOCH_CHANGED"),
+            (self._approval is None, "NO_APPROVAL"),
+            (
+                self._approval is not None
+                and admission.freshness.profile_version != self._approval.profile_version,
+                "PROFILE_VERSION_CHANGED",
+            ),
+            (
+                self._approval is not None
+                and admission.freshness.policy_version != self._approval.policy_version,
+                "POLICY_VERSION_CHANGED",
+            ),
+            (not self._eligible(admission.kind), "NOT_ELIGIBLE:" + self._run.state.value),
+            (self.clock.elapsed() >= admission.expires_at, "ADMISSION_EXPIRED"),
+        )
+        return next((code for failed, code in checks if failed), "VALID")
 
     def validate(self, admission: Admission) -> None:
         self.poll()

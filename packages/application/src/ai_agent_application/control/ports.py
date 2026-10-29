@@ -90,8 +90,12 @@ class ControlLimits:
     resources: int = 200
     admissions: int = 256
     requests: int = 256
-    lease_seconds: float = 20.0
-    stop_seconds: float = 2.0
+    # Admissions of a running job are refreshed every ~5 s; 60 s tolerates slow hosts. STOP
+    # still revokes at once (epoch), this only bounds an unrefreshed admission.
+    lease_seconds: float = 60.0
+    # How long STOP waits for removal receipts before FAULTED; Docker Desktop removes a
+    # sandbox and its gateway in seconds, not instantly. Admissions are revoked at once anyway.
+    stop_seconds: float = 30.0
     pause_seconds: float = 2.0
     sleep_gap_seconds: float = 5.0
 

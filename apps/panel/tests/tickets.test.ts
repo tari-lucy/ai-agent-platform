@@ -125,7 +125,7 @@ test('an access request is filled from current records, never typed identifiers'
   const manifest = { capability_id: 'cap', areas: ['projects', 'inbox'], effect: 'local_write' } as never;
   const request = (over = {}) => ticket('t', { kind: 'capability_request', request: { capability_id: 'cap', areas: [], constraints: 'Только своё.', ...over } as never });
   assert.deepEqual(proposedDecision(request(), manifest, rows[2]),
-    { bindingId: 'new', level: 'automatic', days: 7, areas: ['projects', 'inbox'], constraints: 'Только своё.' });
+    { bindingId: 'new', level: 'automatic', days: null, areas: ['projects', 'inbox'], constraints: 'Только своё.' });
   const asked = proposedDecision(request({ areas: ['inbox', 'exports'], duration_seconds: 3 * 86400 }), manifest, rows[2]);
   assert.deepEqual([asked.areas, asked.days], [['inbox'], 3]);  // outside the manifest is dropped
   assert.equal(proposedDecision(request(), { ...(manifest as object), effect: 'public_output' } as never, rows[2]).level, 'operator_decision');

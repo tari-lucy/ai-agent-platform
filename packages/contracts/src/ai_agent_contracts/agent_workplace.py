@@ -464,12 +464,9 @@ class PermissionDecisionArguments(Contract):
     @model_validator(mode="after")
     def shape(self) -> Self:
         if self.action == "grant" and (
-            self.ticket_id is None
-            or self.ticket_version is None
-            or self.level is None
-            or self.duration_seconds is None
+            self.ticket_id is None or self.ticket_version is None or self.level is None
         ):
-            raise ValueError("GRANT_SHAPE")
+            raise ValueError("GRANT_SHAPE")  # no duration: until revoked (D78)
         if self.action == "revoke" and (
             self.permission_id is None or self.permission_version is None
         ):
@@ -489,9 +486,11 @@ class PermissionConditions(Contract):
 
 
 class PermissionLimits(Contract):
-    """``workplace.permission-limits``: the granted duration, bounded by the host ceiling."""
+    """``workplace.permission-limits``: the granted duration, bounded by the host ceiling.
 
-    duration_seconds: int = Field(strict=True, ge=60, le=31_536_000)
+    None: granted until revoked (D78)."""
+
+    duration_seconds: int | None = Field(default=None, strict=True, ge=60, le=31_536_000)
 
 
 class PermissionDecisionProof(VersionedRecord):

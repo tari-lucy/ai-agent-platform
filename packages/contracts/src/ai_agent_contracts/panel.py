@@ -701,6 +701,31 @@ class EgressRequest(Contract):
     seconds: float = Field(ge=0)
 
 
+class HarnessNotice(Contract):
+    """A harness conversation holding memory that was deleted or changed (doc33 §6)."""
+
+    session_id: str = Field(min_length=1, max_length=128)
+    reason: Literal["source_unavailable", "message_changed"]
+    sources: int = Field(strict=True, ge=0, le=200)
+    complete: bool = Field(strict=True)
+
+
+class HarnessStatus(Contract):
+    """doc33: the persona's own OpenCode window on this host, for the panel's button."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    ready: bool = Field(strict=True)  # the agent's server answers (START, not STOP)
+    url: str | None = Field(default=None, pattern=r"^http://127\.0\.0\.1:\d{4,5}/$")
+    agent_name: str | None = Field(default=None, max_length=40)
+    notices: list[HarnessNotice] = Field(default_factory=list, max_length=200)
+    # Today's (UTC) model spend of the harness by its gateway's ledger; None without a tariff.
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    daily_budget: float | None = Field(default=None, ge=0)
+    spent_today: float | None = Field(default=None, ge=0)
+    calls_today: int = Field(default=0, strict=True, ge=0)
+
+
 class EgressLog(Contract):
     """The persona's internet traffic of one UTC day, newest first (W3b)."""
 

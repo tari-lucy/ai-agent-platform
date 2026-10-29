@@ -7,7 +7,7 @@ import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { Conversation } from './Conversation.tsx';
 import { Traffic } from './Traffic.tsx';
-import { nativeAgent, nativeHref, useNativeEntry } from '../opencode.ts';
+import { nativeAgent, nativeHref, useHarnessEntry, useNativeEntry } from '../opencode.ts';
 import { useWorkSessions } from './sessions.ts';
 import { discussTitle, openCommand, sessionFor } from './conversation.ts';
 import {
@@ -189,6 +189,8 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
   const sessions = useWorkSessions(api, scope);
   const native = useNativeEntry();
   const agent = nativeAgent(native, scope);
+  const harness = useHarnessEntry();
+  const nativeUrl = harness?.enabled && harness.url ? harness.url : agent ? nativeHref(agent.directory) : null;
   const [chosen, setChosen] = useState<string | null>(null);
   const talk = useRef<HTMLDivElement>(null);
   const openSession = (id: string) => { setChosen(id); talk.current?.scrollIntoView({ block: 'start' }); };
@@ -210,7 +212,7 @@ export function WorkScreen({ api, scope, run }: { api: PanelApi; scope: Scope; r
       <div ref={talk}><Conversation api={api} scope={scope} run={run} chosen={chosen} onSelect={setChosen} native={agent ?? (native ? null : undefined)} /></div>
       {native ? <Alert color="blue" title="Поручения и разговор — в OpenCode">
         Новое поручение и разговор с агентом ведите в{' '}
-        {agent ? <Anchor href={nativeHref(agent.directory)}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
+        {nativeUrl ? <Anchor href={nativeUrl} target={harness?.enabled ? '_blank' : undefined}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
         Здесь — ход работы, результаты и прежние разговоры для чтения.
       </Alert> : <Assign api={api} scope={scope} />}
       {partial && <Text size="sm" c="orange.8">Часть данных недоступна или не дочитана — список может быть неполным.</Text>}

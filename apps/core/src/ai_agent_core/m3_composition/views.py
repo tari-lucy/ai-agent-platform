@@ -129,6 +129,46 @@ class Views:
                 resets_at=None if budget is None else budget.reset_at(now),
                 checked_at=now,
             )
+        if resource == "harness-status" and identifier is None:
+            from ai_agent_contracts.panel import HarnessStatus
+
+            harness = self.runtime.harness
+            if harness is None:
+                return HarnessStatus(scope=scope, enabled=False, ready=False)
+            from ai_agent_contracts.panel import HarnessNotice
+
+            from .harness_learning import LearningPart
+
+            notices: list[HarnessNotice] = []
+            for part in harness.parts:
+                if isinstance(part, LearningPart):
+                    try:
+                        found = await part.notices(scope)
+                    except ContractError:
+                        found = {}
+                    notices = [
+                        HarnessNotice(
+                            session_id=session[:128],
+                            reason=notice.reason,
+                            sources=len(notice.sources),
+                            complete=notice.complete,
+                        )
+                        for session, notice in sorted(found.items())[:200]
+                    ]
+            return HarnessStatus(
+                scope=scope,
+                enabled=True,
+                ready=harness.current(),
+                url=f"http://127.0.0.1:{harness.settings.port}/",
+                agent_name=harness.agent_name(),
+                notices=notices,
+                currency=harness.settings.currency,
+                daily_budget=harness.settings.daily_budget,
+                spent_today=None
+                if harness.usage.remaining() is None
+                else round(harness.usage.spent(), 2),
+                calls_today=harness.usage.calls(),
+            )
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view
 
