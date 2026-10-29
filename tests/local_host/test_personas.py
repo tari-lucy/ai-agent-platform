@@ -31,7 +31,6 @@ from ai_agent_core.local_host.process import exclusive_host
 from ai_agent_core.local_host.recovery import enable_recovery
 from ai_agent_core.local_host.serve import build
 from ai_agent_core.m3_composition.state import PRINCIPALS
-from ai_agent_core.opencode_ui.protocol import PREFIX, directory
 
 
 def stored(root):
@@ -158,14 +157,7 @@ def test_two_personas_on_real_host_http_are_isolated_and_only_a_can_run(tmp_path
         async with host.open():
             rt, client = host.runtime, host.env.client
             fast(rt)
-            cards = (await client.get(PREFIX + "/agents")).json()["items"]
-            a = next(
-                c
-                for c in cards
-                if c["profile_id"] == host.scope.persona_id and c["scope"]["memory_mode"] == "work"
-            )
-            b = next(c for c in cards if c["profile_id"] == "beta")
-            assert a["active_runtime"] and not b["active_runtime"]
+            assert rt.supervisor.snapshot.scope.partition == host.scope.partition
             assert len(rt.scopes) == len(host_scopes(config)) <= 8
             a_profile = await rt.store.repository(
                 Profile, PRINCIPALS[Owner.PERSONA], host.scope
@@ -183,10 +175,17 @@ def test_two_personas_on_real_host_http_are_isolated_and_only_a_can_run(tmp_path
 
             async def send(scope: Scope, payload):
                 return await client.post(
-                    PREFIX + "/agents/" + directory(scope) + "/commands",
+                    "/api/v1/commands",
                     json=payload | {"scope": scope.model_dump(mode="json")},
                     headers=host.env.headers,
                 )
+
+            def transcript(scope: Scope, sid: str) -> str:
+                query = "&".join(
+                    f"{key}={getattr(scope, key)}"
+                    for key in ("workspace_id", "persona_id", "memory_space_id", "memory_mode")
+                )
+                return f"/api/v1/work-session-transcript/{sid}?{query}"
 
             opened = await send(
                 other,
@@ -212,15 +211,13 @@ def test_two_personas_on_real_host_http_are_isolated_and_only_a_can_run(tmp_path
             made = await send(other, message)
             assert made.status_code == 200, made.text
             assert (await send(other, message)).json() == made.json()
-            endpoint = PREFIX + "/agents/" + directory(other) + "/sessions/" + sid
+            endpoint = transcript(other, sid)
             view = await client.get(endpoint)
             assert (
                 view.status_code == 200
                 and view.json()["entries"][0]["text"] == "BETA_PRIVATE_MARKER"
             )
-            foreign = await client.get(
-                PREFIX + "/agents/" + directory(host.scope) + "/sessions/" + sid
-            )
+            foreign = await client.get(transcript(host.scope, sid))
             assert foreign.status_code != 200 and "BETA_PRIVATE_MARKER" not in foreign.text
             denied = await send(
                 other,
@@ -240,8 +237,7 @@ def test_two_personas_on_real_host_http_are_isolated_and_only_a_can_run(tmp_path
             assert (await client.get(endpoint)).json()["processed_sequence"] == 0
         async with host.open():
             assert host.runtime.supervisor.snapshot.state.value == "STOPPED"
-            cards = (await host.env.client.get(PREFIX + "/agents")).json()["items"]
-            assert any(c["profile_id"] == "beta" and not c["active_runtime"] for c in cards)
+            assert host.runtime.supervisor.snapshot.scope.partition == host.scope.partition
             assert model.count() == 0
 
     asyncio.run(scenario())

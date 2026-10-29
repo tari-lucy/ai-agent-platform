@@ -29,9 +29,6 @@ from ai_agent_core.m3_composition.artifacts import Reports
 from ai_agent_core.m3_composition.gm_cycle import PRIVATE_FAMILIES
 from ai_agent_core.m3_composition.service import PrivateAPIBudget
 from ai_agent_core.m3_composition.state import OPERATOR, PRINCIPALS
-from ai_agent_core.opencode_ui.assets import Bundle
-from ai_agent_core.opencode_ui.assets import load as load_opencode
-from ai_agent_core.opencode_ui.assets import mount as mount_opencode
 
 from . import rights
 from .layout import (
@@ -71,8 +68,21 @@ def build(
     prepared = _prepare(
         host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
     )
-    ui = None if opencode_ui_dir is None else load_opencode(opencode_ui_dir, host.root)
-    return _build(host, config, prepared, ui=ui)
+    _old_window(opencode_ui_dir)
+    return _build(host, config, prepared)
+
+
+def _old_window(opencode_ui_dir: Path | None) -> None:
+    """The old /opencode/ window through the platform is gone (doc33: the harness's own port).
+
+    The option is still accepted so existing launch scripts keep working; nothing is served.
+    """
+    if opencode_ui_dir is not None:
+        print(
+            "NOTICE: --opencode-ui-dir is ignored: the old /opencode/ window was removed; "
+            "OpenCode opens at the harness port",
+            file=sys.stderr,
+        )
 
 
 def _prepare(
@@ -104,8 +114,6 @@ def _build(
     host: HostPaths,
     config: HostConfig,
     prepared: tuple[LocalProviders, Path | None, str, int],
-    *,
-    ui: Bundle | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     factory, panel, secret, number = prepared
     scopes = host_scopes(config)
@@ -282,7 +290,6 @@ def _build(
 
     app.router.lifespan_context = provider_lifespan
 
-    mount_opencode(app, ui)
     if panel is not None:
         mount(app, panel)
 
@@ -318,14 +325,14 @@ def serve(
         number = config.port if port is None else port
         if not 1024 <= number <= 65535:
             raise HostError("INVALID_OPTION")
-        if open_browser and panel_dir is None and opencode_ui_dir is None:
+        if open_browser and panel_dir is None:
             raise HostError("PANEL_REQUIRED")
         prepared = _prepare(
             host, config, provider=provider, port=port, panel_dir=panel_dir, env_file=env_file
         )
-        ui = None if opencode_ui_dir is None else load_opencode(opencode_ui_dir, host.root)
+        _old_window(opencode_ui_dir)
         with loopback_socket(number) as listener:
-            app, close = _build(host, config, prepared, ui=ui)
+            app, close = _build(host, config, prepared)
             stopped = threading.Event()
             browser = None
             try:
@@ -348,13 +355,11 @@ def serve(
                 if open_browser:
                     browser = threading.Thread(
                         target=open_when_ready,
-                        args=(server, number, stopped, "/opencode/" if ui is not None else "/"),
+                        args=(server, number, stopped, "/"),
                         daemon=True,
                     )
                     browser.start()
                 print(f"panel/API: http://{LOOPBACK}:{number}/ ; agent starts STOPPED", flush=True)
-                if ui is not None:
-                    print(f"OpenCode UI: http://{LOOPBACK}:{number}/opencode/", flush=True)
                 server.run(sockets=[listener])
             finally:
                 stopped.set()

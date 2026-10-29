@@ -60,7 +60,6 @@ HELPERS = (
     "tests/workplace_access",
 )
 TESTS = (
-    "tests/opencode_ui",
     "tests/operations",
     "tests/access",
     "tests/jobs",

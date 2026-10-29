@@ -500,7 +500,6 @@ class Runtime:
 
         from .access import Mutations
         from .downloads import Downloads
-        from .home_view import HomeView
         from .ticket_reads import ReleasedReader
         from .views import Views
 
@@ -513,7 +512,6 @@ class Runtime:
             events=self.events,
             extensions=self.registry,
             scopes=self.scopes,
-            home=HomeView(self),
             limits=self.access_limits,
         )
 

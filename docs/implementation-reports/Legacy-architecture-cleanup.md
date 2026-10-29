@@ -80,6 +80,66 @@
 2. **Старый `/opencode/` на 8765.** Убрать?
    - Если да: ключ `--opencode-ui-dir` принимается и игнорируется с NOTICE, чтобы не ломать скрипты запуска.
 
+Ответ оператора 2026-10-29:
+
+1. Режим L **оставить**: «не будем рисковать».
+2. Старый вход `/opencode/` **убрать**.
+
 ## 3. Поставки
 
-Пока нет: ждём решений §2.
+### П1. Старый вход `/opencode/` через платформу (OC-01…OC-04, PUI-03)
+
+Коммиты:
+
+- `09ca2ec` — панель;
+- следующий за ним — сервер, скрипты, тесты.
+
+Удалено:
+
+- **Сервер:**
+  - `apps/core/src/ai_agent_core/opencode_ui/` целиком: `assets`, `protocol`, `sse`, `surface`;
+  - маршруты `/api/v1/opencode/*` и SSE в `access/surface.py`;
+  - монтирование бандла в `serve.py`;
+  - `m3_composition/home_view.py` и порт `AccessPorts.home` / `HomeAccess`: ими пользовались только маршруты моста (`home`, `home-file`, `home-inbox`);
+  - в H установка харнеса больше не выставляет `session_home_files` (его читал только мост).
+- **Панель:**
+  - проба окна (`nativeWindow`, `nativeAgents`, `NativeAgent`, `useNative`, `NativeEntry`, `nativeHref`);
+  - режим «только чтение» старых форм теперь включается признаком «харнес включён», а не наличием окна;
+  - в L старые формы на месте.
+- **Скрипты:**
+  - `scripts/package_opencode_ui.py`, `scripts/probes/opencode_native_surface.py`, `deploy/opencode-ui/` (патчи бандла);
+  - проверка `native_ui` в `check_opencode_deployment.py`;
+  - `tests/opencode_ui` в `check_combined.py`.
+- **Тесты:**
+  - `tests/opencode_ui/*`, `tests/panel/test_native_opencode_*`, `tests/panel/test_workspace_v2_desktop.py`;
+  - `tests/opencode_acceptance/test_glm_{file_intake,persona_isolation_and_lifecycle}.py` (сами владельцы покрыты в `tests/workplace_sessions`);
+  - `test_operator_home_upload…` из `tests/windows_workspace/test_100mib_files.py`. Проверки раннера в этом файле остались.
+
+Совместимость:
+
+- `--opencode-ui-dir` и ключ `opencode_ui_dir` лаунчера принимаются. Сервер пишет NOTICE и ничего не отдаёт, так что `start-diag.ps1` и `start-panel.ps1` не меняются.
+- `open_browser` открывает `/`.
+- Данные, таблицы и контракты не тронуты.
+- Изоляция двух персонажей (`tests/local_host/test_personas.py`) переписана на основной API: `/api/v1/commands` и `/api/v1/work-session-transcript`.
+
+Изменение поведения:
+
+- в L разговор ведётся только через формы панели;
+- в H ничего не меняется: OpenCode открывается на порту харнеса.
+
+Проверки на Linux:
+
+- ruff по `apps`, `packages`, `tests`, `scripts`;
+- панель: `tsc`, eslint, 215 тестов `node --test`, `vite build`;
+- pytest: `tests/harness`, `tests/access`, `tests/local_host`, `tests/workplace_sessions`, `tests/m3_runtime/test_access_limits.py`.
+
+Для Windows (Codex):
+
+- **Пересборка образа не нужна.** Панель пересобирается штатно (`npm run build`).
+- **Что проверить:**
+  - старт с `--opencode-ui-dir`: в журнале NOTICE, панель на `/`;
+  - кнопка «Открыть OpenCode» ведёт на 4096;
+  - «Диалог» и «Работа» в режиме чтения при включённом харнесе;
+  - `/opencode/` и `/api/v1/opencode/agents` отвечают 404;
+  - START/STOP, файлы, память, будильник — как в приёмке doc33.
+- **Откат:** вернуться на `b5e02b5`. Бандл `opencode-ui-workspace-v2` на диске не трогается, поэтому старое окно снова заработает.

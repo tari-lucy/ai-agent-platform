@@ -36,7 +36,7 @@ def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     assert install(runtime, config, HostPaths(tmp_path), providers) is None  # type: ignore[arg-type]
     assert runtime.harness is not None and runtime.autonomous_wake is None
     assert runtime.session_egress_capability == "internet.web"
-    assert runtime.session_egress is not None and runtime.session_home_files is not None
+    assert runtime.session_egress is not None
     assert runtime.harness.channel is None  # no channel configured: no channel_post tool
     import asyncio
 

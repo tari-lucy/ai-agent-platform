@@ -109,16 +109,6 @@ class Downloads(Protocol):
     ) -> tuple[ArtifactRef, bytes]: ...
 
 
-class HomeAccess(Protocol):
-    """W4: the operator's view of a persona's home volume; no host path is exposed."""
-
-    async def list(self, scope: Scope, path: str) -> dict[str, object] | None: ...
-
-    async def read(self, scope: Scope, path: str) -> dict[str, object] | None: ...
-
-    async def put(self, scope: Scope, name: str, data: bytes) -> dict[str, object] | None: ...
-
-
 class Mutations(Protocol):
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
 
@@ -137,7 +127,6 @@ class AccessPorts:
     scopes: tuple[Scope, ...] | None = None
     limits: AccessLimits | None = None
     downloads: Downloads | None = None
-    home: HomeAccess | None = None
 
 
 class Rejection(Exception):
@@ -459,10 +448,6 @@ class Surface:
             )
             return response
         authority = self.operator(headers, mutation=mutation)
-        if path.startswith("/api/v1/opencode/"):
-            from ai_agent_core.opencode_ui.surface import dispatch
-
-            return await dispatch(self, scope, receive, authority)
         if path == "/api/v1/auth/session" and method == "GET":
             return _json(self.sessions.info(authority))
         if path == "/api/v1/auth/logout" and method == "POST":
@@ -905,12 +890,6 @@ class AccessMiddleware:
         if len(path) > 2048:
             await _error(413, ErrorCode.INVALID_ARGUMENTS)(scope, receive, send)
             return
-        if path.startswith("/api/v1/opencode/"):
-            from ai_agent_core.opencode_ui.sse import event_path, stream
-
-            if event_path(path):
-                await stream(self.surface, scope, receive, send)
-                return
         if not path.startswith(("/api/", "/internal/")):
             try:
                 self.surface.browser(
