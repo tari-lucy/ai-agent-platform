@@ -140,10 +140,14 @@ def _build(
         operator_origin=f"http://{LOOPBACK}:{number}",
         operator_password_hash=SecretStr(secret),
     )
+    from ai_agent_core.access.sessions import AccessLimits
+
     app = create_m3_app(
         settings,
         store,
         registry,
+        # The personal panel on 127.0.0.1: a working day per sign-in, an hour without use.
+        access_limits=AccessLimits(session_seconds=12 * 3600, idle_seconds=3600),
         providers=factory,
         allowed_adapters=frozenset({"mock", ADAPTER_ID} if config.live else {"mock"}),
         private_api_budget=None

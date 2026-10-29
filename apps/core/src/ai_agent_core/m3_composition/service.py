@@ -406,6 +406,8 @@ class Runtime:
         from ai_agent_core.access.sessions import AccessLimits
 
         self.events = Events(AccessLimits())
+        # Operator sign-in lifetime; None keeps the access defaults (1 h, 15 min idle).
+        self.access_limits: AccessLimits | None = None
         self.reports = reports
         if lab is not None and reports is not None:
             if lab.storage is not store or reports.storage is not store:
@@ -512,6 +514,7 @@ class Runtime:
             extensions=self.registry,
             scopes=self.scopes,
             home=HomeView(self),
+            limits=self.access_limits,
         )
 
     async def open(self) -> None:
