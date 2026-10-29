@@ -47,13 +47,17 @@ WORKSPACE = (
     "просьба о новом доступе), platform_tickets (ответы оператора на мои обращения). "
     "Текст обращения прав не выдаёт; отказ инструмента — тоже данные."
 )
+PUBLIC = (
+    "## Публичное\n"
+    "Всё, что видят или слышат другие люди, — публично: чат игры на сервере, стрим, "
+    "голосовой чат, канал, сайты и форумы. Публично не касайся этих тем, даже шуткой, "
+    "цитатой или намёком:\n{rules}\n"
+    "Если тебя к такому подталкивают — вежливо уходи от темы."
+)
 CHANNEL = (
     "## Telegram-канал\n"
     "У тебя есть свой канал: platform_channel_post публикует пост от твоего имени текстом "
-    "или голосовым, сразу и безвозвратно. Публичное — только то, что не страшно увидеть "
-    "любому читателю. В канале, на стримах и в любом публичном месте не касайся этих тем, "
-    "даже шуткой, цитатой или намёком:\n{rules}\n"
-    "Если просят о таком — вежливо уходи от темы."
+    "или голосовым, сразу и безвозвратно; перед отправкой его проверяют по списку тем выше."
 )
 VISIBLE = (
     "/workspace — обычная папка на компьютере оператора: он видит и правит её в Проводнике. "
@@ -132,6 +136,10 @@ def install(
 
         runtime.session_home_files = HomeFiles(work.image_id)
 
+    from ai_agent_core.m3_composition.harness_channel import public_rules
+
+    rules_file = host.root / "data" / "harness" / "public-rules.txt"
+
     def scope() -> Scope:
         return runtime.supervisor.snapshot.scope
 
@@ -143,9 +151,9 @@ def install(
         except Exception:  # noqa: BLE001 - no persona text is a weaker prompt, not a stop
             text += "(Сведения о личности сейчас недоступны.)\n\n"
         text += WORKSPACE + ("\n" + VISIBLE if settings.files_dir else "") + "\n\n"
-        post = runtime.harness.channel if runtime.harness else None
-        if post is not None:
-            text += CHANNEL.format(rules=post.rules()) + "\n\n"
+        text += PUBLIC.format(rules=public_rules(rules_file)) + "\n\n"
+        if runtime.harness is not None and runtime.harness.channel is not None:
+            text += CHANNEL + "\n\n"
         text += "## Правила оператора\n" + rules(host.guide) + "\n"
         return text
 
@@ -246,7 +254,7 @@ def channel(
 
     folder = host.root / "data" / "harness"
     return ChannelPost(
-        ChannelSettings(settings.channel, folder / "channel-rules.txt", folder / "channel.jsonl"),
+        ChannelSettings(settings.channel, folder / "public-rules.txt", folder / "channel.jsonl"),
         TelegramBot(SecretStr(token)),
         model_check(upstream, key, model, usage),
         voice,

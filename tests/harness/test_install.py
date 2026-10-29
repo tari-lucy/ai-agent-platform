@@ -38,3 +38,8 @@ def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     assert runtime.session_egress_capability == "internet.web"
     assert runtime.session_egress is not None and runtime.session_home_files is not None
     assert runtime.harness.channel is None  # no channel configured: no channel_post tool
+    import asyncio
+
+    prompt = asyncio.run(runtime.harness.prompt())
+    assert "## Публичное" in prompt and "политика" in prompt  # always, not only with a channel
+    assert (tmp_path / "data" / "harness" / "public-rules.txt").is_file()

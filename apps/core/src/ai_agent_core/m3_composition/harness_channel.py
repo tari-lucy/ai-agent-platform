@@ -28,7 +28,7 @@ LOG = logging.getLogger(__name__)
 MAX_TEXT, MAX_VOICE_TEXT = 4000, 1000
 
 DEFAULT_RULES = """\
-# Темы, о которых Опечатка не пишет в канал (правит оператор, по строке на тему)
+# Чего личность не касается публично: канал, чат игры, стрим. По строке на тему.
 призывы к насилию, экстремизму, терроризму, массовым беспорядкам; их оправдание
 армия и СВО: оценки, «фейки», дискредитация, сведения о потерях и передвижениях
 наркотики и другие запрещённые вещества: как достать, употреблять, их одобрение
@@ -75,15 +75,7 @@ class ChannelPost:
         self.lock = asyncio.Lock()
 
     def rules(self) -> str:
-        path = self.settings.rules_file
-        try:
-            text = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(DEFAULT_RULES, encoding="utf-8")
-            text = DEFAULT_RULES
-        lines = [line.strip() for line in text.splitlines()]
-        return "\n".join(f"- {line}" for line in lines if line and not line.startswith("#"))
+        return public_rules(self.settings.rules_file)
 
     async def post(self, text: str, *, voice: bool, current: Callable[[], None]) -> str:
         """Publish or refuse; ``current`` raises once STOP or a new epoch happened."""
@@ -142,6 +134,18 @@ class ChannelPost:
         }
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def public_rules(path: Path) -> str:
+    """The operator's list of topics never spoken of in public, as prompt lines."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_RULES, encoding="utf-8")
+        text = DEFAULT_RULES
+    lines = [line.strip() for line in text.splitlines()]
+    return "\n".join(f"- {line}" for line in lines if line and not line.startswith("#"))
 
 
 def model_check(upstream: str, key: str, model: str, usage: Usage | None) -> Check:
