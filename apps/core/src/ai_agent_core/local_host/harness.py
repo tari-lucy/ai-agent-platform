@@ -36,7 +36,13 @@ WORKSPACE = (
     "- scratch/ — временное, можно чистить;\n"
     "- inbox/ — файлы от оператора: разобрав файл, перенеси его в нужный проект, чтобы inbox "
     "оставался пустым;\n"
-    "- share/<проект>/ — готовое для оператора; называй путь в ответе.\n"
+    "- share/<проект>/ — готовое для оператора; называй путь в ответе;\n"
+    "- GOALS.md — мои цели и интересы (правит оператор и я); DIARY.md — дневник: после каждого "
+    "самостоятельного занятия 3–5 строк, что сделала и на чём остановилась.\n"
+    "Жизнь без оператора идёт слотами: платформа сама пишет мне в слот «Свободное время». "
+    "Деньги ограничены: на самостоятельную жизнь выделена доля дневного бюджета, а на одно "
+    "занятие — потолок. Лучше одно хорошее дело, чем много мелких; перед тем как читать "
+    "большие ответы (карта, блоки вокруг), подумай, нужны ли они.\n"
     "bash, чтение и правка файлов внутри контейнера разрешены без согласования шагов; "
     "проверяй результат выводом команды, а не предположением. Установленное (pip --user, "
     "npm -g), кэши и настройки живут в /persist и тоже сохраняются.\n\n"
@@ -216,6 +222,15 @@ def install(
         else:
             hours = None
         runtime.harness.attach(AutonomyPart(runtime, WakeSettings(work.wake_max_per_hour, hours)))
+        from ai_agent_core.m3_composition.harness_life import Life, LifePart
+
+        # Her own initiative: slots as ordinary wakes, bounded by a share of the day's money.
+        runtime.harness.life = Life(
+            settings.life_mode,
+            host.root / "data" / "harness" / "life.json",
+            settings.daily_budget,
+        )
+        runtime.harness.attach(LifePart(runtime, runtime.harness.life))
     return None
 
 
@@ -256,7 +271,12 @@ def channel(
 
     folder = host.root / "data" / "harness"
     return ChannelPost(
-        ChannelSettings(settings.channel, folder / "public-rules.txt", folder / "channel.jsonl"),
+        ChannelSettings(
+            settings.channel,
+            folder / "public-rules.txt",
+            folder / "channel.jsonl",
+            settings.channel_daily_posts,
+        ),
         TelegramBot(SecretStr(token), proxy=providers.secrets.get(PROXY_SETTING)),
         model_check(upstream, key, model, usage),
         voice,

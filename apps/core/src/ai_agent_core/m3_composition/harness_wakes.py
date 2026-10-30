@@ -119,6 +119,11 @@ class HarnessWakes:
             ]
             return sorted(rows, key=lambda w: w.due_at)[:limit]
 
+    async def open_count(self, *, scope: Scope) -> int:
+        """Alarms of this partition not yet delivered, due or not."""
+        async with self.lock:
+            return sum(w.state != "done" and w.partition == scope.partition for w in self._load())
+
     async def pending(self, *, scope: Scope) -> list[DueWake]:
         """Reserved but not confirmed: outcome unknown after a crash or a failed post."""
         async with self.lock:

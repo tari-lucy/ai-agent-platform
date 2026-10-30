@@ -151,6 +151,12 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--channel", help="Telegram channel for posts: @name or chat id")
     harness.add_argument("--channel-voice", help="Soniox voice for voice posts")
     harness.add_argument("--remove-channel", action="store_true", help="no more posts")
+    harness.add_argument("--channel-daily-posts", type=int, help="most posts a local day")
+    harness.add_argument(
+        "--life-mode",
+        choices=("sleep", "quiet", "normal", "active"),
+        help="how lively the persona's self-directed life is",
+    )
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -528,6 +534,8 @@ def main(argv: list[str] | None = None) -> int:
                     grant=arguments.grant_host_port,
                     revoke=arguments.revoke_host_port,
                     remove_channel=arguments.remove_channel,
+                    channel_daily_posts=arguments.channel_daily_posts,
+                    life_mode=arguments.life_mode,
                     channel=arguments.channel,
                     channel_voice=arguments.channel_voice,
                     files_dir=arguments.files_dir,

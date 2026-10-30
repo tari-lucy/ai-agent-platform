@@ -24,6 +24,7 @@ from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
     from .harness_channel import ChannelPost
+    from .harness_life import Life
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -94,7 +95,7 @@ class Usage:
             return
         if row.get("status") != 200 and row.get("input") is None:
             return  # the provider refused before any work: nothing billed
-        entry = {
+        entry: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(),
             "input": row.get("input"),
             "output": row.get("output"),
@@ -102,12 +103,14 @@ class Usage:
             "cost": round(self.cost(row), 6),
             "currency": self.settings.currency,
         }
+        if isinstance(row.get("wake"), str):
+            entry["wake"] = row["wake"]  # spent inside a self-started wake window (harness_life)
         self.settings.usage_dir.mkdir(parents=True, exist_ok=True)
         with self._path().open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry) + "\n")
 
-    def _costs(self) -> list[float]:
-        """Today's costs in the current currency: a switch (RUB -> USD) does not mix sums.
+    def _rows(self) -> list[dict[str, Any]]:
+        """Today's rows in the current currency: a switch (RUB -> USD) does not mix sums.
 
         Rows written before rows named their currency were RUB, the only currency then.
         """
@@ -115,21 +118,46 @@ class Usage:
             lines = self._path().read_text(encoding="utf-8").splitlines()
         except OSError:
             return []
-        costs = []
+        rows = []
         for line in lines:
             try:
                 entry = json.loads(line)
                 if entry.get("currency", "RUB") == self.settings.currency:
-                    costs.append(float(entry["cost"]))
+                    float(entry["cost"])
+                    rows.append(entry)
             except ValueError, KeyError, TypeError, AttributeError:
                 continue
-        return costs
+        return rows
 
     def calls(self) -> int:
-        return len(self._costs())
+        return len(self._rows())
 
     def spent(self) -> float:
-        return sum(self._costs())
+        return sum(float(row["cost"]) for row in self._rows())
+
+    def spent_tag(self, tag: str) -> float:
+        """Spent inside one wake window."""
+        return sum(float(row["cost"]) for row in self._rows() if row.get("wake") == tag)
+
+    def spent_tagged(self) -> float:
+        """Spent on the persona's own initiative today (every wake window)."""
+        return sum(float(row["cost"]) for row in self._rows() if "wake" in row)
+
+    def untagged_after(self, moment: datetime) -> bool:
+        """Did the operator's dialogue spend anything since ``moment``?"""
+        for row in self._rows():
+            if "wake" in row:
+                continue
+            try:
+                if datetime.fromisoformat(str(row["at"])) > moment:
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def average_cost(self) -> float | None:
+        rows = self._rows()
+        return sum(float(row["cost"]) for row in rows) / len(rows) if len(rows) >= 5 else None
 
     def remaining(self) -> float | None:
         if self.settings.input_rate is None or self.settings.output_rate is None:
@@ -173,6 +201,7 @@ class HarnessHost:
         # The agent's own alarms (stage 3); set by the host wiring, read by autonomy.
         self.wakes: HarnessWakes | None = None
         self.channel: ChannelPost | None = None
+        self.life: Life | None = None
 
     def tick(self) -> None:
         if self.closed or self.rt.supervisor.snapshot.state != RunState.ACTIVE:
@@ -188,6 +217,26 @@ class HarnessHost:
             self.task = None
         if time.monotonic() >= self.next_try:
             self.task = asyncio.create_task(self._run())
+
+    def _record(self, row: dict[str, Any]) -> None:
+        """Gateway usage rows; those inside a wake window carry its id (the persona's own spend)."""
+        if self.life is not None:
+            window = self.life.window(self.rt.supervisor.clock.utc())
+            if window is not None:
+                row = {**row, "wake": str(window.get("id", ""))}
+        self.usage.record(row)
+
+    def remaining(self) -> float | None:
+        """What the gateway may let through now: the day, narrowed inside a wake window."""
+        day = self.usage.remaining()
+        if day is None or self.life is None:
+            return day
+        return self.life.limit(day, self.usage, self.rt.supervisor.clock.utc())
+
+    def autonomy_left(self) -> float:
+        """What wakes may start with: the day's rest, or the persona's share of it."""
+        day = self.usage.remaining() or 0.0
+        return day if self.life is None else self.life.autonomy_left(day, self.usage)
 
     def attach(self, part: HarnessPart) -> None:
         self.parts.append(part)
@@ -287,13 +336,17 @@ class HarnessHost:
         gateway = AgentGateway(
             s.image_id,
             s.port,
-            self.usage.record,
+            self._record,
             PlatformMcp(rt, lambda: self.epoch, self.wakes, self.channel).handle,
             tuple(s.host_ports.values()),
         )
         folder = self.folders()
         if folder is not None:
             folder.mkdir(parents=True, exist_ok=True)
+            if self.life is not None:
+                from .harness_life import seed_workspace
+
+                seed_workspace(folder)
         agent = HarnessContainer(
             s.image_id,
             self.home(),
@@ -319,7 +372,7 @@ class HarnessHost:
                 upstream=s.upstream,
                 key=s.key,
                 model=s.model,
-                remaining=self.usage.remaining(),
+                remaining=self.remaining(),
             )
             host = model_url.split("//", 1)[1].split(":", 1)[0]
             proxy.update({"NO_PROXY": host, "no_proxy": host})
@@ -341,7 +394,7 @@ class HarnessHost:
                 if not gateway.alive or not agent.alive:
                     raise OSError("HARNESS_EXITED")
                 if time.monotonic() >= budget_at:
-                    gateway.budget(self.usage.remaining())
+                    gateway.budget(self.remaining())
                     budget_at = time.monotonic() + 5
                 for part in self.parts:
                     try:
