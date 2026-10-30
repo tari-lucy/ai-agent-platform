@@ -56,7 +56,11 @@ class Supervisor:
         *,
         clock: Clock | None = None,
         limits: ControlLimits | None = None,
+        gm_auto_start: bool = False,
     ) -> None:
+        if type(gm_auto_start) is not bool:
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        self._gm_auto_start = gm_auto_start
         if scope.agent_id is not None or scope.run_id is not None or scope.session_id is not None:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         self.clock, self.limits = clock or Clock(), limits or ControlLimits()
@@ -106,7 +110,12 @@ class Supervisor:
             autonomy=autonomy,
             activity=ActivityState.OPEN,
             voice_enabled=False,
-            gm_paused=True,
+            gm_paused=not (
+                self._gm_auto_start
+                and state == RunState.STARTING
+                and autonomy == "autonomous"
+                and self._base.memory_mode == "work"
+            ),
             control_epoch=0,
         )
 

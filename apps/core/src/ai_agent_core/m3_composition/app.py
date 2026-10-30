@@ -37,6 +37,7 @@ def create_m3_app(
     private_api_budget: PrivateAPIBudget | None = None,
     clock: Clock | None = None,
     access_limits: AccessLimits | None = None,
+    gm_auto_start: bool = False,
 ) -> FastAPI:
     if not scopes:
         raise ValueError("M3_SCOPES")
@@ -62,4 +63,10 @@ def create_m3_app(
             runtime.events.limits = access_limits  # one set of limits for the access surface
         return runtime
 
-    return create_app(settings, runtime_factory=compose, base_scope=scopes[0], clock=clock)
+    return create_app(
+        settings,
+        runtime_factory=compose,
+        base_scope=scopes[0],
+        clock=clock,
+        gm_auto_start=gm_auto_start,
+    )

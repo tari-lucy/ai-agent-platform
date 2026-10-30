@@ -149,6 +149,7 @@ def _build(
         # The personal panel on 127.0.0.1: a working day per sign-in, an hour without use.
         access_limits=AccessLimits(session_seconds=12 * 3600, idle_seconds=3600),
         providers=factory,
+        gm_auto_start=bool(config.live and config.live.gm.enabled and config.live.gm.auto_start),
         allowed_adapters=frozenset({"mock", ADAPTER_ID} if config.live else {"mock"}),
         private_api_budget=None
         if config.live is None

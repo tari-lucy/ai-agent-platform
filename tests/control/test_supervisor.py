@@ -121,7 +121,7 @@ class Readiness:
         return self.unknown
 
 
-def fixture(*, limits=None, journal=None, scope=SCOPE):
+def fixture(*, limits=None, journal=None, scope=SCOPE, gm_auto_start=False):
     clock = VirtualTime()
     journal = journal or Journal()
     readiness = Readiness(clock)
@@ -132,6 +132,7 @@ def fixture(*, limits=None, journal=None, scope=SCOPE):
         readiness,
         clock=clock.clock(),
         limits=limits,
+        gm_auto_start=gm_auto_start,
     )
     authority = ControlAuthority("synthetic-operator", frozenset({scope.partition}), 3600)
     return owner, authority, clock, journal, readiness
@@ -173,6 +174,48 @@ def rejected(code, call):
     with pytest.raises(ContractError) as error:
         call()
     assert error.value.error.code == code
+
+
+@pytest.mark.parametrize(
+    "configured,mode,autonomy,paused",
+    [
+        (False, "work", "autonomous", True),
+        (True, "work", "autonomous", False),
+        (True, "work", "observation", True),
+        (True, "test", "autonomous", True),
+    ],
+)
+def test_gm_auto_start_only_after_explicit_autonomous_work_start(
+    configured, mode, autonomy, paused
+):
+    async def scenario():
+        scope = SCOPE.model_copy(update={"memory_mode": mode})
+        owner, authority, _, journal, _ = fixture(scope=scope, gm_auto_start=configured)
+        assert owner.snapshot.state == RunState.STOPPED and owner.snapshot.gm_paused
+        await owner.recover()
+        assert owner.snapshot.state == RunState.STOPPED and owner.snapshot.gm_paused
+        await owner.control(
+            authority, command(owner, arguments=ControlArguments(autonomy=autonomy))
+        )
+        assert owner.snapshot.gm_paused is paused
+        if not paused:
+            admission = owner.admit("gm")
+            owner.set_gm(authority, True, expected_version=owner.snapshot.version)
+            with pytest.raises(ContractError):
+                owner.validate(admission)
+            owner.poll()
+            assert owner.snapshot.gm_paused  # no tick silently removes a manual pause
+        owner.stop(authority, stop_command(owner))
+        with pytest.raises(ContractError):
+            owner.admit("gm")
+        if not paused:
+            await owner.flush()
+            await owner.control(authority, command(owner, request_id="new-start"))
+            assert not owner.snapshot.gm_paused  # only a new explicit START resets the pause
+        restarted, _, _, _, _ = fixture(scope=scope, gm_auto_start=configured, journal=journal)
+        assert restarted.snapshot.state == RunState.STOPPED and restarted.snapshot.gm_paused
+
+    asyncio.run(scenario())
 
 
 def test_bootstrap_is_fresh_stopped_and_cannot_start_without_composition():

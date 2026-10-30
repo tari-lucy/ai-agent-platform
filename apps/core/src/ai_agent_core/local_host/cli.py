@@ -276,6 +276,9 @@ def parser() -> argparse.ArgumentParser:
     switch = gm.add_mutually_exclusive_group()
     switch.add_argument("--enable", action="store_true")
     switch.add_argument("--disable", action="store_true")
+    gm_start = gm.add_mutually_exclusive_group()
+    gm_start.add_argument("--auto-start", action="store_const", const=True, dest="auto_start")
+    gm_start.add_argument("--no-auto-start", action="store_const", const=False, dest="auto_start")
     gm.add_argument("--daily-offers", type=int)
     gm.add_argument("--daily-calls", type=int)
     gm.add_argument("--interval-minutes", type=int)
@@ -388,6 +391,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "configure-gm":
             changes: dict[str, object] = {}
+            if arguments.auto_start is not None:
+                changes["auto_start"] = arguments.auto_start
             if arguments.enable or arguments.disable:
                 changes["enabled"] = bool(arguments.enable)
             for name in ("daily_offers", "daily_calls", "interval_minutes", "dialogue_floor"):
@@ -400,6 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             settings = asyncio.run(configure_gm(arguments.root, **changes))
             print(
                 f"game master enabled={str(settings.enabled).lower()}"
+                f" auto_start={str(settings.auto_start).lower()}"
                 f" daily_offers={settings.daily_offers} daily_calls={settings.daily_calls}"
                 f" interval_minutes={settings.interval_minutes}"
                 f" line={'set' if settings.line_direction else 'none'}; agent stays STOPPED"

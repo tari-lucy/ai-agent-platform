@@ -130,6 +130,7 @@ def create_app(
     clock: Clock | None = None,
     access_ports: AccessPorts | None = None,
     access_factory: Callable[[Supervisor], AccessPorts] | None = None,
+    gm_auto_start: bool = False,
 ) -> FastAPI:
     """Construct a stopped supervisor with fail-closed authenticated access."""
     configuration = from_environment() if settings is None else settings
@@ -154,6 +155,7 @@ def create_app(
         UnavailableJournal(),
         UnavailableReadiness(),
         clock=clock,
+        gm_auto_start=gm_auto_start,
     )
 
     telemetry = Telemetry(clock=supervisor.clock, critical_failure=supervisor.critical_failure)

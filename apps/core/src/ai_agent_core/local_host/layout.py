@@ -42,6 +42,7 @@ class GmConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     enabled: bool = Field(default=False, strict=True)
+    auto_start: bool = Field(default=False, strict=True)
     daily_offers: int = Field(default=2, strict=True, ge=1, le=8)
     daily_calls: int = Field(default=4, strict=True, ge=2, le=16)
     interval_minutes: int = Field(default=60, strict=True, ge=15, le=1440)
