@@ -80,6 +80,11 @@ def test_panel_serving_is_confined_and_api_stays_json(host, build, tmp_path):
         assert status == 200 and "Synthetic panel" in body and kind.startswith("text/html")
         for page in ("/laboratory", "/people/profile"):  # page navigation falls back to index
             assert "Synthetic panel" in raw(server, page)[2]
+        # The old /opencode/ window is gone: 404, never the page fallback; similar names stay pages.
+        for old in ("/opencode", "/opencode/", "/opencode/aw_x/session/ses_1"):
+            status, _, body = raw(server, old)
+            assert status == 404 and "Synthetic panel" not in body, old
+        assert "Synthetic panel" in raw(server, "/opencode-notes")[2]
         status, kind, _ = raw(server, "/assets/app.js")
         assert status == 200 and "javascript" in kind
         assert raw(server, "/assets/missing.js")[0] == 404

@@ -119,6 +119,7 @@
 
 - `--opencode-ui-dir` и ключ `opencode_ui_dir` лаунчера принимаются. Сервер пишет NOTICE и ничего не отдаёт, так что `start-diag.ps1` и `start-panel.ps1` не меняются.
 - `open_browser` открывает `/`.
+- `/opencode` и всё поддерево `/opencode/…` отдают 404 до SPA-fallback панели (находка Windows-приёмки Codex, `e387ed8`). Похожие имена вроде `/opencode-notes` остаются обычной навигацией.
 - Данные, таблицы и контракты не тронуты.
 - Изоляция двух персонажей (`tests/local_host/test_personas.py`) переписана на основной API: `/api/v1/commands` и `/api/v1/work-session-transcript`.
 
