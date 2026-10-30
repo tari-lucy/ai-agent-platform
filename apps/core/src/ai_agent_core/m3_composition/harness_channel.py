@@ -22,6 +22,7 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode
 
 if TYPE_CHECKING:
+    from .harness_comments import TelegramComments
     from .harness_host import Usage
 
 LOG = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ class ChannelPost:
     ) -> None:
         self.settings, self.bot, self.check, self.voice = settings, bot, check, voice
         self.lock = asyncio.Lock()
+        self.comments: TelegramComments | None = None
 
     def rules(self) -> str:
         return public_rules(self.settings.rules_file)

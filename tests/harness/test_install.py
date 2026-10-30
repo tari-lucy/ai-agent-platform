@@ -30,7 +30,7 @@ def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     config = SimpleNamespace(
         harness=HarnessConfig(input_rate=16, output_rate=80),
         work_sessions=work,
-        live=SimpleNamespace(model_id="m"),
+        live=SimpleNamespace(model_id="m", gm=SimpleNamespace(enabled=False)),
     )
     providers = SimpleNamespace(binding=("https://x/v1", "k"), secrets={})
     assert install(runtime, config, HostPaths(tmp_path), providers) is None  # type: ignore[arg-type]

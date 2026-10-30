@@ -343,6 +343,7 @@ class HarnessConfig(BaseModel):
     channel: str | None = Field(default=None, pattern=r"^(@[A-Za-z0-9_]{4,32}|-?\d{5,20})$")
     # Soniox voice for voice posts; None: text posts only.
     channel_voice: str | None = Field(default=None, pattern=r"^[\w -]{1,40}$")
+    channel_comments: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod

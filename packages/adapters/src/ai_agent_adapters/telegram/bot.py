@@ -58,7 +58,49 @@ class TelegramBot:
         parts.append(f"--{boundary}--\r\n".encode())
         return self._call("sendVoice", b"".join(parts), f"multipart/form-data; boundary={boundary}")
 
+    def metadata(self, method: str, **arguments: object) -> dict[str, Any]:
+        if method not in {"getMe", "getChat", "getChatMember", "getWebhookInfo"}:
+            raise TelegramError("TELEGRAM_METHOD_INVALID")
+        result = self._result(method, json.dumps(arguments).encode(), "application/json")
+        if not isinstance(result, dict):
+            raise TelegramError("TELEGRAM_PROTOCOL_ERROR")
+        return result
+
+    def updates(self, offset: int | None) -> list[dict[str, Any]]:
+        # Do not change allowed_updates, remove a webhook or drop pending updates.
+        arguments = {"limit": 20, "timeout": 0}
+        if offset is not None:
+            arguments["offset"] = offset
+        result = self._result("getUpdates", json.dumps(arguments).encode(), "application/json")
+        if not isinstance(result, list) or not all(isinstance(row, dict) for row in result):
+            raise TelegramError("TELEGRAM_PROTOCOL_ERROR")
+        return result
+
+    def reply_message(self, chat: str, message_id: int, text: str) -> int:
+        if not text.strip() or len(text) > MAX_TEXT:
+            raise TelegramError("TELEGRAM_TEXT_INVALID")
+        body = json.dumps(
+            {
+                "chat_id": chat,
+                "text": text,
+                "reply_parameters": {
+                    "message_id": message_id,
+                    "allow_sending_without_reply": False,
+                },
+            }
+        ).encode()
+        return self._call("sendMessage", body, "application/json")
+
     def _call(self, method: str, body: bytes, kind: str) -> int:
+        result = self._result(method, body, kind)
+        identifier = result.get("message_id") if isinstance(result, dict) else None
+        if not isinstance(identifier, int):
+            if self._proxy is not None:
+                raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
+            raise TelegramError("TELEGRAM_REFUSED")
+        return identifier
+
+    def _result(self, method: str, body: bytes, kind: str) -> Any:
         url = f"{self._api}/bot{self._token.get_secret_value()}/{method}"
         request = urllib.request.Request(
             url, data=body, method="POST", headers={"Content-Type": kind}
@@ -84,10 +126,4 @@ class TelegramBot:
             ):
                 raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
             raise TelegramError("TELEGRAM_REFUSED")
-        result = reply.get("result")
-        identifier = result.get("message_id") if isinstance(result, dict) else None
-        if not isinstance(identifier, int):
-            if self._proxy is not None:
-                raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
-            raise TelegramError("TELEGRAM_REFUSED")
-        return identifier
+        return reply.get("result")
