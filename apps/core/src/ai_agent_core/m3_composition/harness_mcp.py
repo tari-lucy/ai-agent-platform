@@ -91,6 +91,8 @@ CHANNEL_TOOL: dict[str, Any] = {
     "name": "channel_post",
     "description": "Опубликовать пост в свой Telegram-канал от своего имени: текстом или "
     "голосовым (voice=true, своим голосом, до 1000 знаков). Уходит сразу, вернуть нельзя. "
+    "Голосовое и подпись — одно сообщение: по умолчанию подпись равна text. "
+    "caption задаёт отдельную подпись без тегов озвучки; пустая строка убирает подпись. "
     "Перед отправкой короткая проверка на запрещённые темы; отказ проверки — данные: "
     "перепиши или откажись от поста.",
     "inputSchema": {
@@ -98,6 +100,10 @@ CHANNEL_TOOL: dict[str, Any] = {
         "properties": {
             "text": {"type": "string", "description": "точный текст поста"},
             "voice": {"type": "boolean", "description": "голосовым сообщением"},
+            "caption": {
+                "type": "string",
+                "description": "только voice=true: подпись до 1024 знаков; пустая — без подписи",
+            },
         },
         "required": ["text"],
     },
@@ -194,7 +200,14 @@ class PlatformMcp:
                     raise ContractError(ErrorCode.STALE_CONTEXT)
 
             voice = a.get("voice", "").strip().lower() in ("true", "1", "yes")
-            return _text(await self.channel.post(a.get("text", ""), voice=voice, current=current))
+            caption = arguments.get("caption") if "caption" in a else None
+            if "caption" in a and not isinstance(caption, str):
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            return _text(
+                await self.channel.post(
+                    a.get("text", ""), voice=voice, caption=caption, current=current
+                )
+            )
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

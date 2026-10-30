@@ -22,6 +22,7 @@ SCOPE = Scope(workspace_id="w", persona_id="p", memory_space_id="m", memory_mode
 class Bot:
     def __init__(self) -> None:
         self.sent: list[tuple[str, object]] = []
+        self.captions: list[str] = []
 
     def send_message(self, chat: str, text: str) -> int:
         self.sent.append(("text", text))
@@ -29,6 +30,7 @@ class Bot:
 
     def send_voice(self, chat: str, ogg: bytes, caption: str = "") -> int:
         self.sent.append(("voice", ogg))
+        self.captions.append(caption)
         return 8
 
 
@@ -71,6 +73,7 @@ def test_voice_post_and_stop_after_the_check_cancels(tmp_path):
         post, bot = channel(tmp_path, (True, ""), voice)
         await post.post("скажи", voice=True, current=lambda: None)
         assert bot.sent == [("voice", "OggS...скажи".encode())]
+        assert bot.captions == ["скажи"]
 
         calls = 0
 
@@ -87,6 +90,78 @@ def test_voice_post_and_stop_after_the_check_cancels(tmp_path):
         text_only, _ = channel(tmp_path, (True, ""))
         with pytest.raises(ContractError):
             await text_only.post("голос", voice=True, current=lambda: None)
+
+    asyncio.run(scenario())
+
+
+def test_voice_caption_is_checked_with_speech_and_sent_as_one_post(tmp_path):
+    async def scenario():
+        prompts, spoken = [], []
+
+        async def check(prompt):
+            prompts.append(prompt)
+            return ("запрещённая подпись" not in prompt, "подпись отклонена")
+
+        async def voice(text):
+            spoken.append(text)
+            return b"OggS-test"
+
+        post, bot = channel(tmp_path, (True, ""), voice)
+        post.check = check
+        await post.post("[warm] Привет.", voice=True, caption="Привет.", current=lambda: None)
+        assert spoken == ["[warm] Привет."]
+        assert bot.sent == [("voice", b"OggS-test")] and bot.captions == ["Привет."]
+        assert "[warm] Привет." in prompts[0] and "Подпись под голосовым:\nПривет." in prompts[0]
+        entry = json.loads(post.settings.journal.read_text(encoding="utf-8").splitlines()[0])
+        assert entry["caption"] == "Привет."
+        refused = await post.post(
+            "Привет.", voice=True, caption="запрещённая подпись", current=lambda: None
+        )
+        assert refused.startswith("Не опубликовано") and len(spoken) == len(bot.sent) == 1
+        await post.post("Привет.", voice=True, caption="", current=lambda: None)
+        assert bot.captions == ["Привет.", ""]
+
+    asyncio.run(scenario())
+
+
+def test_invalid_caption_is_rejected_before_check_or_synthesis(tmp_path):
+    async def scenario():
+        async def unused(text):
+            pytest.fail("Invalid caption must not reach synthesis or the model check")
+
+        post, bot = channel(tmp_path, (True, ""), unused)
+        post.check = unused
+        for voice, caption, text in (
+            (False, "caption", "text"),
+            (True, "x" * 1025, "text"),
+            (True, "😀" * 513, "text"),
+            (True, None, "😀" * 513),
+        ):
+            with pytest.raises(ContractError) as error:
+                await post.post(text, voice=voice, caption=caption, current=lambda: None)
+            assert error.value.error.code == ErrorCode.INVALID_ARGUMENTS
+        assert bot.sent == [] and not post.settings.journal.exists()
+
+    asyncio.run(scenario())
+
+
+def test_stop_during_voice_with_caption_cancels_the_whole_post(tmp_path):
+    async def scenario():
+        stopped = False
+
+        async def voice(text):
+            nonlocal stopped
+            stopped = True
+            return b"OggS-test"
+
+        def current():
+            if stopped:
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+
+        post, bot = channel(tmp_path, (True, ""), voice)
+        with pytest.raises(ContractError):
+            await post.post("text", voice=True, caption="caption", current=current)
+        assert bot.sent == [] and bot.captions == []
 
     asyncio.run(scenario())
 
@@ -132,9 +207,23 @@ def test_mcp_lists_and_calls_channel_post_only_when_configured(tmp_path):
         }
         reply = await mcp.handle(call)
         assert reply["result"]["isError"] is False and bot.sent == [("text", "привет")]
+
+        async def voice(text):
+            return b"OggS-test"
+
+        post.voice = voice
+        tools = listed["result"]["tools"]
+        tool = next(t for t in tools if t["name"] == "channel_post")
+        assert "caption" in tool["inputSchema"]["properties"]
+        call["params"]["arguments"].update(voice=True, caption="Подпись")
+        reply = await mcp.handle(call)
+        assert reply["result"]["isError"] is False and bot.captions == ["Подпись"]
+        call["params"]["arguments"]["caption"] = None
+        reply = await mcp.handle(call)
+        assert reply["result"]["isError"] is True and len(bot.sent) == 2
         snapshot.state = RunState.STOPPED
         reply = await mcp.handle(call)
-        assert reply["result"]["isError"] is True and len(bot.sent) == 1
+        assert reply["result"]["isError"] is True and len(bot.sent) == 2
 
     asyncio.run(scenario())
 
@@ -150,8 +239,9 @@ def test_bot_sends_multipart_voice_and_hides_the_token_in_errors(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
     bot = TelegramBot(SecretStr("123:secret"))
-    assert bot.send_voice("@test", b"OggSdata") == 5
+    assert bot.send_voice("@test", b"OggSdata", "Подпись") == 5
     assert b"OggSdata" in seen[0].data and b'name="chat_id"' in seen[0].data
+    assert b'name="caption"' in seen[0].data and "Подпись".encode() in seen[0].data
     with pytest.raises(TelegramError) as error:
         bot.send_message("@test", "x")
     assert "secret" not in repr(error.value) and error.value.status == 400

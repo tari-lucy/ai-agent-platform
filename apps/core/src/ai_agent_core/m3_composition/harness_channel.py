@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from .harness_host import Usage
 
 LOG = logging.getLogger(__name__)
-MAX_TEXT, MAX_VOICE_TEXT = 4000, 1000
+MAX_TEXT, MAX_VOICE_TEXT, MAX_CAPTION = 4000, 1000, 1024
 
 DEFAULT_RULES = """\
 # Чего личность не касается публично: канал, чат игры, стрим. По строке на тему.
@@ -77,23 +77,38 @@ class ChannelPost:
     def rules(self) -> str:
         return public_rules(self.settings.rules_file)
 
-    async def post(self, text: str, *, voice: bool, current: Callable[[], None]) -> str:
+    async def post(
+        self,
+        text: str,
+        *,
+        voice: bool,
+        current: Callable[[], None],
+        caption: str | None = None,
+    ) -> str:
         """Publish or refuse; ``current`` raises once STOP or a new epoch happened."""
         text = text.strip()
         if not text or len(text) > (MAX_VOICE_TEXT if voice else MAX_TEXT):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        if caption is not None and (not voice or not isinstance(caption, str)):
+            raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+        caption = (text if caption is None else caption.strip()) if voice else None
+        if caption is not None and len(caption.encode("utf-16-le")) // 2 > MAX_CAPTION:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         if voice and self.voice is None:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         async with self.lock:  # one post at a time: the journal and the channel stay in order
             current()
             try:
-                ok, reason = await self.check(CHECK.format(rules=self.rules(), text=text))
+                checked = text
+                if caption and caption != text:
+                    checked = f"Текст озвучки:\n{text}\n\nПодпись под голосовым:\n{caption}"
+                ok, reason = await self.check(CHECK.format(rules=self.rules(), text=checked))
             except Exception:  # noqa: BLE001 - an unavailable check closes the post
                 LOG.warning("Channel post check unavailable")
                 ok, reason = False, "проверка недоступна, попробуй позже"
             current()
             if not ok:
-                self._journal(text, voice, "refused", reason)
+                self._journal(text, voice, "refused", reason, caption)
                 return f"Не опубликовано: {reason or 'запрещённая тема'}. Перепиши или откажись."
             audio = None
             if voice:
@@ -102,7 +117,7 @@ class ChannelPost:
                     audio = await self.voice(text)
                 except Exception as error:  # noqa: BLE001 - fixed code only, no remote text
                     code = getattr(error, "code", type(error).__name__)
-                    self._journal(text, voice, "failed", str(code))
+                    self._journal(text, voice, "failed", str(code), caption)
                     return f"Не опубликовано: синтез голоса не удался ({code})."
                 current()
             try:
@@ -112,32 +127,38 @@ class ChannelPost:
                     )
                 else:
                     message = await asyncio.to_thread(
-                        self.bot.send_voice, self.settings.chat, audio
+                        self.bot.send_voice, self.settings.chat, audio, caption or ""
                     )
             except Exception as error:  # noqa: BLE001 - fixed code only
                 code = str(getattr(error, "code", type(error).__name__))
                 status = getattr(error, "status", None)
                 if code == "TELEGRAM_OUTCOME_UNKNOWN":
-                    self._journal(text, voice, "unknown", code)
+                    self._journal(text, voice, "unknown", code, caption)
                     return (
                         "Исход публикации неизвестен: подтверждение Telegram не получено. "
                         "Не повторяй пост до проверки канала."
                     )
-                self._journal(text, voice, "failed", code if status is None else f"{code}:{status}")
+                self._journal(
+                    text, voice, "failed", code if status is None else f"{code}:{status}", caption
+                )
                 return f"Не опубликовано: Telegram не принял ({code})."
-            self._journal(text, voice, "posted", str(message))
+            self._journal(text, voice, "posted", str(message), caption)
             return "Опубликовано в канал" + (" голосовым." if voice else ".")
 
-    def _journal(self, text: str, voice: bool, outcome: str, detail: str) -> None:
+    def _journal(
+        self, text: str, voice: bool, outcome: str, detail: str, caption: str | None = None
+    ) -> None:
         path = self.settings.journal
         path.parent.mkdir(parents=True, exist_ok=True)
-        entry = {
+        entry: dict[str, str | None] = {
             "at": datetime.now(UTC).isoformat(),
             "kind": "voice" if voice else "text",
             "outcome": outcome,
             "detail": detail[:300],
             "text": text,
         }
+        if voice:
+            entry["caption"] = caption
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
