@@ -76,6 +76,9 @@ def mount(app: FastAPI, build: Path) -> None:
     index = build / "index.html"
 
     async def serve(request: Request, path: str) -> Response:
+        if path.split("/", 1)[0] == "opencode":
+            # The old OpenCode window through the platform is gone (doc33): no page navigation.
+            return PlainTextResponse("", status_code=404, headers=HEADERS)
         if request.method not in ("GET", "HEAD"):
             return PlainTextResponse("", status_code=405, headers=HEADERS)
         if any(part.startswith(".") for part in path.split("/") if part):
