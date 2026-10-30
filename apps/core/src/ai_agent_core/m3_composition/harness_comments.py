@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +33,37 @@ class TelegramComments:
         key = hashlib.sha256(repr((scope.partition, channel.settings.chat)).encode()).hexdigest()
         self.path = folder / f"comments-{key[:20]}.json"
         self.lock = asyncio.Lock()
+
+    @staticmethod
+    async def _io[T](call: Callable[[], T], current: Callable[[], None]) -> T:
+        """Check the control owner on its loop immediately before worker-thread I/O."""
+        current()
+        loop = asyncio.get_running_loop()
+        cancelled = threading.Event()
+
+        async def approve() -> None:
+            current()
+
+        def run() -> T:
+            approval = approve()
+            try:
+                future = asyncio.run_coroutine_threadsafe(approval, loop)
+            except RuntimeError:
+                approval.close()
+                raise ContractError(ErrorCode.STALE_CONTEXT) from None
+            try:
+                future.result(timeout=5)
+            except TimeoutError:
+                future.cancel()
+                raise ContractError(ErrorCode.RESOURCE_BUSY) from None
+            if cancelled.is_set():
+                raise ContractError(ErrorCode.STALE_CONTEXT)
+            return call()
+
+        try:
+            return await asyncio.to_thread(run)
+        finally:
+            cancelled.set()
 
     def _current(self, scope: Scope, current: Callable[[], None]) -> None:
         current()
@@ -186,11 +218,7 @@ class TelegramComments:
         data["binding"] = binding
         current()
 
-        def poll() -> list[dict[str, Any]]:
-            current()
-            return self.bot.updates(data["offset"])
-
-        updates = await asyncio.to_thread(poll)
+        updates = await self._io(lambda: self.bot.updates(data["offset"]), current)
         current()
         self._ingest(data, updates)
         data["more_updates"] = len(updates) >= 20
@@ -274,12 +302,13 @@ class TelegramComments:
             data["replies"][key] = receipt
             self._save(data, lambda: self._current(scope, current))
 
-            def send() -> int:
-                self._current(scope, current)
-                return self.bot.reply_message(str(data["binding"][1]), comment["message_id"], text)
-
             try:
-                message_id = await asyncio.to_thread(send)
+                message_id = await self._io(
+                    lambda: self.bot.reply_message(
+                        str(data["binding"][1]), comment["message_id"], text
+                    ),
+                    lambda: self._current(scope, current),
+                )
             except TelegramError as error:
                 receipt["state"] = (
                     "unknown" if error.status is None or error.status >= 500 else "refused"

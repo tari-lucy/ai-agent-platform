@@ -3,6 +3,7 @@
 import asyncio
 import io
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -286,6 +287,35 @@ def test_group_right_withdrawn_during_moderation_prevents_reply(tmp_path):
         channel.check = check
         result = await inbox.reply(SCOPE, lambda: None, cid, "Ответ")
         assert result["error"] == "TELEGRAM_GROUP_READ_ACCESS_REQUIRED" and bot.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_control_guard_stays_on_owner_thread_while_network_runs_off_loop(tmp_path):
+    async def scenario():
+        _, inbox, bot = service(tmp_path)
+        owner = threading.get_ident()
+        checks, network_threads = [], []
+        original_updates, original_reply = bot.updates, bot.reply_message
+
+        def current():
+            checks.append(threading.get_ident())
+            if checks[-1] != owner:
+                raise RuntimeError("CONTROL_OWNER_THREAD_REQUIRED")
+
+        def updates(offset):
+            network_threads.append(threading.get_ident())
+            return original_updates(offset)
+
+        def reply(chat, message_id, text):
+            network_threads.append(threading.get_ident())
+            return original_reply(chat, message_id, text)
+
+        bot.updates, bot.reply_message = updates, reply
+        page = await inbox.read(SCOPE, current)
+        result = await inbox.reply(SCOPE, current, page["items"][0]["comment_id"], "Ответ")
+        assert result["delivery"] == "sent"
+        assert set(checks) == {owner} and all(t != owner for t in network_threads)
 
     asyncio.run(scenario())
 
