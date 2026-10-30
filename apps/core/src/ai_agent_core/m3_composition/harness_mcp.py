@@ -166,6 +166,15 @@ class PlatformMcp:
             brief = await persona(self.rt).build(scope, topic[:1000])
             self._current()  # a STOP during the read: the text is not released
             text = brief.text
+            budget = getattr(self.rt, "private_api_budget", None)
+            if name == "persona_brief" and budget is not None and budget.gm_enabled:
+                from .gm_cycle import offer_for_context
+                from .history import PrivateHistory
+
+                offered = await offer_for_context(self.rt, scope, PrivateHistory(self.rt))
+                if offered is not None:
+                    text += "\n\nНеобязательная возможность для развития:\n" + offered[0]
+                self._current()  # STOP during the GM/source read closes release too
             if name == "memory_recall":
                 marker = "Что я помню по теме:"
                 text = text[text.index(marker) :] if marker in text else "Ничего не нашлось."

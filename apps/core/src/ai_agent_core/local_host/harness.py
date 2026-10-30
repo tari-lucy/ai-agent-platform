@@ -152,6 +152,12 @@ def install(
             text += "(Сведения о личности сейчас недоступны.)\n\n"
         text += WORKSPACE + ("\n" + VISIBLE if settings.files_dir else "") + "\n\n"
         text += PUBLIC.format(rules=public_rules(rules_file)) + "\n\n"
+        if config.live is not None and config.live.gm.enabled:
+            text += (
+                "В platform_persona_brief иногда появляются необязательные <offer>: "
+                "выбирай подходящее своему характеру или игнорируй. Различай предложение, "
+                "своё намерение и подтверждённый результат.\n\n"
+            )
         if runtime.harness is not None and runtime.harness.channel is not None:
             text += CHANNEL + "\n\n"
         text += "## Правила оператора\n" + rules(host.guide) + "\n"

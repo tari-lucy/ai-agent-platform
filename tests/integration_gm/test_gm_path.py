@@ -3,6 +3,7 @@ the character's explicit decision by id/version -> only a later confirmed exchan
 
 import asyncio
 import logging
+from types import SimpleNamespace
 
 from ai_agent_application.storage import Owner
 from ai_agent_application.usage import UsageLedger
@@ -55,6 +56,32 @@ def test_confirmed_experience_becomes_an_offer_a_decision_and_then_experience(
             out["gm_calls"] = (model.count("game-master"), model.count("story-screen"))
             out["calls_added"] = model.count() - calls_before
             [offer] = await offers(host)
+            # Native OpenCode receives the same checked optional offer through MCP.
+            # Stub only the unrelated persona builder; GM and its source checks are real.
+            from ai_agent_core.m3_composition import workplace_experience
+            from ai_agent_core.m3_composition.harness_mcp import PlatformMcp
+
+            class Brief:
+                async def build(self, scope, topic):
+                    return SimpleNamespace(text="synthetic persona")
+
+            with monkeypatch.context() as patch:
+                patch.setattr(workplace_experience, "persona", lambda _: Brief())
+                native = PlatformMcp(rt, lambda: rt.supervisor.snapshot.control_epoch)
+                result = await native.handle(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "persona_brief", "arguments": {}},
+                    }
+                )
+                native_text = result["result"]["content"][0]["text"]
+                out["native_seen"] = (
+                    f'<offer id="{offer.id}"' in native_text,
+                    LINE not in native_text,
+                    DRAFT["topic_key"] not in native_text,
+                )
             out["offer"] = (offer.status.value, offer.family_id)
             out["line"] = [(a.status, a.direction == LINE) for a in await lines(host)]
             attempts = await UsageLedger(rt.store, PRINCIPALS[Owner.LLM], rt.registry).attempts(
@@ -107,6 +134,7 @@ def test_confirmed_experience_becomes_an_offer_a_decision_and_then_experience(
     assert out["submitted"] == "SUBMITTED"
     assert out["gm_calls"] == (1, 2) and out["calls_added"] == 3  # line screen, draft, offer screen
     assert out["offer"] == ("OFFERED", "private-conversation")
+    assert out["native_seen"] == (True, True, True)
     assert out["line"] == [("open", True)]
     assert out["usage"] == (3, 0)  # the shared screen is not charged to memory
     assert out["pending"] == "OFFER_PENDING"
