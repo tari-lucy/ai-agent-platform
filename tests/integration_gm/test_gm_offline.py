@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 from ai_agent_adapters.storage.database import SQLiteStore
@@ -22,7 +23,7 @@ from ai_agent_core.local_host.layout import (
 )
 from ai_agent_core.local_host.process import exclusive_host
 from ai_agent_core.m3_composition import new_registry
-from ai_agent_core.m3_composition.state import PRINCIPALS
+from ai_agent_core.m3_composition.state import PRINCIPALS, extension, put
 
 
 async def bindings(root):
@@ -39,6 +40,52 @@ async def bindings(root):
         )
         for r in rows
     }
+
+
+def test_auto_start_toggle_does_not_rebind_tuned_model_limits(tmp_path):
+    async def scenario():
+        root = tmp_path / "host"
+        await initialise(
+            root,
+            profile_markdown=PUBLIC_PROFILE.read_text(encoding="utf-8"),
+            operator_controls=True,
+            live=LiveConfig(model_id="fixture-model", attempt_limit=40, attempt_period="utc_day"),
+        )
+        await configure_gm(root, enabled=True, line_direction="Synthetic line.")
+        cfg = load_config(paths(root))
+        scope = work_scope(cfg.workspace_id, cfg.persona_id, cfg.work_space_id)
+        registry = new_registry()
+        store = SQLiteStore(paths(root).database, extensions=registry)
+        try:
+            old = await store.repository(LLMAssignment, PRINCIPALS[Owner.LLM], scope).get(
+                "asg-game-master"
+            )
+            tuned = old.model_copy(
+                update={
+                    "parameters": extension(
+                        registry,
+                        "llm.generation-parameters",
+                        {
+                            "max_output_tokens": 512,
+                            "timeout_seconds": 45.0,
+                        },
+                    ),
+                    "version": old.version + 1,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            await put(store, registry, Owner.LLM, scope, "tune-gm-limit", tuned, old.version)
+        finally:
+            await store.close()
+        before = paths(root).database.read_bytes()
+        await configure_gm(root, auto_start=True)
+        assert load_config(paths(root)).live.gm.auto_start
+        assert paths(root).database.read_bytes() == before
+        await configure_gm(root, auto_start=False)
+        assert not load_config(paths(root)).live.gm.auto_start
+        assert paths(root).database.read_bytes() == before
+
+    asyncio.run(scenario())
 
 
 def live(rows):

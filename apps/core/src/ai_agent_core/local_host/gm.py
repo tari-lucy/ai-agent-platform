@@ -62,6 +62,11 @@ async def configure_gm(root: Path, **changes: object) -> GmConfig:
         except ValidationError:
             raise HostError("DAILY_GM_BUDGET_REQUIRED") from None
         updated = config.model_copy(update={"live": live})
+        if changes and set(changes) <= {"auto_start"} and not (root / GM_PENDING).exists():
+            # A lifecycle preference must not reset separately tuned model limits.
+            # An interrupted binding change still follows the normal recovery path below.
+            save_config(host, updated)
+            return settings
         wanted = live_roles(live)
         registry = new_registry()
         store = SQLiteStore(host.database, extensions=registry)
