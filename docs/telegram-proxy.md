@@ -19,7 +19,45 @@ Unix-сокеты, agent-forwarding, TTY и X11 запрещены. Ключ и 
 оператора; затем только reload SSH, без restart. n8n, Docker, firewall и веб-порты
 не меняются. Существующие отличающиеся файлы скрипт не перезаписывает.
 
-## Windows
+## Docker: основной запуск туннеля
+
+Контейнер — общий сервис платформы, отдельно от контейнеров личностей. Его
+автоперезапуск не запускает агентов; STOP продолжает запрещать публикации.
+На VPS изменений не требуется: используются уже выданный узкий ключ и аккаунт.
+
+Сборка (контекст содержит только Dockerfile и entrypoint, без ключей):
+
+```powershell
+docker build -t ai-agent-platform:telegram-tunnel deploy/telegram/tunnel
+docker image inspect ai-agent-platform:telegram-tunnel --format '{{.Id}}'
+```
+
+В отдельном локальном `config/local.telegram-proxy.docker.env`:
+
+```dotenv
+AI_TG_IMAGE=sha256:<ID собранного образа>
+AI_TG_VPS_HOST=<адрес VPS>
+AI_TG_LOCAL_PORT=10880
+AI_TG_IDENTITY=C:/absolute/private-key
+AI_TG_KNOWN_HOSTS=C:/absolute/known_hosts
+```
+
+known_hosts содержит только заранее проверенный ключ нужного VPS. Не сканировать
+и не принимать новый host key автоматически. Приватный ключ read-only, в образ
+не копируется; рабочая копия с правами 0600 живёт только в tmpfs. Контейнер работает
+как UID 65532 без capabilities; rootfs read-only, сеть отдельная, Docker socket
+и папки агентов не монтируются. На хосте опубликован только loopback-порт.
+
+```powershell
+docker compose --env-file C:/absolute/local.telegram-proxy.docker.env -f deploy/telegram/tunnel/compose.yaml up -d --wait
+```
+
+Используется `unless-stopped`: после старта Docker контейнер восстанавливается,
+если его не остановили вручную. После сна/обрыва SSH переподключается. До входа
+пользователя и запуска Docker Desktop это не гарантирует готовность. Прежняя
+задача Windows после переключения отключена, сохранена для отката.
+
+## Windows: резервный запуск без Docker
 
 Отдельный ключ хранится у пользователя Windows, вне Git и контейнеров. Локальный
 `config/local.telegram-proxy.json` содержит `host`, `user=aw-telegram-proxy`,
@@ -53,7 +91,10 @@ Telegram, не на модель, n8n или интернет агента. Пр
 
 ## Отключение и откат
 
-Отключить выделенную задачу Windows и завершить только её SSH-процесс. Удалить
+Для Docker — `docker compose ... down` только отдельного проекта туннеля. Для
+возврата к Windows-задаче сначала освободить её loopback-порт остановкой контейнера,
+затем включить и запустить только `AI Agent Platform - Telegram Proxy`.
+Для резервного режима отключить выделенную задачу и завершить только её SSH-процесс. Удалить
 `AI_PLATFORM_TELEGRAM_PROXY` для возврата к прямому соединению; `--remove-channel`
 отключает публикации совсем. Требуется перезапуск платформы при STOP.
 На VPS можно убрать только `80-aw-telegram-proxy.conf` и ключ выделенного

@@ -1,0 +1,39 @@
+name: ai-platform-telegram-proxy
+services:
+  tunnel:
+    image: ${AI_TG_IMAGE:?Set the built image ID}
+    pull_policy: never
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.25
+    mem_limit: 64m
+    pids_limit: 32
+    environment:
+      AI_TG_VPS_HOST: ${AI_TG_VPS_HOST:?Set the VPS hostname}
+    ports:
+      - "127.0.0.1:${AI_TG_LOCAL_PORT:-10880}:1080"
+    tmpfs:
+      - /run/tunnel:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532,size=1048576
+    volumes:
+      - type: bind
+        source: ${AI_TG_IDENTITY:?Set the private key path}
+        target: /secrets/identity
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_TG_KNOWN_HOSTS:?Set the pinned known-hosts path}
+        target: /secrets/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      ai-agent-platform.role: telegram-tunnel
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: "2"
