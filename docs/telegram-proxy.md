@@ -46,7 +46,7 @@ Telegram, не на модель, n8n или интернет агента. Пр
 потеряно, `TELEGRAM_OUTCOME_UNKNOWN` означает: сначала проверить канал, чтобы
 не создать дубль. Общая доступность Telegram не доказывает успешную публикацию.
 
-При остановленном сервере: `configure-harness --root <host> --channel @<channel>`,
+При остановленном сервере: `configure-harness --root <host> --channel '@<channel>'`,
 затем обычный serve. Агент остаётся STOPPED до явного START. Инструмент —
 `platform_channel_post`. Привязка канала и прокси не отменяют модерацию и STOP.
 Отправка уже принятого Telegram сообщения не может быть отменена последующим STOP.

@@ -75,11 +75,19 @@ class TelegramBot:
         except urllib.error.HTTPError as error:
             raise TelegramError("TELEGRAM_REFUSED", error.code) from None
         except OSError, ValueError:
+            if self._proxy is not None:
+                raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN") from None
             raise TelegramError("TELEGRAM_UNAVAILABLE") from None
         if not isinstance(reply, dict) or reply.get("ok") is not True:
+            if self._proxy is not None and (
+                not isinstance(reply, dict) or reply.get("ok") is not False
+            ):
+                raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
             raise TelegramError("TELEGRAM_REFUSED")
         result = reply.get("result")
         identifier = result.get("message_id") if isinstance(result, dict) else None
         if not isinstance(identifier, int):
+            if self._proxy is not None:
+                raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
             raise TelegramError("TELEGRAM_REFUSED")
         return identifier

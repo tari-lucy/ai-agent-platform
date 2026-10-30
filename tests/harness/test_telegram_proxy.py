@@ -107,6 +107,16 @@ def test_proxy_http_refusal_is_fixed_and_not_retried():
     assert seen["request"].startswith("POST ")
 
 
+@pytest.mark.parametrize("payload", [b"invalid-json", b'{"ok":true,"result":{}}'])
+def test_unusable_success_reply_is_unknown_not_safe_to_repeat(payload):
+    with fake_socks(payload=payload) as (proxy, _):
+        bot = TelegramBot(
+            SecretStr("123:fictional-secret"), api="http://bot-api.invalid", proxy=proxy
+        )
+        with pytest.raises(TelegramError, match="TELEGRAM_OUTCOME_UNKNOWN"):
+            bot.send_message("@fictional", "synthetic")
+
+
 @pytest.mark.parametrize(
     "failure,code",
     [
