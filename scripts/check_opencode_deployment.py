@@ -8,7 +8,6 @@ from pathlib import Path
 from ai_agent_core.local_host.layout import HostError, load_config, paths
 from ai_agent_core.local_host.panel import validate
 from ai_agent_core.local_host.work_sessions import check
-from ai_agent_core.opencode_ui.assets import load
 
 
 def preflight(config: Path, checkout: Path) -> dict[str, str]:
@@ -63,8 +62,11 @@ def preflight(config: Path, checkout: Path) -> dict[str, str]:
     results["env_file"] = (
         "ENV_FILE_OK"
         if (
-            settings["provider"] == "live" and env.is_absolute() and env.is_file()
-            or settings["provider"] == "mock" and settings["env_file"] == ""
+            settings["provider"] == "live"
+            and env.is_absolute()
+            and env.is_file()
+            or settings["provider"] == "mock"
+            and settings["env_file"] == ""
         )
         else "ENV_FILE_PATH_INVALID"
     )  # Only existence; never open the file or check the key's value.
@@ -87,17 +89,7 @@ def preflight(config: Path, checkout: Path) -> dict[str, str]:
         results["runner"] = error.code
     except OSError, ValueError:
         results["runner"] = "HOST_CONFIG_UNAVAILABLE"
-    native = settings.get("opencode_ui_dir", "")
-    if not native:
-        results["native_ui"] = "OPENCODE_UI_NOT_CONFIGURED"
-    else:
-        try:
-            load(Path(native), host)
-            results["native_ui"] = "OPENCODE_UI_OK"
-        except HostError as error:
-            results["native_ui"] = error.code
-        except OSError:
-            results["native_ui"] = "OPENCODE_UI_UNAVAILABLE"
+    # opencode_ui_dir is accepted but ignored: the old /opencode/ window was removed.
     return results
 
 

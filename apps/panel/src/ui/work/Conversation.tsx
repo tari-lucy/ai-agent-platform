@@ -6,8 +6,6 @@ import { ApiFailure, failureMessage, type PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { formatTime } from '../time.ts';
 import { useWorkSessions } from './sessions.ts';
-import { nativeHref } from '../opencode.ts';
-import type { NativeAgent } from '../../shared/validation.ts';
 import {
   callsText, closeCommand, elapsed, endedStates, MAX_MESSAGE, messageCommand, messageProblem, newestFirst, nextStep, openCommand, pending as awaiting, progressLabels,
   sessionStateLabels, stopNotice, titleProblem, turn, writable,
@@ -117,8 +115,8 @@ function Turn({ progress, checkedAt }: { progress: WorkSessionProgress; checkedA
   </Paper>;
 }
 
-function Thread({ api, scope, transcript, running, native }: {
-  api: PanelApi; scope: Scope; transcript: WorkSessionTranscript; running: boolean; native?: NativeAgent | null;
+function Thread({ api, scope, transcript, running, reading }: {
+  api: PanelApi; scope: Scope; transcript: WorkSessionTranscript; running: boolean; reading?: boolean;
 }) {
   const cache = useQueryClient();
   const [text, setText] = useState('');
@@ -172,8 +170,7 @@ function Thread({ api, scope, transcript, running, native }: {
     {transcript.progress && transcript.progress.state !== 'reply_ready' && <Turn progress={transcript.progress} checkedAt={transcript.checked_at} />}
     {transcript.pending_reply && <PendingReply key={transcript.pending_reply.utterance_id}
       api={api} draft={transcript.pending_reply} running={running} refresh={refresh} />}
-    {native !== undefined ? native && <Anchor mt="sm" display="block" href={nativeHref(native.directory, transcript.session_id)}>Открыть в OpenCode</Anchor> :
-      writable(transcript) && <Stack gap={4} mt="sm">
+    {!reading && writable(transcript) && <Stack gap={4} mt="sm">
       <Textarea label="Сообщение агенту" autosize minRows={2} maxLength={MAX_MESSAGE} value={text}
         onChange={(event) => { setText(event.currentTarget.value); pending.current = null; }} />
       {problem && <Text size="sm" c="red.8" role="alert">{problem}</Text>}
@@ -189,10 +186,10 @@ type ConversationProps = {
   api: PanelApi; scope: Scope; run?: RunSession;
   // Owned by the work screen, so a task card can open its conversation here.
   chosen: string | null; onSelect: (id: string | null) => void;
-  // PUI-03: undefined — no native window (old forms); null/agent — read-only, OpenCode link.
-  native?: NativeAgent | null;
+  // doc33: true with the persona's own OpenCode (read-only here); false keeps the old forms.
+  reading?: boolean;
 };
-export function Conversation({ api, scope, run, chosen, onSelect: setSelected, native }: ConversationProps) {
+export function Conversation({ api, scope, run, chosen, onSelect: setSelected, reading = false }: ConversationProps) {
   const sessions = useWorkSessions(api, scope);
   const rows = newestFirst(sessions.data?.items ?? []);
   // The newest conversation is shown until the operator picks another one.
@@ -211,7 +208,6 @@ export function Conversation({ api, scope, run, chosen, onSelect: setSelected, n
       return data.progress && (data.progress.state === 'queued' || data.progress.state === 'running') ? 3000 : false;
     },
   });
-  const reading = native !== undefined;
   return <Stack gap="sm" aria-label={reading ? 'Разговоры о работе' : 'Разговор о работе'}>
     <Title order={2} size="h5">{reading ? 'Разговоры о работе · чтение' : 'Разговор о работе'}</Title>
     {reading ? <Text size="sm" c="dimmed">Прежние и текущие разговоры для чтения; писать — в OpenCode.</Text> :
@@ -222,6 +218,6 @@ export function Conversation({ api, scope, run, chosen, onSelect: setSelected, n
     {rows.length > 0 && <Select label="Разговор" data={rows.map((row) => ({ value: row.id, label: `${row.title} — ${sessionStateLabels[row.state ?? 'open']}` }))}
       value={selected} onChange={setSelected} allowDeselect={false} />}
     {transcript.isError && <Alert color="orange" title="Разговор недоступен">{failureMessage(transcript.error)}</Alert>}
-    {transcript.data && <Thread key={transcript.data.session_id} api={api} scope={scope} transcript={transcript.data} running={running} native={native} />}
+    {transcript.data && <Thread key={transcript.data.session_id} api={api} scope={scope} transcript={transcript.data} running={running} reading={reading} />}
   </Stack>;
 }

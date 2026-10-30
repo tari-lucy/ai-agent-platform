@@ -1,4 +1,4 @@
-"""100 MiB through operator HTTP, home upload and catalogue-to-runner stdin; no model."""
+"""100 MiB home upload and catalogue-to-runner stdin; no model."""
 
 import asyncio
 import hashlib
@@ -15,46 +15,12 @@ from ai_agent_adapters.sandbox.home_files import HomeFiles
 from ai_agent_adapters.sandbox.policy import RunnerTemplate
 from ai_agent_application.agent_workplace.ports import RunnerLimits
 from ai_agent_contracts.common import ArtifactRef
-from test_activity import WorkModel, prepared
 from test_docker import World
 
 from ai_agent_core.local_host.cli import parser
 from ai_agent_core.local_host.layout import WorkSessionsConfig
-from ai_agent_core.opencode_ui.protocol import PREFIX, directory
 
 SIZE = 100 << 20
-
-
-def test_operator_home_upload_exact_limit_and_oversize_refusal(tmp_path, monkeypatch):
-    async def scenario():
-        host = await prepared(tmp_path, monkeypatch, WorkModel())
-
-        class Home:
-            received = 0
-
-            async def put(self, volume, name, data):
-                self.received += 1
-                assert len(data) == SIZE
-                return {"status": "ok"}
-
-        home = Home()
-        async with host.open():
-            host.runtime.session_home_files = home
-            url = PREFIX + "/agents/" + directory(host.scope) + "/home-inbox/test.bin"
-            headers = {**host.env.headers, "content-type": "application/octet-stream"}
-            response = await host.env.client.post(url, content=b"x" * SIZE, headers=headers)
-            assert response.status_code == 200 and response.json()["size"] == SIZE
-            refused = await host.env.client.post(
-                url, content=b"", headers={**headers, "content-length": str(SIZE + 1)}
-            )
-            assert refused.status_code == 413 and home.received == 1
-            no_csrf = await host.env.client.post(
-                url, content=b"", headers={"content-type": "application/octet-stream"}
-            )
-            assert no_csrf.status_code == 403 and home.received == 1
-            assert host.runtime.supervisor.snapshot.state.value == "STOPPED"
-
-    asyncio.run(scenario())
 
 
 def test_input_ceiling_is_configurable_without_new_permission():

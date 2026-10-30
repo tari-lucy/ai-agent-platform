@@ -1,4 +1,4 @@
-import { Alert, Anchor, Button, Group, Select, Text } from '@mantine/core';
+import { Alert, Button, Group, Select, Text } from '@mantine/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
@@ -21,7 +21,7 @@ import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 import { groups, screens } from './areas.ts';
-import { HarnessEntry, NativeEntry, nativeAgent, nativeHref, useHarness, useNative } from './opencode.ts';
+import { HarnessEntry, useHarness } from './opencode.ts';
 
 
 const runLabels = { STOPPED: 'Остановлен', STARTING: 'Запускается', ACTIVE: 'Работает', STOPPING: 'Останавливается', FAULTED: 'Требуется проверка' };
@@ -89,7 +89,6 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const recordConnection = useCallback((key: string, state: ConnectionState) => {
     setConnections((previous) => previous[key] === state ? previous : { ...previous, [key]: state });
   }, []);
-  const native = useNative(api);
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -136,7 +135,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
     try { await onLogout(); } catch (error) { setLogoutError(failureMessage(error)); }
     finally { setLogoutBusy(false); }
   }
-  return <HarnessEntry.Provider value={harness}><NativeEntry.Provider value={native}><div className="workspace">
+  return <HarnessEntry.Provider value={harness}><div className="workspace">
     <a className="skip-link" href="#content">Перейти к содержимому</a>
     <header ref={header} className="workspace-header">
       <div className="header-brand"><Text className="brand">AI Agent Platform</Text><Text size="xs" c="dimmed">Пространство: {scope.workspace_id}</Text></div>
@@ -150,11 +149,10 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       </div>
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
-        {harness?.enabled && harness.url ? <Button component="a" href={harness.url} target="_blank" rel="noopener"
+        {harness?.enabled && harness.url && <Button component="a" href={harness.url} target="_blank" rel="noopener"
           size="compact-sm" variant={harness.ready ? 'filled' : 'light'}
           title={harness.ready ? 'Окно агента в OpenCode' : 'Агент не запущен: нажмите START'}>
-          Открыть OpenCode{harness.ready ? '' : ' · не запущен'}</Button>
-          : nativeAgent(native, scope) && <Anchor href={nativeHref(nativeAgent(native, scope)!.directory)} size="sm">Открыть OpenCode</Anchor>}
+          Открыть OpenCode{harness.ready ? '' : ' · не запущен'}</Button>}
         {harness?.enabled && <Text size="xs" c={harness.spent_today != null && harness.daily_budget && harness.spent_today >= harness.daily_budget ? 'red' : 'dimmed'}
           title="Расход модели за сегодня (UTC) по журналу шлюза агента">
           {harness.spent_today == null ? 'Тариф не задан' :
@@ -167,7 +165,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {groups.map((group) => <div key={group.id} className="nav-group" role="group" aria-label={group.title}>
         <Text className="eyebrow nav-group-title" aria-hidden="true">{group.title}</Text>
         {screens.filter((screen) => screen.group === group.id).map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
-          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{native && screen.path === 'dialogue' ? 'Прежний диалог · чтение' : screen.label}</span></NavLink>)}
+          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{harness?.enabled && screen.path === 'dialogue' ? 'Прежний диалог · чтение' : screen.label}</span></NavLink>)}
       </div>)}</nav>
       <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
@@ -200,5 +198,5 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       })}
         <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
     </main>
-  </div></NativeEntry.Provider></HarnessEntry.Provider>;
+  </div></HarnessEntry.Provider>;
 }

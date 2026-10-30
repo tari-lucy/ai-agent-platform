@@ -598,14 +598,6 @@ const fileKinds = new Set(['material', 'note', 'hypothesis', 'method', 'script',
 const fileProvenance = new Set(['read', 'generated', 'assumption', 'verified']);
 const artifactRef = (ref: unknown, selected: Scope) => object(ref) && id(ref.artifact_id) && version(ref.version) &&
   isScope(ref.scope) && samePartition(selected, ref.scope) && typeof ref.checksum === 'string' && Number.isSafeInteger(ref.size_bytes);
-// The bridge catalogue (aw-opencode/1): a stable directory per allowed person, never a path.
-export type NativeAgent = { directory: string; scope: Scope; label: string };
-export function nativeAgents(value: unknown): NativeAgent[] {
-  demand(object(value) && Array.isArray(value.items) && value.items.length <= 8);
-  demand(value.items.every((row: unknown) => object(row) && typeof row.directory === 'string' &&
-    /^aw_[0-9a-f]{64}$/.test(row.directory) && isScope(row.scope) && text(row.label, 200)));
-  return value.items as NativeAgent[];
-}
 // One initial access decision for the configured set (OC-05): members and their current state.
 export function initialAccessStatus(value: unknown, selected: Scope): import('./contracts.ts').InitialAccessStatus {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&

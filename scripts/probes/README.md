@@ -2,14 +2,6 @@
 
 Скрипты здесь платные или медленные и **никогда не запускаются из pytest**.
 
-## `opencode_native_surface.py` — OC-00, offline native Web/API
-
-Явная Docker-проба установленного image ID, без модели, сети, host mounts,
-ключей и открытых портов. Проверяет embedded HTML/основные assets, OpenAPI,
-Basic auth, SSE handshake и создание/чтение/удаление вымышленной native session.
-Полный браузерный сценарий и platform bridge этим не проверяются.
-Команда и результаты: [OC-00](../../docs/implementation-reports/OC-00-native-web.md).
-
 ## `private_memory_quality.py` — разговор → память → следующий ответ
 
 Один синтетический разговор на реальной модели: 2 реплики, один цикл памяти

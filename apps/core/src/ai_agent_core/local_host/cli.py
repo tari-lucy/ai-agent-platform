@@ -117,7 +117,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--opencode-ui-dir",
         type=Path,
-        help="prepared upstream adapter build for /opencode; does not grant rights or start agents",
+        help="ignored: the old /opencode/ window was removed (kept for existing launch scripts)",
     )
     run.add_argument(
         "--open-browser", action="store_true", help="open panel once after successful startup"

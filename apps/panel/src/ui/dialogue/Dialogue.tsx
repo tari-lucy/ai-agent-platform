@@ -15,7 +15,7 @@ import {
 } from './model.ts';
 import { historyNote, PAGE_BUDGET, PAGE_BUDGET_MAX, walk, type Page } from './history.ts';
 import { Timeline } from './Timeline.tsx';
-import { nativeAgent, nativeHref, useHarnessEntry, useNativeEntry } from '../opencode.ts';
+import { useHarnessEntry } from '../opencode.ts';
 
 const when = (value: string) => formatTime(value, 'medium');
 
@@ -187,10 +187,10 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
   const runs = useQuery({ queryKey: projectionKey('sessions', scope), queryFn: ({ signal }) => api.runs(scope, signal), enabled: false });
   const run = (runs.data as RunSessionPage | undefined)?.items[0];
   const online = useReconnect(scope);
-  const native = useNativeEntry();
-  const agent = nativeAgent(native, scope);
+  // doc33: with the persona's own OpenCode the old dialogue is read-only here.
   const harness = useHarnessEntry();
-  const nativeUrl = harness?.enabled && harness.url ? harness.url : agent ? nativeHref(agent.directory) : null;
+  const reading = !!harness?.enabled;
+  const nativeUrl = harness?.url ?? null;
   const [budget, setBudget] = useState(PAGE_BUDGET);
   const [watching, setWatching] = useState(false);
   useEffect(() => {
@@ -324,9 +324,9 @@ export function Dialogue({ api, scope, connection = 'connecting' }: { api: Panel
       <Text size="xs" mt={4}>Начатые неудачные попытки тоже учитываются. Денежный расход показывается отдельно.</Text>
     </Alert>}
     {budgetStatus.isError && <Text size="xs" c="dimmed">Остаток лимита API недоступен. Сервер проверит допуск перед запросом.</Text>}
-    {native ? <Alert color="blue" title="Разговор теперь в OpenCode">
+    {reading ? <Alert color="blue" title="Разговор теперь в OpenCode">
       Здесь — только чтение прежнего диалога. Новое сообщение напишите в{' '}
-      {nativeUrl ? <Anchor href={nativeUrl} target={harness?.enabled ? '_blank' : undefined}>родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
+      {nativeUrl ? <Anchor href={nativeUrl} target="_blank" rel="noopener">родном окне OpenCode</Anchor> : 'родном окне OpenCode'}.
     </Alert> : <>
     <Composer api={api} run={run} scope={scope} operationRows={operationRows} utteranceRows={utteranceRows}
       onSent={() => setWatching(true)}

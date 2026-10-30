@@ -127,14 +127,10 @@ def install(
 
     # The old session driver is not installed beside the harness (serve): what the rest of
     # the platform reads from it is set here. The internet right is offered only through
-    # session_egress_capability (activity.tools); the panel reads the egress log and homes.
+    # session_egress_capability (activity.tools); the panel reads the egress log.
     if egress is not None:
         runtime.session_egress_capability = egress.capability_id
         runtime.session_egress = egress
-    if work.home_enabled:
-        from ai_agent_adapters.sandbox.home_files import HomeFiles
-
-        runtime.session_home_files = HomeFiles(work.image_id)
 
     from ai_agent_core.m3_composition.harness_channel import public_rules
 
