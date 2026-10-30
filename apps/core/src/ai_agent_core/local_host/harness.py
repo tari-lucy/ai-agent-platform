@@ -226,7 +226,7 @@ def channel(
     model: str,
 ) -> ChannelPost | None:
     """The channel_post owner, when the operator configured a channel and the bot token."""
-    from ai_agent_adapters.telegram.bot import TOKEN_SETTING, TelegramBot
+    from ai_agent_adapters.telegram.bot import PROXY_SETTING, TOKEN_SETTING, TelegramBot
     from pydantic import SecretStr
 
     from ai_agent_core.m3_composition.harness_channel import (
@@ -255,7 +255,7 @@ def channel(
     folder = host.root / "data" / "harness"
     return ChannelPost(
         ChannelSettings(settings.channel, folder / "public-rules.txt", folder / "channel.jsonl"),
-        TelegramBot(SecretStr(token)),
+        TelegramBot(SecretStr(token), proxy=providers.secrets.get(PROXY_SETTING)),
         model_check(upstream, key, model, usage),
         voice,
     )

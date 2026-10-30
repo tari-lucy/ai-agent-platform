@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import SecretStr
 
 TOKEN_SETTING = "AI_PLATFORM_TELEGRAM_BOT_TOKEN"
+PROXY_SETTING = "AI_PLATFORM_TELEGRAM_PROXY"
 API = "https://api.telegram.org"
 MAX_TEXT = 4096
 MAX_CAPTION = 1024
@@ -25,8 +26,15 @@ class TelegramError(Exception):
 
 
 class TelegramBot:
-    def __init__(self, token: SecretStr, *, api: str = API, timeout: float = 60) -> None:
+    def __init__(
+        self, token: SecretStr, *, api: str = API, timeout: float = 60, proxy: str | None = None
+    ) -> None:
         self._token, self._api, self._timeout = token, api.rstrip("/"), timeout
+        if proxy is not None:
+            from .proxy import checked_proxy
+
+            proxy = checked_proxy(proxy)
+        self._proxy = proxy
 
     def send_message(self, chat: str, text: str) -> int:
         if not text.strip() or len(text) > MAX_TEXT:
@@ -56,8 +64,14 @@ class TelegramBot:
             url, data=body, method="POST", headers={"Content-Type": kind}
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
-                reply: Any = json.loads(response.read(1024 * 1024))
+            if self._proxy is not None:
+                from .proxy import request_via_proxy
+
+                payload = request_via_proxy(self._proxy, url, body, kind, self._timeout)
+            else:
+                with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                    payload = response.read(1024 * 1024)
+            reply: Any = json.loads(payload)
         except urllib.error.HTTPError as error:
             raise TelegramError("TELEGRAM_REFUSED", error.code) from None
         except OSError, ValueError:

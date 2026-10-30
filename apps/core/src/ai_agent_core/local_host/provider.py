@@ -238,7 +238,9 @@ class LocalProviders:
             await self.live.provider.aclose()
 
 
-SERVICE_SECRETS = ("AI_PLATFORM_TELEGRAM_BOT_TOKEN", "AI_PLATFORM_SONIOX_API_KEY")
+SERVICE_SECRETS = (
+    "AI_PLATFORM_TELEGRAM_BOT_TOKEN", "AI_PLATFORM_SONIOX_API_KEY", "AI_PLATFORM_TELEGRAM_PROXY",
+)
 
 
 def provider_factory(

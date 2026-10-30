@@ -117,6 +117,12 @@ class ChannelPost:
             except Exception as error:  # noqa: BLE001 - fixed code only
                 code = str(getattr(error, "code", type(error).__name__))
                 status = getattr(error, "status", None)
+                if code == "TELEGRAM_OUTCOME_UNKNOWN":
+                    self._journal(text, voice, "unknown", code)
+                    return (
+                        "Исход публикации неизвестен: подтверждение Telegram не получено. "
+                        "Не повторяй пост до проверки канала."
+                    )
                 self._journal(text, voice, "failed", code if status is None else f"{code}:{status}")
                 return f"Не опубликовано: Telegram не принял ({code})."
             self._journal(text, voice, "posted", str(message))

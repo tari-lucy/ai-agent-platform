@@ -98,6 +98,21 @@ def test_verdict_takes_only_a_clear_json_answer():
     assert verdict('{"ok": "yes"}')[0] is False
 
 
+def test_unknown_delivery_is_not_reported_as_unpublished_or_retried(tmp_path, monkeypatch):
+    post, bot = channel(tmp_path, (True, ""))
+    calls = []
+
+    def uncertain(chat, text):
+        calls.append(1)
+        raise TelegramError("TELEGRAM_OUTCOME_UNKNOWN")
+
+    monkeypatch.setattr(bot, "send_message", uncertain)
+    reply = asyncio.run(post.post("synthetic", voice=False, current=lambda: None))
+    assert reply.startswith("Исход публикации неизвестен")
+    assert "Не повторяй" in reply and calls == [1]
+    assert journal(tmp_path) == ["unknown"]
+
+
 def test_mcp_lists_and_calls_channel_post_only_when_configured(tmp_path):
     async def scenario():
         snapshot = SimpleNamespace(state=RunState.ACTIVE, control_epoch=2, scope=SCOPE)
