@@ -169,10 +169,15 @@ async def _run(arguments: argparse.Namespace) -> int:
             raise HostError("INVALID_OPTION")
         if preview.digest != arguments.digest:
             raise HostError("PREVIEW_CHANGED")  # the operator confirmed something else
-        report = await local.service.restore(preview, arguments.decision_id)
-        from ai_agent_core.local_host.resume import clear
+        from ai_agent_core.local_host.resume import ResumeError, block_resume
 
-        clear(arguments.root)  # a restore never resumes the agent
+        try:
+            # Before the owner touches anything: nothing older than this restore may be resumed.
+            # If the block cannot be written, the restore does not begin.
+            block_resume(arguments.root)
+        except ResumeError:
+            raise HostError("RESUME_BLOCK_FAILED") from None
+        report = await local.service.restore(preview, arguments.decision_id)
         print(f"restored: {report.backup_id} safety_copy={report.safety_backup_id}")
         print(
             f"scopes_verified={len(report.verified)} reapplied_deletions={len(report.reapplied)}"

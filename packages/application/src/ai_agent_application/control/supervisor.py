@@ -84,6 +84,9 @@ class Supervisor:
         self._last_elapsed, self._last_utc = self.clock.elapsed(), self.clock.utc()
         self.last_error: ErrorCode | None = None
         self._observers: list[Callable[[RunSession, float], None]] = []
+        # The latest run of the journal exactly as the previous process left it (before recover()
+        # closes it): the durable record of how that process ended. Read-only for the host.
+        self.previous: RunSession | None = None
 
     def _owned(self) -> None:
         if get_ident() != self._thread:
@@ -372,6 +375,9 @@ class Supervisor:
         self._recovering, self._recovered = True, False
         try:
             previous_runs = await self.journal.load()
+            self.previous = max(
+                previous_runs, key=lambda item: (item.updated_at, item.version), default=None
+            )
             unresolved = False
             for previous in previous_runs:
                 if previous.scope.workspace_id != self._base.workspace_id:
