@@ -9,6 +9,7 @@ gateway and both containers, and the run settles only on their removal receipts.
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -30,6 +31,26 @@ if TYPE_CHECKING:
 LOG = logging.getLogger(__name__)
 # A call without reported usage is charged as if it were this large: unknown is never zero.
 UNKNOWN_INPUT, UNKNOWN_OUTPUT = 32000, 4096
+
+
+def host_port_names(host_ports: dict[str, int]) -> dict[str, str]:
+    """Label -> environment variable name (`AW_HOST_<LABEL>`) for each granted connection."""
+    return {
+        label: "AW_HOST_" + re.sub(r"[^A-Z0-9]+", "_", label.upper()).strip("_")
+        for label in host_ports
+    }
+
+
+def host_port_env(host_ports: dict[str, int], host: str) -> dict[str, str]:
+    """`AW_HOST_<LABEL>=host:port` for every granted connection to the operator's computer.
+
+    The gateway's address changes with every START; a script reads it here instead of keeping
+    an address that goes stale.
+    """
+    names = host_port_names(host_ports)
+    return {names[label]: f"{host}:{port}" for label, port in host_ports.items()}
+
+
 HTTP_STARTUP_TIMEOUT = 60.0
 
 
@@ -212,12 +233,26 @@ class HarnessHost:
     def config(self, model_url: str, prompt: str, internet: bool) -> dict[str, Any]:
         s = self.settings
         name = self.agent_name()
+        prompt += (
+            "\n\n## Где ты работаешь\n"
+            "Ты работаешь в контейнере платформы, а не на компьютере оператора. Его компьютер, "
+            "игра и локальная сеть тебе недоступны, кроме выданных подключений ниже. Любые "
+            "прежние адреса (192.168.*, 172.*, localhost компьютера оператора, старые IP из "
+            "заметок и скриптов) устарели: не используй и не перебирай их."
+        )
         if s.host_ports:
             host = model_url.split("//", 1)[1].split(":", 1)[0]
-            prompt += "\n\n## Подключения к компьютеру оператора\n" + "\n".join(
-                f"- {label}: {host}:{port} (выдано оператором; другого пути к его компьютеру и "
-                "сети нет, перебирать адреса не нужно)"
+            names = host_port_names(s.host_ports)
+            lines = [
+                f"- {label}: {host}:{port} (переменная окружения {names[label]})"
                 for label, port in sorted(s.host_ports.items())
+            ]
+            prompt += (
+                "\n\n## Подключения к компьютеру оператора\n"
+                + "\n".join(lines)
+                + "\nАдрес шлюза меняется при каждом запуске. Не записывай IP в файлы и скрипты: "
+                "читай адрес из указанной переменной окружения (os.environ). Других путей к "
+                "компьютеру оператора нет."
             )
         free = {
             "bash": "allow",
@@ -323,6 +358,7 @@ class HarnessHost:
             )
             host = model_url.split("//", 1)[1].split(":", 1)[0]
             proxy.update({"NO_PROXY": host, "no_proxy": host})
+            proxy.update(host_port_env(s.host_ports, host))
             address = await agent.open(
                 network,
                 password=s.password,
@@ -402,7 +438,7 @@ class HarnessHost:
                     self._request_opencode("GET", "/global/health", timeout=2),
                     timeout=min(2.0, max(0.001, deadline - time.monotonic())),
                 )
-            except (OSError, ValueError, TimeoutError):
+            except OSError, ValueError, TimeoutError:
                 health = None
             guard()
             if isinstance(health, dict) and health.get("healthy") is True:
