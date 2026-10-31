@@ -226,7 +226,7 @@ def install(
         providers,
         runtime.harness.usage,
         model=config.live.model_id,
-        scope=runtime.supervisor.snapshot.scope if settings.channel_comments else None,
+        scope=runtime.supervisor.snapshot.scope,
     )
 
     # Local, possibly personal: the agent's alarm texts never go to Git or reports.
@@ -302,7 +302,9 @@ def channel(
             folder / "public-rules.txt",
             folder / "channel.jsonl",
             settings.channel_daily_posts,
-            Path(settings.files_dir) / "shots" if settings.files_dir else None,
+            Path(settings.files_dir) / scope.persona_id / "shots"
+            if settings.files_dir and scope is not None
+            else None,
         ),
         bot,
         model_check(upstream, key, model, usage),

@@ -17,6 +17,35 @@ from ai_agent_core.m3_composition.harness_channel import ChannelPost, ChannelSet
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 100
 
 
+@pytest.mark.parametrize("comments", [False, True])
+def test_host_photo_wiring_uses_only_the_selected_personas_workspace(tmp_path, comments):
+    from types import SimpleNamespace
+
+    from ai_agent_contracts.common import Scope
+
+    from ai_agent_core.local_host.harness import channel
+    from ai_agent_core.local_host.layout import HarnessConfig, HostPaths
+
+    root = tmp_path / "agent-files"
+    for persona, content in (("alpha", JPEG), ("beta", JPEG + b"other"), ("", JPEG + b"root")):
+        shots = root / persona / "shots"
+        shots.mkdir(parents=True)
+        (shots / "view.jpg").write_bytes(content)
+    providers = SimpleNamespace(
+        binding=("https://synthetic.invalid/v1", "synthetic-key"),
+        secrets={"AI_PLATFORM_TELEGRAM_BOT_TOKEN": "synthetic-token"},
+    )
+    settings = HarnessConfig(channel="@synthetic", files_dir=str(root), channel_comments=comments)
+    scope = Scope(
+        workspace_id="synthetic", persona_id="alpha", memory_space_id="memory", memory_mode="work"
+    )
+    post = channel(settings, HostPaths(tmp_path), providers, None, model="synthetic", scope=scope)
+    assert post.settings.photos == root / "alpha" / "shots"
+    assert post._photo("view.jpg") == JPEG
+    (root / "alpha" / "shots" / "view.jpg").unlink()
+    assert post._photo("view.jpg") is None  # no fallback to another persona or the shared root
+
+
 def test_markdown_becomes_telegram_html_and_everything_else_is_escaped():
     assert (
         telegram_html("**жирный** и *курсив* и `код`")
