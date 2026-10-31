@@ -2,21 +2,21 @@
 
 By default a restart, a sleep or a restore never starts the agent. When the operator turns
 ``resume_after_restart`` on, the host starts her again after a restart if, and only if, the
-previous process left her running on her own. The durable truth is the Supervisor's own
-journal, which already records how the previous run ended and which an operator STOP updates
-through the Supervisor's own path. Nothing is written in the STOP path.
+previous process left her running on her own. The only authority is the Supervisor's own
+journal: the latest run of the persona's WORK partition, exactly as the previous process left
+it (``Supervisor.previous``). Nothing is written in the STOP path and no file can outlive an
+operator decision.
 
-The journal returns, at load, only runs that were not finished (a stopped run frees its
-slot), so two cases are told apart:
+The latest run authorizes a resume when it was autonomous with open activity (not observation,
+not paused) and either
 
-- the previous process died (a crash, a power loss): the journal still has her WORK run
-  STARTING/ACTIVE, autonomous with open activity (not paused, not observation): resume;
-- the previous process shut down cleanly (a reboot, ``systemctl stop``) while she ran: the
-  journal has nothing, but a single-use marker written at that shutdown only, bound to her
-  run and partition, says so. The marker is consumed at the next boot.
+- it is still STARTING/ACTIVE: the process died (a crash, a power loss); or
+- it is STOPPED with no ``ended_at``: a STOP always sets ``ended_at``, a clean process
+  shutdown (a reboot, ``systemctl stop``) deliberately does not, so nobody ended that run.
 
-An operator STOP, a fault, a pause, a switch to observation and a restore never authorize it.
-A restore also writes a block: only a run created after the restore may be resumed later.
+A STOP, a fault, a pause, a switch to observation, a newer run of any kind and a restore never
+authorize it. The only file is the block a restore writes before it begins: only a run created
+after the restore may be resumed afterwards. A block that cannot be read denies the resume.
 The resumed START is an ordinary ``agent.start`` command with every check. STOP wins at any
 time: a STOP while the host waits to resume cancels the resume.
 """
@@ -26,11 +26,10 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from ai_agent_application.control.ports import ControlAuthority
@@ -51,92 +50,66 @@ RETRY = {ErrorCode.RESOURCE_BUSY, ErrorCode.SERVICE_UNAVAILABLE, ErrorCode.STALE
 
 
 class ResumeError(Exception):
-    """The block or the marker could not be written: the caller must not go on."""
+    """The block could not be written or read: the caller must not go on."""
 
 
 def resume_file(root: Path) -> Path:
     return root / "data" / "harness" / "resume.json"
 
 
-def _load(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _store(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data), encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    os.replace(temporary, path)
-
-
 def block_resume(root: Path) -> None:
-    """Before a restore: nothing that existed before this moment may be resumed.
+    """Before a restore: no run that exists before this moment may be resumed.
 
     Raises ResumeError if the block cannot be written; the restore must not begin then.
     """
     path = resume_file(root)
     try:
-        _store(path, {"blocked_before": datetime.now(UTC).isoformat(), "clean_run_id": None})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({"blocked_before": datetime.now(UTC).isoformat()}), encoding="utf-8"
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
     except OSError as error:
         raise ResumeError("RESUME_BLOCK_FAILED") from error
 
 
-def mark_clean(path: Path, run_id: str, partition: tuple[str, ...]) -> None:
-    data = _load(path)
-    data.update(
-        clean_run_id=run_id,
-        clean_partition=list(partition),
-        clean_at=datetime.now(UTC).isoformat(),
-    )
-    _store(path, data)
-
-
-def consume(path: Path) -> None:
-    data = _load(path)
-    if data.get("clean_run_id") is not None:
-        for key in ("clean_run_id", "clean_partition", "clean_at"):
-            data[key] = None
-        _store(path, data)
-
-
-def _moment(value: object) -> datetime | None:
-    """A stored time; None when absent. Anything else that is not a time raises ValueError."""
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("RESUME_TIME_INVALID")
-    return datetime.fromisoformat(value)
-
-
-def authorizes(previous: RunSession | None, base: Scope, data: dict[str, Any]) -> bool:
-    """Does the journal's unfinished run, or the clean-shutdown marker, allow a resume?"""
-    if base.memory_mode != "work":
-        return False
+def read_block(path: Path) -> datetime | None:
+    """No file: no block. A file that cannot be read or understood is not 'no block'."""
     try:
-        blocked = _moment(data.get("blocked_before"))
-        at = _moment(data.get("clean_at"))
-    except ValueError:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise ResumeError("RESUME_BLOCK_UNREADABLE") from error
+    try:
+        data = json.loads(text)
+        value = data["blocked_before"]
+        if not isinstance(value, str):
+            raise TypeError
+        return datetime.fromisoformat(value)
+    except (ValueError, KeyError, TypeError) as error:
+        raise ResumeError("RESUME_BLOCK_INVALID") from error
+
+
+def authorizes(previous: RunSession | None, base: Scope, blocked: datetime | None) -> bool:
+    """Does the persona's latest run, as the previous process left it, allow a resume?"""
+    if previous is None or base.memory_mode != "work":
         return False
-    if previous is not None:
-        # A journal with an unfinished run decides alone; a marker next to it is ignored.
-        return (
-            previous.state in (RunState.STARTING, RunState.ACTIVE)
-            and previous.scope.partition == base.partition
-            and previous.scope.memory_mode == "work"
-            and previous.autonomy == "autonomous"  # observation is the operator's last word
-            and previous.activity == ActivityState.OPEN  # so is a pause
-            and (blocked is None or previous.created_at > blocked)  # not older than a restore
-        )
-    if data.get("clean_run_id") is None or data.get("clean_partition") != list(base.partition):
+    if (
+        previous.scope.partition != base.partition
+        or previous.scope.memory_mode != "work"
+        or previous.autonomy != "autonomous"  # observation is the operator's last word
+        or previous.activity != ActivityState.OPEN  # so is a pause
+    ):
         return False
-    if at is None:
-        return False
-    return blocked is None or at > blocked
+    if blocked is not None and previous.created_at <= blocked:
+        return False  # a run older than the last restore
+    if previous.state in (RunState.STARTING, RunState.ACTIVE):
+        return True  # the process died while she ran
+    # Closed by a process shutdown: a STOP would have set ended_at.
+    return previous.state == RunState.STOPPED and previous.ended_at is None
 
 
 @dataclass(frozen=True)
@@ -180,17 +153,16 @@ class Resume:
         supervisor = self.rt.supervisor
         base = supervisor.snapshot.scope
         idle = supervisor.snapshot.run_id  # the closed run this boot started with
-        data = _load(self.path)
-        verdict = authorizes(supervisor.previous, base, data)
+        try:
+            blocked = read_block(self.path)
+        except ResumeError as error:
+            LOG.warning("Resume denied: %s", error)  # an unreadable block is not 'no block'
+            self.attach()
+            return
+        verdict = authorizes(supervisor.previous, base, blocked)
         self.attach()
         if not verdict:
             return
-        if data.get("clean_run_id") is not None:
-            try:  # the marker is single-use; if it cannot be consumed we do not resume
-                await asyncio.to_thread(consume, self.path)
-            except OSError:
-                LOG.warning("Resume marker could not be consumed: no resume")
-                return
         await asyncio.sleep(self.settings.delay)
         for attempt in range(1, self.settings.attempts + 1):
             run = supervisor.snapshot
@@ -231,7 +203,6 @@ class Resume:
         LOG.warning("Resume after restart gave up: START by hand")
 
     async def close(self) -> None:
-        """Before the runtime closes: a clean shutdown of a running persona is remembered."""
         if self.unobserve is not None:
             self.unobserve()
             self.unobserve = None
@@ -239,12 +210,3 @@ class Resume:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
             self.task = None
-        run = self.rt.supervisor.snapshot
-        if (
-            run.state == RunState.ACTIVE
-            and run.autonomy == "autonomous"
-            and run.activity == ActivityState.OPEN
-            and run.scope.memory_mode == "work"
-        ):
-            with suppress(OSError):  # no marker means no resume: the safe side
-                await asyncio.to_thread(mark_clean, self.path, run.run_id, run.scope.partition)

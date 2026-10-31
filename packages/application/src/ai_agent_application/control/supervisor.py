@@ -84,8 +84,10 @@ class Supervisor:
         self._last_elapsed, self._last_utc = self.clock.elapsed(), self.clock.utc()
         self.last_error: ErrorCode | None = None
         self._observers: list[Callable[[RunSession, float], None]] = []
-        # The latest run of the journal exactly as the previous process left it (before recover()
-        # closes it): the durable record of how that process ended. Read-only for the host.
+        # This partition's latest run exactly as the previous process left it (before recover()
+        # closes it), finished or not: the durable record of how that process ended. A STOP
+        # sets ``ended_at``; shutdown() deliberately does not, so "closed by the process, not
+        # by anybody" is visible. Read-only for the host (the opt-in resume, doc07 D88).
         self.previous: RunSession | None = None
 
     def _owned(self) -> None:
@@ -276,7 +278,10 @@ class Supervisor:
         self._deadline = None
 
     def shutdown(self) -> None:
-        """Process lifecycle hook; never waits for storage or executor acknowledgment."""
+        """Process lifecycle hook; never waits for storage or executor acknowledgment.
+
+        ``ended_at`` is left unset on purpose: nobody ended the run, the process closed it.
+        """
         self._owned()
         self._revoke()
         state = RunState.FAULTED if self._resources else RunState.STOPPED
@@ -375,9 +380,13 @@ class Supervisor:
         self._recovering, self._recovered = True, False
         try:
             previous_runs = await self.journal.load()
-            self.previous = max(
-                previous_runs, key=lambda item: (item.updated_at, item.version), default=None
-            )
+            latest = getattr(self.journal, "latest", None)  # optional journal capability
+            if latest is not None:
+                self.previous = await latest(self._base)
+            else:
+                self.previous = max(
+                    previous_runs, key=lambda item: (item.updated_at, item.version), default=None
+                )
             unresolved = False
             for previous in previous_runs:
                 if previous.scope.workspace_id != self._base.workspace_id:

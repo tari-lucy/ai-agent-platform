@@ -81,6 +81,12 @@ class Journal:
             if item.state != RunState.STOPPED
         ]
 
+    async def latest(self, scope):
+        found = [item for item in self.records.values() if item.scope.partition == scope.partition]
+        if not found:
+            return None
+        return max(found, key=lambda item: (item.updated_at, item.version)).model_copy(deep=True)
+
     async def save(self, snapshot):
         self.writes += 1
         if self.fail:

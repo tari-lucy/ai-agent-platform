@@ -63,6 +63,34 @@ class SQLiteRunJournal:
             result.append(record)
         return result
 
+    async def latest(self, scope: Scope) -> RunSession | None:
+        """The most recently updated run of this partition, finished or not.
+
+        ``load`` returns only runs that still hold the workspace slot; a finished run is still
+        the durable record of who ended it (STOP sets ``ended_at``, a process shutdown does not).
+        """
+        key = scope_key(scope)
+        known = self.scopes.get(key)
+        if known is None:
+            return None
+        await self.store.check_schema()
+        async with self.store.connection() as connection:
+            row = (
+                await connection.execute(
+                    select(db.records.c.id)
+                    .where(
+                        db.records.c.kind == "RunSession",
+                        db.records.c.scope_id == key,
+                        db.records.c.deleted.is_(False),
+                    )
+                    .order_by(db.records.c.updated_at.desc())
+                    .limit(1)
+                )
+            ).first()
+        if row is None:
+            return None
+        return await self.store.repository(RunSession, self.principal, known).get(str(row[0]))
+
     async def save(self, snapshot: RunSession) -> None:
         key = scope_key(snapshot.scope)
         if key not in self.scopes or snapshot.scope.workspace_id != self.workspace_id:
