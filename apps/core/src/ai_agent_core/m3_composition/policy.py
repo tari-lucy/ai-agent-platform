@@ -345,10 +345,20 @@ class Readiness:
         gateways are checked in Docker and removed when left over; only what Docker cannot
         confirm stays unknown, so a reboot no longer locks START for good.
         """
+        from ai_agent_adapters.sandbox.agent_gateway import reclaim_harness
         from ai_agent_adapters.sandbox.docker import reclaim
 
         unknown = []
+        harness: bool | None = None
         for resource_id in previous.unconfirmed_resource_ids:
-            if not await reclaim(resource_id):
+            if resource_id.startswith("harness-"):
+                # doc33: the persona's own harness (agent, gateway, network); one sweep removes
+                # whatever a previous process left, and also confirms there is nothing left.
+                if harness is None:
+                    harness = await reclaim_harness()
+                confirmed = harness
+            else:
+                confirmed = await reclaim(resource_id)
+            if not confirmed:
                 unknown.append(resource_id)
         return tuple(unknown)
