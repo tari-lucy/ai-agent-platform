@@ -335,3 +335,85 @@ def test_host_wiring_is_opt_in_and_partitioned(tmp_path):
     post = channel(enabled, HostPaths(tmp_path), providers, None, model="synthetic", scope=SCOPE)
     assert post.comments.partition == SCOPE.partition
     assert not post.comments.path.exists()
+
+
+def test_a_comment_written_as_another_channel_or_anonymous_admin_is_taken(tmp_path):
+    async def scenario():
+        _, inbox, bot = service(tmp_path)
+        channel_bot = {"id": 136817688, "is_bot": True, "first_name": "Channel"}
+        bot.rows = [
+            update(
+                101,
+                11,
+                "От другого канала",
+                **{"from": channel_bot, "sender_chat": {"id": -555, "title": "Мой канал"}},
+            ),
+            update(
+                102,
+                12,
+                "Анонимный админ",
+                **{
+                    "from": {"id": 1087968824, "is_bot": True},
+                    "sender_chat": {"id": -1002, "title": "Группа"},
+                },
+            ),
+            update(103, 13, "Настоящий бот", **{"from": {"id": 7, "is_bot": True}}),
+            update(104, 14, "Свой бот", **{"from": {"id": 99, "is_bot": True}}),
+        ]
+        result = await inbox.read(SCOPE, lambda: None)
+        assert [x["text"] for x in result["items"]] == ["От другого канала", "Анонимный админ"]
+        assert result["items"][0]["author"]["name"] == "Мой канал"
+        stored = json.loads(inbox.path.read_text(encoding="utf-8"))
+        assert stored["dropped"] == {"bot": 2}  # reasons and counts only, never text
+
+    asyncio.run(scenario())
+
+
+def test_the_watcher_wakes_her_once_for_news_and_not_oftener_than_the_quiet_time(tmp_path):
+    from ai_agent_core.m3_composition.harness_comments import CommentsWatch
+
+    async def scenario():
+        channel, inbox, bot = service(tmp_path)
+        woken = []
+
+        class Wakes:
+            async def open_count(self, *, scope):
+                return 0
+
+            async def set(self, minutes, text, *, scope, guard):
+                assert guard()
+                woken.append(text)
+
+        run = SimpleNamespace(
+            autonomy="autonomous",
+            activity=SimpleNamespace(value="OPEN"),
+            scope=SCOPE,
+            control_epoch=1,
+        )
+        harness = SimpleNamespace(
+            channel=channel,
+            wakes=Wakes(),
+            usage=SimpleNamespace(remaining=lambda: 1.0),
+            current=lambda: True,
+        )
+        runtime = SimpleNamespace(harness=harness, supervisor=SimpleNamespace(snapshot=run))
+        watch = CommentsWatch(runtime, quiet=3600)
+        await watch._step()
+        assert len(woken) == 1 and "1" in woken[0] and "channel_reply" in woken[0]
+        await watch._step()  # nothing new: silence
+        bot.rows.append(update(102, 12, "Ещё вопрос"))
+        await watch._step()  # news, but she was told a moment ago: wait
+        assert len(woken) == 1
+        watch.quiet = 0
+        await watch._step()
+        assert len(woken) == 2
+        run.autonomy = "observation"  # not running on her own: no polling, no wake
+        bot.rows.append(update(103, 13, "Третий"))
+        await watch._step()
+        assert len(woken) == 2
+        harness.usage = SimpleNamespace(remaining=lambda: 0.0)  # budget gone
+        run.autonomy = "autonomous"
+        await watch._step()
+        assert len(woken) == 2
+
+    asyncio.run(scenario())

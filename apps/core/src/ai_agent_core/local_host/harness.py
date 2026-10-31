@@ -250,6 +250,10 @@ def install(
             settings.daily_budget,
         )
         runtime.harness.attach(LifePart(runtime, runtime.harness.life))
+        from ai_agent_core.m3_composition.harness_comments import CommentsWatch
+
+        # Channel comments: looked at without a model, she is woken only when there is news.
+        runtime.harness.attach(CommentsWatch(runtime))
     return None
 
 
