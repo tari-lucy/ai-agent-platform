@@ -162,6 +162,12 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         help="start the persona again after a restart if she was running and nobody pressed STOP",
     )
+    harness.add_argument("--channel-daily-posts", type=int, help="most posts a local day")
+    harness.add_argument(
+        "--life-mode",
+        choices=("sleep", "quiet", "normal", "active"),
+        help="how lively the persona's self-directed life is",
+    )
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -540,6 +546,8 @@ def main(argv: list[str] | None = None) -> int:
                     revoke=arguments.revoke_host_port,
                     remove_channel=arguments.remove_channel,
                     resume_after_restart=arguments.resume_after_restart,
+                    channel_daily_posts=arguments.channel_daily_posts,
+                    life_mode=arguments.life_mode,
                     channel=arguments.channel,
                     channel_voice=arguments.channel_voice,
                     channel_comments=arguments.channel_comments,

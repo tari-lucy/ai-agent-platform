@@ -66,6 +66,7 @@ class ChannelSettings:
     chat: str
     rules_file: Path
     journal: Path
+    daily_posts: int = 3
 
 
 class ChannelPost:
@@ -100,6 +101,11 @@ class ChannelPost:
             raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
         async with self.lock:  # one post at a time: the journal and the channel stay in order
             current()
+            if self.posted_today() >= self.settings.daily_posts:
+                return (
+                    f"Не опубликовано: сегодня уже {self.settings.daily_posts} постов, "
+                    "это дневной лимит. Продолжи завтра или запиши мысль в дневник."
+                )
             try:
                 checked = text
                 if caption and caption != text:
@@ -146,6 +152,23 @@ class ChannelPost:
                 return f"Не опубликовано: Telegram не принял ({code})."
             self._journal(text, voice, "posted", str(message), caption)
             return "Опубликовано в канал" + (" голосовым." if voice else ".")
+
+    def posted_today(self) -> int:
+        """Posts that reached the channel today (host-local day), from the local journal."""
+        today = datetime.now().astimezone().date()
+        try:
+            lines = self.settings.journal.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return 0
+        count = 0
+        for line in lines:
+            try:
+                entry = json.loads(line)
+                moment = datetime.fromisoformat(entry["at"]).astimezone()
+            except ValueError, KeyError, TypeError:
+                continue
+            count += entry.get("outcome") == "posted" and moment.date() == today
+        return count
 
     def _journal(
         self, text: str, voice: bool, outcome: str, detail: str, caption: str | None = None

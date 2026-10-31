@@ -84,6 +84,7 @@ class HarnessAutonomy:
         self.clock, self.remaining, self.settings = clock, remaining, settings
         self.closed = False
         self.busy = False
+        self.fired: str | None = None  # id of the wake delivered by the last tick
 
     async def tick(self) -> str:
         if self.closed or self.busy:
@@ -181,6 +182,7 @@ class HarnessAutonomy:
                 ):
                     return "OUTCOME_UNKNOWN"
             await self.owner.delivered(scope, wake, message, guard)
+            self.fired = wake.id
             return "FIRED"
         finally:
             self.busy = False
@@ -291,7 +293,10 @@ class AutonomyPart:
             if not self.task.done():
                 return
             try:
-                self.task.result()
+                if self.task.result() == "FIRED" and host.life is not None and self.service:
+                    # The persona's own stretch of work starts: money is bounded to its window.
+                    now = self.rt.supervisor.clock.utc()
+                    host.life.open_window(self.service.fired or "wake", now)
             except (OSError, ValueError, TimeoutError) as error:
                 LOG.warning("Harness wake deferred: %s", type(error).__name__)
             self.task = None
@@ -328,7 +333,7 @@ class AutonomyPart:
             snapshot,
             guard,
             self.rt.supervisor.clock.utc,
-            lambda: host.usage.remaining() or 0,
+            host.autonomy_left,
             self.settings,
         )
         self.task = asyncio.create_task(self.service.tick())

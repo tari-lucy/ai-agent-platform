@@ -347,6 +347,10 @@ class HarnessConfig(BaseModel):
     # her own and nobody pressed STOP. Off by default: a restart never starts her otherwise.
     resume_after_restart: bool = Field(default=False, strict=True)
     channel_comments: bool = Field(default=False, strict=True)
+    # Posts to the channel per local day, most; the persona's own rhythm cannot exceed it.
+    channel_daily_posts: int = Field(default=3, strict=True, ge=0, le=20)
+    # doc33 stage 3: how lively her self-directed life is (harness_life presets).
+    life_mode: Literal["sleep", "quiet", "normal", "active"] = "normal"
 
     @model_validator(mode="before")
     @classmethod

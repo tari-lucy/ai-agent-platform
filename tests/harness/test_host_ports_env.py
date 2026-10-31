@@ -46,3 +46,4 @@ def test_the_prompt_says_where_she_lives_and_names_the_variables(tmp_path):
     assert "не на компьютере оператора" in prompt and "192.168" in prompt
     assert "172.19.0.3:25350 (переменная окружения AW_HOST_MINECRAFT_UNIONCLEF_MCP)" in prompt
     assert "читай адрес из указанной переменной" in prompt
+    assert "Безопасность в игре" in prompt and "getOpenScreen" in prompt
