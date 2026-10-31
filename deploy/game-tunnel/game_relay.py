@@ -39,7 +39,7 @@ class Relay:
         peer = writer.get_extra_info("peername")
         source = ipaddress.ip_address(peer[0]) if peer else None
         if source is None or not any(source in network for network in self.allowed):
-            LOG.warning("Refused a source outside the allow-list")
+            LOG.warning("Refused a source outside the allow-list: %s", peer[0] if peer else "?")
             writer.close()
             return
         if self.active >= self.limit:
