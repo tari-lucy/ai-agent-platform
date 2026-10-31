@@ -270,6 +270,7 @@ def channel(
         ChannelPost,
         ChannelSettings,
         model_check,
+        model_image_check,
     )
 
     token = providers.secrets.get(TOKEN_SETTING)
@@ -297,10 +298,12 @@ def channel(
             folder / "public-rules.txt",
             folder / "channel.jsonl",
             settings.channel_daily_posts,
+            Path(settings.files_dir) / "shots" if settings.files_dir else None,
         ),
         bot,
         model_check(upstream, key, model, usage),
         voice,
+        model_image_check(upstream, key, model, usage),
     )
     if settings.channel_comments:
         from ai_agent_core.m3_composition.harness_comments import TelegramComments

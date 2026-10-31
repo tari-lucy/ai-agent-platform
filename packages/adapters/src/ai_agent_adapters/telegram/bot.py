@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from .format import telegram_html
+
 TOKEN_SETTING = "AI_PLATFORM_TELEGRAM_BOT_TOKEN"
 PROXY_SETTING = "AI_PLATFORM_TELEGRAM_PROXY"
 API = "https://api.telegram.org"
@@ -39,24 +41,74 @@ class TelegramBot:
     def send_message(self, chat: str, text: str) -> int:
         if not text.strip() or len(text) > MAX_TEXT:
             raise TelegramError("TELEGRAM_TEXT_INVALID")
-        body = json.dumps({"chat_id": chat, "text": text}).encode()
-        return self._call("sendMessage", body, "application/json")
+        return self._formatted(
+            lambda html: self._call(
+                "sendMessage",
+                json.dumps({"chat_id": chat, "text": html, "parse_mode": "HTML"}).encode(),
+                "application/json",
+            ),
+            lambda: self._call(
+                "sendMessage",
+                json.dumps({"chat_id": chat, "text": text}).encode(),
+                "application/json",
+            ),
+            text,
+            MAX_TEXT,
+        )
 
     def send_voice(self, chat: str, ogg: bytes, caption: str = "") -> int:
         if len(caption) > MAX_CAPTION:
             raise TelegramError("TELEGRAM_TEXT_INVALID")
-        boundary = secrets.token_hex(16)
-        fields = [("chat_id", chat)] + ([("caption", caption)] if caption else [])
-        head = f"--{boundary}\r\nContent-Disposition: form-data; name="
-        parts = [f'{head}"{name}"\r\n\r\n{value}\r\n'.encode() for name, value in fields]
-        parts.append(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="voice"; '
-            f'filename="voice.ogg"\r\nContent-Type: audio/ogg\r\n\r\n'.encode()
-            + ogg
-            + b"\r\n"
+        return self._upload("sendVoice", "voice", "voice.ogg", "audio/ogg", chat, ogg, caption)
+
+    def send_photo(self, chat: str, jpeg: bytes, caption: str = "") -> int:
+        if len(caption) > MAX_CAPTION or not jpeg.startswith(b"\xff\xd8\xff"):
+            raise TelegramError("TELEGRAM_TEXT_INVALID")
+        return self._upload("sendPhoto", "photo", "photo.jpg", "image/jpeg", chat, jpeg, caption)
+
+    def _upload(
+        self,
+        method: str,
+        field: str,
+        filename: str,
+        kind: str,
+        chat: str,
+        data: bytes,
+        caption: str,
+    ) -> int:
+        def send(text: str, mode: str | None) -> int:
+            boundary = secrets.token_hex(16)
+            fields = [("chat_id", chat)]
+            if text:
+                fields.append(("caption", text))
+                if mode:
+                    fields.append(("parse_mode", mode))
+            head = f"--{boundary}\r\nContent-Disposition: form-data; name="
+            parts = [f'{head}"{name}"\r\n\r\n{value}\r\n'.encode() for name, value in fields]
+            parts.append(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; '
+                f'filename="{filename}"\r\nContent-Type: {kind}\r\n\r\n'.encode()
+                + data
+                + b"\r\n"
+            )
+            parts.append(f"--{boundary}--\r\n".encode())
+            return self._call(method, b"".join(parts), f"multipart/form-data; boundary={boundary}")
+
+        return self._formatted(
+            lambda html: send(html, "HTML"), lambda: send(caption, None), caption, MAX_CAPTION
         )
-        parts.append(f"--{boundary}--\r\n".encode())
-        return self._call("sendVoice", b"".join(parts), f"multipart/form-data; boundary={boundary}")
+
+    def _formatted(self, rich: Any, plain: Any, text: str, limit: int) -> int:
+        """HTML first; a 400 from Telegram (bad markup) is a refusal before sending: plain text."""
+        rendered = telegram_html(text) if text else ""
+        if not rendered or len(rendered) > limit * 2:
+            return int(plain())
+        try:
+            return int(rich(rendered))
+        except TelegramError as error:
+            if error.code == "TELEGRAM_REFUSED" and error.status == 400:
+                return int(plain())
+            raise
 
     def metadata(self, method: str, **arguments: object) -> dict[str, Any]:
         if method not in {"getMe", "getChat", "getChatMember", "getWebhookInfo"}:
@@ -79,17 +131,17 @@ class TelegramBot:
     def reply_message(self, chat: str, message_id: int, text: str) -> int:
         if not text.strip() or len(text) > MAX_TEXT:
             raise TelegramError("TELEGRAM_TEXT_INVALID")
-        body = json.dumps(
-            {
-                "chat_id": chat,
-                "text": text,
-                "reply_parameters": {
-                    "message_id": message_id,
-                    "allow_sending_without_reply": False,
-                },
-            }
-        ).encode()
-        return self._call("sendMessage", body, "application/json")
+        reply = {"message_id": message_id, "allow_sending_without_reply": False}
+
+        def send(body_text: str, mode: str | None) -> int:
+            fields: dict[str, Any] = {"chat_id": chat, "text": body_text, "reply_parameters": reply}
+            if mode:
+                fields["parse_mode"] = mode
+            return self._call("sendMessage", json.dumps(fields).encode(), "application/json")
+
+        return self._formatted(
+            lambda html: send(html, "HTML"), lambda: send(text, None), text, MAX_TEXT
+        )
 
     def _call(self, method: str, body: bytes, kind: str) -> int:
         result = self._result(method, body, kind)
