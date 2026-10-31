@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Select, Text } from '@mantine/core';
+import { Alert, Button, FileButton, Group, Select, Text } from '@mantine/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
@@ -91,6 +91,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   }, []);
   const [selected, setSelected] = useState(scopeKey(auth.scopes[0]));
   const [stopBusy, setStopBusy] = useState(false);
+  const [handoff, setHandoff] = useState<{ busy: boolean; ok: boolean; text: string } | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
   const [stopped, setStopped] = useState<StopReceipt | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -108,6 +109,17 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
   const target = stopTarget(rows);
   const scope = auth.scopes.find((item) => scopeKey(item) === selected) ?? auth.scopes[0];
   const harness = useHarness(api, scope);
+  // doc33: the operator hands a file to the persona; it lands in her workspace inbox/.
+  const handOver = async (file: File | null) => {
+    if (!file) return;
+    setHandoff({ busy: true, ok: true, text: `Отправляю «${file.name}»…` });
+    try {
+      const saved = await api.uploadToAgentInbox(scope, file);
+      setHandoff({ busy: false, ok: true, text: `Отдано: ${saved.path}. Напишите ей, что файл лежит в inbox.` });
+    } catch (error) {
+      setHandoff({ busy: false, ok: false, text: failureMessage(error) });
+    }
+  };
   const subscribed = [scope, ...(target ? [partition(target.scope)] : [])].filter(
     (item, index, all) => all.findIndex((other) => scopeKey(other) === scopeKey(item)) === index,
   );
@@ -149,6 +161,11 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       </div>
       <div className="header-actions"><RunPowerControl api={api} run={target} state={state}
         ready={startReady} stopBusy={stopBusy} stopError={stopError} onStop={stop} />
+        {harness?.enabled && <FileButton onChange={handOver} disabled={handoff?.busy}>
+          {(props) => <Button {...props} size="compact-sm" variant="light" loading={handoff?.busy}
+            title="Файл попадёт в папку inbox Опечатки на сервере">Отдать файл</Button>}
+        </FileButton>}
+        {handoff && <Text size="xs" c={handoff.ok ? 'dimmed' : 'red'} role="status">{handoff.text}</Text>}
         {harness?.enabled && harness.url && <Button component="a" href={harness.url} target="_blank" rel="noopener"
           size="compact-sm" variant={harness.ready ? 'filled' : 'light'}
           title={harness.ready ? 'Окно агента в OpenCode' : 'Агент не запущен: нажмите START'}>

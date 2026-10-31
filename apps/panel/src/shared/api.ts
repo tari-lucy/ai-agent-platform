@@ -153,6 +153,34 @@ export class PanelApi {
     return session(await this.#request('/api/v1/auth/login', body));
   }
   async logout(): Promise<void> { await this.#request('/api/v1/auth/logout', {}); }
+  // The operator hands a file to the persona: it lands in her workspace inbox/. Raw body, no JSON.
+  async uploadToAgentInbox(scope: Scope, file: File): Promise<{ name: string; path: string; size: number }> {
+    if (file.size < 1 || file.size > 104857600) throw new ApiFailure('INVALID_ARGUMENTS');
+    const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, name: file.name.slice(-150) });
+    let response: Response;
+    try {
+      response = await this.fetcher('/api/v1/agent-inbox?' + query.toString(), {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: { 'Content-Type': 'application/octet-stream', ...(this.#auth ? { 'X-CSRF-Token': this.#auth.csrf_token } : {}) },
+        body: file,
+      });
+    } catch { throw new ApiFailure('NETWORK'); }
+    if (response.status === 401) {
+      const wasAuthenticated = this.#auth !== null;
+      this.clear(); if (wasAuthenticated) this.unauthorized();
+      throw new ApiFailure('ACCESS_DENIED', 401);
+    }
+    let value: unknown;
+    try { value = await response.json(); } catch { throw new ApiFailure('NETWORK'); }
+    if (!response.ok) throw new ApiFailure(
+      object(value) && typeof value.code === 'string' && Object.hasOwn(messages, value.code) ? value.code : 'NETWORK',
+      response.status,
+    );
+    if (!object(value) || typeof value.name !== 'string' || typeof value.path !== 'string' || typeof value.size !== 'number') {
+      throw new ApiFailure('NETWORK');
+    }
+    return { name: value.name, path: value.path, size: value.size };
+  }
   async #read(resource: ReadResource, scope: Scope, signal?: AbortSignal, cursor?: string, identifier?: string, order?: 'desc', utteranceId?: string): Promise<unknown> {
     const query = new URLSearchParams({ ...partition(scope) as Record<string, string>, limit: '50' });
     if (cursor !== undefined) {

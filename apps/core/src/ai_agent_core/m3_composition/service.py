@@ -499,6 +499,7 @@ class Runtime:
         from ai_agent_core.access.reads import SQLiteReader
 
         from .access import Mutations
+        from .agent_inbox import AgentInbox
         from .downloads import Downloads
         from .ticket_reads import ReleasedReader
         from .views import Views
@@ -508,6 +509,7 @@ class Runtime:
             views=Views(self),
             downloads=Downloads(self),
             mutations=Mutations(self),
+            inbox=AgentInbox(self),
             jobs=self.jobs,
             events=self.events,
             extensions=self.registry,

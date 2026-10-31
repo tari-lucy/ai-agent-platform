@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -109,6 +110,12 @@ class Downloads(Protocol):
     ) -> tuple[ArtifactRef, bytes]: ...
 
 
+class Inbox(Protocol):
+    """The operator hands a file to the persona (her workspace `inbox/`)."""
+
+    async def put(self, scope: Scope, name: str, content: bytes) -> dict[str, object]: ...
+
+
 class Mutations(Protocol):
     async def execute(self, authority: ControlAuthority, request: CommandBase) -> Receipt: ...
 
@@ -127,6 +134,7 @@ class AccessPorts:
     scopes: tuple[Scope, ...] | None = None
     limits: AccessLimits | None = None
     downloads: Downloads | None = None
+    inbox: Inbox | None = None
 
 
 class Rejection(Exception):
@@ -148,6 +156,8 @@ STATUS = {
 }
 
 UPLOAD = "/api/v1/workplace-files/upload"
+INBOX = "/api/v1/agent-inbox"
+INBOX_KEYS = ("workspace_id", "persona_id", "memory_space_id", "memory_mode", "name")
 UPLOAD_KEYS = frozenset(
     {"workspace_id", "persona_id", "memory_space_id", "memory_mode", "area", "name"}
 )
@@ -416,9 +426,53 @@ class Surface:
         self.sessions.check_scope(authority, selected)  # expiry during the awaited write
         return _json(entry)
 
+    async def _agent_inbox(
+        self, asgi: ASGIScope, receive: Receive, headers: Mapping[str, str]
+    ) -> Response:
+        """One raw operator upload into the persona's workspace inbox (no right granted)."""
+        raw = asgi.get("query_string", b"")
+        if len(raw) > 2048:
+            raise Rejection(413, ErrorCode.INVALID_ARGUMENTS)
+        try:
+            pairs = parse_qsl(raw.decode("utf-8"), strict_parsing=True, max_num_fields=8)
+        except ValueError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        fields: dict[str, str] = {}
+        for key, value in pairs:
+            if key in fields or key not in INBOX_KEYS:
+                raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+            fields[key] = value
+        if set(INBOX_KEYS) - set(fields):
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS)
+        authority = self.operator(headers, mutation=True)  # Host/Origin/cookie/CSRF as any mutation
+        try:
+            wanted = Scope.model_validate({key: fields[key] for key in INBOX_KEYS[:4]})
+        except ValidationError:
+            raise Rejection(400, ErrorCode.INVALID_ARGUMENTS) from None
+        selected = next((s for s in self.sessions.info(authority).scopes if s == wanted), None)
+        if selected is None or selected.memory_mode != "work":
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        self.sessions.check_scope(authority, selected)
+        content = await _octet(headers, receive, UPLOAD_MAX_BYTES)
+        self.sessions.check_scope(authority, selected)
+        if self.ports.inbox is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        entry = await self.ports.inbox.put(selected, fields["name"], content)
+        self.sessions.check_scope(authority, selected)  # expiry during the awaited write
+        return Response(
+            json.dumps(entry, ensure_ascii=False),
+            media_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+
     async def http(self, scope: ASGIScope, receive: Receive) -> Response:
         headers = _headers(scope)
         path, method = scope["path"], scope["method"]
+        if path == INBOX and method == "POST":
+            if self._uploads.locked():
+                raise Rejection(429, ErrorCode.RESOURCE_BUSY)
+            async with self._uploads:
+                return await self._agent_inbox(scope, receive, headers)
         if path == UPLOAD and method == "POST":
             # Slow uploads have a separate bounded slot and never occupy the STOP path.
             if self._uploads.locked():
