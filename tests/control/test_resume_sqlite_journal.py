@@ -7,7 +7,7 @@ from ai_agent_adapters.control.journal import SQLiteRunJournal
 from ai_agent_adapters.storage.database import SQLiteStore
 from ai_agent_application.storage import Grant, Owner
 from ai_agent_contracts.states import RunState
-from test_supervisor import PRINCIPAL, ROOT, SCOPE, command, fixture, sqlite_dir, stop_command  # noqa: F401
+from test_supervisor import PRINCIPAL, ROOT, SCOPE, command, fixture, stop_command
 
 from ai_agent_core.local_host.resume import Resume, ResumeSettings, authorizes, resume_file
 
@@ -21,12 +21,9 @@ async def open_store(path):
     return store, SQLiteRunJournal(store, PRINCIPAL, (WORK,))
 
 
-def test_latest_run_shows_who_ended_it_and_survives_a_restart_on_real_sqlite(
-    sqlite_dir,
-    tmp_path,  # noqa: F811
-):
+def test_latest_run_shows_who_ended_it_and_survives_a_restart_on_real_sqlite(tmp_path):
     async def scenario():
-        store, journal = await open_store(sqlite_dir / "run.db")
+        store, journal = await open_store(tmp_path / "run.db")
         try:
             assert await journal.latest(WORK) is None  # nothing ever ran
             owner, authority, *_ = fixture(journal=journal, scope=WORK)
@@ -43,7 +40,7 @@ def test_latest_run_shows_who_ended_it_and_survives_a_restart_on_real_sqlite(
             await second.recover()
             assert second.previous.id == closed.id  # recovery sees it before it moves on
             runtime = SimpleNamespace(supervisor=second, running=True)
-            await Resume(runtime, resume_file(tmp_path), ResumeSettings(delay=0)).run()
+            await Resume(runtime, resume_file(tmp_path / "host"), ResumeSettings(delay=0)).run()
             assert second.snapshot.state == RunState.ACTIVE
 
             second.stop(authority2, stop_command(second))  # the operator's STOP
@@ -55,7 +52,7 @@ def test_latest_run_shows_who_ended_it_and_survives_a_restart_on_real_sqlite(
             third, *_ = fixture(journal=journal, scope=WORK)
             await third.recover()
             runtime = SimpleNamespace(supervisor=third, running=True)
-            await Resume(runtime, resume_file(tmp_path), ResumeSettings(delay=0)).run()
+            await Resume(runtime, resume_file(tmp_path / "host"), ResumeSettings(delay=0)).run()
             assert third.snapshot.state == RunState.STOPPED  # the last decision stands
 
             other = WORK.model_copy(update={"persona_id": "someone-else"})
