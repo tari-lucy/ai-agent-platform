@@ -1,0 +1,12 @@
+[Unit]
+Description=AI Agent Platform game relay (Docker bridge -> game tunnel loopback)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/ai-platform/venv/bin/python -I %h/ai-platform/current/deploy/game-tunnel/game_relay.py --listen 172.17.0.1:25350 --target 127.0.0.1:25350
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
