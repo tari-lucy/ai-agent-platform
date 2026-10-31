@@ -9,10 +9,19 @@ foreach ($path in @($settings.identity, $settings.known_hosts)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'SSH key or known_hosts missing.' }
 }
 $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
-# The server listens on its own loopback only; a relay bridges it to the persona's container.
+# Game: the server listens on its own loopback only; a relay bridges it to the persona's container.
 $forward = '127.0.0.1:{0}:127.0.0.1:{0}' -f $port
+# Bridge: the panel and OpenCode of the server, on the same addresses as before (127.0.0.1).
+$bridge = @()
+if ($settings.bridge_ports) {
+    foreach ($bridgePort in @($settings.bridge_ports)) {
+        $number = [int]$bridgePort
+        if ($number -lt 1024 -or $number -gt 65535) { throw 'Invalid bridge port.' }
+        $bridge += @('-L', ('127.0.0.1:{0}:127.0.0.1:{0}' -f $number))
+    }
+}
 $arguments = @(
-    '-N', '-n', '-T', '-a', '-x', '-R', $forward,
+    '-N', '-n', '-T', '-a', '-x', '-R', $forward) + $bridge + @(
     '-i', $settings.identity, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
     '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no',
     '-o', 'StrictHostKeyChecking=yes', '-o', "UserKnownHostsFile=$($settings.known_hosts)",
