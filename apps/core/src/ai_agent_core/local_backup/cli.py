@@ -170,6 +170,9 @@ async def _run(arguments: argparse.Namespace) -> int:
         if preview.digest != arguments.digest:
             raise HostError("PREVIEW_CHANGED")  # the operator confirmed something else
         report = await local.service.restore(preview, arguments.decision_id)
+        from ai_agent_core.local_host.resume import clear
+
+        clear(arguments.root)  # a restore never resumes the agent
         print(f"restored: {report.backup_id} safety_copy={report.safety_backup_id}")
         print(
             f"scopes_verified={len(report.verified)} reapplied_deletions={len(report.reapplied)}"

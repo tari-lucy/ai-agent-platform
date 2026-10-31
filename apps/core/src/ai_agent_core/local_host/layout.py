@@ -343,6 +343,9 @@ class HarnessConfig(BaseModel):
     channel: str | None = Field(default=None, pattern=r"^(@[A-Za-z0-9_]{4,32}|-?\d{5,20})$")
     # Soniox voice for voice posts; None: text posts only.
     channel_voice: str | None = Field(default=None, pattern=r"^[\w -]{1,40}$")
+    # Operator decision D88: after a restart, start the persona again if she was running on
+    # her own and nobody pressed STOP. Off by default: a restart never starts her otherwise.
+    resume_after_restart: bool = Field(default=False, strict=True)
     channel_comments: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")

@@ -279,12 +279,28 @@ def _build(
         runtime.budget_controls = LiveBudget(host, runtime, lock)
 
     previous_lifespan = app.router.lifespan_context
+    resume = None
+    if (
+        config.harness is not None
+        and config.harness.enabled
+        and config.harness.resume_after_restart
+        and runtime.harness is not None
+    ):
+        from .resume import Resume, resume_file
+
+        resume = Resume(runtime, resume_file(host.root))
 
     @asynccontextmanager
     async def provider_lifespan(application: FastAPI) -> AsyncIterator[None]:
         try:
             async with previous_lifespan(application):
-                yield
+                if resume is not None:
+                    resume.start()  # the runtime is open and recovered by now
+                try:
+                    yield
+                finally:
+                    if resume is not None:
+                        await resume.close()
         finally:
             # Runtime shutdown settles/cancels jobs first; no idle or in-flight socket survives.
             await factory.aclose()

@@ -157,6 +157,11 @@ def parser() -> argparse.ArgumentParser:
         help="read and reply only in the channel's linked discussion group",
     )
     harness.add_argument("--remove-channel", action="store_true", help="no more posts")
+    harness.add_argument(
+        "--resume-after-restart",
+        action=argparse.BooleanOptionalAction,
+        help="start the persona again after a restart if she was running and nobody pressed STOP",
+    )
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -534,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
                     grant=arguments.grant_host_port,
                     revoke=arguments.revoke_host_port,
                     remove_channel=arguments.remove_channel,
+                    resume_after_restart=arguments.resume_after_restart,
                     channel=arguments.channel,
                     channel_voice=arguments.channel_voice,
                     channel_comments=arguments.channel_comments,

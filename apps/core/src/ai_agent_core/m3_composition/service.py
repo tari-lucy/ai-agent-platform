@@ -583,6 +583,11 @@ class Runtime:
             raise ContractError(ErrorCode.SERVICE_UNAVAILABLE)
         return self.clock.sample()
 
+    @property
+    def running(self) -> bool:
+        """False once the process began to close: a shutdown is not an operator decision."""
+        return self._opened
+
     async def close(self) -> None:
         self._opened = False
         self.supervisor.shutdown()
