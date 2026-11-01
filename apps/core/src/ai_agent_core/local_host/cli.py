@@ -182,6 +182,22 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
     harness.add_argument("--disable", action="store_true")
+    models = commands.add_parser(
+        "list-models", help="the models the provider offers (the current one is marked)"
+    )
+    models.add_argument("--root", type=Path, required=True)
+    models.add_argument("--env-file", type=Path, required=True)
+    tester = commands.add_parser(
+        "test-model", help="one tiny real request: does this model answer, and how fast"
+    )
+    tester.add_argument("--root", type=Path, required=True)
+    tester.add_argument("--env-file", type=Path, required=True)
+    tester.add_argument("model")
+    chooser = commands.add_parser(
+        "set-model", help="offline: run the persona on this model; stop the server first"
+    )
+    chooser.add_argument("--root", type=Path, required=True)
+    chooser.add_argument("model")
     memory = commands.add_parser(
         "enable-memory", help="explicit offline automatic memory admission"
     )
@@ -574,6 +590,24 @@ def main(argv: list[str] | None = None) -> int:
                 + ("" if rates else "; set --input-rate and --output-rate before use")
             )
             print(f"Password file: {password_file(paths(arguments.root))}")
+            return 0
+        if arguments.command in ("list-models", "test-model", "set-model"):
+            from . import models as model_commands
+
+            if arguments.command == "list-models":
+                current, ids = model_commands.list_models(arguments.root, arguments.env_file)
+                for identifier in ids:
+                    print(("* " if identifier == current else "  ") + identifier)
+                print(f"({len(ids)} models; * is the current one: {current})")
+            elif arguments.command == "test-model":
+                ok, text = model_commands.test_model(
+                    arguments.root, arguments.env_file, arguments.model
+                )
+                print(f"{arguments.model}: {text}")
+                return 0 if ok else EXIT_CONFIG
+            else:
+                previous = model_commands.set_model(arguments.root, arguments.model)
+                print(f"Model: {previous} -> {arguments.model}; start the server to apply")
             return 0
         if arguments.command == "configure-api-budget":
             configure_budget(arguments.root, limit=arguments.attempt_limit, period=arguments.period)
