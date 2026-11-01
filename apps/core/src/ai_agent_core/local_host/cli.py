@@ -112,6 +112,10 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--env-file", type=Path, help="absolute local credential binding; live only")
     run.add_argument("--port", type=int, help="override the prepared port")
     run.add_argument(
+        "--public-origin",
+        help="opt-in https://<dns name> of a reverse proxy in front of the loopback panel",
+    )
+    run.add_argument(
         "--panel-dir", type=Path, help="absolute path of a built apps/panel/dist to serve"
     )
     run.add_argument(
@@ -622,6 +626,7 @@ def main(argv: list[str] | None = None) -> int:
             env_file=arguments.env_file,
             open_browser=arguments.open_browser,
             opencode_ui_dir=arguments.opencode_ui_dir,
+            public_origin=arguments.public_origin,
         )
         return 0
     except (HostError, ArtifactsError) as error:

@@ -46,6 +46,7 @@ class WorkspaceProfile(BaseModel):
     recall_fragments: int = Field(default=8, ge=1, le=8)
     recall_tokens: int = Field(default=2000, ge=128, le=2000)
     operator_origin: str | None = Field(default=None, max_length=128)
+    public_origin: str | None = Field(default=None, max_length=128)
     autostart: Literal[False] = False
 
     @field_validator("autostart", mode="before")
@@ -199,8 +200,43 @@ def operator_origin(settings: BootstrapSettings) -> str:
     return value
 
 
+_PUBLIC_HOST = re.compile(r"(?=.{4,100}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}")
+
+
+def public_origin(settings: BootstrapSettings) -> str | None:
+    """The one explicit HTTPS origin of a reverse proxy in front of the loopback panel, or none.
+
+    Opt-in and exact: a DNS name, no port, path or credentials, never an IP or a local name.
+    Proxy headers (X-Forwarded-*) still expand nothing; the Host and Origin must equal it.
+    """
+    value = settings.public_origin
+    if value is None:
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        valid = (
+            parsed.scheme == "https"
+            and parsed.port is None
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+            and _PUBLIC_HOST.fullmatch(host) is not None
+            and not host.endswith((".local", ".localhost", ".internal"))
+            and value == "https://" + host
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ConfigurationError("public_origin", "https_dns_origin_required")
+    return value
+
+
 def validate_bindings(settings: BootstrapSettings) -> None:
     operator_origin(settings)
+    public_origin(settings)
     if (
         settings.operator_password_hash is not None
         and re.fullmatch(

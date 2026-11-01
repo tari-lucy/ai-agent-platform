@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Agent Platform panel relay (reverse proxy network -> loopback panel)
+After=network-online.target
+
+[Service]
+Type=simple
+# The panel itself stays on 127.0.0.1. This bridges only the proxy's own Docker network
+# (the n8n-setup compose network) to it: one fixed target, a source allow-list, a limit.
+ExecStart=%h/ai-platform/venv/bin/python -I %h/ai-platform/current/deploy/game-tunnel/game_relay.py --listen 172.18.0.1:8765 --target 127.0.0.1:8765 --allow 172.18.0.0/16 --limit 64
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

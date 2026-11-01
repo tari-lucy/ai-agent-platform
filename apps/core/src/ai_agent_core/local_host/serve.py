@@ -114,6 +114,7 @@ def _build(
     host: HostPaths,
     config: HostConfig,
     prepared: tuple[LocalProviders, Path | None, str, int],
+    public_origin: str | None = None,
 ) -> tuple[FastAPI, Callable[[], None]]:
     factory, panel, secret, number = prepared
     scopes = host_scopes(config)
@@ -146,6 +147,7 @@ def _build(
         persona_id=config.persona_id,
         core_host_port=number,
         operator_origin=f"http://{LOOPBACK}:{number}",
+        public_origin=public_origin,
         operator_password_hash=SecretStr(secret),
     )
     from ai_agent_core.access.sessions import AccessLimits
@@ -332,6 +334,7 @@ def serve(
     env_file: Path | None = None,
     open_browser: bool = False,
     opencode_ui_dir: Path | None = None,
+    public_origin: str | None = None,
 ) -> None:
     host = paths(root)
     if not host.root.is_dir():
@@ -349,7 +352,7 @@ def serve(
         )
         _old_window(opencode_ui_dir)
         with loopback_socket(number) as listener:
-            app, close = _build(host, config, prepared)
+            app, close = _build(host, config, prepared, public_origin)
             stopped = threading.Event()
             browser = None
             try:

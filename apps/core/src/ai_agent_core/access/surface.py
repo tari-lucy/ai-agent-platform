@@ -10,7 +10,7 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlsplit
 from uuid import uuid4
 
-from ai_agent_adapters.configuration import BootstrapSettings, operator_origin
+from ai_agent_adapters.configuration import BootstrapSettings, operator_origin, public_origin
 from ai_agent_application.control import Supervisor
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.jobs.owner import JobOwner
@@ -285,6 +285,9 @@ class Surface:
         self.origin = operator_origin(settings)
         self.host = urlsplit(self.origin).netloc
         self.secure_cookie = self.origin.startswith("https://")
+        # Opt-in HTTPS name of a reverse proxy in front of the loopback panel (exact match only).
+        self.public = public_origin(settings)
+        self.public_host = urlsplit(self.public).netloc if self.public else None
         self.limits = ports.limits or AccessLimits()
         base = supervisor.snapshot.scope
         default = Scope(
@@ -326,11 +329,24 @@ class Surface:
             )
         )
 
+    def expected_origin(self, headers: Mapping[str, str]) -> str | None:
+        """The origin that goes with this request's Host, or None for a Host we do not serve."""
+        host = headers.get("host")
+        if host == self.host:
+            return self.origin
+        if self.public_host is not None and host == self.public_host:
+            return self.public
+        return None
+
+    def secure_for(self, headers: Mapping[str, str]) -> bool:
+        return (self.expected_origin(headers) or self.origin).startswith("https://")
+
     def browser(self, headers: Mapping[str, str], *, mutation: bool) -> None:
-        if headers.get("host") != self.host or "authorization" in headers:
+        expected = self.expected_origin(headers)
+        if expected is None or "authorization" in headers:
             raise Rejection(403, ErrorCode.ACCESS_DENIED)
         origin = headers.get("origin")
-        if (mutation and origin != self.origin) or (origin is not None and origin != self.origin):
+        if (mutation and origin != expected) or (origin is not None and origin != expected):
             raise Rejection(403, ErrorCode.ACCESS_DENIED)
         if headers.get("sec-fetch-site", "none") not in ("none", "same-origin"):
             raise Rejection(403, ErrorCode.ACCESS_DENIED)
@@ -481,6 +497,10 @@ class Surface:
                 return await self._operator_upload(scope, receive, headers)
         self.query(scope, reading=method == "GET" and "/auth/" not in path)
         if path.startswith("/internal/"):
+            if self.public_host is not None and headers.get("host") == self.public_host:
+                raise Rejection(
+                    404, ErrorCode.INVALID_ARGUMENTS
+                )  # workers never use the public name
             return await self.service(path, method, headers, receive)
         if method == "OPTIONS":
             raise Rejection(403, ErrorCode.ACCESS_DENIED)
@@ -496,7 +516,7 @@ class Surface:
                 cookie,
                 max_age=self.limits.session_seconds,
                 httponly=True,
-                secure=self.secure_cookie,
+                secure=self.secure_for(headers),
                 samesite="strict",
                 path="/",
             )
@@ -508,7 +528,7 @@ class Surface:
             self.sessions.logout(authority)
             response = Response(status_code=204, headers={"Cache-Control": "no-store"})
             response.delete_cookie(
-                COOKIE, path="/", httponly=True, secure=self.secure_cookie, samesite="strict"
+                COOKIE, path="/", httponly=True, secure=self.secure_for(headers), samesite="strict"
             )
             return response
         if path == "/api/v1/memory/recall" and method == "POST":

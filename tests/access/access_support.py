@@ -25,7 +25,9 @@ def configured_hash():
 
 
 class Harness:
-    async def setup(self, *, ports=None, origin=ORIGIN, limits=None, fixture=None):
+    async def setup(
+        self, *, ports=None, origin=ORIGIN, limits=None, fixture=None, public_origin=None
+    ):
         self.fixture = fixture or await Fixture().setup()
         self.supervisor = self.fixture.supervisor
         self.time = self.fixture.time
@@ -33,6 +35,7 @@ class Harness:
         self.origin = origin
         self.settings = BootstrapSettings(
             operator_origin=origin,
+            public_origin=public_origin,
             operator_password_hash=configured_hash(),
             worker_service_token=SecretStr(WORKER_TOKEN),
         )
