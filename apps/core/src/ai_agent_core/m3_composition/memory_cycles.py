@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
@@ -243,6 +244,7 @@ class DailyMemory:
     def __init__(self, runtime: Runtime):
         self.rt, self.next_check = runtime, 0.0
         self.last_error: ErrorCode | None = None
+        self.error_wait = 60.0  # grows while a tick keeps failing, so a refusal is not re-run hot
 
     async def cycles(self, scope: Scope) -> list[MemoryCycle]:
         result, after = [], None
@@ -517,10 +519,18 @@ class DailyMemory:
         ):
             return
         self.next_check = elapsed + 60
+        began = time.monotonic()
+        marks: dict[str, float] = {}
+
+        def mark(phase: str) -> None:
+            marks[phase] = round(time.monotonic() - began - sum(marks.values()), 2)
+
         try:
             if (await rt.jobs.store.active(limit=1)).items:
                 return  # foreground work has priority
+            mark("active")
             cycles = await self.cycles(run.scope)
+            mark("cycles")
             # Reconcile metadata under current admission; never apply an old raw result.
             token = rt.supervisor.admit("reflection")
             try:
@@ -560,9 +570,11 @@ class DailyMemory:
                         return
             finally:
                 rt.supervisor.retire(token)
+            mark("reconcile")
             # A failed batch continues from its saved stage before any new batch is selected.
             if await self.continue_failed(run.scope, cycles):
                 return
+            mark("continue_failed")
             processed = {
                 identifier for c in cycles for identifier in c.episode_ids if c.status != "queued"
             }
@@ -588,6 +600,7 @@ class DailyMemory:
                 if len(selected) == MAX_EPISODES or len(rows) < SCAN_PAGE:
                     break
                 after = rows[-1].id
+            mark("scan")
             if selected or deferred:
                 # Counts and fixed codes only: which experience waits, never what it contains.
                 logging.getLogger(__name__).info(
@@ -601,12 +614,23 @@ class DailyMemory:
                 await self.digest_due(run.scope)  # only when no new experience waits
                 if not deferred:
                     self.next_check = elapsed + IDLE_SCAN_SECONDS  # nothing waits: look rarely
+            mark("enqueue_or_digest")
             self.last_error = None
+            self.error_wait = 60.0
         except ContractError as error:
             code = error.error.code
             if self.last_error != code:
                 logging.getLogger(__name__).warning("Daily memory deferred: %s", code.value)
             self.last_error = code
+            # A refusal that repeats is not worth a heavy scan every minute.
+            self.next_check = elapsed + self.error_wait
+            self.error_wait = min(self.error_wait * 2, float(IDLE_SCAN_SECONDS))
+        finally:
+            total = time.monotonic() - began
+            if total > 2.0:  # phase names and seconds only: where the loop was kept busy
+                logging.getLogger(__name__).warning(
+                    "Daily memory tick took %.1fs: %s", total, json.dumps(marks)
+                )
 
 
 async def manual(
