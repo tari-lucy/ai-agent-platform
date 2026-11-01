@@ -22,7 +22,13 @@ Host и Origin должны совпасть с ним точно (или с loo
 
 (`docker network inspect n8n-setup_default` → Id, имя моста `br-` и первые 12 знаков.)
 
-## NPM (в браузере, через SSH-туннель к `127.0.0.1:81`)
+## NPM одной командой на сервере
+`scripts/npm_publish_panel.py` (только стандартная библиотека): говорит с API NPM на
+`127.0.0.1:81`, спрашивает логин и пароль NPM и логин/пароль «двери» (ввод без эха), создаёт
+сертификат Let's Encrypt, список доступа и Proxy Host с принудительным HTTPS. Существующий
+хост для домена не трогает. Запускать в своём терминале: `python3 npm_publish_panel.py`.
+
+## То же вручную в NPM (через SSH-туннель к `127.0.0.1:81`)
 1. Proxy Host: домен `agents.tarigpt.ru`, схема `http`, адрес `172.18.0.1`, порт `8765`,
    Websockets Support включить, Block Common Exploits включить.
 2. SSL: Request a new certificate (Let's Encrypt), Force SSL, HTTP/2. HSTS после проверки.
