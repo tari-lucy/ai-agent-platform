@@ -1,5 +1,6 @@
 """Autonomous UTC-day memory processing through existing admission, jobs and domain owners."""
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -34,6 +35,10 @@ if TYPE_CHECKING:
 
 MAX_INPUT_CHARS = 8000
 MAX_EPISODES = 10
+# One scan of the episodes runs on the service's event loop: small pages, a breath between them
+# (a 200-row page took seconds and a run was faulted by the 5 s loop-gap guard), and a long
+# pause after a scan that found nothing to do.
+SCAN_PAGE, SCAN_PAGES, IDLE_SCAN_SECONDS = 50, 200, 900
 MAX_CYCLE_ATTEMPTS = 3  # the original batch and at most two continuations of it
 # Calls still needed from a stage on: extract, consolidate, reflect (+2 story screens if mutable).
 REMAINING_CALLS = {"extract": 3, "consolidate": 2, "reflect": 1}
@@ -566,8 +571,9 @@ class DailyMemory:
             deferred: Counter[str] = Counter()
             after = None
             repo = rt.store.repository(Episode, OPERATOR, run.scope)
-            for _ in range(50):
-                rows = await repo.list(limit=200, after_id=after, purpose="api_transfer")
+            for _ in range(SCAN_PAGES):
+                rows = await repo.list(limit=SCAN_PAGE, after_id=after, purpose="api_transfer")
+                await asyncio.sleep(0)  # let the panel, STOP and the heartbeat run
                 for row in rows:
                     if row.id in processed or row.created_at >= today:
                         continue
@@ -579,7 +585,7 @@ class DailyMemory:
                     selected.append(row.id)
                     if len(selected) == MAX_EPISODES:
                         break
-                if len(selected) == MAX_EPISODES or len(rows) < 200:
+                if len(selected) == MAX_EPISODES or len(rows) < SCAN_PAGE:
                     break
                 after = rows[-1].id
             if selected or deferred:
@@ -593,6 +599,8 @@ class DailyMemory:
                 await self.enqueue(selected)
             else:
                 await self.digest_due(run.scope)  # only when no new experience waits
+                if not deferred:
+                    self.next_check = elapsed + IDLE_SCAN_SECONDS  # nothing waits: look rarely
             self.last_error = None
         except ContractError as error:
             code = error.error.code
