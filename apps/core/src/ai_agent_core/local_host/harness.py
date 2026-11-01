@@ -209,6 +209,8 @@ def install(
             models=tuple(
                 (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.models
             ),
+            native_chatgpt=settings.native_chatgpt,
+            native_chatgpt_model=settings.native_chatgpt_model,
             usage_dir=host.egress_log.parent / "usage",
             daily_budget=settings.daily_budget,
             currency=settings.currency,
@@ -359,6 +361,8 @@ def configure(
         changes["host_ports"] = {k: v for k, v in current.host_ports.items() if k != revoke}
     if remove_channel:
         changes.update(channel=None, channel_voice=None, channel_comments=False)
+    if changes.get("native_chatgpt") is False:
+        changes["native_chatgpt_model"] = None  # off means off: no model left pointing at it
     if agent_name is not None:
         known = {config.persona_id, *(p.persona_id for p in config.additional_personas)}
         who = persona or config.persona_id

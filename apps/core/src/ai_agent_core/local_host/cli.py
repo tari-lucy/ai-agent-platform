@@ -172,6 +172,17 @@ def parser() -> argparse.ArgumentParser:
         choices=("sleep", "quiet", "normal", "active"),
         help="how lively the persona's self-directed life is",
     )
+    harness.add_argument(
+        "--native-chatgpt",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="trial: OpenCode offers its OpenAI provider for a ChatGPT plan sign-in (/connect); "
+        "the token then lives in the agent's container and STOP/budget do not cover it",
+    )
+    harness.add_argument(
+        "--native-chatgpt-model",
+        help="with --native-chatgpt: openai/<id> that everything uses by default (see /models)",
+    )
     harness.add_argument("--files-dir", help="host folder for the agent's inbox/ and share/")
     harness.add_argument("--daily-budget", type=float)
     harness.add_argument("--currency")
@@ -595,6 +606,8 @@ def main(argv: list[str] | None = None) -> int:
                     resume_after_restart=arguments.resume_after_restart,
                     channel_daily_posts=arguments.channel_daily_posts,
                     life_mode=arguments.life_mode,
+                    native_chatgpt=arguments.native_chatgpt,
+                    native_chatgpt_model=arguments.native_chatgpt_model,
                     channel=arguments.channel,
                     channel_voice=arguments.channel_voice,
                     channel_comments=arguments.channel_comments,

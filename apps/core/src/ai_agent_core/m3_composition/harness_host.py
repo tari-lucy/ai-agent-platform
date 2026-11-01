@@ -110,6 +110,8 @@ class HarnessSettings:
     # Ordered models with their own prices (name, input, output, cached); empty: ``model`` and
     # the rates above. The first is the primary, the others answer while it is down.
     models: tuple[tuple[str, float, float, float | None], ...] = ()
+    native_chatgpt: bool = False  # see HarnessConfig.native_chatgpt
+    native_chatgpt_model: str | None = None
 
 
 class Usage:
@@ -378,11 +380,18 @@ class HarnessHost:
             "platform_*": "allow",
         }
         core = persona_core(prompt)
+        default_model = (
+            s.native_chatgpt_model
+            if s.native_chatgpt and s.native_chatgpt_model
+            else "platform/bound"
+        )
         return {
             "$schema": "https://opencode.ai/config.json",
-            "model": "platform/bound",
-            "small_model": "platform/bound",
-            "enabled_providers": ["platform"],
+            # With the plan connected and a model chosen, everything defaults to it (the helpers
+            # and small tasks too); otherwise the platform's own model.
+            "model": default_model,
+            "small_model": default_model,
+            "enabled_providers": ["platform", "openai"] if s.native_chatgpt else ["platform"],
             "autoupdate": False,
             "share": "disabled",
             "provider": {

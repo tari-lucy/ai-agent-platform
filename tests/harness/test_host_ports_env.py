@@ -75,3 +75,61 @@ def test_opencode_s_own_helpers_carry_the_persona_core_and_a_role_line(tmp_path)
         assert set(agents[helper]) == {"prompt"}  # mode, tools and permissions of the built-in stay
     assert "first person" in agents["compaction"]["prompt"]
     assert agents["p"]["mode"] == "primary" and "правила работы" in agents["p"]["prompt"]
+
+
+def test_the_native_chatgpt_trial_only_adds_the_openai_provider_to_the_list(tmp_path):
+    def build(native):
+        settings = HarnessSettings(
+            image_id="i",
+            port=4096,
+            password="p",
+            upstream="https://x/v1",
+            key="k",
+            model="m",
+            usage_dir=tmp_path,
+            daily_budget=1.0,
+            input_rate=0.1,
+            output_rate=0.1,
+            native_chatgpt=native,
+        )
+        host = HarnessHost.__new__(HarnessHost)
+        host.settings = settings
+        scope = SimpleNamespace(persona_id="p")
+        host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+        return host.config("http://x:8080/v1", "base", False)
+
+    assert build(False)["enabled_providers"] == ["platform"]
+    on = build(True)
+    assert on["enabled_providers"] == ["platform", "openai"]
+    assert (
+        on["model"] == "platform/bound" and on["small_model"] == "platform/bound"
+    )  # her own work stays on the platform
+
+
+def test_with_a_chosen_plan_model_everything_defaults_to_it_and_off_clears_it(tmp_path):
+    def build(native, model):
+        settings = HarnessSettings(
+            image_id="i",
+            port=4096,
+            password="p",
+            upstream="https://x/v1",
+            key="k",
+            model="m",
+            usage_dir=tmp_path,
+            daily_budget=1.0,
+            input_rate=0.1,
+            output_rate=0.1,
+            native_chatgpt=native,
+            native_chatgpt_model=model,
+        )
+        host = HarnessHost.__new__(HarnessHost)
+        host.settings = settings
+        scope = SimpleNamespace(persona_id="p")
+        host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+        return host.config("http://x:8080/v1", "base", False)
+
+    on = build(True, "openai/gpt-5.1-codex")
+    assert on["model"] == on["small_model"] == "openai/gpt-5.1-codex"
+    # a model without the switch, or the switch without a model, changes nothing
+    assert build(False, "openai/gpt-5.1-codex")["model"] == "platform/bound"
+    assert build(True, None)["model"] == "platform/bound"

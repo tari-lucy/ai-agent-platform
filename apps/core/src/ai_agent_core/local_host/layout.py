@@ -374,6 +374,16 @@ class HarnessConfig(BaseModel):
     channel_daily_posts: int = Field(default=3, strict=True, ge=0, le=20)
     # doc33 stage 3: how lively her self-directed life is (harness_life presets).
     life_mode: Literal["sleep", "quiet", "normal", "active"] = "normal"
+    # A trial: let OpenCode offer its own OpenAI provider, so the operator can sign in with a
+    # ChatGPT plan from `opencode` (/connect). The token then lives in the agent's container and
+    # STOP and the money budget do not cover that traffic: a conscious, temporary exception.
+    native_chatgpt: bool = Field(default=False, strict=True)
+    # With the plan connected: the model (e.g. "openai/gpt-5.1-codex", as /models shows it) that
+    # everything uses by default: her work, the game, self-directed life, the helpers. None: the
+    # platform's own model stays the default and the plan is only for what the operator picks.
+    native_chatgpt_model: str | None = Field(
+        default=None, pattern=r"^openai/[A-Za-z0-9][A-Za-z0-9._:/-]{0,100}$"
+    )
 
     @model_validator(mode="before")
     @classmethod
