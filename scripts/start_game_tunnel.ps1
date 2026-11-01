@@ -12,6 +12,7 @@ $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
 # State and log live next to this script (runtime\game-tunnel), never in the config folder.
 $stateFolder = $PSScriptRoot
 $pidFile = Join-Path $stateFolder 'ssh.pid'
+$loopPidFile = Join-Path $stateFolder 'loop.pid'
 $logFile = Join-Path $stateFolder 'tunnel.log'
 
 function Write-Log([string]$text) {
@@ -28,6 +29,9 @@ function Write-Log([string]$text) {
 $created = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Global\AIAgentPlatformGameTunnel', [ref]$created)
 if (-not $created) { Write-Log 'another loop is already running; exit'; return }
+
+# The loop's own PID: the stop button ends exactly this loop and its ssh, nobody else's process.
+Set-Content -LiteralPath $loopPidFile -Value $PID
 
 # Game: the server listens on its own loopback only; a relay bridges it to the persona's container.
 $forward = '127.0.0.1:{0}:127.0.0.1:{0}' -f $port
@@ -104,6 +108,7 @@ try {
     }
 } finally {
     Stop-Recorded
+    Remove-Item -LiteralPath $loopPidFile -Force -ErrorAction SilentlyContinue
     $mutex.ReleaseMutex()
     $mutex.Dispose()
 }
