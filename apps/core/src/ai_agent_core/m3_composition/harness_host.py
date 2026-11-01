@@ -54,6 +54,31 @@ def host_port_env(host_ports: dict[str, int], host: str) -> dict[str, str]:
 
 HTTP_STARTUP_TIMEOUT = 60.0
 
+# Role lines for OpenCode's built-in helper agents (subagents and the compaction step).
+HELPER_ROLES = {
+    "explore": (
+        "\n\n## Эта роль\nТы выполняешь разведку по поручению самой себя: ищи и читай файлы, "
+        "ничего не меняй и не запускай. Верни короткий отчёт: что нашла, где (пути и строки), "
+        "что неясно. Пиши своим голосом, без канцелярита."
+    ),
+    "general": (
+        "\n\n## Эта роль\nТы выполняешь поручение самой себя полностью и возвращаешь итог: "
+        "что сделано, что нашла, что осталось неясным. Пиши своим голосом, коротко и по делу."
+    ),
+    "compaction": (
+        "\n\n## Эта роль\nСожми разговор и работу в сводку, по которой ты продолжишь без потерь: "
+        "цели и что уже сделано; находки, ошибки и обходы; договорённости с оператором и "
+        "обещания; что делать дальше. Пиши от первого лица, как сама, а не как протокол "
+        "стороннего наблюдателя. В конце одной строкой «Голос»: как ты говорила (3-5 "
+        "характерных оборотов или интонаций) и в каком настроении была."
+    ),
+}
+
+
+def persona_core(prompt: str) -> str:
+    """Who she is: the prompt up to its first section (the workplace rules come after)."""
+    return prompt.split("\n## ", 1)[0].rstrip()
+
 
 @dataclass(frozen=True)
 class HarnessSettings:
@@ -348,6 +373,7 @@ class HarnessHost:
             "webfetch": "allow" if internet else "deny",
             "platform_*": "allow",
         }
+        core = persona_core(prompt)
         return {
             "$schema": "https://opencode.ai/config.json",
             "model": "platform/bound",
@@ -386,6 +412,9 @@ class HarnessHost:
                     "prompt": prompt,
                     "permission": free,
                 },
+                # OpenCode's own helpers have no character: a delegated search or a summary read
+                # like a bare model. They get the persona's core and a role line instead.
+                **{helper: {"prompt": core + tail} for helper, tail in HELPER_ROLES.items()},
             },
             "permission": free,
         }

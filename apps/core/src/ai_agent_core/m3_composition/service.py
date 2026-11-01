@@ -599,6 +599,7 @@ class Runtime:
                 await self._active
         if self.clock is not None:
             await self.state.checkpoint_time(self.supervisor.snapshot.scope, self.active_seconds())
+        await self.daily_memory.close()
         if self.session_prewarmer is not None:
             await self.session_prewarmer.close()
         if self.harness is not None:
@@ -682,9 +683,7 @@ class Runtime:
             self.harness.tick()
         elif self.session_prewarmer is not None:
             self.session_prewarmer.tick()
-        started = time.monotonic()
-        await self.daily_memory.tick()
-        self._slow("daily_memory", started)
+        self.daily_memory.tick_background()  # its own task: a slow pass must not stall this tick
         started = time.monotonic()
         await self.autonomous_gm.tick()
         self._slow("gm", started)

@@ -39,7 +39,7 @@ MAX_EPISODES = 10
 # One scan of the episodes runs on the service's event loop: small pages, a breath between them
 # (a 200-row page took seconds and a run was faulted by the 5 s loop-gap guard), and a long
 # pause after a scan that found nothing to do.
-SCAN_PAGE, SCAN_PAGES, IDLE_SCAN_SECONDS = 50, 200, 900
+SCAN_PAGE, SCAN_PAGES, IDLE_SCAN_SECONDS = 10, 1000, 900
 MAX_CYCLE_ATTEMPTS = 3  # the original batch and at most two continuations of it
 # Calls still needed from a stage on: extract, consolidate, reflect (+2 story screens if mutable).
 REMAINING_CALLS = {"extract": 3, "consolidate": 2, "reflect": 1}
@@ -245,6 +245,10 @@ class DailyMemory:
         self.rt, self.next_check = runtime, 0.0
         self.last_error: ErrorCode | None = None
         self.error_wait = 60.0  # grows while a tick keeps failing, so a refusal is not re-run hot
+        # What the stores looked like when a full pass found nothing to do: while it is the same,
+        # the heavy scans are skipped (one tiny count query per kind decides).
+        self.idle_stamp: tuple[object, ...] | None = None
+        self.task: asyncio.Task[None] | None = None
 
     async def cycles(self, scope: Scope) -> list[MemoryCycle]:
         result, after = [], None
@@ -506,19 +510,53 @@ class DailyMemory:
             return True
         return False
 
-    async def tick(self) -> None:
+    def _due(self) -> float | None:
+        """The run clock when a pass is due now, else None."""
         rt, run = self.rt, self.rt.supervisor.snapshot
         budget = rt.private_api_budget
         elapsed = rt.supervisor.clock.elapsed()
         if elapsed < self.next_check or budget is None or not budget.memory_processing:
-            return
+            return None
         if (
             run.state.value != "ACTIVE"
             or run.activity.value != "OPEN"
             or run.autonomy != "autonomous"
         ):
+            return None
+        return elapsed
+
+    async def tick(self) -> None:
+        """One pass, awaited (tests, manual use)."""
+        elapsed = self._due()
+        if elapsed is not None:
+            self.next_check = elapsed + 60
+            await self._pass(elapsed)
+
+    def tick_background(self) -> None:
+        """The runtime's call: the pass runs as its own task, never inside the runtime tick.
+
+        A pass lists episodes and summaries through the access rules and can take many seconds;
+        inside the tick it tripped the 5 s run-clock guard and faulted the run.
+        """
+        if self.task is not None:
+            if not self.task.done():
+                return
+            task, self.task = self.task, None
+            task.result()  # a failure the pass did not handle reaches the runtime as before
+        elapsed = self._due()
+        if elapsed is None:
             return
         self.next_check = elapsed + 60
+        self.task = asyncio.create_task(self._pass(elapsed))
+
+    async def close(self) -> None:
+        if self.task is not None:
+            self.task.cancel()
+            await asyncio.gather(self.task, return_exceptions=True)
+            self.task = None
+
+    async def _pass(self, elapsed: float) -> None:
+        rt, run = self.rt, self.rt.supervisor.snapshot
         began = time.monotonic()
         marks: dict[str, float] = {}
 
@@ -531,6 +569,18 @@ class DailyMemory:
             mark("active")
             cycles = await self.cycles(run.scope)
             mark("cycles")
+            stamp = (
+                rt.supervisor.clock.utc().date().isoformat(),
+                await rt.store.kind_stamp("Episode"),
+                await rt.store.kind_stamp("Summary"),
+                await rt.store.kind_stamp("LLMAttempt"),
+                len(cycles),
+                max((c.updated_at.isoformat() for c in cycles), default=""),
+            )
+            mark("stamp")
+            if stamp == self.idle_stamp:
+                return  # nothing changed since a pass that found nothing to do
+            self.idle_stamp = None
             # Reconcile metadata under current admission; never apply an old raw result.
             token = rt.supervisor.admit("reflection")
             try:
@@ -601,6 +651,8 @@ class DailyMemory:
                     break
                 after = rows[-1].id
             mark("scan")
+            if not selected and not deferred:
+                self.idle_stamp = stamp  # nothing waits; look again only when something changes
             if selected or deferred:
                 # Counts and fixed codes only: which experience waits, never what it contains.
                 logging.getLogger(__name__).info(

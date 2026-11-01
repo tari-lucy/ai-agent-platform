@@ -47,3 +47,31 @@ def test_the_prompt_says_where_she_lives_and_names_the_variables(tmp_path):
     assert "172.19.0.3:25350 (переменная окружения AW_HOST_MINECRAFT_UNIONCLEF_MCP)" in prompt
     assert "читай адрес из указанной переменной" in prompt
     assert "Безопасность в игре" in prompt and "getOpenScreen" in prompt
+
+
+def test_opencode_s_own_helpers_carry_the_persona_core_and_a_role_line(tmp_path):
+    settings = HarnessSettings(
+        image_id="i",
+        port=4096,
+        password="p",
+        upstream="https://x/v1",
+        key="k",
+        model="m",
+        usage_dir=tmp_path,
+        daily_budget=1.0,
+        input_rate=0.1,
+        output_rate=0.1,
+    )
+    host = HarnessHost.__new__(HarnessHost)
+    host.settings = settings
+    scope = SimpleNamespace(persona_id="p")
+    host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+    full = "Ты — ЭТАЛОН, говоришь так и так.\n\n## Рабочее место\nправила работы\n"
+    agents = host.config("http://x:8080/v1", full, False)["agent"]
+    for helper in ("explore", "general", "compaction"):
+        text = agents[helper]["prompt"]
+        assert text.startswith("Ты — ЭТАЛОН, говоришь так и так.") and "## Эта роль" in text
+        assert "правила работы" not in text  # the workplace rules stay with her own agent
+        assert set(agents[helper]) == {"prompt"}  # mode, tools and permissions of the built-in stay
+    assert "первого лица" in agents["compaction"]["prompt"]
+    assert agents["p"]["mode"] == "primary" and "правила работы" in agents["p"]["prompt"]

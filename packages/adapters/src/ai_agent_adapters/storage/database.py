@@ -137,6 +137,19 @@ class SQLiteStore(Storage):
     async def close(self) -> None:
         await self.engine.dispose()
 
+    async def kind_stamp(self, kind: str) -> tuple[int, str]:
+        """Cheap change detector for one record kind: (rows, latest update). No content and no
+        access rules: it only answers 'did anything of this kind change since I last looked'."""
+        async with self.connection() as connection:
+            row = (
+                await connection.execute(
+                    select(func.count(), func.max(db.records.c.updated_at)).where(
+                        db.records.c.kind == kind
+                    )
+                )
+            ).one()
+        return int(row[0]), str(row[1] or "")
+
     @asynccontextmanager
     async def connection(self, *, write: bool = False) -> AsyncIterator[AsyncConnection]:
         """Internal adapter hook, not a public handler or worker database API."""
