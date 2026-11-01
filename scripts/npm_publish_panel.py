@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 API = "http://127.0.0.1:81/api"
+ALLOW_ALL = [{"address": "all", "directive": "allow"}]
 
 
 def call(method: str, path: str, token: str | None = None, body: object = None, timeout: int = 30):
@@ -43,6 +44,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--domain", default="agents.tarigpt.ru")
     parser.add_argument("--upstream", default="172.18.0.1:8765")
+    parser.add_argument(
+        "--fix-access",
+        action="store_true",
+        help="repair the existing access list: NPM turns a list without address rules into 403",
+    )
     arguments = parser.parse_args()
     domain = arguments.domain.strip().lower()
     host, _, port = arguments.upstream.rpartition(":")
@@ -53,6 +59,21 @@ def main() -> None:
     secret = getpass.getpass("NPM password: ")
     token = call("POST", "/tokens", body={"identity": email, "secret": secret})["token"]
     del secret
+
+    if arguments.fix_access:
+        lists = [
+            row
+            for row in call("GET", "/nginx/access-lists", token)
+            if row.get("name") == f"panel {domain}"
+        ]
+        if len(lists) != 1:
+            sys.exit(f"Expected one access list named 'panel {domain}', found {len(lists)}.")
+        # Only the address rules are sent: the login and password already stored are kept.
+        call("PUT", f"/nginx/access-lists/{lists[0]['id']}", token, {"clients": ALLOW_ALL})
+        print(
+            f"Access list {lists[0]['id']} now allows every address (the password still applies)."
+        )
+        return
 
     for existing in call("GET", "/nginx/proxy-hosts", token):
         if domain in existing.get("domain_names", []):
@@ -85,7 +106,8 @@ def main() -> None:
             "satisfy_any": False,
             "pass_auth": False,  # the panel refuses requests that carry an Authorization header
             "items": [{"username": door_user, "password": door_password}],
-            "clients": [],
+            # NPM writes "deny all" after the rules: without "allow all" the site answers 403.
+            "clients": ALLOW_ALL,
         },
     )
     del door_password
