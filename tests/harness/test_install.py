@@ -42,7 +42,7 @@ def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     import asyncio
 
     prompt = asyncio.run(runtime.harness.prompt())
-    assert "## Публичное" in prompt and "политика" in prompt  # always, not only with a channel
+    assert "## Public" in prompt and "политика" in prompt  # always, not only with a channel
     assert (tmp_path / "data" / "harness" / "public-rules.txt").is_file()
 
 

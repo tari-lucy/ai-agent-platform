@@ -57,20 +57,22 @@ HTTP_STARTUP_TIMEOUT = 60.0
 # Role lines for OpenCode's built-in helper agents (subagents and the compaction step).
 HELPER_ROLES = {
     "explore": (
-        "\n\n## Эта роль\nТы выполняешь разведку по поручению самой себя: ищи и читай файлы, "
-        "ничего не меняй и не запускай. Верни короткий отчёт: что нашла, где (пути и строки), "
-        "что неясно. Пиши своим голосом, без канцелярита."
+        "\n\n## This role\nYou are scouting on your own behalf: search and read files, change "
+        "and run nothing. Return a short report: what you found, where (paths and lines), what "
+        "is unclear. Write in your own voice, in Russian, without bureaucratese."
     ),
     "general": (
-        "\n\n## Эта роль\nТы выполняешь поручение самой себя полностью и возвращаешь итог: "
-        "что сделано, что нашла, что осталось неясным. Пиши своим голосом, коротко и по делу."
+        "\n\n## This role\nYou carry out a task on your own behalf completely and return the "
+        "result: what is done, what you found, what stays unclear. Write in your own voice, in "
+        "Russian, short and to the point."
     ),
     "compaction": (
-        "\n\n## Эта роль\nСожми разговор и работу в сводку, по которой ты продолжишь без потерь: "
-        "цели и что уже сделано; находки, ошибки и обходы; договорённости с оператором и "
-        "обещания; что делать дальше. Пиши от первого лица, как сама, а не как протокол "
-        "стороннего наблюдателя. В конце одной строкой «Голос»: как ты говорила (3-5 "
-        "характерных оборотов или интонаций) и в каком настроении была."
+        "\n\n## This role\nCompress the conversation and the work into a summary you can "
+        "continue from without loss: goals and what is already done; findings, errors and "
+        "workarounds; agreements with the operator and promises; what to do next. Write in the "
+        'first person, as yourself, not as a third-party record. End with one line "Voice": '
+        "how you spoke (3-5 characteristic turns of phrase or intonations, in Russian) and what "
+        "mood you were in."
     ),
 }
 
@@ -327,36 +329,38 @@ class HarnessHost:
         s = self.settings
         name = self.agent_name()
         prompt += (
-            "\n\n## Где ты работаешь\n"
-            "Ты работаешь в контейнере платформы, а не на компьютере оператора. Его компьютер, "
-            "игра и локальная сеть тебе недоступны, кроме выданных подключений ниже. Любые "
-            "прежние адреса (192.168.*, 172.*, localhost компьютера оператора, старые IP из "
-            "заметок и скриптов) устарели: не используй и не перебирай их."
+            "\n\n## Where you work\n"
+            "You work in the platform's container, not on the operator's computer. His computer, "
+            "the game and the local network are out of reach except for the connections granted "
+            "below. Any older addresses (192.168.*, 172.*, localhost of the operator's computer, "
+            "old IPs from notes and scripts) are obsolete: do not use or probe them."
         )
         if s.host_ports:
             host = model_url.split("//", 1)[1].split(":", 1)[0]
             names = host_port_names(s.host_ports)
             lines = [
-                f"- {label}: {host}:{port} (переменная окружения {names[label]})"
+                f"- {label}: {host}:{port} (environment variable {names[label]})"
                 for label, port in sorted(s.host_ports.items())
             ]
             prompt += (
-                "\n\n## Подключения к компьютеру оператора\n"
+                "\n\n## Connections to the operator's computer\n"
                 + "\n".join(lines)
-                + "\nАдрес шлюза меняется при каждом запуске. Не записывай IP в файлы и скрипты: "
-                "читай адрес из указанной переменной окружения (os.environ). Других путей к "
-                "компьютеру оператора нет.\n"
-                "Безопасность в игре: прежде чем идти, проверь getOpenScreen (открытое меню или "
-                "окно — это не ошибка пути, сообщи оператору), здоровье и еду. При здоровье ниже "
-                "10 или без еды сначала поешь или найди еду; не рискуй персонажем зря. Если "
-                "несколько попыток подряд не двигают тебя, остановись и разберись, а не повторяй.\n"
-                "Экономия: каждый ответ инструмента остаётся в истории и оплачивается на каждом "
-                "следующем шаге. Запрашивай только нужное: малый радиус у getBlocksAround и "
-                "getSurfaceMap, небольшое n у getRecentChat. Дальние пути поручай gotoFar или "
-                "gotoXYZ и проверяй pathStatus раз в 10-15 секунд, а не после каждого блока. "
-                "Это правило про объём запросов; точность и осторожность оно не отменяет.\n"
-                "Скриншоты и стройка: см. /workspace/skills/minecraft/SHOTS.md и BUILDING.md; "
-                "кадр снимай скриптом shot.py, base64 в разговор не клади."
+                + "\nThe gateway address changes at every start. Do not write the IP into files "
+                "and scripts: read the address from the named environment variable (os.environ). "
+                "There are no other paths to the operator's computer.\n"
+                "Safety in the game: before walking, check getOpenScreen (an open menu or window "
+                "is not a path error; tell the operator), health and food. With health below 10 "
+                "or without food, eat or find food first; do not risk the character for nothing. "
+                "If several attempts in a row do not move you, stop and work out why instead of "
+                "repeating.\n"
+                "Economy: every tool answer stays in the history and is paid for again at every "
+                "next step. Ask only for what you need: a small radius for getBlocksAround and "
+                "getSurfaceMap, a small n for getRecentChat. Hand long routes to gotoFar or "
+                "gotoXYZ and check pathStatus every 10-15 seconds, not after every block. This "
+                "rule is about request volume; it does not cancel accuracy and caution.\n"
+                "Screenshots and building: see /workspace/skills/minecraft/SHOTS.md and "
+                "BUILDING.md; take shots with the shot.py script and never put base64 in the "
+                "conversation."
             )
         free = {
             "bash": "allow",

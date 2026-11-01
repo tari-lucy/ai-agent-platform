@@ -43,10 +43,10 @@ def test_the_prompt_says_where_she_lives_and_names_the_variables(tmp_path):
     host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
     config = host.config("http://172.19.0.3:8080/v1", "base", True)
     prompt = config["agent"]["p"]["prompt"] if "p" in config["agent"] else str(config)
-    assert "не на компьютере оператора" in prompt and "192.168" in prompt
-    assert "172.19.0.3:25350 (переменная окружения AW_HOST_MINECRAFT_UNIONCLEF_MCP)" in prompt
-    assert "читай адрес из указанной переменной" in prompt
-    assert "Безопасность в игре" in prompt and "getOpenScreen" in prompt
+    assert "not on the operator's computer" in prompt and "192.168" in prompt
+    assert "172.19.0.3:25350 (environment variable AW_HOST_MINECRAFT_UNIONCLEF_MCP)" in prompt
+    assert "read the address from the named environment variable" in prompt
+    assert "Safety in the game" in prompt and "getOpenScreen" in prompt
 
 
 def test_opencode_s_own_helpers_carry_the_persona_core_and_a_role_line(tmp_path):
@@ -70,8 +70,8 @@ def test_opencode_s_own_helpers_carry_the_persona_core_and_a_role_line(tmp_path)
     agents = host.config("http://x:8080/v1", full, False)["agent"]
     for helper in ("explore", "general", "compaction"):
         text = agents[helper]["prompt"]
-        assert text.startswith("Ты — ЭТАЛОН, говоришь так и так.") and "## Эта роль" in text
+        assert text.startswith("Ты — ЭТАЛОН, говоришь так и так.") and "## This role" in text
         assert "правила работы" not in text  # the workplace rules stay with her own agent
         assert set(agents[helper]) == {"prompt"}  # mode, tools and permissions of the built-in stay
-    assert "первого лица" in agents["compaction"]["prompt"]
+    assert "first person" in agents["compaction"]["prompt"]
     assert agents["p"]["mode"] == "primary" and "правила работы" in agents["p"]["prompt"]
