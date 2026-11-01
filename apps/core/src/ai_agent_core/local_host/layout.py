@@ -317,6 +317,16 @@ class InactivePersona(BaseModel):
     profile_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ModelSpec(BaseModel):
+    """One model the gateway may use, with its own price per 1M tokens (budget currency)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    name: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+    input_rate: float = Field(ge=0, le=1_000_000)
+    output_rate: float = Field(ge=0, le=1_000_000)
+    cached_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+
+
 class HarnessConfig(BaseModel):
     """doc33 stage 1: the persona's own OpenCode server, attached to directly by the operator.
 
@@ -339,6 +349,9 @@ class HarnessConfig(BaseModel):
     input_rate: float | None = Field(default=None, ge=0, le=1_000_000)
     output_rate: float | None = Field(default=None, ge=0, le=1_000_000)
     cached_rate: float | None = Field(default=None, ge=0, le=1_000_000)
+    # Ordered models with their own prices: the first the provider answers for is used, a failing
+    # one is skipped for a few minutes. Empty: the single configured model and the rates above.
+    models: list[ModelSpec] = Field(default_factory=list, max_length=8)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

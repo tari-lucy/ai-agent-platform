@@ -22,9 +22,10 @@ def free_port() -> int:
 
 
 class Upstream:
-    def __init__(self) -> None:
+    def __init__(self, failing: dict[str, int] | None = None) -> None:
         self.calls: list[tuple[str, dict]] = []
         calls = self.calls
+        failing = failing or {}  # model name -> the HTTP status the provider answers with
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -35,6 +36,16 @@ class Upstream:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 calls.append((self.headers["Authorization"], body))
+                if body.get("model") in failing:
+                    data = json.dumps(
+                        {"error": {"message": "The selected model is unavailable. Retry in 50s."}}
+                    ).encode()
+                    self.send_response(failing[body["model"]])
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 if body.get("stream"):
                     events = [
                         {"choices": [{"index": 0, "delta": {"content": "При"}}]},
@@ -90,6 +101,7 @@ class Gateway:
         agent: Echo,
         remaining: float | None = 100.0,
         forwards: list[dict] | None = None,
+        models: list[str] | None = None,
     ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
@@ -105,6 +117,7 @@ class Gateway:
                 "upstream": upstream.url,
                 "key": KEY,
                 "model": "provider-model-x",
+                **({"models": models} if models else {}),
                 "remaining": remaining,
                 "model_bind": "127.0.0.1",
                 "ui_bind": "127.0.0.1",
@@ -170,6 +183,7 @@ def test_a_streamed_call_carries_the_key_and_forced_model_and_reports_usage_only
         assert rows[0] == {
             "kind": "usage",
             "status": 200,
+            "model": "provider-model-x",
             "input": 120,
             "output": 7,
             "cached": None,
@@ -285,5 +299,47 @@ def test_a_granted_host_port_is_relayed_from_the_agent_side_until_stop():
         time.sleep(0.2)
         with socket.create_connection(("127.0.0.1", listen), timeout=5) as client:
             assert client.recv(16) == b""
+    finally:
+        gateway.close()
+
+
+def test_a_failing_model_is_skipped_for_a_while_and_the_next_one_answers():
+    upstream, agent = Upstream({"m-primary": 503}), Echo()
+    gateway = Gateway(upstream, agent, models=["m-primary", "m-second", "m-third"])
+    try:
+        body = {"stream": True, "messages": [{"role": "user", "content": "Hi"}]}
+        status, text = gateway.post(body)
+        assert status == 200 and b"[DONE]" in text  # the agent never saw the 503
+        assert [call[1]["model"] for call in upstream.calls] == ["m-primary", "m-second"]
+        rows = gateway.wait_rows(2)
+        assert {"kind": "fallback", "model": "m-primary", "status": 503} in rows
+        assert [r["model"] for r in rows if r["kind"] == "usage"] == ["m-second"]
+
+        status, _ = gateway.post(body)  # the primary cools down: straight to the second
+        assert status == 200
+        assert [call[1]["model"] for call in upstream.calls] == [
+            "m-primary",
+            "m-second",
+            "m-second",
+        ]
+    finally:
+        gateway.close()
+
+
+def test_the_last_model_is_used_as_it_is_and_a_plain_client_error_does_not_switch():
+    upstream, agent = Upstream({"a": 503, "b": 503}), Echo()
+    gateway = Gateway(upstream, agent, models=["a", "b"])
+    try:
+        status, _ = gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
+        assert status == 503  # everything is down: the real answer, not a made-up one
+        assert [call[1]["model"] for call in upstream.calls] == ["a", "b"]
+    finally:
+        gateway.close()
+
+    upstream, agent = Upstream({"a": 400}), Echo()
+    gateway = Gateway(upstream, agent, models=["a", "b"])
+    try:
+        status, _ = gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
+        assert status == 400 and [c[1]["model"] for c in upstream.calls] == ["a"]
     finally:
         gateway.close()

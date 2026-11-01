@@ -80,6 +80,9 @@ class HarnessSettings:
     files_dir: Path | None = None
     # Operator-granted connections to host ports (name -> port), e.g. a game mod's server.
     host_ports: dict[str, int] = field(default_factory=dict)
+    # Ordered models with their own prices (name, input, output, cached); empty: ``model`` and
+    # the rates above. The first is the primary, the others answer while it is down.
+    models: tuple[tuple[str, float, float, float | None], ...] = ()
 
 
 class Usage:
@@ -91,9 +94,17 @@ class Usage:
     def _path(self) -> Path:
         return self.settings.usage_dir / f"harness-{datetime.now(UTC).date().isoformat()}.jsonl"
 
-    def cost(self, row: dict[str, Any]) -> float:
+    def rates(self, model: object) -> tuple[float, float, float]:
+        """(input, output, cached) per 1M tokens for the model that answered."""
         s = self.settings
+        for name, rate_in, rate_out, rate_cached in s.models:
+            if name == model:
+                return rate_in, rate_out, rate_in if rate_cached is None else rate_cached
         assert s.input_rate is not None and s.output_rate is not None
+        return s.input_rate, s.output_rate, s.input_rate if s.cached_rate is None else s.cached_rate
+
+    def cost(self, row: dict[str, Any]) -> float:
+        rate_in, rate_out, cached_rate = self.rates(row.get("model"))
         reported_in, reported_out = row.get("input"), row.get("output")
         tokens_in = reported_in if isinstance(reported_in, int) else UNKNOWN_INPUT
         tokens_out = reported_out if isinstance(reported_out, int) else UNKNOWN_OUTPUT
@@ -103,14 +114,20 @@ class Usage:
             if isinstance(reported_cached, int) and isinstance(reported_in, int)
             else 0
         )
-        cached_rate = s.input_rate if s.cached_rate is None else s.cached_rate
         return (
-            (tokens_in - cached) * s.input_rate + cached * cached_rate + tokens_out * s.output_rate
+            (tokens_in - cached) * rate_in + cached * cached_rate + tokens_out * rate_out
         ) / 1_000_000
 
     def record(self, row: dict[str, Any]) -> None:
         if row.get("kind") == "refused":
             LOG.warning("Harness model call refused: %s", row.get("code"))
+            return
+        if row.get("kind") == "fallback":  # which model gave way and why: names and codes only
+            LOG.warning(
+                "Model %s unavailable (%s): the next one answers",
+                row.get("model"),
+                row.get("status"),
+            )
             return
         if row.get("kind") != "usage" or self.settings.input_rate is None:
             return
@@ -124,6 +141,8 @@ class Usage:
             "cost": round(self.cost(row), 6),
             "currency": self.settings.currency,
         }
+        if isinstance(row.get("model"), str):
+            entry["model"] = row["model"]
         if isinstance(row.get("wake"), str):
             entry["wake"] = row["wake"]  # spent inside a self-started wake window (harness_life)
         self.settings.usage_dir.mkdir(parents=True, exist_ok=True)
@@ -418,6 +437,7 @@ class HarnessHost:
                 upstream=s.upstream,
                 key=s.key,
                 model=s.model,
+                models=[name for name, *_ in s.models] or None,
                 remaining=self.remaining(),
             )
             host = model_url.split("//", 1)[1].split(":", 1)[0]

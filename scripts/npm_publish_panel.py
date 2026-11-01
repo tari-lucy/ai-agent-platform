@@ -16,12 +16,15 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from typing import Any
 
 API = "http://127.0.0.1:81/api"
 ALLOW_ALL = [{"address": "all", "directive": "allow"}]
 
 
-def call(method: str, path: str, token: str | None = None, body: object = None, timeout: int = 30):
+def call(
+    method: str, path: str, token: str | None = None, body: object = None, timeout: int = 30
+) -> Any:
     data = None if body is None else json.dumps(body).encode()
     headers = {"Content-Type": "application/json"}
     if token:

@@ -200,7 +200,10 @@ def install(
             password=password(host),
             upstream=upstream,
             key=key,
-            model=config.live.api_model,
+            model=settings.models[0].name if settings.models else config.live.api_model,
+            models=tuple(
+                (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.models
+            ),
             usage_dir=host.egress_log.parent / "usage",
             daily_budget=settings.daily_budget,
             currency=settings.currency,
@@ -225,7 +228,7 @@ def install(
         host,
         providers,
         runtime.harness.usage,
-        model=config.live.api_model,
+        model=settings.models[0].name if settings.models else config.live.api_model,
         scope=runtime.supervisor.snapshot.scope,
     )
 

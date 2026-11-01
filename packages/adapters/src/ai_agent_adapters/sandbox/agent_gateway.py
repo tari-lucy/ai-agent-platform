@@ -169,7 +169,14 @@ class AgentGateway:
         ]
 
     async def open(
-        self, network: str, *, upstream: str, key: str, model: str, remaining: float | None
+        self,
+        network: str,
+        *,
+        upstream: str,
+        key: str,
+        model: str,
+        remaining: float | None,
+        models: list[str] | None = None,
     ) -> str:
         await cli(*self.args())
         await cli("network", "connect", network, self.name)
@@ -198,6 +205,7 @@ class AgentGateway:
                 "upstream": upstream,
                 "key": key,
                 "model": model,
+                **({"models": models} if models else {}),
                 "remaining": remaining,
                 "model_bind": addresses[network],
                 "ui_bind": addresses["bridge"],

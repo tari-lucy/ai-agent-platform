@@ -15,10 +15,12 @@ carries control rows; its end means the host is gone and the gateway exits.
 import http.client
 import json
 import os
+import re
 import socket
 import ssl
 import sys
 import threading
+import time
 import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +32,14 @@ config = json.loads(sys.stdin.readline())
 upstream = urllib.parse.urlsplit(config["upstream"])
 KEY = config["key"]
 MODEL = config["model"]
+# Ordered models: the first that the provider answers for is used. A failing one is skipped for
+# a while (cooldown) and tried again later. Only before the answer starts: never mid-stream.
+MODELS = [str(name) for name in config.get("models") or [] if isinstance(name, str)] or [MODEL]
+FIRST_BYTE = float(config.get("first_byte", 60))
+RETRYABLE = {404, 408, 429, 500, 502, 503, 504, 529}
+COOLDOWN = {429: 60.0}  # seconds by status; others use DEFAULT_COOLDOWN
+DEFAULT_COOLDOWN = 300.0
+cooling = {}  # model name -> time.monotonic() until which it is skipped
 TIMEOUT = float(config.get("timeout", 600))
 state = {"stopped": False, "remaining": config.get("remaining"), "agent": None}
 lock = threading.Lock()
@@ -81,6 +91,32 @@ def usage_of(document, found):
     usage = document.get("usage") if isinstance(document, dict) else None
     if isinstance(usage, dict):
         found.update(usage)
+
+
+def order():
+    """Models to try now: those not cooling first (in order), then the rest by soonest return."""
+    now = time.monotonic()
+    with lock:
+        ready = [name for name in MODELS if cooling.get(name, 0) <= now]
+        rest = sorted((n for n in MODELS if n not in ready), key=lambda n: cooling.get(n, 0))
+    return ready + rest
+
+
+def cool(name, status, hint):
+    """Skip this model for a while; the provider's own 'retry in N s' wins when it gives one."""
+    seconds = hint if hint else COOLDOWN.get(status, DEFAULT_COOLDOWN)
+    seconds = min(max(seconds, 30.0), 900.0)
+    with lock:
+        cooling[name] = time.monotonic() + seconds
+
+
+def retry_hint(response, text):
+    """Seconds from Retry-After or a 'Retry in 50s' message, or None."""
+    header = response.getheader("Retry-After")
+    if header and header.strip().isdigit():
+        return float(header.strip())
+    found = re.search(r"[Rr]etry in (\d+)\s*s", text)
+    return float(found.group(1)) if found else None
 
 
 class Model(BaseHTTPRequestHandler):
@@ -143,6 +179,65 @@ class Model(BaseHTTPRequestHandler):
             return self.reply(200, {"object": "list", "data": [{"id": "bound", "object": "model"}]})
         self.reply(404, {"error": {"message": "NOT_FOUND"}})
 
+    def open_upstream(self, body, stream):
+        """Connect, send, read the status line: the first model the provider answers for.
+
+        Returns (connection, response, model). A refusal that says 'this model, now' (unknown,
+        overloaded, rate-limited, 5xx) or silence within FIRST_BYTE moves on to the next model;
+        the last one is used as it is, so the caller always gets an answer. Nothing has been sent
+        to the agent yet, so a switch is invisible to it.
+        """
+        names = order()
+        for index, name in enumerate(names):
+            last = index == len(names) - 1
+            data = json.dumps({**body, "model": name}).encode()
+            connection = None
+            try:
+                if upstream.scheme == "https":
+                    connection = http.client.HTTPSConnection(
+                        upstream.hostname,
+                        upstream.port or 443,
+                        timeout=FIRST_BYTE if stream else TIMEOUT,
+                        context=ssl.create_default_context(),
+                    )
+                else:  # tests only: the host refuses a plain upstream for live use
+                    connection = http.client.HTTPConnection(
+                        upstream.hostname,
+                        upstream.port or 80,
+                        timeout=FIRST_BYTE if stream else TIMEOUT,
+                    )
+                connection.request(
+                    "POST",
+                    upstream.path.rstrip("/") + "/chat/completions",
+                    data,
+                    {
+                        "Authorization": "Bearer " + KEY,
+                        "Content-Type": "application/json",
+                        "Accept": "text/event-stream" if stream else "application/json",
+                        # Some providers sit behind Cloudflare, which refuses library defaults.
+                        "User-Agent": "ai-agent-platform/1.0",
+                    },
+                )
+                response = connection.getresponse()
+            except OSError, http.client.HTTPException:
+                if connection is not None:
+                    connection.close()
+                if last:
+                    raise
+                cool(name, 0, None)
+                emit({"kind": "fallback", "model": name, "status": 0})
+                continue
+            if response.status in RETRYABLE and not last:
+                text = response.read(65536).decode("utf-8", "replace")
+                connection.close()
+                cool(name, response.status, retry_hint(response, text))
+                emit({"kind": "fallback", "model": name, "status": response.status})
+                continue
+            if connection.sock is not None:
+                connection.sock.settimeout(TIMEOUT)  # the answer itself may take long
+            return connection, response, name
+        raise OSError("NO_MODEL")
+
     def do_POST(self):
         if self.path.rstrip("/") == "/mcp":
             return self.mcp()
@@ -160,38 +255,14 @@ class Model(BaseHTTPRequestHandler):
         code = refusal()
         if code is not None:
             return self.refuse(code)
-        body["model"] = MODEL
         stream = body.get("stream") is True
         if stream:
             body["stream_options"] = {"include_usage": True}
-        data = json.dumps(body).encode()
         found = {}
         status = 0
+        used = MODELS[0]
         try:
-            if upstream.scheme == "https":
-                connection = http.client.HTTPSConnection(
-                    upstream.hostname,
-                    upstream.port or 443,
-                    timeout=TIMEOUT,
-                    context=ssl.create_default_context(),
-                )
-            else:  # tests only: the host refuses a plain upstream for live use
-                connection = http.client.HTTPConnection(
-                    upstream.hostname, upstream.port or 80, timeout=TIMEOUT
-                )
-            connection.request(
-                "POST",
-                upstream.path.rstrip("/") + "/chat/completions",
-                data,
-                {
-                    "Authorization": "Bearer " + KEY,
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream" if stream else "application/json",
-                    # Some providers sit behind Cloudflare, which refuses library defaults.
-                    "User-Agent": "ai-agent-platform/1.0",
-                },
-            )
-            response = connection.getresponse()
+            connection, response, used = self.open_upstream(body, stream)
             status = response.status
             self.send_response(status)
             self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
@@ -236,6 +307,7 @@ class Model(BaseHTTPRequestHandler):
             {
                 "kind": "usage",
                 "status": status,
+                "model": used,
                 "input": found.get("prompt_tokens"),
                 "output": found.get("completion_tokens"),
                 # OpenAI-style details, or the Anthropic-style field some gateways pass through.

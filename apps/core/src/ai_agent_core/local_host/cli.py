@@ -178,6 +178,10 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--input-rate", type=float, help="per 1M input tokens")
     harness.add_argument("--output-rate", type=float, help="per 1M output tokens")
     harness.add_argument("--cached-rate", type=float, help="per 1M cached input tokens")
+    harness.add_argument(
+        "--models",
+        help="ordered fallback list 'name=in/out[/cached],...' (price per 1M tokens), or 'none'",
+    )
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -383,6 +387,29 @@ def read_profile(path: Path | None) -> str:
         raise HostError("PROFILE_UNREADABLE") from None
 
 
+def _parse_models(text: str | None) -> list[dict[str, object]] | None:
+    """'cx/a=0.10/0.10,cx/b=0.075/0.075/0.05' -> model specs; 'none' -> []; None -> unchanged."""
+    if text is None:
+        return None
+    if text.strip().lower() in ("none", "-"):
+        return []
+    rows: list[dict[str, object]] = []
+    for part in text.split(","):
+        name, _, price = part.strip().rpartition("=")
+        numbers = price.split("/")
+        try:
+            values = [float(number) for number in numbers]
+        except ValueError:
+            raise HostError("INVALID_OPTION") from None
+        if not name or len(values) not in (2, 3):
+            raise HostError("INVALID_OPTION")
+        row: dict[str, object] = {"name": name, "input_rate": values[0], "output_rate": values[1]}
+        if len(values) == 3:
+            row["cached_rate"] = values[2]
+        rows.append(row)
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     if sys.platform != "win32":
@@ -577,6 +604,7 @@ def main(argv: list[str] | None = None) -> int:
                     input_rate=arguments.input_rate,
                     output_rate=arguments.output_rate,
                     cached_rate=arguments.cached_rate,
+                    models=_parse_models(arguments.models),
                     context_tokens=arguments.context_tokens,
                     output_tokens=arguments.output_tokens,
                     memory_mb=arguments.memory_mb,
@@ -595,10 +623,10 @@ def main(argv: list[str] | None = None) -> int:
             from . import models as model_commands
 
             if arguments.command == "list-models":
-                current, ids = model_commands.list_models(arguments.root, arguments.env_file)
+                chosen, ids = model_commands.list_models(arguments.root, arguments.env_file)
                 for identifier in ids:
-                    print(("* " if identifier == current else "  ") + identifier)
-                print(f"({len(ids)} models; * is the current one: {current})")
+                    print(("* " if identifier == chosen else "  ") + identifier)
+                print(f"({len(ids)} models; * is the current one: {chosen})")
             elif arguments.command == "test-model":
                 ok, text = model_commands.test_model(
                     arguments.root, arguments.env_file, arguments.model
