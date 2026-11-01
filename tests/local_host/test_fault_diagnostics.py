@@ -25,15 +25,15 @@ def test_a_blocked_event_loop_faults_the_run_and_says_where(tmp_path, monkeypatc
             await host.start()
             assert rt.supervisor.snapshot.state is RunState.ACTIVE
             rt.supervisor.limits = replace(rt.supervisor.limits, sleep_gap_seconds=1.0)
-            original, blocked = rt.daily_memory.tick, []
+            original, blocked = rt.daily_memory.tick_background, []
 
-            async def slow_tick():
+            def slow_tick():
                 if not blocked:
                     blocked.append(True)
                     blocking_step_for_the_test(1.8)
-                await original()
+                original()
 
-            monkeypatch.setattr(rt.daily_memory, "tick", slow_tick)
+            monkeypatch.setattr(rt.daily_memory, "tick_background", slow_tick)
             with caplog.at_level(logging.WARNING):
                 rt.wake()
                 for _ in range(100):
@@ -57,10 +57,10 @@ def test_an_exception_in_the_runtime_tick_is_logged_before_the_fault(tmp_path, m
             rt = host.env.runtime
             await host.start()
 
-            async def broken_tick_for_the_test():
+            def broken_tick_for_the_test():
                 raise RuntimeError("synthetic secret text that must not be logged")
 
-            monkeypatch.setattr(rt.daily_memory, "tick", broken_tick_for_the_test)
+            monkeypatch.setattr(rt.daily_memory, "tick_background", broken_tick_for_the_test)
             with caplog.at_level(logging.WARNING):
                 rt.wake()
                 for _ in range(100):

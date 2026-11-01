@@ -464,7 +464,7 @@ def test_sleep_or_stalled_scheduler_closes_admission_and_requires_explicit_start
     async def scenario():
         owner, authority, clock, *_ = await active()
         admission = owner.admit("activity")
-        clock.advance(30, elapsed=not wall_only)
+        clock.advance(31, elapsed=not wall_only)
         assert owner.snapshot.state == RunState.FAULTED
         assert admission.cancelled.is_set()
         assert owner.last_error == ErrorCode.STALE_CONTEXT

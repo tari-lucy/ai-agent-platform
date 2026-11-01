@@ -97,7 +97,9 @@ class ControlLimits:
     # sandbox and its gateway in seconds, not instantly. Admissions are revoked at once anyway.
     stop_seconds: float = 30.0
     pause_seconds: float = 2.0
-    sleep_gap_seconds: float = 5.0
+    # A pause longer than this faults the run (host sleep, moved clock, blocked loop). 5 s was
+    # too strict for a shared VPS that freezes the whole process for a few seconds now and then.
+    sleep_gap_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         if any(
