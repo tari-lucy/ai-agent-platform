@@ -69,6 +69,11 @@ class LiveConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     model_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    # The provider's own name for the model when it is not a contract-safe id (e.g. "cx/gpt-6.1-sol"
+    # has a slash): model_id stays the internal alias, this is what the provider is asked for.
+    provider_model: str | None = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    )
     attempt_limit: int = Field(default=10, strict=True, ge=1, le=1_000_000)
     attempt_period: Literal["lifetime", "utc_day"] = "lifetime"
     budget_version: int = Field(default=1, strict=True, ge=1)
@@ -83,6 +88,11 @@ class LiveConfig(BaseModel):
     http_keepalive_seconds: int = Field(default=120, strict=True, ge=0, le=3600)
     gm: GmConfig = Field(default_factory=GmConfig)
     activity: ActivityConfig = Field(default_factory=ActivityConfig)
+
+    @property
+    def api_model(self) -> str:
+        """The model name sent to the provider."""
+        return self.provider_model or self.model_id
 
     @model_validator(mode="after")
     def memory_budget(self) -> Self:

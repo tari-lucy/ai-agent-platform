@@ -185,6 +185,7 @@ class OpenAICompatibleProvider:
         self._settings = settings
         self._client = client
         self.stream_tools = stream_tools
+        self.model_names: dict[str, str] = {}  # internal model id -> the provider's own name
         self._keepalive_seconds: float | None = None
         self._owns_client = False
         self._used = False
@@ -243,7 +244,7 @@ class OpenAICompatibleProvider:
         url = checked_endpoint(endpoint) + "/chat/completions"
         parameters = assignment.parameters
         body: dict[str, Any] = {
-            "model": assignment.model_id,
+            "model": self.model_names.get(assignment.model_id, assignment.model_id),
             "messages": [_message(message) for message in call.messages],
             "stream": True,
             "stream_options": {"include_usage": True},

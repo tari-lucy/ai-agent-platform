@@ -24,9 +24,9 @@ case "${1:-}" in
       [ "${MODEL_FORCE:-}" = "1" ] || exit 1
     fi
     systemctl --user stop ai-platform
+    trap 'systemctl --user start ai-platform' EXIT  # whatever happens, leave the service running
     run set-model --root "$root" "$2"
-    systemctl --user start ai-platform
-    echo "Служба запущена с моделью $2. Если агент работал сам, он поднимется сам через 1-2 минуты;"
+    echo "Служба запускается с моделью $2. Если агент работал сам, он поднимется сам через 1-2 минуты;"
     echo "иначе нажми START в панели."
     ;;
   *) echo "usage: model list | model test <id> | model set <id>" >&2; exit 2 ;;

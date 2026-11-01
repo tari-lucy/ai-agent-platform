@@ -6,6 +6,7 @@ ids, status codes and short provider messages are printed: no key, no endpoint, 
 """
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -26,7 +27,7 @@ def _binding(root: Path, env_file: Path) -> tuple[str, str, str]:
     providers = provider_factory("live", live=config.live, env_file=env_file)
     if providers.binding is None:
         raise HostError("LLM_BINDING_REQUIRED")
-    return providers.binding[0], providers.binding[1], config.live.model_id
+    return providers.binding[0], providers.binding[1], config.live.api_model
 
 
 def _call(url: str, key: str, body: dict[str, object] | None, timeout: float) -> tuple[int, object]:
@@ -92,8 +93,15 @@ def set_model(root: Path, model: str) -> str:
         config = load_config(host)
         if config.live is None:
             raise HostError("LIVE_NOT_PREPARED")
-        previous = config.live.model_id
-        values = {**config.live.model_dump(), "model_id": model}
+        previous = config.live.api_model
+        # A name with a slash is not a contract-safe id: keep an internal alias, ask the provider
+        # for the real name.
+        alias = re.sub(r"[^A-Za-z0-9_.:-]+", "-", model).strip("-.:_")
+        values = {
+            **config.live.model_dump(),
+            "model_id": alias or "model",
+            "provider_model": None if alias == model else model,
+        }
         try:
             live = LiveConfig.model_validate(values)
         except ValueError:

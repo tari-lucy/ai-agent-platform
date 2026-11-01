@@ -65,8 +65,32 @@ def test_switching_stores_the_new_id_and_refuses_a_bad_one(monkeypatch):
     monkeypatch.setattr(models, "save_config", lambda host, config: saved.append(config))
 
     assert models.set_model(ROOT, "claude-opus-4-7") == "old-model"
-    assert saved[0].live.model_id == "claude-opus-4-7"
+    assert saved[0].live.model_id == "claude-opus-4-7" and saved[0].live.provider_model is None
     assert saved[0].live.attempt_limit == live.attempt_limit  # the rest is kept as it was
     with pytest.raises(HostError):
         models.set_model(ROOT, "bad model;rm")
     assert len(saved) == 1
+
+
+def test_a_provider_name_with_a_slash_keeps_a_safe_alias_and_is_what_the_provider_gets(monkeypatch):
+    live = LiveConfig(model_id="old-model")
+    saved = []
+
+    class Config(SimpleNamespace):
+        def model_copy(self, update):
+            return SimpleNamespace(**{**vars(self), **update})
+
+    monkeypatch.setattr(models, "paths", lambda root: SimpleNamespace(root=root))
+    monkeypatch.setattr(models, "exclusive_host", lambda root: nullcontext())
+    monkeypatch.setattr(models, "load_config", lambda host: Config(live=live))
+    monkeypatch.setattr(models, "save_config", lambda host, config: saved.append(config))
+
+    assert models.set_model(ROOT, "cx/gpt-6.1-sol") == "old-model"
+    stored = saved[0].live
+    assert stored.model_id == "cx-gpt-6.1-sol"  # contract-safe internal alias
+    assert stored.provider_model == "cx/gpt-6.1-sol" and stored.api_model == "cx/gpt-6.1-sol"
+    # switching back to a plain id clears the provider name
+    live2 = stored
+    monkeypatch.setattr(models, "load_config", lambda host: Config(live=live2))
+    models.set_model(ROOT, "plain-id")
+    assert saved[1].live.provider_model is None and saved[1].live.api_model == "plain-id"

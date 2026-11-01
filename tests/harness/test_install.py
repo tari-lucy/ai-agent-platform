@@ -8,6 +8,7 @@ from ai_agent_core.local_host.layout import HarnessConfig, HostPaths
 
 def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     runtime = SimpleNamespace(
+        supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=None)),
         harness=None,
         autonomous_wake=object(),
         session_egress_capability=None,
@@ -30,7 +31,7 @@ def test_harness_alone_still_offers_the_internet_right_and_homes(tmp_path):
     config = SimpleNamespace(
         harness=HarnessConfig(input_rate=16, output_rate=80),
         work_sessions=work,
-        live=SimpleNamespace(model_id="m", gm=SimpleNamespace(enabled=False)),
+        live=SimpleNamespace(model_id="m", api_model="m", gm=SimpleNamespace(enabled=False)),
     )
     providers = SimpleNamespace(binding=("https://x/v1", "k"), secrets={})
     assert install(runtime, config, HostPaths(tmp_path), providers) is None  # type: ignore[arg-type]
@@ -50,6 +51,7 @@ def test_wakes_enabled_attaches_the_persona_s_own_rhythm(tmp_path):
     from ai_agent_core.m3_composition.harness_life import LifePart
 
     runtime = SimpleNamespace(
+        supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=None)),
         harness=None,
         autonomous_wake=object(),
         session_egress_capability=None,
@@ -67,7 +69,7 @@ def test_wakes_enabled_attaches_the_persona_s_own_rhythm(tmp_path):
     config = SimpleNamespace(
         harness=HarnessConfig(input_rate=0.12, output_rate=0.12, life_mode="quiet"),
         work_sessions=work,
-        live=SimpleNamespace(model_id="m", gm=SimpleNamespace(enabled=False)),
+        live=SimpleNamespace(model_id="m", api_model="m", gm=SimpleNamespace(enabled=False)),
     )
     providers = SimpleNamespace(binding=("https://x/v1", "k"), secrets={})
     assert install(runtime, config, HostPaths(tmp_path), providers) is None  # type: ignore[arg-type]

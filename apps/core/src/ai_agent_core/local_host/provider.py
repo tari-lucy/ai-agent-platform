@@ -294,6 +294,8 @@ def provider_factory(
         )
         actual.provider.configure_keepalive(live.http_keepalive_seconds)
         actual.provider.stream_tools = live.activity.stream_tools
+        if live.provider_model:
+            actual.provider.model_names = {live.model_id: live.provider_model}
         providers = LocalProviders(mock, actual)
         providers.binding = (endpoint, credential)
         from dotenv import dotenv_values
