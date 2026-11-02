@@ -87,6 +87,7 @@ class Watch:
         self.task: asyncio.Task[None] | None = None
         self.next_check = 0.0
         self.next_poll: dict[str, float] = {}
+        self.mine: str | None = None  # id of the last wake this watcher set
 
     def tick(self) -> None:
         host = self.rt.harness
@@ -144,8 +145,12 @@ class Watch:
             return  # the day's money is gone: the news waits
         if not batch.urgent and await host.wakes.open_count(scope=scope):
             return  # an earlier alarm is still waiting: one wake at a time
+        if self.mine is not None:
+            last = await host.wakes.get(self.mine, scope=scope)
+            if last is not None and last.state != "done":
+                return  # she has not read the last one yet: new news waits and joins the next
         text = digest(batch, focus, self.queue.policy, self.queue.clock())
-        await host.wakes.set(
+        wake = await host.wakes.set(
             0 if batch.urgent else 1,
             text,
             scope=scope,
@@ -154,6 +159,7 @@ class Watch:
             ),
             urgent=batch.urgent,
         )
+        self.mine = getattr(wake, "id", None)
         self.queue.delivered(batch)
         for source in self.sources:
             if any(event.source == source.name for event in batch.events):

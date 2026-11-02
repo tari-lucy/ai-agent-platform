@@ -54,7 +54,7 @@ class Policy:
     # (focus, source) -> how many levels more urgent (negative) or less urgent (positive).
     shift: dict[tuple[str, str], int]
     age_step: float = 30 * 60  # one level more urgent per this many seconds of waiting
-    critical_gap: float = 15.0  # even CRITICAL news does not poke her more often than this
+    critical_gap: float = 45.0  # even CRITICAL news does not poke her more often than this
     high_gap: float = 60.0  # least seconds between wakes for HIGH news
     normal_gap: float = 20 * 60.0  # ... for a batch of NORMAL news
     low_gap: float = 60 * 60.0  # ... for LOW news, and only when she is free

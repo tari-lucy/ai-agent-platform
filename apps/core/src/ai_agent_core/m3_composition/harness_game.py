@@ -26,7 +26,8 @@ from .harness_stance import Action, Hostile, Reflex
 
 LOG = logging.getLogger(__name__)
 
-NEAR = 40.0  # blocks: a player closer than this is "near"
+NEAR = 15.0  # blocks: a player closer than this is "near" (a lobby is full of players further off)
+NEAR_AGAIN = 600.0  # seconds before the same player is reported near again
 MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a line
 MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
 LOW_HP = 0.3  # of the maximum
@@ -114,6 +115,7 @@ class GameSource:
         self._prev: dict[str, Any] | None = None
         self._seen_chat: list[str] = []
         self._near: set[str] = set()
+        self._near_told: dict[str, float] = {}
         self._low_hp = False
         self._low_food = False
         self._mobs: set[str] = set()
@@ -363,8 +365,11 @@ class GameSource:
         return events
 
     def _players(self, rows: Any) -> list[Event]:
-        events: list[Event] = []
+        """A player coming close is news, not an alarm: one line for all who came, and the same
+        name is not reported again for ten minutes (a lobby has crowds)."""
+        now = self.clock()
         near: set[str] = set()
+        came: list[tuple[str, float]] = []
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
@@ -376,18 +381,20 @@ class GameSource:
             if not name or distance > NEAR:
                 continue
             near.add(name)
-            if name not in self._near:
-                hp = row.get("hp")
-                events.append(
-                    Event("game", "player_near", name,
-                          f"Player {name} is near: {distance:.0f} blocks"
-                          + (f", hp {hp}" if hp is not None else "") + ".", Level.HIGH)
-                )  # fmt: skip
+            if name not in self._near and now - self._near_told.get(name, -1e9) >= NEAR_AGAIN:
+                self._near_told[name] = now
+                came.append((name, distance))
         self._near = near
-        return events
-
-    async def delivered(self, scope: Scope, current: Callable[[], None]) -> None:
-        return None  # the game keeps nothing "unseen" of its own
+        if not came:
+            return []
+        came.sort(key=lambda pair: pair[1])
+        if len(came) == 1:
+            name, distance = came[0]
+            text = f"Player {name} is near: {distance:.0f} blocks."
+        else:
+            names = ", ".join(name for name, _ in came[:4])
+            text = f"{len(came)} players came near: {names}."
+        return [Event("game", "player_near", "players", text, Level.NORMAL)]
 
     # --- chat ---------------------------------------------------------------------------
     def _own(self, line: str) -> bool:

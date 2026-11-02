@@ -200,3 +200,56 @@ def test_a_failing_source_does_not_silence_the_others():
     watch = Watch(runtime, [Broken(), Game()], focus=lambda: "game")
     asyncio.run(watch._step())
     assert len(woken) == 1 and "you died" in woken[0]
+
+
+def test_the_watcher_holds_new_news_until_the_last_wake_is_read():
+    import asyncio
+    from types import SimpleNamespace
+
+    from ai_agent_core.m3_composition.harness_watch import Watch
+
+    state = {"n": 0, "wake_state": "new"}
+
+    class Src:
+        name = "game"
+        interval = 0
+
+        async def poll(self, scope, current):
+            state["n"] += 1
+            return [Event("game", "died", f"d{state['n']}", "you died", Level.CRITICAL)]
+
+        async def delivered(self, scope, current):
+            pass
+
+    sets = []
+
+    class Wakes:
+        async def open_count(self, *, scope):
+            return 0
+
+        async def set(self, minutes, text, *, scope, guard, urgent=False):
+            sets.append(text)
+            return SimpleNamespace(id="w1")
+
+        async def get(self, identifier, *, scope):
+            return SimpleNamespace(state=state["wake_state"])
+
+    run = SimpleNamespace(
+        autonomy="autonomous",
+        activity=SimpleNamespace(value="OPEN"),
+        scope=SimpleNamespace(memory_mode="work"),
+        control_epoch=1,
+    )
+    harness = SimpleNamespace(
+        wakes=Wakes(), usage=SimpleNamespace(remaining=lambda: 1.0), current=lambda: True
+    )
+    runtime = SimpleNamespace(harness=harness, supervisor=SimpleNamespace(snapshot=run))
+    watch = Watch(runtime, [Src()], focus=lambda: "game")
+    watch.queue.policy = watch.queue.policy.__class__(watch.queue.policy.shift, critical_gap=0)
+    asyncio.run(watch._step())
+    assert len(sets) == 1
+    asyncio.run(watch._step())  # she has not read it: nothing new is set, the news waits
+    assert len(sets) == 1 and watch.queue.pending()
+    state["wake_state"] = "done"
+    asyncio.run(watch._step())
+    assert len(sets) == 2

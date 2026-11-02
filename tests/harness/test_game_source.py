@@ -67,21 +67,49 @@ def test_a_jump_in_place_with_full_health_after_low_health_means_she_died():
     )
 
 
-def test_a_player_coming_near_is_reported_once_until_he_leaves():
+def test_a_player_coming_near_is_news_once_and_not_an_alarm():
     src = source(
         [
             (state(players=[("Bob", 90)]), []),
             (state(players=[("Bob", 30)]), []),
-            (state(players=[("Bob", 20)]), []),
+            (state(players=[("Bob", 12)]), []),
+            (state(players=[("Bob", 8)]), []),
             (state(players=[]), []),
-            (state(players=[("Bob", 10)]), []),
+            (state(players=[("Bob", 5)]), []),
         ]
     )
     poll(src)
-    assert kinds(poll(src)) == ["player_near"]
+    assert poll(src) == []  # 30 blocks is not close
+    [came] = poll(src)
+    assert came.kind == "player_near" and came.level == Level.NORMAL  # news, never CRITICAL
     assert poll(src) == []
     assert poll(src) == []
-    assert kinds(poll(src)) == ["player_near"]
+    assert poll(src) == []  # he left and came back: the same name waits ten minutes
+
+
+def test_a_crowd_coming_near_is_one_line_and_a_name_repeats_only_after_ten_minutes():
+    now = {"t": 0.0}
+    crowd = [("A", 3), ("B", 5), ("C", 7)]
+    present = {"players": crowd}
+
+    def call(tool, arguments):
+        if tool == "getRecentChat":
+            return []
+        return state(players=present["players"])
+
+    src = GameSource("http://x/mcp", None, ["x"], call=call, clock=lambda: now["t"])
+    first = [e for e in poll(src) if e.kind == "player_near"]
+    assert len(first) == 1 and "3 players came near" in first[0].text
+    present["players"] = []
+    poll(src)  # they leave
+    present["players"] = crowd
+    now["t"] = 100
+    assert [e for e in poll(src) if e.kind == "player_near"] == []  # too soon
+    present["players"] = []
+    poll(src)
+    present["players"] = crowd
+    now["t"] = 700
+    assert len([e for e in poll(src) if e.kind == "player_near"]) == 1  # ten minutes passed
 
 
 def test_chat_mentions_wake_but_her_own_lines_and_the_first_look_do_not():
