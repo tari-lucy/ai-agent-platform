@@ -172,3 +172,15 @@ def test_budget_quiet_hours_hourly_cap_and_stop_during_post():
         assert await service.tick() == "CLOSED_OR_BUSY"
 
     asyncio.run(scenario())
+
+
+def test_an_urgent_wake_is_not_held_by_the_hourly_cap():
+    async def scenario():
+        service, host, owner, run = build()
+        owner.count = 4
+        assert await service.tick() == "HOURLY_CAP"  # an ordinary wake waits for the next hour
+        owner.wake = replace(owner.wake, urgent=True)
+        assert await service.tick() == "FIRED"
+        assert host.calls == ["POST", "GET"]
+
+    asyncio.run(scenario())

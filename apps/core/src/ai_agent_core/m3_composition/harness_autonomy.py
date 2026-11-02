@@ -33,6 +33,7 @@ class DueWake:
     due_at: datetime
     text: str
     state: Literal["new", "pending", "done"] = "new"
+    urgent: bool = False  # the hourly cap does not hold it back
 
 
 class WakeOwner(Protocol):
@@ -123,6 +124,7 @@ class HarnessAutonomy:
                 raise ValueError("HARNESS_WAKE_TEXT_LIMIT")
             if (
                 wake.state == "new"
+                and not wake.urgent
                 and await self.owner.recent_count(scope, now) >= self.settings.max_per_hour
             ):
                 return "HOURLY_CAP"
@@ -232,7 +234,7 @@ class NativeWakeOwner:
                 return None
             latest = max(available, key=lambda s: (s["time"].get("updated", 0), str(s.get("id"))))
             session = identifier(latest.get("id"))
-        return DueWake(wake.id, session, wake.due_at, wake.text, wake.state)
+        return DueWake(wake.id, session, wake.due_at, wake.text, wake.state, wake.urgent)
 
     async def recent_count(self, scope: Scope, now: datetime) -> int:
         host = self.rt.harness
@@ -302,7 +304,7 @@ class AutonomyPart:
             self.task = None
         if time.monotonic() < self.next_check:
             return
-        self.next_check = time.monotonic() + 15
+        self.next_check = time.monotonic() + 5  # an urgent wake waits at most this long
 
         def snapshot() -> WakeRun:
             run = self.rt.supervisor.snapshot

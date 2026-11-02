@@ -40,6 +40,7 @@ class DueWake:
     reserved_at: datetime | None = None
     partition: tuple[str, str, str, str] | None = None
     message_id: str | None = None
+    urgent: bool = False  # the watcher's: not held by the hourly cap, checked without delay
 
 
 class HarnessWakes:
@@ -100,7 +101,7 @@ class HarnessWakes:
             now = self.clock()
             wake = DueWake(
                 uuid4().hex, native_session_id, now + timedelta(minutes=minutes), text,
-                created_at=now, partition=scope.partition,
+                created_at=now, partition=scope.partition, urgent=urgent,
             )  # fmt: skip
             # Done wakes older than a week are history nobody reads any more.
             keep = [w for w in wakes if w.state != "done" or w.due_at > now - timedelta(days=7)]

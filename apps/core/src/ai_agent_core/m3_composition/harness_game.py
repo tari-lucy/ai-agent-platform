@@ -25,6 +25,8 @@ from .harness_events import Event, Focus, Level
 LOG = logging.getLogger(__name__)
 
 NEAR = 40.0  # blocks: a player closer than this is "near"
+MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a line
+MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
 LOW_HP = 0.3  # of the maximum
 CHAT_LINES = 40
 MAX_TOKEN = 400
@@ -104,6 +106,8 @@ class GameSource:
         self._near: set[str] = set()
         self._low_hp = False
         self._low_food = False
+        self._mobs: set[str] = set()
+        self._mob_pause = 0
 
     def focus(self) -> Focus:
         return "game" if self.in_game else "free"
@@ -130,12 +134,43 @@ class GameSource:
         if not isinstance(state, dict):
             self.in_game = False
             return []
-        events = self._events(state)
+        mobs = await self._mob_rows(state)
+        events = self._events(state, mobs)
         events += self._chat_events(chat if isinstance(chat, list) else [])
         return events
 
+    async def _mob_rows(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        """Non-player entities near her, nearest first, when the mod offers the tool."""
+        if not state.get("inGame"):
+            return []
+        if self._mob_pause > 0:
+            self._mob_pause -= 1
+            return []
+        try:
+            rows = await asyncio.to_thread(self._fetch, "getEntitiesInfo", {"limit": 10})
+        except OSError, ValueError, urllib.error.URLError:
+            return []
+        if not isinstance(rows, list):
+            self._mob_pause = MOB_PAUSE  # an older mod without the tool: do not ask every time
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    @staticmethod
+    def _hostiles(rows: list[dict[str, Any]]) -> list[tuple[str, float]]:
+        found: list[tuple[str, float]] = []
+        for row in rows:
+            if str(row.get("is_hostile")).lower() != "true":
+                continue
+            try:
+                found.append((str(row.get("type", "mob"))[:30], float(row.get("distance", 1e9))))
+            except ValueError:
+                continue
+        return sorted(found, key=lambda pair: pair[1])
+
     # --- state --------------------------------------------------------------------------
-    def _events(self, state: dict[str, Any]) -> list[Event]:
+    def _events(
+        self, state: dict[str, Any], mobs: list[dict[str, Any]] | None = None
+    ) -> list[Event]:
         events: list[Event] = []
         was_in = self.in_game
         self.in_game = bool(state.get("inGame"))
@@ -147,6 +182,7 @@ class GameSource:
                 )  # fmt: skip
             self._prev = None
             self._near.clear()
+            self._mobs.clear()
             return events
         me = state.get("self") if isinstance(state.get("self"), dict) else {}
         self.state = state
@@ -156,6 +192,9 @@ class GameSource:
         where = f"hp {hp:.0f}/{top:.0f}, food {food:.0f}, at {me.get('pos', '?')}, " + str(
             me.get("dimension", "")
         )
+        close = [(t, d) for t, d in self._hostiles(mobs or []) if d <= MOB_NEAR]
+        if close:
+            where += "; near: " + ", ".join(f"{t} {d:.0f}m" for t, d in close[:3])
         prev = self._prev
         if not was_in:
             events.append(Event("game", "joined", "joined", "You are in the world.", Level.NORMAL))
@@ -199,6 +238,12 @@ class GameSource:
             self._low_food = False
         elif hungry:
             self._low_food = True
+        types = {t for t, _ in close}
+        for kind in sorted(types - self._mobs):
+            distance = min(d for t, d in close if t == kind)
+            text = f"A hostile {kind} is {distance:.0f} blocks away."
+            events.append(Event("game", "hostile_near", kind, text, Level.HIGH))
+        self._mobs = types
         events += self._players(state.get("players"))
         self._prev = {
             "hp": hp,

@@ -147,3 +147,51 @@ def test_the_token_path_must_stay_inside_her_folder(tmp_path):
     (outside / "token.txt").write_text("host-secret", encoding="utf-8")
     (inside / "linked").symlink_to(outside)  # a directory link made from her container
     assert read_token(inside / "linked" / "token.txt", inside) is None
+
+
+def mob_source(rows_per_poll, states):
+    step = {"i": -1}
+
+    def call(tool, arguments):
+        if tool == "getGameState":
+            step["i"] += 1
+        i = min(step["i"], len(states) - 1)
+        if tool == "getRecentChat":
+            return []
+        if tool == "getEntitiesInfo":
+            if rows_per_poll is None:
+                return ""  # an older mod: the tool is unknown
+            return rows_per_poll[min(i, len(rows_per_poll) - 1)]
+        return states[i]
+
+    return GameSource("http://x/mcp", None, ["Опечатка"], call=call)
+
+
+def mob(kind, distance, hostile=True):
+    return {"type": kind, "distance": str(distance), "is_hostile": str(hostile).lower()}
+
+
+def test_a_hostile_mob_coming_near_is_reported_and_named_in_the_hurt_event():
+    src = mob_source(
+        [[mob("zombie", 30)], [mob("zombie", 5), mob("cow", 3, False)], [mob("zombie", 2)]],
+        [state(20), state(20), state(14)],
+    )
+    poll(src)
+    near = poll(src)
+    assert kinds(near) == ["hostile_near"] and "zombie" in near[0].text
+    hurt = poll(src)
+    assert kinds(hurt) == ["hurt"] and "zombie 2m" in hurt[0].context
+
+
+def test_a_mod_without_the_entity_tool_is_not_asked_over_and_over():
+    calls = []
+    inner = mob_source(None, [state(20)])
+
+    def counting(tool, arguments):
+        calls.append(tool)
+        return inner._call(tool, arguments)
+
+    src = GameSource("http://x/mcp", None, ["x"], call=counting)
+    for _ in range(5):
+        poll(src)
+    assert calls.count("getEntitiesInfo") == 1
