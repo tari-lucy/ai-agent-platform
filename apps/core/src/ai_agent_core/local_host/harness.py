@@ -263,6 +263,7 @@ def install(
         from ai_agent_core.m3_composition.harness_game import GameSource
         from ai_agent_core.m3_composition.harness_gm import GmSource
         from ai_agent_core.m3_composition.harness_idle import IdleSource
+        from ai_agent_core.m3_composition.harness_server import ServerSource
         from ai_agent_core.m3_composition.harness_stance import Reflex
         from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
@@ -286,6 +287,13 @@ def install(
                 people=Path(settings.files_dir) / persona / "playbook" / "people.md",
             )
             sources.append(game)
+            sources.append(
+                ServerSource(
+                    game,
+                    Path(settings.files_dir) / persona / "servers",
+                    Path(settings.files_dir) / persona,
+                )
+            )
             sources.append(IdleSource(runtime, game))  # the drive: a push when she stops in a world
             focus = game.focus
         runtime.harness.attach(

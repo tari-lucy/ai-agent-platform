@@ -276,9 +276,10 @@ def test_every_real_source_has_the_whole_source_interface():
     from ai_agent_core.m3_composition.harness_game import GameSource
     from ai_agent_core.m3_composition.harness_gm import GmSource
     from ai_agent_core.m3_composition.harness_idle import IdleSource
+    from ai_agent_core.m3_composition.harness_server import ServerSource
     from ai_agent_core.m3_composition.harness_watch import CommentsSource
 
-    for cls in (GameSource, GmSource, CommentsSource, IdleSource):
+    for cls in (GameSource, GmSource, CommentsSource, IdleSource, ServerSource):
         for member in ("poll", "delivered"):
             assert callable(getattr(cls, member, None)), f"{cls.__name__} lacks {member}"
         assert isinstance(cls.name if hasattr(cls, "name") else "", str)

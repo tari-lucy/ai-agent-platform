@@ -140,6 +140,10 @@ class GameSource:
         self._walk: list[tuple[float, tuple[float, float, float]]] = []
         self._stuck_told = -1e9
 
+    def fetch(self, tool: str, arguments: dict[str, Any]) -> Any:
+        """One tool call for other sources (they run it in a thread): the mod's answer, parsed."""
+        return self._fetch(tool, arguments)
+
     def focus(self) -> Focus:
         return "game" if self.in_game else "free"
 
