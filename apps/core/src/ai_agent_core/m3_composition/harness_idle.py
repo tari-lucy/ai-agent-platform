@@ -20,10 +20,12 @@ from .harness_events import Event, Level
 LOG = logging.getLogger(__name__)
 
 PUSH_TEXT = (
-    "You are in the world and idle. Do the next step of your plan without asking the operator: "
-    "if you have a route, call tour.py; else pick a place from servers/<name>.md that you have not "
-    "visited (the main places first), go there, shoot the entrance, look around, note it in "
-    "ideas.md. One concrete action now."
+    "You are in the world and idle. Do the next step of your plan without asking the operator. "
+    "If servers/<name>.md lists fewer than three main places, first learn the server: run /warp "
+    "or /warps and read the answer, open the hotbar menu (compass, star), read the signs at the "
+    "spawn, ask the players where the best places are, and write the places into the profile. "
+    "Otherwise pick a place you have not visited (main places first), go there (tour.py), shoot "
+    "the entrance, look around, note it in ideas.md. One concrete action now."
 )
 WORKED = 90.0  # a run of at least this many seconds after a push counts as real work
 
