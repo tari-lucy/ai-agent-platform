@@ -150,3 +150,53 @@ def test_the_watcher_sets_an_urgent_wake_at_once_even_when_an_alarm_waits():
     harness.usage = SimpleNamespace(remaining=lambda: 0.0)
     asyncio.run(watch._step())
     assert len(woken) == 1 and len(watch.queue.pending()) == 1
+
+
+def test_a_failing_source_does_not_silence_the_others():
+    import asyncio
+    from types import SimpleNamespace
+
+    from ai_agent_core.m3_composition.harness_watch import Watch
+
+    class Broken:
+        name = "channel"
+        interval = 0
+
+        async def poll(self, scope, current):
+            raise RuntimeError("the proxy is down")  # not an OSError: a Telegram-like error
+
+        async def delivered(self, scope, current):
+            pass
+
+    class Game:
+        name = "game"
+        interval = 0
+
+        async def poll(self, scope, current):
+            return [Event("game", "death", "d", "you died", Level.CRITICAL)]
+
+        async def delivered(self, scope, current):
+            pass
+
+    woken = []
+
+    class Wakes:
+        async def open_count(self, *, scope):
+            return 0
+
+        async def set(self, minutes, text, *, scope, guard, urgent=False):
+            woken.append(text)
+
+    run = SimpleNamespace(
+        autonomy="autonomous",
+        activity=SimpleNamespace(value="OPEN"),
+        scope=SimpleNamespace(memory_mode="work"),
+        control_epoch=1,
+    )
+    harness = SimpleNamespace(
+        wakes=Wakes(), usage=SimpleNamespace(remaining=lambda: 1.0), current=lambda: True
+    )
+    runtime = SimpleNamespace(harness=harness, supervisor=SimpleNamespace(snapshot=run))
+    watch = Watch(runtime, [Broken(), Game()], focus=lambda: "game")
+    asyncio.run(watch._step())
+    assert len(woken) == 1 and "you died" in woken[0]

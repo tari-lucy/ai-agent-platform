@@ -131,7 +131,9 @@ class Watch:
             try:
                 for event in await source.poll(scope, current):
                     self.queue.add(event)
-            except (OSError, ValueError, TimeoutError) as error:
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # one failing source must not silence the others
                 LOG.warning("Source %s deferred: %s", source.name, type(error).__name__)
         focus = self.focus()
         batch = self.queue.decide(focus)
