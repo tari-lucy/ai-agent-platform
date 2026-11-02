@@ -253,3 +253,20 @@ def test_the_watcher_holds_new_news_until_the_last_wake_is_read():
     state["wake_state"] = "done"
     asyncio.run(watch._step())
     assert len(sets) == 2
+
+
+def test_words_addressed_to_her_keep_a_talk_going_faster_than_other_alarms():
+    q, clock = queue()
+    q.add(Event("game", "talk", "Bob", "Bob: hey", Level.HIGH))
+    first = q.decide("game")
+    assert first is not None and first.urgent
+    q.delivered(first)
+    q.add(Event("game", "talk", "Bob", "Bob: and?", Level.HIGH))
+    clock.now += 5
+    assert q.decide("game") is None  # too fast even for a talk
+    clock.now += 6  # 11 s since the last wake: a talk may continue
+    assert q.decide("game") is not None
+    q.delivered(q.decide("game"))
+    q.add(Event("game", "hurt", "hp", "you lost 2 hp", Level.HIGH))
+    clock.now += 11
+    assert q.decide("game") is None  # a real alarm keeps the longer gap

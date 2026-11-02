@@ -36,6 +36,8 @@ STUCK_AGAIN = 120.0  # seconds before the stuck news repeats
 # Lobbies and the End look "closed" to it and it bridges and pillars forever; she can turn a
 # setting on for a job with ExecuteCommand and the platform sets it again at the next entry.
 JOIN_SETTINGS = ("allowPlace", "allowBreak")
+TALK_WINDOW = 120.0  # seconds a player who spoke to her is followed after his last line
+SENDER = re.compile(r"(?:<([A-Za-z0-9_]{3,16})>|([A-Za-z0-9_]{3,16})\s*[\u00bb>:])")
 MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
 LOW_HP = 0.3  # of the maximum
 CHAT_LINES = 40
@@ -106,7 +108,10 @@ class GameSource:
         root: Path | None = None,
         reflex: Reflex | None = None,
         clock: Callable[[], float] | None = None,
+        people: Path | None = None,
     ) -> None:
+        self.people = people  # her notes about players: name and a fact per line
+        self._talk: dict[str, float] = {}
         self.reflex = reflex
         self.clock = clock or time.monotonic
         self._alive = True
@@ -471,6 +476,28 @@ class GameSource:
         return [Event("game", "player_near", "players", text, Level.NORMAL)]
 
     # --- chat ---------------------------------------------------------------------------
+    @staticmethod
+    def _sender(line: str) -> str | None:
+        """The nick before the arrow or colon (the first one that looks like a Minecraft name)."""
+        found = SENDER.search(line)
+        return (found.group(1) or found.group(2)) if found else None
+
+    def _known(self, name: str) -> str:
+        """What she has written down about this player (at most two short lines)."""
+        if self.people is None or self.root is None:
+            return ""
+        try:
+            path = self.people
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 200_000:
+                return ""
+            if not path.resolve().is_relative_to(self.root.resolve()):
+                return ""
+            rows = [r.strip() for r in path.read_text(encoding="utf-8").splitlines()]
+        except OSError:
+            return ""
+        mine = [r for r in rows if name.casefold() in r.casefold()]
+        return " | ".join(r[:160] for r in mine[:2])
+
     def _own(self, line: str) -> bool:
         """Her own name opens the line as the sender: <Name> text, Name: text, [rank] Name >>."""
         head = line[:40].casefold()
@@ -490,11 +517,27 @@ class GameSource:
         self._seen_chat = clean
         events: list[Event] = []
         talk, last = 0, ""
+        now = self.clock()
         for line in fresh:
             if self._own(line):
                 continue  # her own words in the chat are not news for her
-            if any(name in line.casefold() for name in self.names):
-                events.append(Event("game", "mention", "mention", line, Level.HIGH, context="chat"))
+            sender = self._sender(line)
+            named = any(name in line.casefold() for name in self.names)
+            following = sender is not None and self._talk.get(sender, 0.0) > now
+            if named or following:
+                if sender is not None:
+                    self._talk[sender] = now + TALK_WINDOW  # the talk goes on while he answers
+                known = self._known(sender) if sender else ""
+                events.append(
+                    Event(
+                        "game",
+                        "talk",
+                        sender or "chat",
+                        line,
+                        Level.HIGH,
+                        context=("you know: " + known) if known else "",
+                    )  # fmt: skip
+                )
             else:
                 talk += 1
                 last = line

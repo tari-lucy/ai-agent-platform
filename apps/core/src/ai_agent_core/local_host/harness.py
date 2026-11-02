@@ -282,6 +282,7 @@ def install(
                 [name for name in (settings.agent_names.get(persona), persona) if name],
                 root=Path(settings.files_dir) / persona,
                 reflex=Reflex(),  # the operator's rules for fights, flight and death
+                people=Path(settings.files_dir) / persona / "playbook" / "people.md",
             )
             sources.append(game)
             focus = game.focus

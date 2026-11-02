@@ -133,7 +133,7 @@ def test_chat_mentions_wake_but_her_own_lines_and_the_first_look_do_not():
     first = poll(src)
     assert "chat" not in kinds(first)  # the old lines are only remembered
     second = poll(src)
-    assert kinds(second) == ["mention"] and second[0].level == Level.HIGH
+    assert kinds(second) == ["talk"] and second[0].level == Level.HIGH
     third = poll(src)
     assert kinds(third) == ["chat"] and third[0].level == Level.LOW and third[0].count == 2
 
@@ -223,3 +223,58 @@ def test_a_mod_without_the_entity_tool_is_not_asked_over_and_over():
     for _ in range(5):
         poll(src)
     assert calls.count("getEntitiesInfo") == 1
+
+
+def chat_source(lines_per_poll, **extra):
+    step = {"i": -1}
+
+    def call(tool, arguments):
+        if tool == "getGameState":
+            step["i"] += 1
+            return state()
+        if tool == "getRecentChat":
+            i = min(step["i"], len(lines_per_poll) - 1)
+            return lines_per_poll[i]
+        return []
+
+    return GameSource("http://x/mcp", None, ["Опечатка", "opechatka"], call=call, **extra)
+
+
+def test_a_talk_goes_on_with_the_player_who_addressed_her_and_other_lines_stay_background():
+    base = ["<Eve> hi"]
+    a = base + ["<Bob> Опечатка, ты тут?"]
+    b = a + ["<Bob> а чем занимаешься?", "<Eve> lol"]
+    src = chat_source([base, a, b])
+    poll(src)
+    first = poll(src)
+    assert kinds(first) == ["talk"] and first[0].key == "Bob" and first[0].level == Level.HIGH
+    second = poll(src)  # Bob follows up without her name: still a talk; Eve is background
+    assert sorted(kinds(second)) == ["chat", "talk"]
+    assert [e.key for e in second if e.kind == "talk"] == ["Bob"]
+
+
+def test_the_talk_event_carries_her_notes_about_the_player(tmp_path):
+    folder = tmp_path / "her" / "playbook"
+    folder.mkdir(parents=True)
+    notes = folder / "people.md"
+    notes.write_text("Bob: likes parkour\nEve: builds castles\n", encoding="utf-8")
+    src = chat_source(
+        [["<Eve> hi"], ["<Eve> hi", "Bob » Опечатка, привет"]],
+        root=tmp_path / "her",
+        people=notes,
+    )
+    poll(src)
+    [event] = poll(src)
+    assert event.kind == "talk" and "you know: Bob: likes parkour" in event.context
+    assert "castles" not in event.context
+    link = folder / "link.md"
+    link.symlink_to(notes)
+    assert GameSource("u", None, ["x"], people=link, root=tmp_path / "her")._known("Bob") == ""
+
+
+def test_a_sender_is_read_from_common_chat_formats():
+    sender = GameSource._sender
+    assert sender("<Bob> hi") == "Bob"
+    assert sender("ɢ |   | ☾Креатив☽ [unknown player head] Pavel_9  » го по комнатам") == "Pavel_9"
+    assert sender("Eve: hello") == "Eve"
+    assert sender("just a server notice") is None

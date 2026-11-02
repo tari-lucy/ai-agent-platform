@@ -55,6 +55,7 @@ class Policy:
     shift: dict[tuple[str, str], int]
     age_step: float = 30 * 60  # one level more urgent per this many seconds of waiting
     critical_gap: float = 45.0  # even CRITICAL news does not poke her more often than this
+    talk_gap: float = 10.0  # ... except words addressed to her, which keep a talk going
     high_gap: float = 60.0  # least seconds between wakes for HIGH news
     normal_gap: float = 20 * 60.0  # ... for a batch of NORMAL news
     low_gap: float = 60 * 60.0  # ... for LOW news, and only when she is free
@@ -170,7 +171,9 @@ class EventQueue:
             return now - self.last_wake.get(name, 0.0)
 
         if best == Level.CRITICAL:
-            if gap("critical") < self.policy.critical_gap:
+            only_talk = all(e.kind == "talk" for lv, e in graded if lv == Level.CRITICAL)
+            need = self.policy.talk_gap if only_talk else self.policy.critical_gap
+            if gap("critical") < need:
                 return None
             take = Level.NORMAL
             urgent = True
