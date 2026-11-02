@@ -262,6 +262,7 @@ def install(
         runtime.harness.attach(LifePart(runtime, runtime.harness.life))
         from ai_agent_core.m3_composition.harness_game import GameSource
         from ai_agent_core.m3_composition.harness_gm import GmSource
+        from ai_agent_core.m3_composition.harness_stance import Reflex
         from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
         # The watcher: sources are looked at without a model; the news is graded by her focus and
@@ -280,6 +281,7 @@ def install(
                 Path(settings.files_dir) / persona / "projects" / "unionclef" / "mcp-token.txt",
                 [name for name in (settings.agent_names.get(persona), persona) if name],
                 root=Path(settings.files_dir) / persona,
+                reflex=Reflex(),  # the operator's rules for fights, flight and death
             )
             sources.append(game)
             focus = game.focus

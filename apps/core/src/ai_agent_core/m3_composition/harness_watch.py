@@ -158,6 +158,13 @@ class Watch:
                 await source.delivered(scope, current)
 
     async def close(self) -> None:
+        for source in self.sources:
+            closer = getattr(source, "close", None)
+            if closer is not None:
+                try:
+                    await closer()
+                except OSError, ValueError, TimeoutError:
+                    LOG.warning("Source %s did not close cleanly", source.name)
         if self.task is not None:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)

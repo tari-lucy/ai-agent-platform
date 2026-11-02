@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -21,6 +22,7 @@ from typing import Any
 from ai_agent_contracts.common import Scope
 
 from .harness_events import Event, Focus, Level
+from .harness_stance import Action, Hostile, Reflex
 
 LOG = logging.getLogger(__name__)
 
@@ -94,7 +96,15 @@ class GameSource:
         interval: float = 5.0,
         call: Callable[[str, dict[str, Any]], Any] | None = None,
         root: Path | None = None,
+        reflex: Reflex | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
+        self.reflex = reflex
+        self.clock = clock or time.monotonic
+        self._alive = True
+        self._dying = False  # health was low: a vanishing from the world is probably a death
+        self._gone_since: float | None = None
+        self._dead_told = False
         self.url, self.token_path, self.interval, self.root = url, token_path, interval, root
         self.names = [n.casefold() for n in names if n]
         self._call = call
@@ -133,11 +143,105 @@ class GameSource:
         self.reachable = True
         if not isinstance(state, dict):
             self.in_game = False
-            return []
+            self._alive = False
+            return self._death_watch([])
         mobs = await self._mob_rows(state)
         events = self._events(state, mobs)
         events += self._chat_events(chat if isinstance(chat, list) else [])
+        events += self._death_watch(events)
+        if self.reflex is not None and self.in_game:
+            await self._reflexes(state, mobs, any(e.kind == "hurt" for e in events))
         return events
+
+    def _death_watch(self, events: list[Event]) -> list[Event]:
+        """She is out of the world for a minute after her health ran low: she cannot respawn by
+        herself, so she is told to ask the operator. A normal respawn takes seconds and says
+        nothing here."""
+        now = self.clock()
+        if self.in_game and self._alive:
+            self._gone_since, self._dead_told = None, False
+            return []
+        if self._gone_since is None:
+            self._gone_since = now
+            return []
+        wait = self.reflex.stance.dead_wait if self.reflex is not None else 60.0
+        if self._dying and not self._dead_told and now - self._gone_since >= wait:
+            self._dead_told = True
+            text = (
+                "You died and have not been back in the world for a minute: you cannot respawn "
+                "on your own. Ask the operator with ticket_raise."
+            )
+            return [Event("game", "stuck_dead", "dead", text, Level.CRITICAL)]
+        return []
+
+    async def _reflexes(
+        self, state: dict[str, Any], mobs: list[dict[str, Any]], hurt: bool
+    ) -> None:
+        assert self.reflex is not None
+        me = state.get("self") if isinstance(state.get("self"), dict) else {}
+        hostiles: list[Hostile] = []
+        for row in mobs:
+            if str(row.get("is_hostile")).lower() != "true":
+                continue
+            try:
+                distance = float(row.get("distance", 1e9))
+            except ValueError:
+                continue
+            hostiles.append(
+                Hostile(str(row.get("type", "mob"))[:30], distance, _floats(row.get("position")))
+            )
+        players: list[tuple[str, float]] = []
+        for row in state.get("players") if isinstance(state.get("players"), list) else []:
+            try:
+                players.append((str(row["name"])[:40], float(row["distance"])))
+            except KeyError, TypeError, ValueError:
+                continue
+        now = self.clock()
+        threat = ""
+        if hurt or now - self.reflex.hurt_at <= self.reflex.stance.hurt_window:
+            try:
+                got = await asyncio.to_thread(self._fetch, "getThreatStatus", {})
+                threat = got if isinstance(got, str) else ""
+            except OSError, ValueError, urllib.error.URLError:
+                threat = ""
+        actions = self.reflex.decide(
+            now,
+            float(me.get("hp", 0) or 0),
+            _floats(me.get("pos")),
+            sorted(hostiles, key=lambda h: h.distance),
+            hurt,
+            sorted(players, key=lambda pair: pair[1]),
+            threat,
+        )
+        await self._act(actions)
+
+    async def _act(self, actions: list[Action]) -> None:
+        for action in actions:
+            calls: list[tuple[str, dict[str, Any]]]
+            if action.kind == "stop":
+                calls = [("stopPathing", {}), ("punkStop", {}), ("runAwayStop", {})]
+            elif action.kind == "fight_mobs":
+                calls = [("ExecuteCommand", {"cmd": "@hero"})]
+            elif action.kind == "flee_to" and action.point is not None:
+                x, y, z = action.point
+                calls = [("gotoXYZ", {"x": x, "y": y, "z": z})]
+            elif action.kind == "punk":
+                calls = [("punk", {"name": action.target})]
+            elif action.kind == "run_away":
+                calls = [("runAwayPlayer", {"name": action.target, "distance": action.distance})]
+            else:
+                continue
+            for tool, arguments in calls:
+                try:
+                    await asyncio.to_thread(self._fetch, tool, arguments)
+                except (OSError, ValueError, urllib.error.URLError) as error:
+                    LOG.warning("Reflex %s failed: %s", tool, type(error).__name__)
+
+    async def close(self) -> None:
+        """STOP or an epoch change: whatever the reflex started in the game is stopped."""
+        if self.reflex is not None and self.reflex.mode != "idle":
+            self.reflex.reset()
+            await self._act([Action("stop")])
 
     async def _mob_rows(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Non-player entities near her, nearest first, when the mod offers the tool."""
@@ -175,6 +279,7 @@ class GameSource:
         was_in = self.in_game
         self.in_game = bool(state.get("inGame"))
         if not self.in_game:
+            self._alive = False
             if was_in:
                 events.append(
                     Event("game", "left", "left", "You are no longer in a world (menu or "
@@ -188,6 +293,11 @@ class GameSource:
         self.state = state
         hp = float(me.get("hp", 0) or 0)
         top = float(me.get("maxHp", 20) or 20)
+        self._alive = hp > 0
+        if hp <= top * LOW_HP:
+            self._dying = True
+        elif hp >= top * 0.6:
+            self._dying = False
         food = float(me.get("food", 20) or 20)
         where = f"hp {hp:.0f}/{top:.0f}, food {food:.0f}, at {me.get('pos', '?')}, " + str(
             me.get("dimension", "")
