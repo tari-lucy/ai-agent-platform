@@ -211,3 +211,33 @@ def test_the_stuck_news_names_a_height_the_body_cannot_climb():
         news += [e for e in poll(src) if e.kind == "stuck"]
     assert len(news) == 1
     assert "26 blocks higher" in news[0].text and "you carry 0" in news[0].text
+
+
+def test_on_entering_a_world_the_pathfinder_is_told_not_to_place_or_break_blocks():
+    present = {"in": True}
+    calls = []
+
+    def call(tool, arguments):
+        calls.append((tool, arguments))
+        if tool == "getGameState":
+            return {
+                "inGame": present["in"],
+                "self": {"hp": 20, "maxHp": 20, "food": 20, "pos": "0.0,64.0,0.0",
+                         "dimension": "end"},
+                "players": [],
+            }  # fmt: skip
+        return [] if tool in ("getRecentChat", "getEntitiesInfo") else ""
+
+    src = GameSource("http://x/mcp", None, ["x"], call=call, clock=lambda: 0.0)
+
+    def commands():
+        return [a["cmd"] for t, a in calls if t == "ExecuteCommand"]
+
+    poll(src)
+    poll(src)
+    assert commands() == ["@set allowPlace false", "@set allowBreak false"]  # once, not each poll
+    present["in"] = False
+    poll(src)
+    present["in"] = True
+    poll(src)
+    assert len(commands()) == 4  # entered again: set again

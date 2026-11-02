@@ -32,6 +32,10 @@ MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a lin
 STUCK_WINDOW = 45.0  # seconds of trying to walk without getting anywhere = stuck
 STUCK_MOVE = 2.0  # blocks: moving less than this over the window means not moving
 STUCK_AGAIN = 120.0  # seconds before the stuck news repeats
+# Applied once on entering a world: the pathfinder must not place or break blocks by itself.
+# Lobbies and the End look "closed" to it and it bridges and pillars forever; she can turn a
+# setting on for a job with ExecuteCommand and the platform sets it again at the next entry.
+JOIN_SETTINGS = ("allowPlace", "allowBreak")
 MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
 LOW_HP = 0.3  # of the maximum
 CHAT_LINES = 40
@@ -123,6 +127,7 @@ class GameSource:
         self._low_food = False
         self._mobs: set[str] = set()
         self._mob_pause = 0
+        self._set_up = False
         self._walk: list[tuple[float, tuple[float, float, float]]] = []
         self._stuck_told = -1e9
 
@@ -152,6 +157,7 @@ class GameSource:
             self.in_game = False
             self._alive = False
             return self._death_watch([])
+        await self._join_settings(state)
         mobs = await self._mob_rows(state)
         events = self._events(state, mobs)
         events += self._chat_events(chat if isinstance(chat, list) else [])
@@ -252,6 +258,24 @@ class GameSource:
             self.reflex.reset()
             await self._act([Action("stop")])
 
+    async def _join_settings(self, state: dict[str, Any]) -> None:
+        """Once per entry into a world: the pathfinder does not place or break blocks on its own."""
+        if not state.get("inGame"):
+            self._set_up = False
+            return
+        if self._set_up:
+            return
+        self._set_up = True
+        for name in JOIN_SETTINGS:
+            try:
+                await asyncio.to_thread(
+                    self._fetch, "ExecuteCommand", {"cmd": f"@set {name} false"}
+                )
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                LOG.warning("Join setting %s failed: %s", name, type(error).__name__)
+                self._set_up = False
+                return
+
     async def _stuck_watch(self) -> list[Event]:
         """The mod keeps trying to walk and the body does not get anywhere (a wall, a height it
         cannot climb): stop the pointless pushing and tell her to choose another way."""
@@ -330,6 +354,7 @@ class GameSource:
         was_in = self.in_game
         self.in_game = bool(state.get("inGame"))
         if not self.in_game:
+            self._set_up = False
             self._alive = False
             if was_in:
                 events.append(
