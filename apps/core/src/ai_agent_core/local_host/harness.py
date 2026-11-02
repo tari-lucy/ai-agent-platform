@@ -261,11 +261,12 @@ def install(
         )
         runtime.harness.attach(LifePart(runtime, runtime.harness.life))
         from ai_agent_core.m3_composition.harness_game import GameSource
+        from ai_agent_core.m3_composition.harness_gm import GmSource
         from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
         # The watcher: sources are looked at without a model; the news is graded by her focus and
         # she is woken once, with a digest, only when it matters.
-        sources: list = [CommentsSource(runtime.harness)]
+        sources: list = [CommentsSource(runtime.harness), GmSource(runtime)]
         focus = None
         game_port = next(
             (port for label, port in settings.host_ports.items() if "unionclef" in label.lower()),

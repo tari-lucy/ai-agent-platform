@@ -79,6 +79,7 @@ DEFAULT_SHIFT: dict[tuple[str, str], int] = {
     ("channel", "game"): 1,
     ("work", "operator"): -1,
     ("free", "operator"): -1,
+    ("free", "gm"): -1,  # an offer fills her free time; in the game or at work it only waits
 }
 
 
