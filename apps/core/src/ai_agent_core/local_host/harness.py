@@ -260,10 +260,17 @@ def install(
             settings.daily_budget,
         )
         runtime.harness.attach(LifePart(runtime, runtime.harness.life))
-        from ai_agent_core.m3_composition.harness_comments import CommentsWatch
+        from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
-        # Channel comments: looked at without a model, she is woken only when there is news.
-        runtime.harness.attach(CommentsWatch(runtime))
+        # The watcher: sources are looked at without a model; the news is graded by her focus and
+        # she is woken once, with a digest, only when it matters (channel comments are the first).
+        runtime.harness.attach(
+            Watch(
+                runtime,
+                [CommentsSource(runtime.harness)],
+                host.root / "data" / "harness" / "events.json",
+            )
+        )
     return None
 
 

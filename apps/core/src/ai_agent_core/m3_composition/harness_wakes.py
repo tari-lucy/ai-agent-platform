@@ -87,9 +87,11 @@ class HarnessWakes:
         *,
         scope: Scope,
         guard: Callable[[], bool],
+        urgent: bool = False,
     ) -> DueWake:
         text = text.strip()
-        if not 1 <= minutes <= MAX_MINUTES or not text or len(text) > MAX_TEXT:
+        # An urgent wake (the watcher's) is due at once; her own alarms are at least a minute away.
+        if not (0 if urgent else 1) <= minutes <= MAX_MINUTES or not text or len(text) > MAX_TEXT:
             raise ContractError(ErrorCode.INVALID_ARGUMENTS)
         async with self.lock:
             wakes = self._load()

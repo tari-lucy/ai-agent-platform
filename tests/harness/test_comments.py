@@ -370,7 +370,8 @@ def test_a_comment_written_as_another_channel_or_anonymous_admin_is_taken(tmp_pa
 
 
 def test_the_watcher_wakes_her_once_for_news_and_not_oftener_than_the_quiet_time(tmp_path):
-    from ai_agent_core.m3_composition.harness_comments import CommentsWatch
+    from ai_agent_core.m3_composition.harness_events import Policy
+    from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
     async def scenario():
         channel, inbox, bot = service(tmp_path)
@@ -380,7 +381,7 @@ def test_the_watcher_wakes_her_once_for_news_and_not_oftener_than_the_quiet_time
             async def open_count(self, *, scope):
                 return 0
 
-            async def set(self, minutes, text, *, scope, guard):
+            async def set(self, minutes, text, *, scope, guard, urgent=False):
                 assert guard()
                 woken.append(text)
 
@@ -397,14 +398,18 @@ def test_the_watcher_wakes_her_once_for_news_and_not_oftener_than_the_quiet_time
             current=lambda: True,
         )
         runtime = SimpleNamespace(harness=harness, supervisor=SimpleNamespace(snapshot=run))
-        watch = CommentsWatch(runtime, quiet=3600)
+        watch = Watch(
+            runtime,
+            [CommentsSource(harness, interval=0)],
+            policy=Policy({}, normal_gap=3600),
+        )
         await watch._step()
-        assert len(woken) == 1 and "1" in woken[0] and "channel_reply" in woken[0]
+        assert len(woken) == 1 and "1 new comment" in woken[0] and "channel_reply" in woken[0]
         await watch._step()  # nothing new: silence
         bot.rows.append(update(102, 12, "Ещё вопрос"))
-        await watch._step()  # news, but she was told a moment ago: wait
+        await watch._step()  # news, but she was woken a moment ago: wait
         assert len(woken) == 1
-        watch.quiet = 0
+        watch.queue.policy = Policy({}, normal_gap=0)
         await watch._step()
         assert len(woken) == 2
         run.autonomy = "observation"  # not running on her own: no polling, no wake
