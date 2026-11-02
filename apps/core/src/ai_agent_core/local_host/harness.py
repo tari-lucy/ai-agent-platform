@@ -260,16 +260,30 @@ def install(
             settings.daily_budget,
         )
         runtime.harness.attach(LifePart(runtime, runtime.harness.life))
+        from ai_agent_core.m3_composition.harness_game import GameSource
         from ai_agent_core.m3_composition.harness_watch import CommentsSource, Watch
 
         # The watcher: sources are looked at without a model; the news is graded by her focus and
-        # she is woken once, with a digest, only when it matters (channel comments are the first).
-        runtime.harness.attach(
-            Watch(
-                runtime,
-                [CommentsSource(runtime.harness)],
-                host.root / "data" / "harness" / "events.json",
+        # she is woken once, with a digest, only when it matters.
+        sources: list = [CommentsSource(runtime.harness)]
+        focus = None
+        game_port = next(
+            (port for label, port in settings.host_ports.items() if "unionclef" in label.lower()),
+            None,
+        )
+        if game_port is not None and settings.files_dir:
+            persona = runtime.supervisor.snapshot.scope.persona_id
+            game = GameSource(
+                f"http://127.0.0.1:{game_port}/mcp",
+                # The token the mod gave her, from her own workspace; never logged.
+                Path(settings.files_dir) / persona / "projects" / "unionclef" / "mcp-token.txt",
+                [name for name in (settings.agent_names.get(persona), persona) if name],
+                root=Path(settings.files_dir) / persona,
             )
+            sources.append(game)
+            focus = game.focus
+        runtime.harness.attach(
+            Watch(runtime, sources, host.root / "data" / "harness" / "events.json", focus=focus)
         )
     return None
 

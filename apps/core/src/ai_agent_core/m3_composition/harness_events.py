@@ -54,6 +54,7 @@ class Policy:
     # (focus, source) -> how many levels more urgent (negative) or less urgent (positive).
     shift: dict[tuple[str, str], int]
     age_step: float = 30 * 60  # one level more urgent per this many seconds of waiting
+    critical_gap: float = 15.0  # even CRITICAL news does not poke her more often than this
     high_gap: float = 60.0  # least seconds between wakes for HIGH news
     normal_gap: float = 20 * 60.0  # ... for a batch of NORMAL news
     low_gap: float = 60 * 60.0  # ... for LOW news, and only when she is free
@@ -168,6 +169,8 @@ class EventQueue:
             return now - self.last_wake.get(name, 0.0)
 
         if best == Level.CRITICAL:
+            if gap("critical") < self.policy.critical_gap:
+                return None
             take = Level.NORMAL
             urgent = True
         elif best == Level.HIGH and gap("high") >= self.policy.high_gap:
@@ -191,7 +194,8 @@ class EventQueue:
         now = self.clock()
         for event in batch.events:
             self.events.pop((event.source, event.kind, event.key), None)
-        for name in ("high", "normal", "low"):  # she was just woken: nothing pokes her again soon
+        # She was just woken: nothing pokes her again soon.
+        for name in ("critical", "high", "normal", "low"):
             self.last_wake[name] = now
         self._save()
 

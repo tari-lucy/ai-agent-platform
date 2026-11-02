@@ -1,0 +1,276 @@
+"""The game as a source of events: read the mod's state (no model) and report what changed.
+
+The platform reaches the mod on the granted host port (the tunnel puts it on this machine's
+loopback) with the same token the mod gave her; the token is read from her workspace file at
+each poll and never logged. What it sees: she is hurt or low on health, probably died, a player
+came near, someone said her name, hunger. The mod's state is read-only data; texts that come
+from other players are untrusted and stay marked as data in the digest.
+"""
+
+import asyncio
+import json
+import logging
+import math
+import re
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from ai_agent_contracts.common import Scope
+
+from .harness_events import Event, Focus, Level
+
+LOG = logging.getLogger(__name__)
+
+NEAR = 40.0  # blocks: a player closer than this is "near"
+LOW_HP = 0.3  # of the maximum
+CHAT_LINES = 40
+MAX_TOKEN = 400
+SECTION = re.compile("§.")  # Minecraft colour codes
+
+
+def mcp_call(url: str, token: str, name: str, arguments: dict[str, Any], timeout: float) -> Any:
+    """One MCP tool call; the tool's text result parsed as JSON when it is JSON."""
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(request, timeout=timeout) as response:
+        message = json.loads(response.read(2 * 1024 * 1024) or b"null")
+    result = (message or {}).get("result") or {}
+    content = result.get("content") or []
+    text = content[0].get("text", "") if content else ""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def read_token(path: Path, root: Path | None = None) -> str | None:
+    """The mod's token from her workspace: a plain small file, never a link, and (when ``root``
+    is given) really inside her folder: a symlinked directory cannot point the host elsewhere."""
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_TOKEN:
+            return None
+        if root is not None and not path.resolve().is_relative_to(root.resolve()):
+            return None
+        token = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return token or None
+
+
+def _floats(text: Any) -> tuple[float, float, float] | None:
+    try:
+        x, y, z = (float(part) for part in str(text).split(","))
+    except ValueError:
+        return None
+    return x, y, z
+
+
+class GameSource:
+    name = "game"
+
+    def __init__(
+        self,
+        url: str,
+        token_path: Path,
+        names: list[str],
+        interval: float = 5.0,
+        call: Callable[[str, dict[str, Any]], Any] | None = None,
+        root: Path | None = None,
+    ) -> None:
+        self.url, self.token_path, self.interval, self.root = url, token_path, interval, root
+        self.names = [n.casefold() for n in names if n]
+        self._call = call
+        self.in_game = False
+        self.reachable = False
+        self.state: dict[str, Any] = {}
+        self._prev: dict[str, Any] | None = None
+        self._seen_chat: list[str] = []
+        self._near: set[str] = set()
+        self._low_hp = False
+        self._low_food = False
+
+    def focus(self) -> Focus:
+        return "game" if self.in_game else "free"
+
+    def _fetch(self, tool: str, arguments: dict[str, Any]) -> Any:
+        if self._call is not None:
+            return self._call(tool, arguments)
+        token = read_token(self.token_path, self.root)
+        if token is None:
+            raise OSError("no token")
+        return mcp_call(self.url, token, tool, arguments, 5.0)
+
+    async def poll(self, scope: Scope, current: Callable[[], None]) -> list[Event]:
+        try:
+            state = await asyncio.to_thread(self._fetch, "getGameState", {})
+            chat = await asyncio.to_thread(self._fetch, "getRecentChat", {"n": CHAT_LINES})
+        except OSError, ValueError, urllib.error.URLError:
+            # The tunnel is off, the game is closed or the token changed: nothing to report.
+            self.reachable = False
+            self.in_game = False
+            return []
+        current()
+        self.reachable = True
+        if not isinstance(state, dict):
+            self.in_game = False
+            return []
+        events = self._events(state)
+        events += self._chat_events(chat if isinstance(chat, list) else [])
+        return events
+
+    # --- state --------------------------------------------------------------------------
+    def _events(self, state: dict[str, Any]) -> list[Event]:
+        events: list[Event] = []
+        was_in = self.in_game
+        self.in_game = bool(state.get("inGame"))
+        if not self.in_game:
+            if was_in:
+                events.append(
+                    Event("game", "left", "left", "You are no longer in a world (menu or "
+                          "disconnect).", Level.HIGH)
+                )  # fmt: skip
+            self._prev = None
+            self._near.clear()
+            return events
+        me = state.get("self") if isinstance(state.get("self"), dict) else {}
+        self.state = state
+        hp = float(me.get("hp", 0) or 0)
+        top = float(me.get("maxHp", 20) or 20)
+        food = float(me.get("food", 20) or 20)
+        where = f"hp {hp:.0f}/{top:.0f}, food {food:.0f}, at {me.get('pos', '?')}, " + str(
+            me.get("dimension", "")
+        )
+        prev = self._prev
+        if not was_in:
+            events.append(Event("game", "joined", "joined", "You are in the world.", Level.NORMAL))
+        if prev is not None:
+            lost = float(prev["hp"]) - hp
+            before = _floats(prev.get("pos"))
+            after = _floats(me.get("pos"))
+            moved = math.dist(before, after) if before and after else 0.0
+            respawned = (
+                float(prev["hp"]) <= top * LOW_HP
+                and hp >= top * 0.9
+                and (moved > 20 or prev.get("dimension") != me.get("dimension"))
+            )
+            if respawned:
+                events.append(
+                    Event("game", "died", "died", "You probably died and respawned.",
+                          Level.CRITICAL, context=where)
+                )  # fmt: skip
+            elif lost >= 1:
+                events.append(
+                    Event(
+                        "game", "hurt", "hp", f"You lost {lost:.0f} hp.", Level.HIGH, context=where
+                    )
+                )
+        low = hp <= top * LOW_HP
+        if low and not self._low_hp:
+            events.append(
+                Event("game", "low_health", "low", f"Health is low: {hp:.0f}/{top:.0f}.",
+                      Level.CRITICAL, context=where)
+            )  # fmt: skip
+        if hp >= top * 0.6:
+            self._low_hp = False
+        elif low:
+            self._low_hp = True
+        hungry = food <= 6
+        if hungry and not self._low_food:
+            events.append(
+                Event("game", "hungry", "food", f"Food is low: {food:.0f}/20.", Level.NORMAL)
+            )
+        if food >= 14:
+            self._low_food = False
+        elif hungry:
+            self._low_food = True
+        events += self._players(state.get("players"))
+        self._prev = {
+            "hp": hp,
+            "pos": me.get("pos"),
+            "dimension": me.get("dimension"),
+        }
+        return events
+
+    def _players(self, rows: Any) -> list[Event]:
+        events: list[Event] = []
+        near: set[str] = set()
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name", ""))[:40]
+            try:
+                distance = float(row.get("distance", 1e9))
+            except TypeError, ValueError:
+                continue
+            if not name or distance > NEAR:
+                continue
+            near.add(name)
+            if name not in self._near:
+                hp = row.get("hp")
+                events.append(
+                    Event("game", "player_near", name,
+                          f"Player {name} is near: {distance:.0f} blocks"
+                          + (f", hp {hp}" if hp is not None else "") + ".", Level.HIGH)
+                )  # fmt: skip
+        self._near = near
+        return events
+
+    async def delivered(self, scope: Scope, current: Callable[[], None]) -> None:
+        return None  # the game keeps nothing "unseen" of its own
+
+    # --- chat ---------------------------------------------------------------------------
+    def _own(self, line: str) -> bool:
+        """Her own name opens the line as the sender: <Name> text, Name: text, [rank] Name >>."""
+        head = line[:40].casefold()
+        return any(re.search(re.escape(name) + r"\s*[>:\u00bb\]]", head) for name in self.names)
+
+    def _chat_events(self, lines: list[Any]) -> list[Event]:
+        clean = [SECTION.sub("", str(line)).strip()[:240] for line in lines]
+        clean = [line for line in clean if line]
+        # New lines = what follows the longest tail that we already saw.
+        fresh = clean
+        for size in range(min(len(clean), len(self._seen_chat)), 0, -1):
+            if clean[:size] == self._seen_chat[-size:]:
+                fresh = clean[size:]
+                break
+        else:
+            fresh = clean if self._seen_chat else []  # the first look: remember, do not report
+        self._seen_chat = clean
+        events: list[Event] = []
+        talk, last = 0, ""
+        for line in fresh:
+            if self._own(line):
+                continue  # her own words in the chat are not news for her
+            if any(name in line.casefold() for name in self.names):
+                events.append(Event("game", "mention", "mention", line, Level.HIGH, context="chat"))
+            else:
+                talk += 1
+                last = line
+        if talk:
+            events.append(
+                Event(
+                    "game",
+                    "chat",
+                    "chat",
+                    f"{talk} new chat line(s), last: {last}",
+                    Level.LOW,
+                    count=talk,
+                )
+            )
+        return events
