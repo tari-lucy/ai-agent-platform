@@ -32,6 +32,8 @@ MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a lin
 STUCK_WINDOW = 45.0  # seconds of trying to walk without getting anywhere = stuck
 STUCK_MOVE = 2.0  # blocks: moving less than this over the window means not moving
 STUCK_AGAIN = 120.0  # seconds before the stuck news repeats
+SCREEN_WINDOW = 45.0  # seconds an open screen is left before she is reminded it blocks walking
+SCREEN_AGAIN = 180.0
 # Applied once on entering a world: the pathfinder must not place or break blocks by itself.
 # Lobbies and the End look "closed" to it and it bridges and pillars forever; she can turn a
 # setting on for a job with ExecuteCommand and the platform sets it again at the next entry.
@@ -133,6 +135,8 @@ class GameSource:
         self._mobs: set[str] = set()
         self._mob_pause = 0
         self._set_up = False
+        self._screen_since: float | None = None
+        self._screen_told = -1e9
         self._walk: list[tuple[float, tuple[float, float, float]]] = []
         self._stuck_told = -1e9
 
@@ -169,6 +173,7 @@ class GameSource:
         events += self._death_watch(events)
         if self.in_game:
             events += await self._stuck_watch()
+            events += await self._screen_watch()
         if self.reflex is not None and self.in_game:
             await self._reflexes(state, mobs, any(e.kind == "hurt" for e in events))
         return events
@@ -280,6 +285,30 @@ class GameSource:
                 LOG.warning("Join setting %s failed: %s", name, type(error).__name__)
                 self._set_up = False
                 return
+
+    async def _screen_watch(self) -> list[Event]:
+        """An open screen (inventory, chat, a menu) stops all walking. If one stays open for a
+        while, remind her: she may be using a menu, so nothing is closed for her."""
+        try:
+            screen = await asyncio.to_thread(self._fetch, "getOpenScreen", {})
+        except OSError, ValueError, urllib.error.URLError:
+            return []
+        now = self.clock()
+        if not isinstance(screen, dict) or not screen.get("open"):
+            self._screen_since = None
+            return []
+        if self._screen_since is None:
+            self._screen_since = now
+            return []
+        if now - self._screen_since < SCREEN_WINDOW or now - self._screen_told < SCREEN_AGAIN:
+            return []
+        self._screen_told = now
+        text = (
+            f"A screen has been open for {SCREEN_WINDOW:.0f} seconds. While it is open, nothing "
+            "walks and nothing is placed. If you are not using it, close it with the "
+            "closeOpenScreen tool (the operator can also press Esc)."
+        )
+        return [Event("game", "screen_open", "screen", text, Level.HIGH)]
 
     async def _stuck_watch(self) -> list[Event]:
         """The mod keeps trying to walk and the body does not get anywhere (a wall, a height it

@@ -241,3 +241,36 @@ def test_on_entering_a_world_the_pathfinder_is_told_not_to_place_or_break_blocks
     present["in"] = True
     poll(src)
     assert len(commands()) == 4  # entered again: set again
+
+
+def test_a_screen_left_open_is_reported_once_after_a_while_and_not_when_closed():
+    now = {"t": 0.0}
+    shown = {"open": True}
+
+    def call(tool, arguments):
+        if tool == "getOpenScreen":
+            return {"open": shown["open"], "title": "Inventory"}
+        if tool == "getGameState":
+            return {
+                "inGame": True,
+                "self": {"hp": 20, "maxHp": 20, "food": 20, "pos": "0.0,64.0,0.0",
+                         "dimension": "end"},
+                "players": [],
+            }  # fmt: skip
+        return [] if tool in ("getRecentChat", "getEntitiesInfo") else ""
+
+    src = GameSource("http://x/mcp", None, ["x"], call=call, clock=lambda: now["t"])
+    found = []
+    for second in range(0, 120, 5):
+        now["t"] = float(second)
+        found += [e for e in poll(src) if e.kind == "screen_open"]
+    assert len(found) == 1 and "closeOpenScreen" in found[0].text
+    shown["open"] = False
+    now["t"] = 400.0
+    poll(src)
+    shown["open"] = True
+    quiet = []
+    for second in range(400, 430, 5):
+        now["t"] = float(second)
+        quiet += [e for e in poll(src) if e.kind == "screen_open"]
+    assert quiet == []  # the clock restarted when it was closed
