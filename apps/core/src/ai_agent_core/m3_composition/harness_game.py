@@ -476,6 +476,9 @@ class GameSource:
         return [Event("game", "player_near", "players", text, Level.NORMAL)]
 
     # --- chat ---------------------------------------------------------------------------
+    async def delivered(self, scope: Scope, current: Callable[[], None]) -> None:
+        return None  # the game keeps nothing "unseen" of its own
+
     @staticmethod
     def _sender(line: str) -> str | None:
         """The nick before the arrow or colon (the first one that looks like a Minecraft name)."""

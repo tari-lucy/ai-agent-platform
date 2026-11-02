@@ -270,3 +270,14 @@ def test_words_addressed_to_her_keep_a_talk_going_faster_than_other_alarms():
     q.add(Event("game", "hurt", "hp", "you lost 2 hp", Level.HIGH))
     clock.now += 11
     assert q.decide("game") is None  # a real alarm keeps the longer gap
+
+
+def test_every_real_source_has_the_whole_source_interface():
+    from ai_agent_core.m3_composition.harness_game import GameSource
+    from ai_agent_core.m3_composition.harness_gm import GmSource
+    from ai_agent_core.m3_composition.harness_watch import CommentsSource
+
+    for cls in (GameSource, GmSource, CommentsSource):
+        for member in ("poll", "delivered"):
+            assert callable(getattr(cls, member, None)), f"{cls.__name__} lacks {member}"
+        assert isinstance(cls.name if hasattr(cls, "name") else "", str)

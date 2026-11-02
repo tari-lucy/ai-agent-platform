@@ -163,7 +163,12 @@ class Watch:
         self.queue.delivered(batch)
         for source in self.sources:
             if any(event.source == source.name for event in batch.events):
-                await source.delivered(scope, current)
+                try:
+                    await source.delivered(scope, current)
+                except Exception as error:  # the wake is set: a source's own tidy-up cannot undo it
+                    LOG.warning(
+                        "Source %s delivered hook failed: %s", source.name, type(error).__name__
+                    )
 
     async def close(self) -> None:
         for source in self.sources:
