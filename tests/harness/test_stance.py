@@ -190,3 +190,24 @@ def test_a_walk_that_moves_or_is_not_busy_is_left_alone():
     for second in range(0, 120, 5):
         now["t"] = float(second)
         assert [e for e in poll(idle) if e.kind == "stuck"] == []
+
+
+def test_the_stuck_news_names_a_height_the_body_cannot_climb():
+    now = {"t": 0.0}
+    call, _ = walker([5.0] * 30)
+
+    def with_blocks(tool, arguments):
+        got = call(tool, arguments)
+        if tool == "getGameState":
+            got["self"]["blocks"] = 0
+        return got
+
+    src = GameSource(
+        "http://x/mcp", None, ["x"], call=with_blocks, reflex=Reflex(), clock=lambda: now["t"]
+    )
+    news = []
+    for second in range(0, 60, 5):
+        now["t"] = float(second)
+        news += [e for e in poll(src) if e.kind == "stuck"]
+    assert len(news) == 1
+    assert "26 blocks higher" in news[0].text and "you carry 0" in news[0].text

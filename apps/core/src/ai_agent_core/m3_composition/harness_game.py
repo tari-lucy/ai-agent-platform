@@ -280,6 +280,16 @@ class GameSource:
             "is not moving: the way is blocked or too high. The platform stopped the pushing. "
             "Pick another direction or a lower or closer point; do not repeat the same route."
         )
+        target = _floats(goal)
+        me = self.state.get("self") if isinstance(self.state.get("self"), dict) else {}
+        if target is not None and target[1] - pos[1] >= 3:
+            blocks = me.get("blocks")
+            have = blocks if blocks is not None else "some"
+            text += (
+                f" The goal is {target[1] - pos[1]:.0f} blocks higher than you and climbing "
+                f"means placing blocks under your feet (you carry {have}): "
+                "without blocks the jumping never ends. Look for a slope or stairs, or get blocks."
+            )
         if self.reflex is not None:
             await self._act([Action("stop")])
         return [Event("game", "stuck", "walk", text, Level.HIGH)]
