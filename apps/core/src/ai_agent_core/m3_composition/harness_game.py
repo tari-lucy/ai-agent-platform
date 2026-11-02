@@ -29,6 +29,9 @@ LOG = logging.getLogger(__name__)
 NEAR = 15.0  # blocks: a player closer than this is "near" (a lobby is full of players further off)
 NEAR_AGAIN = 600.0  # seconds before the same player is reported near again
 MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a line
+STUCK_WINDOW = 45.0  # seconds of trying to walk without getting anywhere = stuck
+STUCK_MOVE = 2.0  # blocks: moving less than this over the window means not moving
+STUCK_AGAIN = 120.0  # seconds before the stuck news repeats
 MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
 LOW_HP = 0.3  # of the maximum
 CHAT_LINES = 40
@@ -120,6 +123,8 @@ class GameSource:
         self._low_food = False
         self._mobs: set[str] = set()
         self._mob_pause = 0
+        self._walk: list[tuple[float, tuple[float, float, float]]] = []
+        self._stuck_told = -1e9
 
     def focus(self) -> Focus:
         return "game" if self.in_game else "free"
@@ -151,6 +156,8 @@ class GameSource:
         events = self._events(state, mobs)
         events += self._chat_events(chat if isinstance(chat, list) else [])
         events += self._death_watch(events)
+        if self.in_game:
+            events += await self._stuck_watch()
         if self.reflex is not None and self.in_game:
             await self._reflexes(state, mobs, any(e.kind == "hurt" for e in events))
         return events
@@ -244,6 +251,38 @@ class GameSource:
         if self.reflex is not None and self.reflex.mode != "idle":
             self.reflex.reset()
             await self._act([Action("stop")])
+
+    async def _stuck_watch(self) -> list[Event]:
+        """The mod keeps trying to walk and the body does not get anywhere (a wall, a height it
+        cannot climb): stop the pointless pushing and tell her to choose another way."""
+        try:
+            status = await asyncio.to_thread(self._fetch, "pathStatus", {})
+        except OSError, ValueError, urllib.error.URLError:
+            return []
+        if not isinstance(status, dict) or not status.get("busy"):
+            self._walk.clear()
+            return []
+        pos = _floats(status.get("pos"))
+        if pos is None:
+            return []
+        now = self.clock()
+        self._walk = [(t, p) for t, p in self._walk if now - t <= STUCK_WINDOW] + [(now, pos)]
+        if now - self._walk[0][0] < STUCK_WINDOW * 0.9:
+            return []  # not long enough watched yet
+        away = max(math.dist(pos, p) for _, p in self._walk)
+        if away >= STUCK_MOVE or now - self._stuck_told < STUCK_AGAIN:
+            return []
+        self._stuck_told = now
+        self._walk.clear()
+        goal = status.get("goal", "?")
+        text = (
+            f"You have been trying to reach {goal} for {STUCK_WINDOW:.0f} seconds and the body "
+            "is not moving: the way is blocked or too high. The platform stopped the pushing. "
+            "Pick another direction or a lower or closer point; do not repeat the same route."
+        )
+        if self.reflex is not None:
+            await self._act([Action("stop")])
+        return [Event("game", "stuck", "walk", text, Level.HIGH)]
 
     async def _mob_rows(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Non-player entities near her, nearest first, when the mod offers the tool."""

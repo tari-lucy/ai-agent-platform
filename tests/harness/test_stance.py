@@ -133,3 +133,60 @@ def test_a_normal_respawn_says_nothing():
 
 def test_the_stop_action_is_a_plain_value():
     assert Action("stop").kind == "stop" and Action("stop").point is None
+
+
+def walker(positions, busy=True):
+    """A fake mod that answers pathStatus with a scripted position at each poll."""
+    step = {"i": -1}
+    calls = []
+
+    def call(tool, arguments):
+        calls.append(tool)
+        if tool == "getGameState":
+            step["i"] += 1
+            return {
+                "inGame": True,
+                "self": {"hp": 20, "maxHp": 20, "food": 20, "pos": "0.0,64.0,0.0",
+                         "dimension": "overworld"},
+                "players": [],
+            }  # fmt: skip
+        if tool == "pathStatus":
+            x = positions[min(step["i"], len(positions) - 1)]
+            return {"busy": busy, "pos": f"{x},64.0,0.0", "goal": "10,90,0"}
+        return [] if tool in ("getRecentChat", "getEntitiesInfo") else ""
+
+    return call, calls
+
+
+def test_a_walk_that_goes_nowhere_is_stopped_and_she_is_told_once():
+    now = {"t": 0.0}
+    call, calls = walker([5.0] * 30)
+    src = GameSource(
+        "http://x/mcp", None, ["x"], call=call, reflex=Reflex(), clock=lambda: now["t"]
+    )
+    stuck = []
+    for second in range(0, 120, 5):
+        now["t"] = float(second)
+        stuck += [e for e in poll(src) if e.kind == "stuck"]
+    assert len(stuck) == 1 and stuck[0].level == Level.HIGH and "10,90,0" in stuck[0].text
+    assert "stopPathing" in calls  # the pushing was stopped
+
+
+def test_a_walk_that_moves_or_is_not_busy_is_left_alone():
+    now = {"t": 0.0}
+    call, calls = walker([float(i) * 3 for i in range(30)])
+    src = GameSource(
+        "http://x/mcp", None, ["x"], call=call, reflex=Reflex(), clock=lambda: now["t"]
+    )
+    found = []
+    for second in range(0, 120, 5):
+        now["t"] = float(second)
+        found += [e for e in poll(src) if e.kind == "stuck"]
+    assert found == [] and "stopPathing" not in calls
+    call2, calls2 = walker([5.0] * 30, busy=False)
+    idle = GameSource(
+        "http://x/mcp", None, ["x"], call=call2, reflex=Reflex(), clock=lambda: now["t"]
+    )
+    for second in range(0, 120, 5):
+        now["t"] = float(second)
+        assert [e for e in poll(idle) if e.kind == "stuck"] == []
