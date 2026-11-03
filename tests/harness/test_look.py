@@ -126,3 +126,43 @@ def test_mcp_lists_look_only_when_configured_and_calls_it(tmp_path):
     )
     refused = go(PlatformMcp(rt, lambda: 9, look=Look(tmp_path, describe)).handle(call))  # type: ignore[arg-type]
     assert refused["result"]["isError"] is True
+
+
+def test_the_next_vision_model_answers_when_one_did_not_receive_the_picture(monkeypatch):
+    from ai_agent_core.m3_composition import harness_channel
+
+    replies = {
+        "dropped": ("Изображение не поступило.", 0),
+        "no-usage": ("Тоже нет картинки.", None),
+        "empty": ("", 900),
+        "good": ("Лес и табличка «Дом».", 1380),
+    }
+    asked = []
+
+    def fake(upstream, key, model, usage, max_tokens):
+        async def ask(prompt, image):
+            asked.append(model)
+            return replies[model]
+
+        return ask
+
+    monkeypatch.setattr(harness_channel, "_completion", fake)
+    describe = harness_channel.model_describe(
+        "u", "k", ["dropped", "no-usage", "empty", "good"], None
+    )
+    assert go(describe("p", JPEG)) == "Лес и табличка «Дом»."
+    assert asked == ["dropped", "no-usage", "empty", "good"]
+    none = harness_channel.model_describe("u", "k", ["dropped", "empty"], None)
+    with pytest.raises(harness_channel.NoSight):
+        go(none("p", JPEG))
+
+
+def test_look_tells_the_agent_plainly_when_no_model_saw_the_picture(tmp_path):
+    from ai_agent_core.m3_composition.harness_channel import NoSight
+
+    async def blind(prompt, image):
+        raise NoSight
+
+    look = Look(shots(tmp_path, "a.jpg"), blind)
+    text = go(look.look("a.jpg", "", lambda: None))
+    assert "не получили картинку" in text and not look._cache  # noqa: SLF001

@@ -51,7 +51,7 @@ def test_a_currency_switch_does_not_mix_the_day_sums(tmp_path):
 def test_the_vision_model_is_charged_at_its_own_price_and_a_free_one_costs_nothing():
     from dataclasses import replace
 
-    usage = Usage(replace(settings(None), vision=("am/free-vl", 0.0, 0.0, None)))
+    usage = Usage(replace(settings(None), vision=(("am/free-vl", 0.0, 0.0, None),)))
     assert usage.cost({"model": "am/free-vl", "input": 10000, "output": 500}) == 0.0
     # Another model (or none) keeps the configured rates.
     assert usage.cost({"input": 10000, "output": 0}) == 0.16

@@ -22,12 +22,14 @@ from ai_agent_core.m3_composition.harness_look import FOCUS, PROMPT
 DEFAULT_QUESTION = "что на кадре, кто рядом и что написано на табличках или надписях"
 
 
-def ask(base: str, key: str, model: str, prompt: str, image: bytes) -> tuple[float, dict, str]:
+def ask(
+    base: str, key: str, model: str, prompt: str, image: bytes, max_tokens: int
+) -> tuple[float, dict, str]:
     url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
     body = {
         "model": model,
         "temperature": 0,
-        "max_tokens": 600,
+        "max_tokens": max_tokens,
         "messages": [
             {
                 "role": "user",
@@ -66,6 +68,8 @@ def main() -> int:
     parser.add_argument("--models", required=True, help="comma separated model ids")
     parser.add_argument("--limit", type=int, default=3, help="newest N frames")
     parser.add_argument("--question", default=DEFAULT_QUESTION)
+    parser.add_argument("--max-tokens", type=int, default=600)
+    parser.add_argument("--repeat", type=int, default=1, help="calls per model and frame")
     arguments = parser.parse_args()
     base, key, _ = _binding(arguments.root, arguments.env_file)
     frames = sorted(
@@ -78,10 +82,13 @@ def main() -> int:
         data = frame.read_bytes()
         print(f"=== {frame.name} ({len(data) // 1024} KB)")
         for model in arguments.models.split(","):
-            seconds, usage, text = ask(base, key, model.strip(), prompt, data)
-            tokens = f"in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')}"
-            print(f"--- {model.strip()}  {seconds:.1f}s  {tokens}")
-            print(" ".join(text.split())[:700])
+            for _ in range(arguments.repeat):
+                seconds, usage, text = ask(
+                    base, key, model.strip(), prompt, data, arguments.max_tokens
+                )
+                tokens = f"in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')}"
+                print(f"--- {model.strip()}  {seconds:.1f}s  {tokens}")
+                print(" ".join(text.split())[:700])
     return 0
 
 

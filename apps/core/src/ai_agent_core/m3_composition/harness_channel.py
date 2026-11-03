@@ -311,13 +311,21 @@ class Spent(Exception):
     """The harness's daily money is gone: no model call is made."""
 
 
+class NoSight(Exception):
+    """No model of the list took the picture in (or none gave an answer)."""
+
+
+# A prompt of this size is the text alone; with a picture the provider counts far more.
+MIN_PICTURE_TOKENS = 500
+
+
 def model_check(upstream: str, key: str, model: str, usage: Usage | None) -> Check:
     """The check as one call to the persona's model, charged to the harness's daily budget."""
     asked = _completion(upstream, key, model, usage, 300)
 
     async def check(prompt: str) -> tuple[bool, str]:
         try:
-            return verdict(await asked(prompt, None))
+            return verdict((await asked(prompt, None))[0])
         except Spent:
             return False, "дневной бюджет исчерпан"
 
@@ -330,7 +338,7 @@ def model_image_check(upstream: str, key: str, model: str, usage: Usage | None) 
 
     async def check(prompt: str, image: bytes) -> tuple[bool, str]:
         try:
-            return verdict(await asked(prompt, image))
+            return verdict((await asked(prompt, image))[0])
         except Spent:
             return False, "дневной бюджет исчерпан"
 
@@ -338,20 +346,44 @@ def model_image_check(upstream: str, key: str, model: str, usage: Usage | None) 
 
 
 def model_describe(
-    upstream: str, key: str, model: str, usage: Usage | None, max_tokens: int = 400
+    upstream: str, key: str, models: list[str], usage: Usage | None, max_tokens: int = 4000
 ) -> Describe:
-    """One look at a picture: the model's plain answer, charged to the daily budget (or Spent)."""
-    asked = _completion(upstream, key, model, usage, max_tokens)
+    """One look at a picture: the first model that really received it answers.
+
+    A router may take the picture and silently pass only the text on (the provider then counts
+    a text-sized prompt, or none); that answer is an apology, not a description, so the next
+    model is asked. Reasoning models need room before the answer, hence the large cap: a model
+    that describes in 150 tokens does not spend the rest.
+    """
+    asked = [_completion(upstream, key, model, usage, max_tokens) for model in models]
 
     async def describe(prompt: str, image: bytes) -> str:
-        return await asked(prompt, image)
+        for index, ask in enumerate(asked):
+            try:
+                text, prompt_tokens = await ask(prompt, image)
+            except Spent:
+                raise
+            except Exception:  # noqa: BLE001 - one model failing moves on to the next
+                LOG.warning("Picture call failed: model=%s", models[index])
+                continue
+            seen = prompt_tokens is not None and prompt_tokens >= MIN_PICTURE_TOKENS
+            LOG.info(
+                "Picture call: model=%s prompt_tokens=%s picture=%s chars=%d",
+                models[index],
+                prompt_tokens,
+                seen,
+                len(text),
+            )
+            if seen and text.strip():
+                return text
+        raise NoSight
 
     return describe
 
 
 def _completion(
     upstream: str, key: str, model: str, usage: Usage | None, max_tokens: int
-) -> Callable[[str, bytes | None], Awaitable[str]]:
+) -> Callable[[str, bytes | None], Awaitable[tuple[str, int | None]]]:
     def call(prompt: str, image: bytes | None) -> dict[str, Any]:
         content: Any = prompt
         if image is not None:
@@ -377,19 +409,19 @@ def _completion(
                 "User-Agent": "ai-agent-platform/1.0",
             },
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=90) as response:
             reply: Any = json.loads(response.read(4 * 1024 * 1024))
         return reply if isinstance(reply, dict) else {}
 
-    async def ask(prompt: str, image: bytes | None) -> str:
+    async def ask(prompt: str, image: bytes | None) -> tuple[str, int | None]:
         if usage is not None:
             remaining = usage.remaining()
             if remaining is not None and remaining <= 0:
                 raise Spent
         reply = await asyncio.to_thread(call, prompt, image)
+        raw = reply.get("usage")
+        tokens: dict[str, Any] = raw if isinstance(raw, dict) else {}
         if usage is not None:
-            raw = reply.get("usage")
-            tokens: dict[str, Any] = raw if isinstance(raw, dict) else {}
             details = tokens.get("prompt_tokens_details") or {}
             usage.record(
                 {
@@ -403,16 +435,8 @@ def _completion(
             )
         choices = reply.get("choices") or [{}]
         text = str((choices[0].get("message") or {}).get("content") or "")
-        if image is not None:  # what came back, never what was said
-            LOG.info(
-                "Picture call: model=%s answered=%s usage=%s finish=%s chars=%d",
-                model,
-                reply.get("model"),
-                isinstance(reply.get("usage"), dict),
-                choices[0].get("finish_reason"),
-                len(text),
-            )
-        return text
+        prompt_tokens = tokens.get("prompt_tokens")
+        return text, prompt_tokens if isinstance(prompt_tokens, int) else None
 
     return ask
 

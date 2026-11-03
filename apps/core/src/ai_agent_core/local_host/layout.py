@@ -352,9 +352,9 @@ class HarnessConfig(BaseModel):
     # Ordered models with their own prices: the first the provider answers for is used, a failing
     # one is skipped for a few minutes. Empty: the single configured model and the rates above.
     models: list[ModelSpec] = Field(default_factory=list, max_length=8)
-    # The model that looks at her pictures (the look tool), with its price; None: the first of
-    # ``models``. A cheap multimodal model is enough: the answer is a short description.
-    vision_model: ModelSpec | None = None
+    # Models that look at her pictures (the look tool), in order, each with its price; the next
+    # one answers when a model did not receive the picture. Empty: the first of ``models``.
+    vision_models: list[ModelSpec] = Field(default_factory=list, max_length=4)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

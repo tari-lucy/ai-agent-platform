@@ -115,8 +115,8 @@ class HarnessSettings:
     # Ordered models with their own prices (name, input, output, cached); empty: ``model`` and
     # the rates above. The first is the primary, the others answer while it is down.
     models: tuple[tuple[str, float, float, float | None], ...] = ()
-    # The look tool's model with its price, when it is not one of ``models``.
-    vision: tuple[str, float, float, float | None] | None = None
+    # The look tool's models with their prices (name, input, output, cached), in order.
+    vision: tuple[tuple[str, float, float, float | None], ...] = ()
     native_chatgpt: bool = False  # see HarnessConfig.native_chatgpt
     native_chatgpt_model: str | None = None
 
@@ -133,7 +133,7 @@ class Usage:
     def rates(self, model: object) -> tuple[float, float, float]:
         """(input, output, cached) per 1M tokens for the model that answered."""
         s = self.settings
-        for name, rate_in, rate_out, rate_cached in (*s.models, *([s.vision] if s.vision else [])):
+        for name, rate_in, rate_out, rate_cached in (*s.models, *s.vision):
             if name == model:
                 return rate_in, rate_out, rate_in if rate_cached is None else rate_cached
         assert s.input_rate is not None and s.output_rate is not None

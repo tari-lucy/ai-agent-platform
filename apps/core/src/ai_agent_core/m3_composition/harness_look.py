@@ -18,7 +18,7 @@ from collections import OrderedDict, deque
 from collections.abc import Callable
 from pathlib import Path
 
-from .harness_channel import PHOTO_NAME, Describe, Spent, read_photo
+from .harness_channel import PHOTO_NAME, Describe, NoSight, Spent, read_photo
 
 LOG = logging.getLogger(__name__)
 HOURLY = 30  # looks per hour: a loop of "look again" cannot burn the day's money
@@ -103,6 +103,11 @@ class Look:
                 answer = (await self.describe(prompt, image)).strip()
             except Spent:
                 return "Не смотрю: дневной бюджет исчерпан."
+            except NoSight:
+                return (
+                    "Не удалось рассмотреть кадр: модели не получили картинку (или не ответили). "
+                    "Попробуй чуть позже; пока опиши словами то, что знаешь."
+                )
             except Exception:  # noqa: BLE001 - the agent gets a fixed note, not internals
                 LOG.warning("Look failed")
                 return "Не удалось рассмотреть кадр: модель недоступна, попробуй позже."

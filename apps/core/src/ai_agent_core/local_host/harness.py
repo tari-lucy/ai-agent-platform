@@ -214,15 +214,8 @@ def install(
             models=tuple(
                 (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.models
             ),
-            vision=(
-                (
-                    settings.vision_model.name,
-                    settings.vision_model.input_rate,
-                    settings.vision_model.output_rate,
-                    settings.vision_model.cached_rate,
-                )
-                if settings.vision_model
-                else None
+            vision=tuple(
+                (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.vision_models
             ),
             native_chatgpt=settings.native_chatgpt,
             native_chatgpt_model=settings.native_chatgpt_model,
@@ -249,11 +242,8 @@ def install(
         settings,
         providers,
         runtime.harness.usage,
-        model=settings.vision_model.name
-        if settings.vision_model
-        else settings.models[0].name
-        if settings.models
-        else config.live.api_model,
+        models=[m.name for m in settings.vision_models]
+        or [settings.models[0].name if settings.models else config.live.api_model],
         scope=runtime.supervisor.snapshot.scope,
     )
     runtime.harness.channel = channel(
@@ -333,7 +323,7 @@ def look(
     providers: LocalProviders,
     usage: Usage,
     *,
-    model: str,
+    models: list[str],
     scope: Scope,
 ) -> Look | None:
     """Sight: the look tool over her shots folder, when the model binding and files exist."""
@@ -344,7 +334,7 @@ def look(
         return None
     upstream, key = providers.binding
     folder = Path(settings.files_dir) / scope.persona_id / "shots"
-    return Look(folder, model_describe(upstream, key, model, usage))
+    return Look(folder, model_describe(upstream, key, models, usage))
 
 
 def channel(
@@ -432,8 +422,6 @@ def configure(
         raise HostError("HARNESS_IMAGE_REQUIRED")
     current = config.harness or HarnessConfig()
     changes = {key: value for key, value in values.items() if value is not None}
-    if changes.get("vision_model") == "none":
-        changes["vision_model"] = None
     if grant is not None:
         label, _, port = grant.rpartition("=")
         if not label or not port.isdigit():

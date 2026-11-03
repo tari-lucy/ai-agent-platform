@@ -194,8 +194,9 @@ def parser() -> argparse.ArgumentParser:
         help="ordered fallback list 'name=in/out[/cached],...' (price per 1M tokens), or 'none'",
     )
     harness.add_argument(
-        "--vision-model",
-        help="model that looks at her pictures: 'name=in/out[/cached]' (free: =0/0), or 'none'",
+        "--vision-models",
+        help="ordered models that look at her pictures 'name=in/out[/cached],...' (free: =0/0), "
+        "the next answers when one did not receive the picture; or 'none'",
     )
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
@@ -400,18 +401,6 @@ def read_profile(path: Path | None) -> str:
         return raw.decode("utf-8")
     except OSError, UnicodeDecodeError:
         raise HostError("PROFILE_UNREADABLE") from None
-
-
-def _parse_vision(text: str | None) -> dict[str, object] | str | None:
-    """'name=in/out[/cached]' -> one model spec; 'none' -> 'none'; None -> unchanged."""
-    rows = _parse_models(text)
-    if rows is None:
-        return None
-    if not rows:
-        return "none"
-    if len(rows) != 1:
-        raise HostError("INVALID_OPTION")
-    return rows[0]
 
 
 def _parse_models(text: str | None) -> list[dict[str, object]] | None:
@@ -634,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
                     output_rate=arguments.output_rate,
                     cached_rate=arguments.cached_rate,
                     models=_parse_models(arguments.models),
-                    vision_model=_parse_vision(arguments.vision_model),
+                    vision_models=_parse_models(arguments.vision_models),
                     context_tokens=arguments.context_tokens,
                     output_tokens=arguments.output_tokens,
                     memory_mb=arguments.memory_mb,
