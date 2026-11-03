@@ -400,9 +400,10 @@ class HarnessHost:
             "external_directory": "allow",
             "webfetch": "allow" if internet else "deny",
             "platform_*": "allow",
-            # The same call over and over: OpenCode would ask a human and wait for ever. A refusal
-            # makes her change what she does, which is what a loop needs.
-            "doom_loop": "deny",
+            # The same call over and over (polling a walk is one) would make OpenCode ask a human and
+            # wait for ever; a refusal would break honest polling. Real loops are held by the day's
+            # budget, the context window and the platform's pushes.
+            "doom_loop": "allow",
         }
         core = persona_core(prompt)
         default_model = (

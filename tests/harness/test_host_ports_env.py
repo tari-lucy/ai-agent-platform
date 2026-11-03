@@ -135,12 +135,12 @@ def test_with_a_chosen_plan_model_everything_defaults_to_it_and_off_clears_it(tm
     assert build(True, None)["model"] == "platform/bound"
 
 
-def test_a_repeated_call_is_refused_not_asked_about():
-    """doom_loop would make OpenCode ask a human and wait: it must be a refusal."""
+def test_a_repeated_call_is_allowed_not_asked_about():
+    """doom_loop would make OpenCode ask a human and wait for ever: it must be answered in advance."""
     import inspect
 
     from ai_agent_core.m3_composition import harness_host
     from ai_agent_core.m3_composition.harness_host import HarnessSettings  # noqa: F401
 
     source = inspect.getsource(harness_host)
-    assert '"doom_loop": "deny"' in source
+    assert '"doom_loop": "allow"' in source
