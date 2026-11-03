@@ -182,8 +182,9 @@ class Model(BaseHTTPRequestHandler):
     def open_upstream(self, body, stream):
         """Connect, send, read the status line: the first model the provider answers for.
 
-        Returns (connection, response, model). A refusal that says 'this model, now' (unknown,
-        overloaded, rate-limited, 5xx) or silence within FIRST_BYTE moves on to the next model;
+        Returns (connection, response, model, first). A refusal that says 'this model, now'
+        (unknown, overloaded, rate-limited, 5xx), silence within FIRST_BYTE, or a first chunk that
+        is an error instead of an answer moves on to the next model;
         the last one is used as it is, so the caller always gets an answer. Nothing has been sent
         to the agent yet, so a switch is invisible to it.
         """
@@ -233,9 +234,22 @@ class Model(BaseHTTPRequestHandler):
                 cool(name, response.status, retry_hint(response, text))
                 emit({"kind": "fallback", "model": name, "status": response.status})
                 continue
+            first = b""
+            if stream:
+                # The answer starts with its first data, not with the headers: a provider that says
+                # 200 and then stays silent or sends an error event is as unavailable as a 503.
+                try:
+                    first = response.read1(CHUNK)
+                except OSError, http.client.HTTPException:
+                    first = b""
+                if (not first or failed_start(first)) and not last:
+                    connection.close()
+                    cool(name, 0, None)
+                    emit({"kind": "fallback", "model": name, "status": 0})
+                    continue
             if connection.sock is not None:
                 connection.sock.settimeout(TIMEOUT)  # the answer itself may take long
-            return connection, response, name
+            return connection, response, name, first
         raise OSError("NO_MODEL")
 
     def do_POST(self):
@@ -262,7 +276,7 @@ class Model(BaseHTTPRequestHandler):
         status = 0
         used = MODELS[0]
         try:
-            connection, response, used = self.open_upstream(body, stream)
+            connection, response, used, first = self.open_upstream(body, stream)
             status = response.status
             self.send_response(status)
             self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
@@ -271,7 +285,10 @@ class Model(BaseHTTPRequestHandler):
             pending = b""
             raw = b""
             while True:
-                chunk = response.read1(CHUNK) if stream else response.read(CHUNK)
+                if first:
+                    chunk, first = first, b""
+                else:
+                    chunk = response.read1(CHUNK) if stream else response.read(CHUNK)
                 if not chunk:
                     break
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
@@ -315,6 +332,11 @@ class Model(BaseHTTPRequestHandler):
                 or found.get("cache_read_input_tokens"),
             }
         )
+
+
+def failed_start(first):
+    """The first chunk of a stream is an error, not an answer (an error event, no choices)."""
+    return b'"upstream_error"' in first or (b'"error"' in first and b'"choices"' not in first)
 
 
 def pump(source, target):

@@ -22,10 +22,13 @@ def free_port() -> int:
 
 
 class Upstream:
-    def __init__(self, failing: dict[str, int] | None = None) -> None:
+    def __init__(
+        self, failing: dict[str, int] | None = None, odd: dict[str, str] | None = None
+    ) -> None:
         self.calls: list[tuple[str, dict]] = []
         calls = self.calls
         failing = failing or {}  # model name -> the HTTP status the provider answers with
+        odd = odd or {}  # model name -> "error_event" | "silent" | "empty": a 200 that is no answer
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -45,6 +48,22 @@ class Upstream:
                     self.send_header("Content-Length", str(len(data)))
                     self.end_headers()
                     self.wfile.write(data)
+                    return
+                if body.get("stream") and odd.get(body.get("model")):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    mode = odd[body["model"]]
+                    if mode == "error_event":
+                        text = (
+                            b'data: {"message":"The upstream closed the stream",'
+                            b'"type":"upstream_error","code":"stream_disconnected"}\n\n'
+                        )
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(text), text))
+                    elif mode == "silent":
+                        time.sleep(3)  # longer than the gateway's first_byte in the test
+                    self.wfile.write(b"0\r\n\r\n")
                     return
                 if body.get("stream"):
                     events = [
@@ -102,6 +121,7 @@ class Gateway:
         remaining: float | None = 100.0,
         forwards: list[dict] | None = None,
         models: list[str] | None = None,
+        first_byte: float | None = None,
     ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
@@ -118,6 +138,7 @@ class Gateway:
                 "key": KEY,
                 "model": "provider-model-x",
                 **({"models": models} if models else {}),
+                **({"first_byte": first_byte} if first_byte else {}),
                 "remaining": remaining,
                 "model_bind": "127.0.0.1",
                 "ui_bind": "127.0.0.1",
@@ -341,5 +362,32 @@ def test_the_last_model_is_used_as_it_is_and_a_plain_client_error_does_not_switc
     try:
         status, _ = gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
         assert status == 400 and [c[1]["model"] for c in upstream.calls] == ["a"]
+    finally:
+        gateway.close()
+
+
+def test_a_200_that_is_no_answer_moves_on_to_the_next_model_before_the_agent_sees_anything():
+    for mode in ("error_event", "empty", "silent"):
+        upstream, agent = Upstream(odd={"m-primary": mode}), Echo()
+        gateway = Gateway(upstream, agent, models=["m-primary", "m-second"], first_byte=1.0)
+        try:
+            body = {"stream": True, "messages": [{"role": "user", "content": "Hi"}]}
+            status, text = gateway.post(body)
+            assert status == 200 and b"[DONE]" in text and b"upstream_error" not in text, mode
+            assert [call[1]["model"] for call in upstream.calls] == ["m-primary", "m-second"], mode
+            rows = gateway.wait_rows(2)
+            assert {"kind": "fallback", "model": "m-primary", "status": 0} in rows, mode
+        finally:
+            gateway.close()
+
+
+def test_the_last_model_that_gives_no_answer_is_passed_on_as_it_is():
+    upstream, agent = Upstream(odd={"only": "error_event"}), Echo()
+    gateway = Gateway(upstream, agent, models=["only"], first_byte=1.0)
+    try:
+        status, text = gateway.post(
+            {"stream": True, "messages": [{"role": "user", "content": "Hi"}]}
+        )
+        assert status == 200 and b"upstream_error" in text  # nothing else to switch to
     finally:
         gateway.close()
