@@ -133,3 +133,14 @@ def test_with_a_chosen_plan_model_everything_defaults_to_it_and_off_clears_it(tm
     # a model without the switch, or the switch without a model, changes nothing
     assert build(False, "openai/gpt-5.1-codex")["model"] == "platform/bound"
     assert build(True, None)["model"] == "platform/bound"
+
+
+def test_a_repeated_call_is_refused_not_asked_about():
+    """doom_loop would make OpenCode ask a human and wait: it must be a refusal."""
+    import inspect
+
+    from ai_agent_core.m3_composition import harness_host
+    from ai_agent_core.m3_composition.harness_host import HarnessSettings  # noqa: F401
+
+    source = inspect.getsource(harness_host)
+    assert '"doom_loop": "deny"' in source

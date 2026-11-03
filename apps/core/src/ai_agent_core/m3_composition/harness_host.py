@@ -400,6 +400,9 @@ class HarnessHost:
             "external_directory": "allow",
             "webfetch": "allow" if internet else "deny",
             "platform_*": "allow",
+            # The same call over and over: OpenCode would ask a human and wait for ever. A refusal
+            # makes her change what she does, which is what a loop needs.
+            "doom_loop": "deny",
         }
         core = persona_core(prompt)
         default_model = (
