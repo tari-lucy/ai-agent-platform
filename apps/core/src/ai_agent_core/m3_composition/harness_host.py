@@ -69,7 +69,11 @@ HELPER_ROLES = {
     "compaction": (
         "\n\n## This role\nCompress the conversation and the work into a summary you can "
         "continue from without loss: goals and what is already done; findings, errors and "
-        "workarounds; agreements with the operator and promises; what to do next. Write in the "
+        "workarounds; agreements with the operator and promises; what to do next. Add a block "
+        '"Already read": for each file you opened (README, GOALS, DIARY, SKILL.md, scripts) its '
+        "path and, in one line, what from it you still need (exact values, names, commands), "
+        "and for the next steps the exact paths and commands, so that after the summary nothing "
+        "has to be opened again. Write in the "
         'first person, as yourself, not as a third-party record. End with one line "Voice": '
         "how you spoke (3-5 characteristic turns of phrase or intonations, in Russian) and what "
         "mood you were in."

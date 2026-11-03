@@ -188,6 +188,19 @@ class Gateway:
         self.process.wait()
 
 
+def test_a_call_with_tools_forbids_parallel_tool_calls_and_one_without_is_left_alone():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent)
+    try:
+        tools = [{"type": "function", "function": {"name": "read", "parameters": {}}}]
+        gateway.post({"stream": True, "tools": tools, "parallel_tool_calls": True, "messages": []})
+        gateway.post({"stream": True, "messages": [{"role": "user", "content": "Hi"}]})
+        assert upstream.calls[0][1]["parallel_tool_calls"] is False
+        assert "parallel_tool_calls" not in upstream.calls[1][1]
+    finally:
+        gateway.close()
+
+
 def test_a_streamed_call_carries_the_key_and_forced_model_and_reports_usage_only():
     upstream, agent = Upstream(), Echo()
     gateway = Gateway(upstream, agent)

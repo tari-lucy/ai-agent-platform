@@ -272,6 +272,10 @@ class Model(BaseHTTPRequestHandler):
         stream = body.get("stream") is True
         if stream:
             body["stream_options"] = {"include_usage": True}
+        if body.get("tools"):
+            # Some models behind the router lose the arguments of every call in a parallel batch
+            # (measured: 1649 of 1658 on one model); one call per step always arrives whole.
+            body["parallel_tool_calls"] = False
         found = {}
         status = 0
         used = MODELS[0]
