@@ -136,7 +136,7 @@ def test_with_a_chosen_plan_model_everything_defaults_to_it_and_off_clears_it(tm
 
 
 def test_a_repeated_call_is_allowed_not_asked_about():
-    """doom_loop would make OpenCode ask a human and wait for ever: it must be answered in advance."""
+    """doom_loop would make OpenCode ask a human and wait for ever: answer it in advance."""
     import inspect
 
     from ai_agent_core.m3_composition import harness_host
