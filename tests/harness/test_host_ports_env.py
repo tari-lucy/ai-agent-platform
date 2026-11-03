@@ -144,3 +144,11 @@ def test_a_repeated_call_is_allowed_not_asked_about():
 
     source = inspect.getsource(harness_host)
     assert '"doom_loop": "allow"' in source
+
+
+def test_the_prompt_tells_her_to_make_one_tool_call_per_step():
+    import inspect
+
+    from ai_agent_core.m3_composition import harness_host
+
+    assert "One tool call per step" in inspect.getsource(harness_host)
