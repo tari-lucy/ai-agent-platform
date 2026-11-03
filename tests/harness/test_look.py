@@ -60,6 +60,8 @@ def test_only_plain_names_of_regular_jpegs_in_the_folder(tmp_path):
     look = Look(folder, describe)
     for bad in ("../secret.jpg", "link.jpg", "text.jpg", "missing.jpg", "x.png"):
         assert go(look.look(bad, "", lambda: None)).startswith("Нет такого кадра")
+    listing = go(look.look("missing.jpg", "", lambda: None))
+    assert "Последние кадры:" in listing and "ok.jpg" in listing and "link.jpg" not in listing
     assert seen == []
     assert Look(tmp_path / "nowhere", describe).newest() is None
 

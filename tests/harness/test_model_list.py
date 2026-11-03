@@ -75,3 +75,20 @@ def test_the_models_option_is_parsed_strictly():
     assert config.models[0].name == "cx/a"
     with pytest.raises(ValidationError):
         HarnessConfig(models=[{"name": "bad name;x", "input_rate": 1, "output_rate": 1}])  # type: ignore[list-item]
+
+
+def test_the_vision_model_option_is_one_spec_or_none():
+    from ai_agent_core.local_host.cli import _parse_vision
+
+    assert _parse_vision(None) is None and _parse_vision("none") == "none"
+    assert _parse_vision("am/nemotron-3-nano-omni-30b-a3b-reasoning=0/0") == {
+        "name": "am/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "input_rate": 0.0,
+        "output_rate": 0.0,
+    }
+    for bad in ("cx/a=0.1/0.1,cx/b=0.1/0.1", "cx/a", "=1/1"):
+        with pytest.raises(HostError):
+            _parse_vision(bad)
+    config = HarnessConfig(vision_model=_parse_vision("am/n=0/0"))  # type: ignore[arg-type]
+    assert config.vision_model is not None and config.vision_model.output_rate == 0.0
+    assert HarnessConfig().vision_model is None

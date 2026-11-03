@@ -46,3 +46,12 @@ def test_a_currency_switch_does_not_mix_the_day_sums(tmp_path):
     assert usd.spent() == 0 and usd.remaining() == 1.0
     usd.record({"kind": "usage", "status": 200, "input": 1_000_000, "output": 0})
     assert usd.calls() == 1 and abs(usd.spent() - 0.12) < 1e-9 and Usage(rub).spent() == 83.5
+
+
+def test_the_vision_model_is_charged_at_its_own_price_and_a_free_one_costs_nothing():
+    from dataclasses import replace
+
+    usage = Usage(replace(settings(None), vision=("am/free-vl", 0.0, 0.0, None)))
+    assert usage.cost({"model": "am/free-vl", "input": 10000, "output": 500}) == 0.0
+    # Another model (or none) keeps the configured rates.
+    assert usage.cost({"input": 10000, "output": 0}) == 0.16

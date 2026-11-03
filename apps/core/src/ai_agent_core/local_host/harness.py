@@ -214,6 +214,16 @@ def install(
             models=tuple(
                 (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.models
             ),
+            vision=(
+                (
+                    settings.vision_model.name,
+                    settings.vision_model.input_rate,
+                    settings.vision_model.output_rate,
+                    settings.vision_model.cached_rate,
+                )
+                if settings.vision_model
+                else None
+            ),
             native_chatgpt=settings.native_chatgpt,
             native_chatgpt_model=settings.native_chatgpt_model,
             usage_dir=host.egress_log.parent / "usage",
@@ -239,7 +249,11 @@ def install(
         settings,
         providers,
         runtime.harness.usage,
-        model=settings.models[0].name if settings.models else config.live.api_model,
+        model=settings.vision_model.name
+        if settings.vision_model
+        else settings.models[0].name
+        if settings.models
+        else config.live.api_model,
         scope=runtime.supervisor.snapshot.scope,
     )
     runtime.harness.channel = channel(
@@ -418,6 +432,8 @@ def configure(
         raise HostError("HARNESS_IMAGE_REQUIRED")
     current = config.harness or HarnessConfig()
     changes = {key: value for key, value in values.items() if value is not None}
+    if changes.get("vision_model") == "none":
+        changes["vision_model"] = None
     if grant is not None:
         label, _, port = grant.rpartition("=")
         if not label or not port.isdigit():

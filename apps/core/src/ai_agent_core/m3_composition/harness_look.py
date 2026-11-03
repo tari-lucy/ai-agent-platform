@@ -52,19 +52,24 @@ class Look:
         self._asked: deque[float] = deque()
         self._lock = asyncio.Lock()
 
-    def newest(self) -> str | None:
-        """The name of the latest regular JPEG in the folder, or None."""
+    def recent(self, count: int = 1) -> list[str]:
+        """Names of the latest regular JPEGs in the folder, newest first."""
         try:
             if self.folder.is_symlink():
-                return None
+                return []
             entries = [
                 (entry.stat().st_mtime, entry.name)
                 for entry in os.scandir(self.folder)
                 if entry.is_file(follow_symlinks=False) and PHOTO_NAME.fullmatch(entry.name)
             ]
         except OSError:
-            return None
-        return max(entries)[1] if entries else None
+            return []
+        return [name for _, name in sorted(entries, reverse=True)[:count]]
+
+    def newest(self) -> str | None:
+        """The name of the latest regular JPEG in the folder, or None."""
+        names = self.recent()
+        return names[0] if names else None
 
     async def look(self, name: str, question: str, current: Callable[[], None]) -> str:
         """The description of ``name`` (the newest frame when empty); ``current`` raises on STOP."""
@@ -74,9 +79,11 @@ class Look:
             name = name or await asyncio.to_thread(self.newest) or ""
             image = await asyncio.to_thread(read_photo, self.folder, name) if name else None
             if image is None:
+                names = await asyncio.to_thread(self.recent, 8)
+                have = "Последние кадры: " + ", ".join(names) + "." if names else "Кадров пока нет."
                 return (
-                    "Нет такого кадра. Нужен JPEG в /workspace/shots, имя без пути, до 8 МБ; "
-                    "без имени беру самый новый, но там пока ничего нет."
+                    f"Нет такого кадра. Нужен JPEG из /workspace/shots, имя без пути, до 8 МБ. "
+                    f"{have} Без имени беру самый новый."
                 )
             key = hashlib.sha256(image + b"\0" + question.encode()).hexdigest()
             if key in self._cache:

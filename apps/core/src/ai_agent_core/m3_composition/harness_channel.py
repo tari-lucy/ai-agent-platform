@@ -395,13 +395,24 @@ def _completion(
                 {
                     "kind": "usage",
                     "status": 200,
+                    "model": model,
                     "input": tokens.get("prompt_tokens"),
                     "output": tokens.get("completion_tokens"),
                     "cached": details.get("cached_tokens") if isinstance(details, dict) else None,
                 }
             )
         choices = reply.get("choices") or [{}]
-        return str((choices[0].get("message") or {}).get("content") or "")
+        text = str((choices[0].get("message") or {}).get("content") or "")
+        if image is not None:  # what came back, never what was said
+            LOG.info(
+                "Picture call: model=%s answered=%s usage=%s finish=%s chars=%d",
+                model,
+                reply.get("model"),
+                isinstance(reply.get("usage"), dict),
+                choices[0].get("finish_reason"),
+                len(text),
+            )
+        return text
 
     return ask
 
