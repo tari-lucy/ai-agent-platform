@@ -26,6 +26,7 @@ from ai_agent_contracts.states import ErrorCode, RunState
 if TYPE_CHECKING:
     from .harness_channel import ChannelPost
     from .harness_life import Life
+    from .harness_look import Look
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -274,6 +275,7 @@ class HarnessHost:
         # The agent's own alarms (stage 3); set by the host wiring, read by autonomy.
         self.wakes: HarnessWakes | None = None
         self.channel: ChannelPost | None = None
+        self.look: Look | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -391,7 +393,9 @@ class HarnessHost:
                 "rule is about request volume; it does not cancel accuracy and caution.\n"
                 "Screenshots and building: see /workspace/skills/minecraft/SHOTS.md and "
                 "BUILDING.md; take shots with the shot.py script and never put base64 in the "
-                "conversation."
+                "conversation. To see what is in a shot (and to read signs, books and "
+                "inscriptions in it) call the look tool, with a question when you need one "
+                "thing: it returns a short text and costs far less than the picture itself."
             )
         free = {
             "bash": "allow",
@@ -477,7 +481,7 @@ class HarnessHost:
             s.image_id,
             s.port,
             self._record,
-            PlatformMcp(rt, lambda: self.epoch, self.wakes, self.channel).handle,
+            PlatformMcp(rt, lambda: self.epoch, self.wakes, self.channel, self.look).handle,
             tuple(s.host_ports.values()),
         )
         folder = self.folders()

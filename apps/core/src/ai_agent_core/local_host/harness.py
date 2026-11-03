@@ -14,6 +14,7 @@ from .layout import HarnessConfig, HostConfig, HostError, HostPaths, load_config
 if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_host import Usage
+    from ai_agent_core.m3_composition.harness_look import Look
     from ai_agent_core.m3_composition.service import Runtime
 
     from .provider import LocalProviders
@@ -234,6 +235,13 @@ def install(
     )
     from ai_agent_core.m3_composition.harness_wakes import HarnessWakes
 
+    runtime.harness.look = look(
+        settings,
+        providers,
+        runtime.harness.usage,
+        model=settings.models[0].name if settings.models else config.live.api_model,
+        scope=runtime.supervisor.snapshot.scope,
+    )
     runtime.harness.channel = channel(
         settings,
         host,
@@ -304,6 +312,25 @@ def install(
             Watch(runtime, sources, host.root / "data" / "harness" / "events.json", focus=focus)
         )
     return None
+
+
+def look(
+    settings: HarnessConfig,
+    providers: LocalProviders,
+    usage: Usage,
+    *,
+    model: str,
+    scope: Scope,
+) -> Look | None:
+    """Sight: the look tool over her shots folder, when the model binding and files exist."""
+    from ai_agent_core.m3_composition.harness_channel import model_describe
+    from ai_agent_core.m3_composition.harness_look import Look
+
+    if not settings.files_dir or providers.binding is None:
+        return None
+    upstream, key = providers.binding
+    folder = Path(settings.files_dir) / scope.persona_id / "shots"
+    return Look(folder, model_describe(upstream, key, model, usage))
 
 
 def channel(

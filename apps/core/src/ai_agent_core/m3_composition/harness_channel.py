@@ -77,6 +77,7 @@ class Bot(Protocol):
 Voice = Callable[[str], Awaitable[bytes]]  # text -> Ogg/Opus
 Check = Callable[[str], Awaitable[tuple[bool, str]]]  # prompt -> (ok, reason)
 ImageCheck = Callable[[str, bytes], Awaitable[tuple[bool, str]]]  # prompt, JPEG -> (ok, reason)
+Describe = Callable[[str, bytes], Awaitable[str]]  # prompt, JPEG -> the model's answer
 
 
 @dataclass(frozen=True)
@@ -228,23 +229,7 @@ class ChannelPost:
             return "Опубликовано в канал картинкой."
 
     def _photo(self, name: str) -> bytes | None:
-        """The file's bytes, or None: plain name, no links, a regular JPEG within the limit."""
-        folder = self.settings.photos
-        if folder is None or not PHOTO_NAME.fullmatch(name) or folder.is_symlink():
-            return None
-        try:
-            descriptor = os.open(folder / name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        except OSError:
-            return None
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_PHOTO:
-                return None
-            with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                data = stream.read(MAX_PHOTO + 1)
-        finally:
-            os.close(descriptor)
-        return data if len(data) <= MAX_PHOTO and data.startswith(b"\xff\xd8\xff") else None
+        return read_photo(self.settings.photos, name)
 
     def posted_today(self) -> int:
         """Posts that reached the channel today (host-local day), from the local journal."""
@@ -291,6 +276,25 @@ class ChannelPost:
             stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def read_photo(folder: Path | None, name: str) -> bytes | None:
+    """The file's bytes, or None: plain name, no links, a regular JPEG within the limit."""
+    if folder is None or not PHOTO_NAME.fullmatch(name) or folder.is_symlink():
+        return None
+    try:
+        descriptor = os.open(folder / name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_PHOTO:
+            return None
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read(MAX_PHOTO + 1)
+    finally:
+        os.close(descriptor)
+    return data if len(data) <= MAX_PHOTO and data.startswith(b"\xff\xd8\xff") else None
+
+
 def public_rules(path: Path) -> str:
     """The operator's list of topics never spoken of in public, as prompt lines."""
     try:
@@ -303,24 +307,51 @@ def public_rules(path: Path) -> str:
     return "\n".join(f"- {line}" for line in lines if line and not line.startswith("#"))
 
 
+class Spent(Exception):
+    """The harness's daily money is gone: no model call is made."""
+
+
 def model_check(upstream: str, key: str, model: str, usage: Usage | None) -> Check:
     """The check as one call to the persona's model, charged to the harness's daily budget."""
-    asked = _model_call(upstream, key, model, usage)
+    asked = _completion(upstream, key, model, usage, 300)
 
     async def check(prompt: str) -> tuple[bool, str]:
-        return await asked(prompt, None)
+        try:
+            return verdict(await asked(prompt, None))
+        except Spent:
+            return False, "дневной бюджет исчерпан"
 
     return check
 
 
 def model_image_check(upstream: str, key: str, model: str, usage: Usage | None) -> ImageCheck:
     """The same call with the picture attached as a data URL (a vision-capable model)."""
-    return _model_call(upstream, key, model, usage)
+    asked = _completion(upstream, key, model, usage, 300)
+
+    async def check(prompt: str, image: bytes) -> tuple[bool, str]:
+        try:
+            return verdict(await asked(prompt, image))
+        except Spent:
+            return False, "дневной бюджет исчерпан"
+
+    return check
 
 
-def _model_call(
-    upstream: str, key: str, model: str, usage: Usage | None
-) -> Callable[[str, bytes | None], Awaitable[tuple[bool, str]]]:
+def model_describe(
+    upstream: str, key: str, model: str, usage: Usage | None, max_tokens: int = 400
+) -> Describe:
+    """One look at a picture: the model's plain answer, charged to the daily budget (or Spent)."""
+    asked = _completion(upstream, key, model, usage, max_tokens)
+
+    async def describe(prompt: str, image: bytes) -> str:
+        return await asked(prompt, image)
+
+    return describe
+
+
+def _completion(
+    upstream: str, key: str, model: str, usage: Usage | None, max_tokens: int
+) -> Callable[[str, bytes | None], Awaitable[str]]:
     def call(prompt: str, image: bytes | None) -> dict[str, Any]:
         content: Any = prompt
         if image is not None:
@@ -336,7 +367,7 @@ def _model_call(
                     "model": model,
                     "messages": [{"role": "user", "content": content}],
                     "temperature": 0,
-                    "max_tokens": 300,
+                    "max_tokens": max_tokens,
                 }
             ).encode(),
             method="POST",
@@ -350,11 +381,11 @@ def _model_call(
             reply: Any = json.loads(response.read(4 * 1024 * 1024))
         return reply if isinstance(reply, dict) else {}
 
-    async def check(prompt: str, image: bytes | None) -> tuple[bool, str]:
+    async def ask(prompt: str, image: bytes | None) -> str:
         if usage is not None:
             remaining = usage.remaining()
             if remaining is not None and remaining <= 0:
-                return False, "дневной бюджет исчерпан"
+                raise Spent
         reply = await asyncio.to_thread(call, prompt, image)
         if usage is not None:
             raw = reply.get("usage")
@@ -370,10 +401,9 @@ def _model_call(
                 }
             )
         choices = reply.get("choices") or [{}]
-        content = str((choices[0].get("message") or {}).get("content") or "")
-        return verdict(content)
+        return str((choices[0].get("message") or {}).get("content") or "")
 
-    return check
+    return ask
 
 
 def verdict(content: str) -> tuple[bool, str]:
