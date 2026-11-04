@@ -215,3 +215,21 @@ def test_the_operator_cli_lists_links_splits_and_erases(tmp_path, capsys):
         people_cli(root, "show", ["telegram:1"], yes=False)
     with pytest.raises(HostError):
         people_cli(tmp_path / "other", "list", [], yes=False)
+
+
+def test_the_prompt_teaches_the_people_rules_only_when_the_book_exists(tmp_path, book):
+    from ai_agent_core.m3_composition.harness_host import HarnessHost, HarnessSettings
+
+    settings = HarnessSettings(
+        image_id="i", port=4096, password="p", upstream="https://x/v1", key="k", model="m",
+        usage_dir=tmp_path, daily_budget=1.0, input_rate=0.1, output_rate=0.1,
+    )  # fmt: skip
+    host = HarnessHost.__new__(HarnessHost)
+    host.settings = settings
+    scope = SimpleNamespace(persona_id="p")
+    host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+    without = str(host.config("http://x:8080/v1", "base", False))
+    host.people = book
+    with_book = str(host.config("http://x:8080/v1", "base", False))
+    assert "## People" not in without and "## People" in with_book
+    assert "A shared nickname proves nothing" in with_book

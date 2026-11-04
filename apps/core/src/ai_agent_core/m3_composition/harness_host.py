@@ -280,6 +280,9 @@ class HarnessPart(Protocol):
 
 
 class HarnessHost:
+    # Optional owners default to none, so a host built without __init__ (tests) still works.
+    people: PeopleBook | None = None
+
     def __init__(
         self,
         runtime: Runtime,
