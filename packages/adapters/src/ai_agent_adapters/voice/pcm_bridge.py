@@ -16,6 +16,7 @@ remote text reaches the caller: errors are fixed codes.
 import asyncio
 import struct
 from collections.abc import AsyncIterable, AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -121,3 +122,30 @@ class TcpSink:
         finally:
             # Closing without END (an exception or a cancel) is the abort signal.
             writer.close()
+
+
+class TcpSource:
+    """Hears what the computer's capture device hears. Closing the context stops the capture."""
+
+    def __init__(self, config: SinkConfig) -> None:
+        self.config = config
+
+    @asynccontextmanager
+    async def open(self) -> AsyncIterator[tuple[int, AsyncIterator[bytes]]]:
+        """``(sample rate, PCM chunks)``; the chunks end with BridgeError('bridge:aborted') when
+        the computer drops the capture, and simply end after its end frame."""
+        parsed = urlsplit(self.config.url)
+        try:
+            async with asyncio.timeout(self.config.connect_timeout):
+                reader, writer = await asyncio.open_connection(parsed.hostname, parsed.port)
+        except OSError, TimeoutError:
+            raise BridgeError("bridge:connect") from None
+        try:
+            try:
+                async with asyncio.timeout(self.config.connect_timeout):
+                    rate = await read_header(reader)
+            except TimeoutError:
+                raise BridgeError("bridge:timeout") from None
+            yield rate, read_frames(reader)
+        finally:
+            writer.close()  # the computer sees the close and stops capturing

@@ -3,10 +3,10 @@
 import logging
 import os
 import secrets
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable
 from contextlib import aclosing
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ai_agent_adapters.sandbox.egress import Egress, EgressLimits
 from ai_agent_contracts.common import Scope
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_host import Usage
+    from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
     from ai_agent_core.m3_composition.harness_speech import Speaker
     from ai_agent_core.m3_composition.service import Runtime
@@ -259,6 +260,11 @@ def install(
     runtime.harness.speaker = speaker(
         settings, host, providers, runtime.harness.usage, runtime.harness.avatar
     )
+    runtime.harness.listener = listener(
+        settings, host, providers, runtime.harness.usage, runtime.supervisor.snapshot.scope
+    )
+    if runtime.harness.listener is not None:
+        runtime.harness.attach(runtime.harness.listener)
     runtime.harness.channel = channel(
         settings,
         host,
@@ -299,6 +305,10 @@ def install(
         # The watcher: sources are looked at without a model; the news is graded by her focus and
         # she is woken once, with a digest, only when it matters.
         sources: list = [CommentsSource(runtime.harness), GmSource(runtime)]
+        if runtime.harness.listener is not None:
+            from ai_agent_core.m3_composition.harness_listen import ListenSource
+
+            sources.append(ListenSource(runtime.harness.listener))
         focus = None
         game_port = next(
             (port for label, port in settings.host_ports.items() if "unionclef" in label.lower()),
@@ -430,6 +440,51 @@ def speaker(
     )
 
 
+def listener(
+    settings: HarnessConfig,
+    host: HostPaths,
+    providers: LocalProviders,
+    usage: Usage,
+    scope: Scope,
+) -> Listener | None:
+    """Listening, when the capture port and the Soniox key exist (doc37)."""
+    from ai_agent_adapters.voice.pcm_bridge import SinkConfig, TcpSource
+    from ai_agent_adapters.voice.soniox import KEY_SETTING, SonioxAdapter
+
+    from ai_agent_core.m3_composition.harness_listen import Listener
+
+    if settings.listen_port is None:
+        return None
+    if KEY_SETTING not in providers.secrets:
+        LOG.warning("Listening off: no Soniox key")
+        return None
+    source = TcpSource(SinkConfig(url=f"tcp://127.0.0.1:{settings.listen_port}"))
+
+    async def transcribe(chunks: AsyncIterable[bytes], rate: int) -> AsyncGenerator[Any]:
+        adapter = SonioxAdapter.from_env(environ=providers.secrets)
+        try:
+            async with aclosing(adapter.transcribe(chunks, sample_rate=rate)) as updates:
+                async for update in updates:
+                    yield update
+        finally:
+            await adapter.aclose()
+
+    persona = scope.persona_id
+    names = [
+        *settings.listen_names,
+        *(n for n in (settings.agent_names.get(persona), persona) if n),
+    ]
+    return Listener(
+        source.open,
+        transcribe,
+        names,
+        host.root / "data" / "harness" / "listening.jsonl",
+        usage=usage,
+        hour_rate=settings.speech_hour_rate,
+        max_minutes=settings.listen_max_minutes,
+    )
+
+
 def channel(
     settings: HarnessConfig,
     host: HostPaths,
@@ -503,6 +558,7 @@ def configure(
     remove_channel: bool = False,
     remove_avatar: bool = False,
     remove_speech: bool = False,
+    remove_listen: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -528,6 +584,8 @@ def configure(
         changes.update(channel=None, channel_voice=None, channel_comments=False)
     if remove_avatar:
         changes.update(avatar_port=None, avatar_profile=None)
+    if remove_listen:
+        changes.update(listen_port=None, listen_names=[])
     if remove_speech:
         changes.update(speech_voice=None, speech_port=None)
     if (changes.get("speech_voice", current.speech_voice) is None) != (

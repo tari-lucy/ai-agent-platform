@@ -8,8 +8,13 @@ Wire format (must match packages/adapters/.../voice/pcm_bridge.py, this file is 
     frame ends a phrase normally (it is played out); a connection that closes without it is an
     abort and the buffered audio is thrown away.
 
+Capture (listening) is the other direction, on its own port: the server connects, this program
+sends the header and frames from an INPUT device (for a call: the virtual cable that carries
+the other people's voices) until the server closes the connection.
+
 Needs: pip install sounddevice.   List devices:  python pc_audio_bridge.py --list-devices
-Run:  python pc_audio_bridge.py --port 8003 --device "CABLE Input"
+Run:  python pc_audio_bridge.py --port 8003 --device "CABLE Input" \\
+          --capture-port 8004 --capture-device "CABLE Output" --capture-rate 16000
 The device is matched by a part of its name, case-insensitively. Stop with Ctrl+C.
 """
 
@@ -57,13 +62,14 @@ class DeviceOutput:
         self.stream.close()
 
 
-def find_device(name: str | None) -> str | int | None:
+def find_device(name: str | None, *, capture: bool = False) -> str | int | None:
     if name is None:
         return None
     import sounddevice  # type: ignore[import-not-found,unused-ignore]
 
     for index, device in enumerate(sounddevice.query_devices()):
-        if name.lower() in device["name"].lower() and device["max_output_channels"] > 0:
+        channels = device["max_input_channels" if capture else "max_output_channels"]
+        if name.lower() in device["name"].lower() and channels > 0:
             return index
     raise SystemExit(f"No output device with {name!r} in its name. Use --list-devices.")
 
@@ -102,13 +108,82 @@ async def handle(
             writer.close()
 
 
-async def serve(port: int, open_output: Callable[[int], Output]) -> None:
+class Capture(Protocol):
+    def read(self, frames: int) -> bytes: ...
+
+    def close(self) -> None: ...
+
+
+class DeviceCapture:
+    def __init__(self, device: str | int | None, rate: int) -> None:
+        import sounddevice  # type: ignore[import-not-found,unused-ignore]
+
+        self.stream = sounddevice.RawInputStream(
+            samplerate=rate, channels=1, dtype="int16", device=device
+        )
+        self.stream.start()
+
+    def read(self, frames: int) -> bytes:
+        data, _overflow = self.stream.read(frames)
+        return bytes(data)
+
+    def close(self) -> None:
+        self.stream.abort()
+        self.stream.close()
+
+
+async def handle_capture(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    open_capture: Callable[[int], Capture],
+    rate: int,
+    busy: asyncio.Lock,
+) -> None:
+    """Send the header and 100 ms frames until the server closes the connection."""
+    if busy.locked():
+        writer.close()
+        return
+    async with busy:
+        capture: Capture | None = None
+        try:
+            capture = await asyncio.to_thread(open_capture, rate)
+            writer.write(HEADER.pack(b"APCM", rate, 1))
+            closed = asyncio.ensure_future(reader.read(1))  # EOF here = the server hung up
+            while not closed.done():
+                data = await asyncio.to_thread(capture.read, rate // 10)
+                writer.write(FRAME.pack(len(data)) + data)
+                await writer.drain()
+            closed.cancel()
+        except ConnectionError, OSError:
+            pass
+        finally:
+            if capture is not None:
+                await asyncio.to_thread(capture.close)
+            writer.close()
+
+
+async def serve(
+    port: int,
+    open_output: Callable[[int], Output],
+    capture: tuple[int, Callable[[int], Capture], int] | None = None,
+) -> None:
     busy = asyncio.Lock()
     server = await asyncio.start_server(
         lambda r, w: handle(r, w, open_output, busy), "127.0.0.1", port
     )
     print(f"Audio bridge on 127.0.0.1:{port}. Ctrl+C to stop.")
+    listening = None
+    if capture is not None:
+        capture_port, open_capture, rate = capture
+        lock = asyncio.Lock()
+        listening = await asyncio.start_server(
+            lambda r, w: handle_capture(r, w, open_capture, rate, lock), "127.0.0.1", capture_port
+        )
+        print(f"Capture on 127.0.0.1:{capture_port}.")
     async with server:
+        if listening is not None:
+            async with listening:
+                await asyncio.Event().wait()
         await server.serve_forever()
 
 
@@ -116,6 +191,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", type=int, default=8003)
     parser.add_argument("--device", help="part of the output device name, e.g. 'CABLE Input'")
+    parser.add_argument("--capture-port", type=int, help="listening: port to serve captured audio")
+    parser.add_argument(
+        "--capture-device", help="part of the INPUT device name, e.g. 'CABLE Output'"
+    )
+    parser.add_argument("--capture-rate", type=int, default=16000)
     parser.add_argument("--list-devices", action="store_true")
     arguments = parser.parse_args()
     if arguments.list_devices:
@@ -126,8 +206,18 @@ def main() -> None:
     if not 1024 <= arguments.port <= 65535:
         sys.exit("Port must be 1024..65535.")
     device = find_device(arguments.device)
+    capture = None
+    if arguments.capture_port is not None:
+        if arguments.capture_rate not in (8000, 16000, 24000, 44100, 48000):
+            sys.exit("Capture rate must be 8000, 16000, 24000, 44100 or 48000.")
+        in_device = find_device(arguments.capture_device, capture=True)
+        capture = (
+            arguments.capture_port,
+            lambda rate: DeviceCapture(in_device, rate),
+            arguments.capture_rate,
+        )
     try:
-        asyncio.run(serve(arguments.port, lambda rate: DeviceOutput(device, rate)))
+        asyncio.run(serve(arguments.port, lambda rate: DeviceOutput(device, rate), capture))
     except KeyboardInterrupt:
         pass
 

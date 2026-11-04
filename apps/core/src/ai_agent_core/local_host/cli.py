@@ -217,6 +217,14 @@ def parser() -> argparse.ArgumentParser:
         "--speech-hour-rate", type=float, help="price of one hour of speech/listening audio"
     )
     harness.add_argument("--remove-speech", action="store_true", help="turn live speech off")
+    harness.add_argument(
+        "--listen-port", type=int, help="loopback port of the PC capture bridge (the tunnel's)"
+    )
+    harness.add_argument(
+        "--listen-names", help="comma-separated names that address her (her own name is added)"
+    )
+    harness.add_argument("--listen-max-minutes", type=int, help="longest one listening session")
+    harness.add_argument("--remove-listen", action="store_true", help="turn listening off")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -648,6 +656,12 @@ def main(argv: list[str] | None = None) -> int:
                     speech_daily_chars=arguments.speech_daily_chars,
                     speech_hour_rate=arguments.speech_hour_rate,
                     remove_speech=arguments.remove_speech,
+                    listen_port=arguments.listen_port,
+                    listen_names=[n.strip() for n in arguments.listen_names.split(",") if n.strip()]
+                    if arguments.listen_names
+                    else None,
+                    listen_max_minutes=arguments.listen_max_minutes,
+                    remove_listen=arguments.remove_listen,
                     avatar_port=arguments.avatar_port,
                     avatar_profile=arguments.avatar_profile,
                     remove_avatar=arguments.remove_avatar,

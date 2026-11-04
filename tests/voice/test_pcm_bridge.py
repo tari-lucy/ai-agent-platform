@@ -118,3 +118,53 @@ def test_wire_rules_and_errors_are_fixed_codes():
         encode_frame(b"\x00")  # odd byte count is not 16-bit PCM
     with pytest.raises(BridgeError):
         encode_header(100)
+
+
+class FakeCapture:
+    def __init__(self):
+        self.closed, self.reads = False, 0
+
+    def read(self, frames):
+        import time
+
+        self.reads += 1
+        time.sleep(0.01)
+        return b"\x03\x00" * frames
+
+    def close(self):
+        self.closed = True
+
+
+def test_capture_sends_frames_until_the_server_hangs_up():
+    from ai_agent_adapters.voice.pcm_bridge import TcpSource
+
+    async def scenario():
+        devices = []
+
+        def open_capture(rate):
+            devices.append(FakeCapture())
+            return devices[-1]
+
+        lock = asyncio.Lock()
+        server = await asyncio.start_server(
+            lambda r, w: bridge.handle_capture(r, w, open_capture, 16000, lock), "127.0.0.1", 0
+        )
+        url = f"tcp://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        async with server:
+            got = []
+            async with TcpSource(SinkConfig(url=url)).open() as (rate, frames):
+                assert rate == 16000
+                async for frame in frames:
+                    got.append(frame)
+                    if len(got) == 3:
+                        break
+            await asyncio.sleep(0.3)
+        assert all(f == b"\x03\x00" * 1600 for f in got)
+        assert devices[0].closed  # leaving the context stopped the capture
+
+        with pytest.raises(BridgeError) as error:
+            async with TcpSource(SinkConfig(url="tcp://127.0.0.1:1", connect_timeout=1)).open():
+                pass
+        assert error.value.code == "bridge:connect"
+
+    asyncio.run(scenario())

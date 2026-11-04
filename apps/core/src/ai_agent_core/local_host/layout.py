@@ -365,6 +365,13 @@ class HarnessConfig(BaseModel):
     speech_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
     speech_daily_chars: int = Field(default=20000, strict=True, ge=100, le=1_000_000)
     speech_hour_rate: float = Field(default=0.0, ge=0, le=10_000)
+    # Listening (doc37): loopback port of the PC capture bridge, the names that address her (the
+    # persona's own name is always included) and how long one listening session may last.
+    listen_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
+    listen_names: list[Annotated[str, Field(pattern=r"^[\w -]{1,40}$")]] = Field(
+        default_factory=list, max_length=8
+    )
+    listen_max_minutes: int = Field(default=180, strict=True, ge=1, le=1440)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
