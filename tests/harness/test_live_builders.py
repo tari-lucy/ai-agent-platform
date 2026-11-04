@@ -100,3 +100,18 @@ def test_chats_join_only_the_platforms_that_have_channel_and_secrets(tmp_path):
         **base,
     )
     assert no_model is None  # the public-line check needs the model binding
+
+
+def test_an_optional_owner_that_fails_to_build_is_off_and_never_stops_the_start(caplog):
+    import logging
+
+    from ai_agent_core.local_host.harness import _safely
+
+    def broken():
+        raise RuntimeError("secret-token-in-the-message")
+
+    with caplog.at_level(logging.WARNING):
+        assert _safely("chats", broken) is None
+        assert _safely("chats", lambda: "built") == "built"
+    assert "chats off: RuntimeError" in caplog.text
+    assert "secret-token" not in caplog.text  # only the error's type is logged

@@ -302,11 +302,14 @@ def install(
         or [settings.models[0].name if settings.models else config.live.api_model],
         scope=runtime.supervisor.snapshot.scope,
     )
-    runtime.harness.avatar = avatar(settings, host)
+    owner = runtime.harness  # the lambdas below cannot keep the "is not None" narrowing
+    api_model = config.live.api_model
+    owner.avatar = _safely("avatar", lambda: avatar(settings, host))
     if runtime.harness.avatar is not None:
         runtime.harness.attach(AvatarPart(runtime.harness.avatar))
-    runtime.harness.speaker = speaker(
-        settings, host, providers, runtime.harness.usage, runtime.harness.avatar
+    runtime.harness.speaker = _safely(
+        "speech",
+        lambda: speaker(settings, host, providers, owner.usage, owner.avatar),
     )
     from ai_agent_core.m3_composition.harness_people import PeopleBook
 
@@ -316,21 +319,27 @@ def install(
             Path(settings.files_dir) if settings.files_dir else None,
             runtime.supervisor.snapshot.scope.persona_id,
         )
-    runtime.harness.people = PeopleBook(host.root / "data" / "harness" / "people.sqlite")
-    runtime.harness.stage = stage(settings, providers)
-    runtime.harness.chats = chats(
-        settings,
-        host,
-        providers,
-        runtime.harness.usage,
-        model=settings.models[0].name if settings.models else config.live.api_model,
-        scope=runtime.supervisor.snapshot.scope,
-        people=runtime.harness.people,
+    runtime.harness.people = _safely(
+        "people", lambda: PeopleBook(host.root / "data" / "harness" / "people.sqlite")
+    )
+    runtime.harness.stage = _safely("obs", lambda: stage(settings, providers))
+    runtime.harness.chats = _safely(
+        "chats",
+        lambda: chats(
+            settings,
+            host,
+            providers,
+            owner.usage,
+            model=settings.models[0].name if settings.models else api_model,
+            scope=runtime.supervisor.snapshot.scope,
+            people=owner.people,
+        ),
     )
     if runtime.harness.chats is not None:
         runtime.harness.attach(runtime.harness.chats)
-    runtime.harness.listener = listener(
-        settings, host, providers, runtime.harness.usage, runtime.supervisor.snapshot.scope
+    runtime.harness.listener = _safely(
+        "listening",
+        lambda: listener(settings, host, providers, owner.usage, runtime.supervisor.snapshot.scope),
     )
     if runtime.harness.listener is not None:
         runtime.harness.attach(runtime.harness.listener)
@@ -459,6 +468,15 @@ class AvatarPart:
 
     async def close(self) -> None:
         await self.avatar.neutral()
+
+
+def _safely[T](name: str, build: Callable[[], T | None]) -> T | None:
+    """An optional live owner that fails to build is off; it never stops the harness starting."""
+    try:
+        return build()
+    except Exception as error:  # noqa: BLE001 - the type is enough: no setting, secret or path
+        LOG.warning("%s off: %s", name, type(error).__name__)
+        return None
 
 
 def seed_live_guide(files_dir: Path | None, persona: str) -> bool:
