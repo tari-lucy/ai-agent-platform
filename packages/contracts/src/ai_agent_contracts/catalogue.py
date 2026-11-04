@@ -43,6 +43,7 @@ MODELS = (
     panel.EgressRequest,
     panel.EgressLog,
     panel.HarnessNotice,
+    panel.LiveLink,
     panel.HarnessStatus,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,

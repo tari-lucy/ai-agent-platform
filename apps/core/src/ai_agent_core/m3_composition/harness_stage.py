@@ -43,6 +43,12 @@ class Stage:
         self._down_until = -1e9
         self._switched = -1e9
 
+    @property
+    def state(self) -> str:
+        if self._up:
+            return "on"
+        return "down" if self._down_until > -1e8 else "idle"
+
     async def _ready(self) -> bool:
         if self._up:
             return True

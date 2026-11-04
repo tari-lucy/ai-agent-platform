@@ -710,6 +710,14 @@ class HarnessNotice(Contract):
     complete: bool = Field(strict=True)
 
 
+class LiveLink(Contract):
+    """One live connection of the persona (doc37): avatar, speech, listening, OBS, a chat."""
+
+    name: Literal["avatar", "speech", "listening", "obs", "twitch", "youtube"]
+    state: Literal["on", "idle", "down"]  # idle: configured and waiting; down: no contact
+    detail: str = Field(default="", max_length=120)
+
+
 class HarnessStatus(Contract):
     """doc33: the persona's own OpenCode window on this host, for the panel's button."""
 
@@ -719,6 +727,7 @@ class HarnessStatus(Contract):
     url: str | None = Field(default=None, pattern=r"^http://127\.0\.0\.1:\d{4,5}/$")
     agent_name: str | None = Field(default=None, max_length=40)
     notices: list[HarnessNotice] = Field(default_factory=list, max_length=200)
+    live: list[LiveLink] = Field(default_factory=list, max_length=8)
     # Today's (UTC) model spend of the harness by its gateway's ledger; None without a tariff.
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     daily_budget: float | None = Field(default=None, ge=0)

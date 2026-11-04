@@ -135,7 +135,7 @@ class Views:
             harness = self.runtime.harness
             if harness is None:
                 return HarnessStatus(scope=scope, enabled=False, ready=False)
-            from ai_agent_contracts.panel import HarnessNotice
+            from ai_agent_contracts.panel import HarnessNotice, LiveLink
 
             from .harness_learning import LearningPart
 
@@ -162,6 +162,10 @@ class Views:
                 url=f"http://127.0.0.1:{harness.settings.port}/",
                 agent_name=harness.agent_name(),
                 notices=notices,
+                live=[
+                    LiveLink(name=n, state=st, detail=d)  # type: ignore[arg-type]
+                    for n, st, d in harness.live()
+                ],
                 currency=harness.settings.currency,
                 daily_budget=harness.settings.daily_budget,
                 spent_today=None

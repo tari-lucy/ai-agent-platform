@@ -19,6 +19,7 @@ import { TicketsScreen } from './tickets/TicketsScreen.tsx';
 import { LibraryScreen } from './library/LibraryScreen.tsx';
 import { WorkScreen } from './work/WorkScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
+import { LiveLinks } from './LiveLinks.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
 import { groups, screens } from './areas.ts';
 import { HarnessEntry, useHarness } from './opencode.ts';
@@ -175,6 +176,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
           {harness.spent_today == null ? 'Тариф не задан' :
             `Сегодня ${harness.spent_today.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} из ${harness.daily_budget?.toLocaleString('ru-RU')} ${harness.currency === 'RUB' ? '₽' : harness.currency ?? ''} · вызовов ${harness.calls_today ?? 0}`}
         </Text>}
+        <LiveLinks harness={harness} />
         <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void logout()} disabled={logoutBusy}>Выйти</Button></div>
       <div className="header-status">{subscribed.map((item) => <EventLink key={scopeKey(item)} api={api} scope={item} onState={recordConnection} />)}</div>
     </header>

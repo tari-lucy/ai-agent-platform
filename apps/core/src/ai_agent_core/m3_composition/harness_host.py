@@ -343,6 +343,31 @@ class HarnessHost:
         day = self.usage.remaining() or 0.0
         return day if self.life is None else self.life.autonomy_left(day, self.usage)
 
+    def live(self) -> list[tuple[str, str, str]]:
+        """The live links the operator configured, for the panel: (name, state, short detail)."""
+        rows: list[tuple[str, str, str]] = []
+        if self.avatar is not None:
+            problems = len(self.avatar.problems)
+            rows.append(
+                (
+                    "avatar",
+                    self.avatar.state,
+                    f"несовпадений профиля: {problems}" if problems else "",
+                )
+            )
+        if self.speaker is not None:
+            rows.append(
+                ("speech", "idle", f"сегодня сказано знаков: {self.speaker.spoken_today()}")
+            )
+        if self.listener is not None:
+            rows.append(("listening", "on" if self.listener.on else "idle", self.listener.status()))
+        if self.stage is not None:
+            rows.append(("obs", self.stage.state, ""))
+        if self.chats is not None:
+            for name in sorted(self.chats.platforms):
+                rows.append((name, "on" if name in self.chats.connected else "down", ""))
+        return rows
+
     def attach(self, part: HarnessPart) -> None:
         self.parts.append(part)
 

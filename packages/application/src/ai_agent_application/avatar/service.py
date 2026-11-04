@@ -62,6 +62,13 @@ class Avatar:
         return self._info is not None
 
     @property
+    def state(self) -> str:
+        """``on`` connected; ``down`` the program was tried and is not there; ``idle`` not tried."""
+        if self._info is not None:
+            return "on"
+        return "down" if self._down_until > -1e8 else "idle"
+
+    @property
     def emotion(self) -> Emotion:
         return self._current
 

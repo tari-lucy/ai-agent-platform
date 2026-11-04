@@ -3304,6 +3304,14 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "live": {
+            "items": {
+              "$ref": "#/components/schemas/LiveLink"
+            },
+            "maxItems": 8,
+            "title": "Live",
+            "type": "array"
+          },
           "notices": {
             "items": {
               "$ref": "#/components/schemas/HarnessNotice"
@@ -4659,6 +4667,45 @@
           "expires_at"
         ],
         "title": "Lease",
+        "type": "object"
+      },
+      "LiveLink": {
+        "additionalProperties": false,
+        "description": "One live connection of the persona (doc37): avatar, speech, listening, OBS, a chat.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "enum": [
+              "avatar",
+              "speech",
+              "listening",
+              "obs",
+              "twitch",
+              "youtube"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "on",
+              "idle",
+              "down"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state"
+        ],
+        "title": "LiveLink",
         "type": "object"
       },
       "ManagedFile": {
