@@ -229,6 +229,10 @@ def parser() -> argparse.ArgumentParser:
         "--obs-port", type=int, help="loopback port of obs-websocket (the tunnel's), doc37"
     )
     harness.add_argument("--remove-obs", action="store_true", help="turn the OBS link off")
+    harness.add_argument("--chat-twitch", help="Twitch channel whose chat she joins")
+    harness.add_argument("--chat-youtube", help="YouTube video id of the live broadcast")
+    harness.add_argument("--chat-daily-messages", type=int, help="lines she may write a day")
+    harness.add_argument("--remove-chats", action="store_true", help="leave both chats")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -668,6 +672,10 @@ def main(argv: list[str] | None = None) -> int:
                     remove_listen=arguments.remove_listen,
                     obs_port=arguments.obs_port,
                     remove_obs=arguments.remove_obs,
+                    chat_twitch_channel=arguments.chat_twitch,
+                    chat_youtube_video=arguments.chat_youtube,
+                    chat_daily_messages=arguments.chat_daily_messages,
+                    remove_chats=arguments.remove_chats,
                     avatar_port=arguments.avatar_port,
                     avatar_profile=arguments.avatar_profile,
                     remove_avatar=arguments.remove_avatar,

@@ -374,6 +374,11 @@ class HarnessConfig(BaseModel):
     listen_max_minutes: int = Field(default=180, strict=True, ge=1, le=1440)
     # OBS (doc37): loopback port of obs-websocket on the operator's PC (the tunnel puts it there).
     obs_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
+    # Stream chats (doc37): the Twitch channel and the YouTube video whose chat she joins; the
+    # accounts' secrets live in the local .env only. A daily cap of lines she may write.
+    chat_twitch_channel: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_]{3,25}$")
+    chat_youtube_video: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{3,20}$")
+    chat_daily_messages: int = Field(default=300, strict=True, ge=1, le=10_000)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

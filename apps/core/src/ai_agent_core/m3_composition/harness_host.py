@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ai_agent_application.avatar import Avatar
 
     from .harness_channel import ChannelPost
+    from .harness_chat import ChatHub
     from .harness_life import Life
     from .harness_listen import Listener
     from .harness_look import Look
@@ -304,6 +305,7 @@ class HarnessHost:
         self.speaker: Speaker | None = None
         self.listener: Listener | None = None
         self.stage: Stage | None = None
+        self.chats: ChatHub | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -519,6 +521,7 @@ class HarnessHost:
                 self.speaker,
                 self.listener,
                 self.stage,
+                self.chats,
             ).handle,
             tuple(s.host_ports.values()),
         )

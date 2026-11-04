@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ai_agent_application.avatar import Avatar
 
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
+    from ai_agent_core.m3_composition.harness_chat import ChatHub
     from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
@@ -262,6 +263,16 @@ def install(
         settings, host, providers, runtime.harness.usage, runtime.harness.avatar
     )
     runtime.harness.stage = stage(settings, providers)
+    runtime.harness.chats = chats(
+        settings,
+        host,
+        providers,
+        runtime.harness.usage,
+        model=settings.models[0].name if settings.models else config.live.api_model,
+        scope=runtime.supervisor.snapshot.scope,
+    )
+    if runtime.harness.chats is not None:
+        runtime.harness.attach(runtime.harness.chats)
     runtime.harness.listener = listener(
         settings, host, providers, runtime.harness.usage, runtime.supervisor.snapshot.scope
     )
@@ -307,6 +318,10 @@ def install(
         # The watcher: sources are looked at without a model; the news is graded by her focus and
         # she is woken once, with a digest, only when it matters.
         sources: list = [CommentsSource(runtime.harness), GmSource(runtime)]
+        if runtime.harness.chats is not None:
+            from ai_agent_core.m3_composition.harness_chat import ChatSource
+
+            sources.append(ChatSource(runtime.harness.chats))
         if runtime.harness.listener is not None:
             from ai_agent_core.m3_composition.harness_listen import ListenSource
 
@@ -439,6 +454,63 @@ def speaker(
         daily_chars=settings.speech_daily_chars,
         usage=usage,
         hour_rate=settings.speech_hour_rate,
+    )
+
+
+def chats(
+    settings: HarnessConfig,
+    host: HostPaths,
+    providers: LocalProviders,
+    usage: Usage,
+    *,
+    model: str,
+    scope: Scope,
+) -> ChatHub | None:
+    """The stream chats she joins: a platform needs its channel/video AND its secrets in .env."""
+    from ai_agent_adapters.stream import twitch as tw
+    from ai_agent_adapters.stream import youtube as yt
+    from pydantic import SecretStr
+
+    from ai_agent_core.m3_composition.harness_channel import model_check, public_rules
+    from ai_agent_core.m3_composition.harness_chat import ChatHub, Platform
+
+    secrets = providers.secrets
+    platforms: dict[str, Platform] = {}
+    own: dict[str, str] = {}
+    if settings.chat_twitch_channel and tw.TOKEN_SETTING in secrets and tw.NICK_SETTING in secrets:
+        nick = secrets[tw.NICK_SETTING]
+        platforms["twitch"] = tw.TwitchChat(
+            tw.TwitchConfig(settings.chat_twitch_channel, nick),
+            SecretStr(secrets[tw.TOKEN_SETTING]),
+        )
+        own["twitch"] = nick
+    youtube_keys = (yt.CLIENT_ID_SETTING, yt.CLIENT_SECRET_SETTING, yt.REFRESH_TOKEN_SETTING)
+    if settings.chat_youtube_video and all(k in secrets for k in youtube_keys):
+        platforms["youtube"] = yt.YouTubeChat(
+            yt.YouTubeConfig(settings.chat_youtube_video),
+            secrets[yt.CLIENT_ID_SETTING],
+            SecretStr(secrets[yt.CLIENT_SECRET_SETTING]),
+            SecretStr(secrets[yt.REFRESH_TOKEN_SETTING]),
+        )
+    if not platforms or providers.binding is None:
+        if settings.chat_twitch_channel or settings.chat_youtube_video:
+            LOG.warning("Chats off: missing secrets or model binding")
+        return None
+    upstream, key = providers.binding
+    folder = host.root / "data" / "harness"
+    persona = scope.persona_id
+    names = [
+        *settings.listen_names,
+        *(n for n in (settings.agent_names.get(persona), persona) if n),
+    ]
+    return ChatHub(
+        platforms,
+        names,
+        folder / "chat.jsonl",
+        model_check(upstream, key, model, usage),
+        lambda: public_rules(folder / "public-rules.txt"),
+        own=own,
+        daily_messages=settings.chat_daily_messages,
     )
 
 
@@ -579,6 +651,7 @@ def configure(
     remove_speech: bool = False,
     remove_listen: bool = False,
     remove_obs: bool = False,
+    remove_chats: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -604,6 +677,8 @@ def configure(
         changes.update(channel=None, channel_voice=None, channel_comments=False)
     if remove_avatar:
         changes.update(avatar_port=None, avatar_profile=None)
+    if remove_chats:
+        changes.update(chat_twitch_channel=None, chat_youtube_video=None)
     if remove_obs:
         changes.update(obs_port=None)
     if remove_listen:
