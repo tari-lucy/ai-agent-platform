@@ -537,3 +537,33 @@ class PeopleSource:
 
     async def delivered(self, scope: Any, current: Callable[[], None]) -> None:
         return None
+
+
+NOTE_LINE = re.compile(
+    r"^\s*[-*]?\s*([A-Za-z0-9_]{3,16})\s*(?::|\u00bb|\u2014|-|\u2013)\s*(.+?)\s*$"
+)
+
+
+def import_notes(book: PeopleBook, text: str, *, platform: str = "minecraft") -> tuple[int, int]:
+    """Her old line-per-player notes (``nick: a fact``) into the book: ``(imported, skipped)``.
+
+    The same lines were already shown to her in public game chat, so they come in as public
+    facts. A line that is not ``nick: fact`` (or a name that is not a Minecraft nick) is skipped,
+    never guessed. Running it twice adds nothing: identical facts are recognised.
+    """
+    imported = skipped = 0
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        found = NOTE_LINE.match(raw)
+        if found is None:
+            skipped += 1
+            continue
+        nick, fact = found.group(1), found.group(2)
+        person = book.seen(platform, nick, nick)
+        if person is None:  # erased on request: the old note does not bring them back
+            skipped += 1
+            continue
+        book.note(person, fact, platform=platform, private=False)
+        imported += 1
+    return imported, skipped

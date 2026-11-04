@@ -8,11 +8,11 @@ A person is named by its id (``p-...``) or by an account (``platform:account``).
 import json
 from pathlib import Path
 
-from ai_agent_core.m3_composition.harness_people import PeopleBook, PeopleError
+from ai_agent_core.m3_composition.harness_people import PeopleBook, PeopleError, import_notes
 
-from .layout import HostError, paths
+from .layout import HostError, HostPaths, load_config, paths
 
-ACTIONS = ("list", "show", "link", "split", "erase", "suspicions", "audit")
+ACTIONS = ("list", "show", "link", "split", "erase", "suspicions", "audit", "import-notes")
 
 
 def _ref(book: PeopleBook, ref: str) -> str:
@@ -58,6 +58,8 @@ def run(root: Path, action: str, args: list[str], *, yes: bool) -> int:
                     f"{row['a_platform']}:{row['a_account']}  ~  "
                     f"{row['b_platform']}:{row['b_account']}  {row['basis']}"
                 )
+        elif action == "import-notes" and len(args) <= 1:
+            print("imported {}, skipped {}".format(*_import(host, book, args)))
         elif action == "audit" and not args:
             for row in book.audit():
                 print(row["id"], row["action"], row["detail"])
@@ -66,3 +68,22 @@ def run(root: Path, action: str, args: list[str], *, yes: bool) -> int:
     except PeopleError as error:
         raise HostError("PERSON_UNKNOWN") from error
     return 0
+
+
+def _import(host: HostPaths, book: PeopleBook, args: list[str]) -> tuple[int, int]:
+    """Her old notes file (default playbook/people.md in her folder) into the book."""
+    if args:
+        source = Path(args[0])
+    else:
+        config = load_config(host)
+        files = config.harness.files_dir if config.harness else None
+        if not files:
+            raise HostError("INVALID_OPTION")  # no folder of hers is configured
+        source = Path(files) / config.persona_id / "playbook" / "people.md"
+    try:
+        if source.is_symlink() or not source.is_file() or source.stat().st_size > 1_000_000:
+            raise HostError("INVALID_OPTION")
+        text = source.read_text(encoding="utf-8")
+    except OSError:
+        raise HostError("INVALID_OPTION") from None
+    return import_notes(book, text)

@@ -233,3 +233,45 @@ def test_the_prompt_teaches_the_people_rules_only_when_the_book_exists(tmp_path,
     with_book = str(host.config("http://x:8080/v1", "base", False))
     assert "## People" not in without and "## People" in with_book
     assert "A shared nickname proves nothing" in with_book
+
+
+def test_old_player_notes_move_into_the_book_once(book, tmp_path):
+    from ai_agent_core.m3_composition.harness_people import import_notes
+
+    text = (
+        "# мои заметки\n"
+        "Bob: likes parkour\n"
+        "- Eve — builds castles\n"
+        "Bob » has a red cat\n"
+        "странная строка без ника\n"
+        "Zo: слишком короткий ник\n"
+        "\n"
+    )
+    assert import_notes(book, text) == (3, 2)
+    bob = book.lookup("minecraft", "bob")
+    assert [f["text"] for f in book.card(bob, public=True, platform="minecraft")["facts"]] == [
+        "likes parkour",
+        "has a red cat",
+    ]  # they were public in the game chat before, and stay so
+    assert import_notes(book, text) == (3, 2)  # again: nothing is added twice
+    assert len(book.card(bob, public=False)["facts"]) == 2
+    book.erase(bob, by="operator")
+    assert import_notes(book, "Bob: back again\n") == (0, 1)  # an erased player stays erased
+
+
+def test_the_cli_imports_her_notes_file(tmp_path):
+
+    root = tmp_path / "host"
+    root.mkdir()
+    notes = tmp_path / "her" / "p" / "playbook"
+    notes.mkdir(parents=True)
+    (notes / "people.md").write_text("Bob: likes parkour\n", encoding="utf-8")
+    book = PeopleBook(root / "data" / "harness" / "people.sqlite")
+    with pytest.raises(HostError):  # the file is named explicitly, the default needs a config
+        people_cli(root, "import-notes", [str(tmp_path / "missing.md")], yes=False)
+    people_cli(root, "import-notes", [str(notes / "people.md")], yes=False)
+    assert book.lookup("minecraft", "bob") is not None
+    link = notes / "link.md"
+    link.symlink_to(notes / "people.md")
+    with pytest.raises(HostError):
+        people_cli(root, "import-notes", [str(link)], yes=False)

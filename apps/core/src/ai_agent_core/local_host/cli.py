@@ -269,7 +269,8 @@ def parser() -> argparse.ArgumentParser:
         help="offline: list/show/link/split/erase people the persona has met (doc37, D94)",
     )
     people.add_argument(
-        "action", choices=["list", "show", "link", "split", "erase", "suspicions", "audit"]
+        "action",
+        choices=["list", "show", "link", "split", "erase", "suspicions", "audit", "import-notes"],
     )
     people.add_argument("arguments", nargs="*", help="person id p-... or platform:account")
     people.add_argument("--root", type=Path, required=True)
