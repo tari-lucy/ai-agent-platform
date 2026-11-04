@@ -216,6 +216,9 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument(
         "--speech-hour-rate", type=float, help="price of one hour of speech/listening audio"
     )
+    harness.add_argument(
+        "--speech-mouth-delay", type=float, help="seconds the mouth waits for the sound (0.15)"
+    )
     harness.add_argument("--remove-speech", action="store_true", help="turn live speech off")
     harness.add_argument(
         "--listen-port", type=int, help="loopback port of the PC capture bridge (the tunnel's)"
@@ -691,6 +694,7 @@ def main(argv: list[str] | None = None) -> int:
                     speech_port=arguments.speech_port,
                     speech_daily_chars=arguments.speech_daily_chars,
                     speech_hour_rate=arguments.speech_hour_rate,
+                    speech_mouth_delay=arguments.speech_mouth_delay,
                     remove_speech=arguments.remove_speech,
                     listen_port=arguments.listen_port,
                     listen_names=[n.strip() for n in arguments.listen_names.split(",") if n.strip()]

@@ -5,8 +5,8 @@ the reverse tunnel; nothing here listens outside the computer. One connection is
 Wire format (must match packages/adapters/.../voice/pcm_bridge.py, this file is standalone):
 
     b"APCM" + u32 rate + u8 channels, then frames (u32 length + 16-bit LE PCM), a zero-length
-    frame ends a phrase normally (it is played out); a connection that closes without it is an
-    abort and the buffered audio is thrown away.
+    frame ends a phrase normally (it is played out, then this program answers one byte, b"\\x06",
+    "played"); a connection that closes before that is an abort and the audio is thrown away.
 
 Capture (listening) is the other direction, on its own port: the server connects, this program
 sends the header and frames from an INPUT device (for a call: the virtual cable that carries
@@ -58,8 +58,11 @@ class DeviceOutput:
         self.stream.close()
 
     def abort(self) -> None:
-        self.stream.abort()
-        self.stream.close()
+        try:  # may race with a stop() that is still playing out in another thread
+            self.stream.abort()
+            self.stream.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def find_device(name: str | None, *, capture: bool = False) -> str | int | None:
@@ -94,8 +97,18 @@ async def handle(
             while True:
                 (size,) = FRAME.unpack(await reader.readexactly(FRAME.size))
                 if size == 0:
-                    await asyncio.to_thread(opened.finish)
+                    # Play out what is buffered. If the server hangs up meanwhile (STOP), the
+                    # rest is cut off by the abort in `finally`; otherwise say "played".
+                    finishing = asyncio.ensure_future(asyncio.to_thread(opened.finish))
+                    finishing.add_done_callback(lambda f: f.cancelled() or f.exception())
+                    hangup = asyncio.ensure_future(reader.read(1))
+                    await asyncio.wait({finishing, hangup}, return_when=asyncio.FIRST_COMPLETED)
+                    if not finishing.done():
+                        return  # `finally` aborts the playback that is still running
+                    hangup.cancel()
                     output = None
+                    writer.write(b"\x06")
+                    await writer.drain()
                     return
                 if size > MAX_FRAME or size % 2:
                     return

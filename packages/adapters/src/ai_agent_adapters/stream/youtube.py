@@ -58,7 +58,7 @@ class YouTubeConfig:
     video_id: str
     api: str = API
     token_url: str = TOKEN_URL
-    min_poll: float = 2.0
+    min_poll: float = 6.0  # a poll costs ~5 quota units; 10 000 a day is a few hours at 2 s
     allow_loopback: bool = False  # tests only
 
     def __post_init__(self) -> None:

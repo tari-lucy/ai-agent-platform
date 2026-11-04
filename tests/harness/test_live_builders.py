@@ -50,6 +50,7 @@ def test_speech_needs_voice_port_and_the_soniox_key(tmp_path):
     assert speaker(settings, host(tmp_path), providers(), usage(), None) is None  # no key
     built = speaker(settings, host(tmp_path), providers(SONIOX), usage(), None)
     assert built is not None and built.rate == 24000 and built.hour_rate == 0.12
+    assert built.mouth_delay == 0.15
     assert built.journal == tmp_path / "data" / "harness" / "speech.jsonl"
 
 

@@ -544,6 +544,7 @@ def speaker(
         daily_chars=settings.speech_daily_chars,
         usage=usage,
         hour_rate=settings.speech_hour_rate,
+        mouth_delay=settings.speech_mouth_delay,
     )
 
 

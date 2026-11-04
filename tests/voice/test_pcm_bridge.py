@@ -168,3 +168,97 @@ def test_capture_sends_frames_until_the_server_hangs_up():
         assert error.value.code == "bridge:connect"
 
     asyncio.run(scenario())
+
+
+class SlowFinish(Output):
+    """finish() blocks like a real device playing out its buffer; abort() unblocks it."""
+
+    def __init__(self, rate):
+        import threading
+
+        super().__init__(rate)
+        self.gate, self.aborted, self.state = threading.Event(), False, "idle"
+
+    def finish(self):
+        self.state = "playing"
+        self.gate.wait(5)
+        self.state = "aborted" if self.aborted else "finished"
+
+    def abort(self):
+        self.aborted = True
+        self.gate.set()
+
+
+async def slow_pc(outputs, finish_after=None):
+    def open_output(rate):
+        out = SlowFinish(rate)
+        outputs.append(out)
+        if finish_after is not None:
+            import threading
+
+            threading.Timer(finish_after, out.gate.set).start()
+        return out
+
+    busy = asyncio.Lock()
+    server = await asyncio.start_server(
+        lambda r, w: bridge.handle(r, w, open_output, busy), "127.0.0.1", 0
+    )
+    return server, f"tcp://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+
+
+def test_play_returns_only_when_the_computer_says_the_audio_has_played():
+    async def scenario():
+        outputs = []
+        server, url = await slow_pc(outputs, finish_after=0.4)
+        async with server:
+            started = asyncio.get_running_loop().time()
+            await TcpSink(SinkConfig(url=url)).play(chunks(b"\x01\x00" * 100))
+            took = asyncio.get_running_loop().time() - started
+        assert took >= 0.35  # sending took no time; the wait was the playing
+        assert outputs[0].state == "finished" and not outputs[0].aborted
+
+    asyncio.run(scenario())
+
+
+def test_stop_during_the_playing_out_cuts_the_audio_short():
+    async def scenario():
+        outputs = []
+        server, url = await slow_pc(outputs)  # finish() would block for 5 s
+        async with server:
+            task = asyncio.create_task(TcpSink(SinkConfig(url=url)).play(chunks(b"\x01\x00" * 100)))
+            await asyncio.sleep(0.3)  # the whole phrase was sent; it is "playing"
+            assert outputs[0].state == "playing"
+            task.cancel()  # STOP
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            await asyncio.sleep(0.3)
+        assert outputs[0].aborted and outputs[0].state == "aborted"
+
+    asyncio.run(scenario())
+
+
+def test_a_computer_that_never_says_played_is_a_fixed_timeout():
+    async def scenario():
+        async def silent(reader, writer):
+            await reader.read(65536)
+            await asyncio.sleep(5)
+
+        server = await asyncio.start_server(silent, "127.0.0.1", 0)
+        url = f"tcp://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        async with server:
+            with pytest.raises(BridgeError) as error:
+                await TcpSink(SinkConfig(url=url, ack_margin=0.3)).play(chunks(b"\x01\x00" * 10))
+        assert error.value.code == "bridge:timeout"
+
+        async def hangs_up(reader, writer):
+            await reader.read(65536)
+            writer.close()
+
+        server = await asyncio.start_server(hangs_up, "127.0.0.1", 0)
+        url = f"tcp://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        async with server:
+            with pytest.raises(BridgeError) as error:
+                await TcpSink(SinkConfig(url=url)).play(chunks(b"\x01\x00" * 10))
+        assert error.value.code in ("bridge:aborted", "bridge:transport")
+
+    asyncio.run(scenario())

@@ -24,7 +24,7 @@ def test_every_live_flag_is_passed_by_name(monkeypatch, tmp_path):
         monkeypatch, tmp_path,
         "--avatar-port", "8001", "--avatar-profile", "opechatka.json",
         "--speech-voice", "Kayla", "--speech-port", "8003", "--speech-daily-chars", "5000",
-        "--speech-hour-rate", "0.12",
+        "--speech-hour-rate", "0.12", "--speech-mouth-delay", "0.3",
         "--listen-port", "8004", "--listen-names", "Печатка, Опечатка ",
         "--listen-max-minutes", "90",
         "--obs-port", "4455",
@@ -33,6 +33,7 @@ def test_every_live_flag_is_passed_by_name(monkeypatch, tmp_path):
     assert got["avatar_port"] == 8001 and got["avatar_profile"] == "opechatka.json"
     assert (got["speech_voice"], got["speech_port"]) == ("Kayla", 8003)
     assert got["speech_daily_chars"] == 5000 and got["speech_hour_rate"] == 0.12
+    assert got["speech_mouth_delay"] == 0.3
     assert got["listen_port"] == 8004 and got["listen_max_minutes"] == 90
     assert got["listen_names"] == ["Печатка", "Опечатка"]  # trimmed, no empty names
     assert got["obs_port"] == 4455

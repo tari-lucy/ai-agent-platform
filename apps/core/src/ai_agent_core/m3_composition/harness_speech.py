@@ -49,6 +49,7 @@ class Speaker:
         avatar: Avatar | None = None,
         daily_chars: int = 20000,
         stuck_after: float = STUCK,
+        mouth_delay: float = 0.0,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -56,6 +57,7 @@ class Speaker:
         self.synth, self.sink, self.rate, self.journal = synth, sink, rate, journal
         self.avatar, self.daily_chars, self.clock = avatar, daily_chars, clock
         self.stuck_after = stuck_after
+        self.mouth_delay = mouth_delay  # the sound takes the network and the device to be heard
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
         self._busy = False
 
@@ -120,6 +122,11 @@ class Speaker:
             for queue in queues:
                 await asyncio.wait_for(queue.put(None), self.stuck_after)
 
+        async def mouth() -> None:
+            assert self.avatar is not None
+            await asyncio.sleep(self.mouth_delay)
+            await drive(self.avatar, drain(queues[1]), self.rate)
+
         async def watch() -> None:
             """STOP is noticed while the buffered audio plays too, not only while synthesising."""
             while True:
@@ -139,7 +146,7 @@ class Speaker:
                     group.create_task(self.sink.play(drain(queues[0]))),
                 ]
                 if self.avatar is not None:
-                    work.append(group.create_task(drive(self.avatar, drain(queues[1]), self.rate)))
+                    work.append(group.create_task(mouth()))
                 guard = group.create_task(watch())
 
                 def finished(_: object) -> None:

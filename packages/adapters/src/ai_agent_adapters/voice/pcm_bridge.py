@@ -7,6 +7,8 @@ session):
     header   b"APCM" + u32 sample rate + u8 channels            (9 bytes, big endian)
     frames   u32 length + that many bytes of signed 16-bit little-endian PCM
     end      a frame of length 0: play what is buffered, then stop (a normal ending)
+    done     the computer answers the end frame with one byte (b"\\x06") once the audio has
+             really finished playing; until then the phrase is not over
 
 A connection that closes without the end frame is an abort: the other side discards whatever
 it still holds (STOP, an interrupted phrase). Nothing is buffered without a bound and no
@@ -80,6 +82,7 @@ class SinkConfig:
     url: str = "tcp://127.0.0.1:8003"
     connect_timeout: float = 5.0
     write_timeout: float = 10.0
+    ack_margin: float = 20.0  # seconds beyond the audio's own length to wait for the done byte
     rate: int = 24000
 
     def __post_init__(self) -> None:
@@ -103,24 +106,33 @@ class TcpSink:
                 reader, writer = await asyncio.open_connection(parsed.hostname, parsed.port)
         except OSError, TimeoutError:
             raise BridgeError("bridge:connect") from None
-        del reader
+        sent = 0
         try:
             writer.write(encode_header(self.config.rate))
             async for chunk in chunks:
                 for start in range(0, len(chunk), MAX_FRAME):
-                    writer.write(encode_frame(chunk[start : start + MAX_FRAME]))
+                    part = chunk[start : start + MAX_FRAME]
+                    writer.write(encode_frame(part))
+                    sent += len(part)
                 async with asyncio.timeout(self.config.write_timeout):
                     await writer.drain()
             writer.write(END)
             async with asyncio.timeout(self.config.write_timeout):
                 await writer.drain()
-            writer.write_eof()
+            # The phrase is over when the computer says the audio has played out. Sending is much
+            # faster than playing, so this wait is the phrase's real length; a cancel (STOP) here
+            # closes the connection and the computer cuts the rest off.
+            seconds = sent / (self.config.rate * 2) + self.config.ack_margin
+            async with asyncio.timeout(seconds):
+                await reader.readexactly(1)
+        except asyncio.IncompleteReadError:
+            raise BridgeError("bridge:aborted") from None
         except TimeoutError:
             raise BridgeError("bridge:timeout") from None
         except OSError:
             raise BridgeError("bridge:transport") from None
         finally:
-            # Closing without END (an exception or a cancel) is the abort signal.
+            # Closing before the done byte (an exception or a cancel) is the abort signal.
             writer.close()
 
 

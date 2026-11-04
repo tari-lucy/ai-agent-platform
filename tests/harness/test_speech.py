@@ -266,3 +266,25 @@ def test_stop_is_noticed_while_the_buffered_audio_is_still_playing(tmp_path):
         say(spk, current=current)
     assert sink.ended == "aborted" and len(sink.got) < 10 * len(window())
     assert journal(tmp_path)[0]["status"] == "stopped"
+
+
+def test_the_mouth_waits_for_the_sound_by_the_configured_delay(tmp_path):
+    import time
+
+    first = {}
+
+    class Rig2(Rig):
+        async def inject(self, values):
+            first.setdefault("mouth", time.monotonic())
+            await super().inject(values)
+
+    class TimedSink(Sink):
+        async def play(self, chunks):
+            async for chunk in chunks:
+                first.setdefault("sound", time.monotonic())
+                self.got += chunk
+
+    avatar = Avatar(Rig2(), profile_from_json({"version": 1, "mouth_parameter": "MouthOpen"}))
+    spk = speaker(tmp_path, sink=TimedSink(), avatar=avatar, mouth_delay=0.3)
+    assert say(spk) == "Сказано."
+    assert first["mouth"] - first["sound"] >= 0.25
