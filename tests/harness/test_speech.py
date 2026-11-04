@@ -214,3 +214,55 @@ def test_configure_wants_voice_and_port_together(monkeypatch, tmp_path):
     monkeypatch.setattr(harness, "load_config", lambda host: Config(on))
     off = harness.configure(tmp_path, remove_speech=True)
     assert off.speech_voice is None and off.speech_port is None
+
+
+class RealTimeSink:
+    """A consumer paced like the audio device: it takes a chunk per `pace` seconds."""
+
+    def __init__(self, pace):
+        self.pace, self.got, self.ended = pace, b"", None
+
+    async def play(self, chunks):
+        try:
+            async for chunk in chunks:
+                await asyncio.sleep(self.pace)
+                self.got += chunk
+            self.ended = "end"
+        except asyncio.CancelledError:
+            self.ended = "aborted"
+            raise
+
+
+def test_synthesis_faster_than_playback_is_held_back_not_cut(tmp_path):
+    """Soniox answers in a second what takes five to play: the phrase must not be cut."""
+    sink = RealTimeSink(0.01)
+    spk = speaker(tmp_path, synth=synth(150), sink=sink, avatar=None)  # 150 chunks > the queue
+    assert say(spk) == "Сказано."
+    assert len(sink.got) == 150 * len(window()) and sink.ended == "end"
+
+
+def test_a_consumer_that_takes_nothing_cuts_the_phrase_after_the_stuck_time(tmp_path):
+    sink = RealTimeSink(30)  # never gets to the second chunk within the test
+    spk = speaker(tmp_path, synth=synth(500), sink=sink, stuck_after=0.3)
+    out = say(spk)
+    assert "не успевал" in out and sink.ended == "aborted"
+    assert journal(tmp_path)[0]["status"] == "cut"
+
+
+def test_stop_is_noticed_while_the_buffered_audio_is_still_playing(tmp_path):
+    """The synthesis finished at once; STOP arrives during playback and aborts it."""
+    sink = RealTimeSink(0.05)
+    spk = speaker(tmp_path, synth=synth(10), sink=sink)
+    started = {}
+
+    def current():
+        import time
+
+        started.setdefault("t", time.monotonic())
+        if time.monotonic() - started["t"] > 0.25:
+            raise ContractError(ErrorCode.STALE_CONTEXT)
+
+    with pytest.raises(ContractError):
+        say(spk, current=current)
+    assert sink.ended == "aborted" and len(sink.got) < 10 * len(window())
+    assert journal(tmp_path)[0]["status"] == "stopped"

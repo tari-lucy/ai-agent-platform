@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 
 LOG = logging.getLogger(__name__)
 MAX_TEXT = 600
-QUEUE = 8  # chunks a slow consumer may lag behind; beyond it the phrase is cut, not buffered
+QUEUE = 64  # chunks the synthesis may run ahead of playback (it is faster than real time)
+STUCK = 15.0  # seconds a consumer may refuse a chunk before the phrase is cut
+WATCH = 0.1  # seconds between two looks at STOP while a phrase plays
 
 
 class Sink(Protocol):
@@ -46,12 +48,14 @@ class Speaker:
         *,
         avatar: Avatar | None = None,
         daily_chars: int = 20000,
+        stuck_after: float = STUCK,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.synth, self.sink, self.rate, self.journal = synth, sink, rate, journal
         self.avatar, self.daily_chars, self.clock = avatar, daily_chars, clock
+        self.stuck_after = stuck_after
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
         self._busy = False
 
@@ -107,11 +111,20 @@ class Speaker:
                 made += len(chunk)
                 current()  # STOP between chunks: nothing more is released
                 for queue in queues:
-                    queue.put_nowait(chunk)  # a full queue means a stuck consumer: cut
+                    # The synthesis is faster than real time, playback and the mouth are not: a
+                    # full queue just holds the producer back. Only a consumer that takes nothing
+                    # for ``stuck_after`` seconds is stuck, and then the phrase is cut.
+                    await asyncio.wait_for(queue.put(chunk), self.stuck_after)
             # Only a phrase that really ended says so; on STOP or an error the group cancels the
             # consumers instead, so the output is aborted and not played out.
             for queue in queues:
-                await queue.put(None)
+                await asyncio.wait_for(queue.put(None), self.stuck_after)
+
+        async def watch() -> None:
+            """STOP is noticed while the buffered audio plays too, not only while synthesising."""
+            while True:
+                await asyncio.sleep(WATCH)
+                current()
 
         async def drain(queue: asyncio.Queue[bytes | None]) -> AsyncIterator[bytes]:
             while (chunk := await queue.get()) is not None:
@@ -121,17 +134,27 @@ class Speaker:
         stopped: ContractError | None = None
         try:
             async with asyncio.TaskGroup() as group:
-                group.create_task(pump())
-                group.create_task(self.sink.play(drain(queues[0])))
+                work = [
+                    group.create_task(pump()),
+                    group.create_task(self.sink.play(drain(queues[0]))),
+                ]
                 if self.avatar is not None:
-                    group.create_task(drive(self.avatar, drain(queues[1]), self.rate))
+                    work.append(group.create_task(drive(self.avatar, drain(queues[1]), self.rate)))
+                guard = group.create_task(watch())
+
+                def finished(_: object) -> None:
+                    if all(task.done() for task in work):
+                        guard.cancel()  # the phrase is over: nothing left to watch
+
+                for task in work:
+                    task.add_done_callback(finished)
             status = "spoken"
         except ExceptionGroup as failure:
             errors = failure.exceptions
             stopped = next((e for e in errors if isinstance(e, ContractError)), None)
             if stopped is not None:
                 status = "stopped"
-            elif any(isinstance(e, asyncio.QueueFull) for e in errors):
+            elif any(isinstance(e, TimeoutError) for e in errors):
                 status, detail = "cut", "slow consumer"
             else:
                 status = "failed"
