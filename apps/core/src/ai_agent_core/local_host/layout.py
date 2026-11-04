@@ -355,6 +355,10 @@ class HarnessConfig(BaseModel):
     # Models that look at her pictures (the look tool), in order, each with its price; the next
     # one answers when a model did not receive the picture. Empty: the first of ``models``.
     vision_models: list[ModelSpec] = Field(default_factory=list, max_length=4)
+    # Avatar (doc37): VTube Studio on the operator's PC, reached on this machine's loopback port
+    # (the reverse tunnel puts it there), and the rig mapping profile in data/harness/avatar/.
+    avatar_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
+    avatar_profile: str | None = Field(default=None, pattern=r"^[\w-]{1,60}\.json$")
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

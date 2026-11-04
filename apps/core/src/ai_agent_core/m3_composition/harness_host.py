@@ -24,6 +24,8 @@ from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from ai_agent_application.avatar import Avatar
+
     from .harness_channel import ChannelPost
     from .harness_life import Life
     from .harness_look import Look
@@ -278,6 +280,7 @@ class HarnessHost:
         self.wakes: HarnessWakes | None = None
         self.channel: ChannelPost | None = None
         self.look: Look | None = None
+        self.avatar: Avatar | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -483,7 +486,9 @@ class HarnessHost:
             s.image_id,
             s.port,
             self._record,
-            PlatformMcp(rt, lambda: self.epoch, self.wakes, self.channel, self.look).handle,
+            PlatformMcp(
+                rt, lambda: self.epoch, self.wakes, self.channel, self.look, self.avatar
+            ).handle,
             tuple(s.host_ports.values()),
         )
         folder = self.folders()

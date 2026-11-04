@@ -1,5 +1,6 @@
 """Host wiring of the doc33 harness: settings, password file, persona prompt, internet."""
 
+import logging
 import os
 import secrets
 from collections.abc import Callable
@@ -11,7 +12,11 @@ from ai_agent_contracts.common import Scope
 
 from .layout import HarnessConfig, HostConfig, HostError, HostPaths, load_config, save_config
 
+LOG = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
+    from ai_agent_application.avatar import Avatar
+
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.harness_look import Look
@@ -246,6 +251,9 @@ def install(
         or [settings.models[0].name if settings.models else config.live.api_model],
         scope=runtime.supervisor.snapshot.scope,
     )
+    runtime.harness.avatar = avatar(settings, host)
+    if runtime.harness.avatar is not None:
+        runtime.harness.attach(AvatarPart(runtime.harness.avatar))
     runtime.harness.channel = channel(
         settings,
         host,
@@ -337,6 +345,43 @@ def look(
     return Look(folder, model_describe(upstream, key, models, usage))
 
 
+class AvatarPart:
+    """Keeps the avatar's face honest around the harness: on STOP, an epoch change or a failure
+    the mouth closes and the face returns to neutral (doc37, D92). It does nothing on a tick."""
+
+    def __init__(self, avatar: Avatar) -> None:
+        self.avatar = avatar
+
+    def tick(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        await self.avatar.neutral()
+
+
+def avatar(settings: HarnessConfig, host: HostPaths) -> Avatar | None:
+    """VTube Studio avatar, when the operator set a port and a mapping profile (doc37).
+
+    A bad or missing profile leaves the persona without an avatar; it never stops the host.
+    The program is reached lazily: not running yet is not an error here.
+    """
+    from ai_agent_adapters.avatar.vts import VtsConfig, VtsPort
+    from ai_agent_application.avatar import Avatar, AvatarError, load_profile
+
+    if settings.avatar_port is None or settings.avatar_profile is None:
+        return None
+    folder = host.root / "data" / "harness" / "avatar"
+    try:
+        profile = load_profile(folder / settings.avatar_profile)
+    except AvatarError as error:
+        LOG.warning("Avatar off: %s", error.code)
+        return None
+    port = VtsPort(
+        VtsConfig(url=f"ws://127.0.0.1:{settings.avatar_port}", token_path=folder / "vts-token")
+    )
+    return Avatar(port, profile)
+
+
 def channel(
     settings: HarnessConfig,
     host: HostPaths,
@@ -408,6 +453,7 @@ def configure(
     grant: str | None = None,
     revoke: str | None = None,
     remove_channel: bool = False,
+    remove_avatar: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -431,6 +477,12 @@ def configure(
         changes["host_ports"] = {k: v for k, v in current.host_ports.items() if k != revoke}
     if remove_channel:
         changes.update(channel=None, channel_voice=None, channel_comments=False)
+    if remove_avatar:
+        changes.update(avatar_port=None, avatar_profile=None)
+    final_port = changes.get("avatar_port", current.avatar_port)
+    final_profile = changes.get("avatar_profile", current.avatar_profile)
+    if (final_port is None) != (final_profile is None):
+        raise HostError("AVATAR_PORT_AND_PROFILE")  # both or neither
     if changes.get("native_chatgpt") is False:
         changes["native_chatgpt_model"] = None  # off means off: no model left pointing at it
     if agent_name is not None:

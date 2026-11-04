@@ -198,6 +198,16 @@ def parser() -> argparse.ArgumentParser:
         help="ordered models that look at her pictures 'name=in/out[/cached],...' (free: =0/0), "
         "the next answers when one did not receive the picture; or 'none'",
     )
+    harness.add_argument(
+        "--avatar-port",
+        type=int,
+        help="loopback port of VTube Studio (the tunnel puts the PC's program there), doc37",
+    )
+    harness.add_argument(
+        "--avatar-profile",
+        help="rig mapping file name inside data/harness/avatar/ (e.g. opechatka.json)",
+    )
+    harness.add_argument("--remove-avatar", action="store_true", help="turn the avatar off")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -624,6 +634,9 @@ def main(argv: list[str] | None = None) -> int:
                     cached_rate=arguments.cached_rate,
                     models=_parse_models(arguments.models),
                     vision_models=_parse_models(arguments.vision_models),
+                    avatar_port=arguments.avatar_port,
+                    avatar_profile=arguments.avatar_profile,
+                    remove_avatar=arguments.remove_avatar,
                     context_tokens=arguments.context_tokens,
                     output_tokens=arguments.output_tokens,
                     memory_mb=arguments.memory_mb,

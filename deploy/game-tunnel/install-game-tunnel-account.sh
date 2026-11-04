@@ -1,21 +1,31 @@
 #!/usr/bin/env bash
 # Install a dedicated SSH account for the link between the operator's computer and the server:
-#  - it may open ONE reverse listener on the server's loopback (the game mod's port), and
+#  - it may open reverse listeners on the server's loopback only for the game mod's port and for
+#    the ports named with --extra=PORT (VTube Studio, OBS: doc37), and
 #  - it may reach ONLY the platform's panel and OpenCode ports on the server's loopback.
 # No shell, nothing else, no packages, Docker or firewall changes.
-# Run as root: sudo bash install-game-tunnel-account.sh <public-key-file> [port] [--update]
+# Run as root: sudo bash install-game-tunnel-account.sh <public-key-file> [port] [--extra=PORT ...] [--update]
 # --update replaces this account's own earlier configuration and key (never anything else).
 set -euo pipefail
 [[ $(id -u) == 0 ]] || { echo 'Run this script as root.'; exit 1; }
 [[ $# -ge 1 && -f $1 ]] || { echo 'Expected a public-key file.'; exit 1; }
 port=25350
 update=0
+extras=()
 for argument in "${@:2}"; do
     case $argument in
         --update) update=1 ;;
+        --extra=[0-9][0-9][0-9][0-9]|--extra=[0-9][0-9][0-9][0-9][0-9]) extras+=("${argument#--extra=}") ;;
         [0-9][0-9][0-9][0-9]|[0-9][0-9][0-9][0-9][0-9]) port=$argument ;;
         *) echo 'Invalid argument.'; exit 1 ;;
     esac
+done
+listen="127.0.0.1:$port"
+keylisten="permitlisten=\"127.0.0.1:$port\""
+for extra in "${extras[@]}"; do
+    [[ $extra -ge 1024 && $extra -le 65535 && $extra != "$port" ]] || { echo 'Invalid extra port.'; exit 1; }
+    listen+=" 127.0.0.1:$extra"
+    keylisten+=",permitlisten=\"127.0.0.1:$extra\""
 done
 panel=8765
 opencode=4096
@@ -37,7 +47,7 @@ Match User $account
     PasswordAuthentication no
     KbdInteractiveAuthentication no
     AllowTcpForwarding yes
-    PermitListen 127.0.0.1:$port
+    PermitListen $listen
     PermitOpen 127.0.0.1:$panel 127.0.0.1:$opencode
     AllowStreamLocalForwarding no
     AllowAgentForwarding no
@@ -62,8 +72,8 @@ else
     usermod --password '*' "$account"
 fi
 [[ ! -L $home && ! -L $home/.ssh && ! -L $home/.ssh/authorized_keys ]] || exit 1
-printf 'restrict,port-forwarding,permitlisten="127.0.0.1:%s",permitopen="127.0.0.1:%s",permitopen="127.0.0.1:%s",command="/bin/false" %s %s ai-platform-game-tunnel\n' \
-    "$port" "$panel" "$opencode" "$kind" "$material" > "$scratch/key"
+printf 'restrict,port-forwarding,%s,permitopen="127.0.0.1:%s",permitopen="127.0.0.1:%s",command="/bin/false" %s %s ai-platform-game-tunnel\n' \
+    "$keylisten" "$panel" "$opencode" "$kind" "$material" > "$scratch/key"
 if [[ -e $home/.ssh/authorized_keys ]] && ! cmp -s "$home/.ssh/authorized_keys" "$scratch/key" \
     && [[ $update == 0 ]]; then
     echo 'Existing key differs; use --update to replace it. Nothing overwritten.'; exit 1
@@ -85,7 +95,7 @@ rollback() {
 cmp -s "$scratch/before" "$scratch/after" || rollback
 "$sshd" -T -C user="$account",host=localhost,addr=127.0.0.1 > "$scratch/effective"
 for expected in \
-    'allowtcpforwarding yes' "permitlisten 127.0.0.1:$port" \
+    'allowtcpforwarding yes' "permitlisten $listen" \
     "permitopen 127.0.0.1:$panel 127.0.0.1:$opencode" \
     'passwordauthentication no' 'kbdinteractiveauthentication no' \
     'allowstreamlocalforwarding no' 'clientaliveinterval 30' 'clientalivecountmax 3' \

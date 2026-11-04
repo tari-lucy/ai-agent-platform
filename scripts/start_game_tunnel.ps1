@@ -35,6 +35,15 @@ Set-Content -LiteralPath $loopPidFile -Value $PID
 
 # Game: the server listens on its own loopback only; a relay bridges it to the persona's container.
 $forward = '127.0.0.1:{0}:127.0.0.1:{0}' -f $port
+# Extra reverse ports (doc37): VTube Studio and OBS on this computer, the same numbers on the server.
+$extra = @()
+if ($settings.extra_ports) {
+    foreach ($extraPort in @($settings.extra_ports)) {
+        $number = [int]$extraPort
+        if ($number -lt 1024 -or $number -gt 65535 -or $number -eq $port) { throw 'Invalid extra port.' }
+        $extra += @('-R', ('127.0.0.1:{0}:127.0.0.1:{0}' -f $number))
+    }
+}
 # Bridge: the panel and OpenCode of the server, on the same addresses as before (127.0.0.1).
 $bridge = @()
 if ($settings.bridge_ports) {
@@ -45,7 +54,7 @@ if ($settings.bridge_ports) {
     }
 }
 $arguments = @(
-    '-N', '-n', '-T', '-a', '-x', '-R', $forward) + $bridge + @(
+    '-N', '-n', '-T', '-a', '-x', '-R', $forward) + $extra + $bridge + @(
     '-i', $settings.identity, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
     '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no',
     '-o', 'StrictHostKeyChecking=yes', '-o', "UserKnownHostsFile=$($settings.known_hosts)",

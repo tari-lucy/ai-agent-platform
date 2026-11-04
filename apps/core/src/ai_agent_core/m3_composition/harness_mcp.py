@@ -13,12 +13,15 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from ai_agent_application.avatar import Emotion
 from ai_agent_application.tickets import TicketDraft
 from ai_agent_contracts.agent_workplace import CapabilityRequest, TicketKind
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
 if TYPE_CHECKING:
+    from ai_agent_application.avatar import Avatar
+
     from .harness_channel import ChannelPost
     from .harness_look import Look
     from .harness_wakes import HarnessWakes
@@ -141,6 +144,26 @@ LOOK_TOOL: dict[str, Any] = {
     },
 }
 
+AVATAR_TOOL: dict[str, Any] = {
+    "name": "avatar_express",
+    "description": "Show a feeling on your avatar (the face the audience and call partners "
+    "see). Pick one emotion; the rig's own expression is chosen for you. Changes are paced: "
+    "a new one within a couple of seconds is skipped, and the same one again does nothing. "
+    "If the avatar program is not running you are told so; nothing is lost. Your mouth moves "
+    "by itself while you speak; this is for how you feel, not for lip sync.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "emotion": {
+                "type": "string",
+                "enum": [e.value for e in Emotion],
+                "description": "neutral is the calm resting face",
+            }
+        },
+        "required": ["emotion"],
+    },
+}
+
 COMMENT_TOOLS: list[dict[str, Any]] = [
     {
         "name": "channel_comments",
@@ -182,9 +205,10 @@ class PlatformMcp:
         wakes: HarnessWakes | None = None,
         channel: ChannelPost | None = None,
         look: Look | None = None,
+        avatar: Avatar | None = None,
     ) -> None:
         self.rt, self.epoch, self.wakes, self.channel = runtime, epoch, wakes, channel
-        self.look = look
+        self.look, self.avatar = look, avatar
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -218,6 +242,7 @@ class PlatformMcp:
             elif method == "tools/list":
                 tools = TOOLS + ([CHANNEL_TOOL] if self.channel else [])
                 tools += [LOOK_TOOL] if self.look else []
+                tools += [AVATAR_TOOL] if self.avatar else []
                 if (
                     self.channel is not None
                     and self.channel.comments is not None
@@ -320,6 +345,16 @@ class PlatformMcp:
                     a.get("photo", "").strip(), a.get("question", ""), self._current
                 )
             )
+        if name == "avatar_express":
+            if self.avatar is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            try:
+                emotion = Emotion(a.get("emotion", "").strip().lower())
+            except ValueError:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS) from None
+            outcome = await self.avatar.express(emotion)
+            self._current()  # STOP during the change: the answer is not released
+            return _text(outcome.text)
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
