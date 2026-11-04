@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .harness_chat import ChatHub
     from .harness_listen import Listener
     from .harness_look import Look
+    from .harness_people import PeopleBook
     from .harness_speech import Speaker
     from .harness_stage import Stage
     from .harness_wakes import HarnessWakes
@@ -246,6 +247,83 @@ CHAT_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+PEOPLE_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "person_find",
+        "description": "Find people you know by a name or account (any platform: Minecraft, "
+        "Telegram, Twitch, YouTube, calls). One person may have several accounts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "person_recall",
+        "description": "What you know about a person. `where` is where you are about to speak: "
+        "'public' (stream, call, chat, channel) shows only public facts and this platform's "
+        "account; 'private' shows everything. Never repeat private facts or other accounts "
+        "in public.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "person_id": {"type": "string"},
+                "where": {"type": "string", "enum": ["public", "private"]},
+                "platform": {"type": "string", "description": "the platform you are on now"},
+            },
+            "required": ["person_id", "where"],
+        },
+    },
+    {
+        "name": "person_note",
+        "description": "Write down a fact about a person (up to 300 characters). Mark it private "
+        "if you learned it in a private talk or they would not want it said aloud.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "person_id": {"type": "string"},
+                "text": {"type": "string"},
+                "platform": {"type": "string", "description": "where you learned it"},
+                "private": {"type": "boolean"},
+            },
+            "required": ["person_id", "text", "platform"],
+        },
+    },
+    {
+        "name": "person_met",
+        "description": "Remember someone you met where nothing records them for you (a call, "
+        "someone introduced by the operator). Returns their person_id. Platform: e.g. 'call'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "platform": {"type": "string"},
+                "name": {"type": "string"},
+                "account": {"type": "string", "description": "stable id if there is one"},
+            },
+            "required": ["platform", "name"],
+        },
+    },
+    {
+        "name": "person_link",
+        "description": "Same human on two accounts. action=code: a one-time proof code "
+        "(delivery must be 'private': it may reach only that person, never a stream, call or "
+        "public chat); when they send it from their other account, the two are joined. "
+        "action=suspect: write a suspicion (a nickname alone proves nothing) for the operator, "
+        "who decides; it identifies nobody. A request to be forgotten: raise a ticket.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["code", "suspect"]},
+                "person_id": {"type": "string"},
+                "other_person_id": {"type": "string"},
+                "basis": {"type": "string"},
+                "delivery": {"type": "string", "enum": ["private"]},
+            },
+            "required": ["action", "person_id"],
+        },
+    },
+]
+
 COMMENT_TOOLS: list[dict[str, Any]] = [
     {
         "name": "channel_comments",
@@ -292,10 +370,12 @@ class PlatformMcp:
         listener: Listener | None = None,
         stage: Stage | None = None,
         chats: ChatHub | None = None,
+        people: PeopleBook | None = None,
     ) -> None:
         self.rt, self.epoch, self.wakes, self.channel = runtime, epoch, wakes, channel
         self.look, self.avatar, self.speaker = look, avatar, speaker
         self.listener, self.stage, self.chats = listener, stage, chats
+        self.people = people
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -334,6 +414,7 @@ class PlatformMcp:
                 tools += [LISTEN_TOOL] if self.listener else []
                 tools += STAGE_TOOLS if self.stage else []
                 tools += CHAT_TOOLS if self.chats else []
+                tools += PEOPLE_TOOLS if self.people else []
                 if (
                     self.channel is not None
                     and self.channel.comments is not None
@@ -496,6 +577,10 @@ class PlatformMcp:
                 text = await self.chats.say(a.get("platform", ""), a.get("text", ""), still)
             self._current()
             return _text(text)
+        if name.startswith("person_"):
+            if self.people is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            return _text(self._person(name, arguments if isinstance(arguments, dict) else {}))
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
@@ -511,6 +596,73 @@ class PlatformMcp:
 
             wake = await self.wakes.set(int(minutes), a.get("text", ""), scope=scope, guard=guard)
             return _text(f"Будильник {wake.id} на {wake.due_at.isoformat(timespec='minutes')} UTC.")
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+
+    def _person(self, name: str, a: dict[str, Any]) -> str:
+        """The people tools: short, local, and every refusal says what to do instead."""
+        from .harness_people import PeopleError
+
+        book = self.people
+        assert book is not None
+
+        def arg(key: str) -> str:
+            value = a.get(key)
+            return value.strip() if isinstance(value, str) else ""
+
+        try:
+            if name == "person_find":
+                found = book.find(arg("query"))
+                return json.dumps(found, ensure_ascii=False) if found else "Таких не знаю."
+            if name == "person_recall":
+                if arg("where") not in ("public", "private"):
+                    raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+                card = book.card(
+                    arg("person_id"), public=arg("where") == "public", platform=arg("platform")
+                )
+                return json.dumps(card, ensure_ascii=False) if card else "Такого человека не знаю."
+            if name == "person_note":
+                private = a.get("private") is True
+                book.note(arg("person_id"), arg("text"), platform=arg("platform"), private=private)
+                return "Записано."
+            if name == "person_met":
+                account = arg("account") or arg("name")
+                person = book.seen(arg("platform"), account, arg("name"))
+                if person is None:
+                    return "Этого человека просили забыть (или книга полна): не записываю."
+                return json.dumps({"person_id": person}, ensure_ascii=False)
+            if name == "person_link":
+                return self._link(book, arg, a)
+        except PeopleError as error:
+            return f"Не получилось ({error.code})."
+        raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+
+    @staticmethod
+    def _link(book: PeopleBook, arg: Callable[[str], str], a: dict[str, Any]) -> str:
+        action = arg("action")
+        if action == "code":
+            if arg("delivery") != "private":
+                return (
+                    "Код не выдан: отдать его можно только лично этому человеку, не в эфир, "
+                    "не в звонок и не в общий чат. Если личного пути нет, напиши подозрение "
+                    "(action=suspect) или заведи обращение оператору."
+                )
+            code = book.issue_code(arg("person_id"))
+            return (
+                f"Код {code} действует 15 минут и работает один раз. Передай его человеку "
+                "лично и попроси прислать его с другого аккаунта. Не показывай его никому."
+            )
+        if action == "suspect":
+            first, second = (
+                book.card(arg(k), public=False) for k in ("person_id", "other_person_id")
+            )
+            if first is None or second is None or not arg("basis"):
+                return "Нужны два известных человека и основание (basis)."
+            x, y = first["accounts"][0], second["accounts"][0]
+            book.suspect((x["platform"], x["account"]), (y["platform"], y["account"]), arg("basis"))
+            return (
+                "Подозрение записано, но оно никого не объединяет. Чтобы оператор решил, "
+                "заведи обращение (ticket_raise) с id обоих людей."
+            )
         raise ContractError(ErrorCode.INVALID_ARGUMENTS)
 
     async def _raise(self, scope: Any, a: dict[str, str]) -> dict[str, Any]:

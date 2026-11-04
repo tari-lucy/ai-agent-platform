@@ -111,8 +111,10 @@ class GameSource:
         reflex: Reflex | None = None,
         clock: Callable[[], float] | None = None,
         people: Path | None = None,
+        book: Any = None,
     ) -> None:
         self.people = people  # her notes about players: name and a fact per line
+        self.book = book  # the cross-platform book of people (harness_people), or None
         self._talk: dict[str, float] = {}
         self.reflex = reflex
         self.clock = clock or time.monotonic
@@ -558,12 +560,24 @@ class GameSource:
             if self._own(line):
                 continue  # her own words in the chat are not news for her
             sender = self._sender(line)
+            if self.book is not None and sender is not None:
+                try:  # a proof code may be typed in the game chat by anyone
+                    self.book.redeem("minecraft", sender, sender, line)
+                except Exception:  # noqa: BLE001 - the book never stops the game watch
+                    LOG.warning("People book failed on a game line")
             named = any(name in line.casefold() for name in self.names)
             following = sender is not None and self._talk.get(sender, 0.0) > now
             if named or following:
                 if sender is not None:
                     self._talk[sender] = now + TALK_WINDOW  # the talk goes on while he answers
                 known = self._known(sender) if sender else ""
+                if self.book is not None and sender is not None:
+                    try:
+                        person = self.book.seen("minecraft", sender, sender)
+                        seen = self.book.glimpse(person, "minecraft") if person else ""
+                    except Exception:  # noqa: BLE001
+                        seen = ""
+                    known = " | ".join(part for part in (known, seen) if part)
                 events.append(
                     Event(
                         "game",

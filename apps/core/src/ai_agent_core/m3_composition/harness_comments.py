@@ -35,6 +35,7 @@ class TelegramComments:
         key = hashlib.sha256(repr((scope.partition, channel.settings.chat)).encode()).hexdigest()
         self.path = folder / f"comments-{key[:20]}.json"
         self.lock = asyncio.Lock()
+        self.people: Any = None  # the book of people: who commented, and proof codes
 
     @staticmethod
     async def _io[T](call: Callable[[], T], current: Callable[[], None]) -> T:
@@ -203,6 +204,7 @@ class TelegramComments:
                 "text": text[:4096],
                 "truncated": len(text) > 4096,
             }
+            self._remember(comments[str(mid)])
         data["comments"] = dict(
             sorted(
                 ((k, v) for k, v in comments.items() if v["date"] >= now - RETENTION),
@@ -212,6 +214,20 @@ class TelegramComments:
         data["roots"] = dict(list(roots.items())[-MAX_ROWS:])
         if updates:
             data["offset"] = max(row["update_id"] for row in updates) + 1
+
+    def _remember(self, comment: dict[str, Any]) -> None:
+        """A commenter is a person she meets: recorded by the Telegram user id, and a proof code
+        in the comment joins their accounts. The book failing never stops the comments."""
+        author = comment["author"]
+        if self.people is None or not author.get("telegram_user_id"):
+            return
+        try:
+            name = author.get("name") or author.get("username") or "telegram"
+            account = str(author["telegram_user_id"])
+            self.people.redeem("telegram", account, name, comment["text"])
+            self.people.seen("telegram", account, name)
+        except Exception:  # noqa: BLE001
+            LOG.warning("People book failed on a comment")
 
     async def _refresh(self, data: dict[str, Any], current: Callable[[], None]) -> None:
         binding = list(await asyncio.to_thread(self._binding))

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from .harness_life import Life
     from .harness_listen import Listener
     from .harness_look import Look
+    from .harness_people import PeopleBook
     from .harness_speech import Speaker
     from .harness_stage import Stage
     from .harness_wakes import HarnessWakes
@@ -306,6 +307,7 @@ class HarnessHost:
         self.listener: Listener | None = None
         self.stage: Stage | None = None
         self.chats: ChatHub | None = None
+        self.people: PeopleBook | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -398,6 +400,19 @@ class HarnessHost:
             "below. Any older addresses (192.168.*, 172.*, localhost of the operator's computer, "
             "old IPs from notes and scripts) are obsolete: do not use or probe them."
         )
+        if self.people is not None:
+            prompt += (
+                "\n\n## People\n"
+                "You keep a book of the people you meet, one record per human across every "
+                "place (Minecraft, Telegram, streams, calls). Use person_find / person_recall "
+                "before talking with someone you may know, and person_note after a talk that "
+                "taught you something. Where you speak decides what you may say: in a stream, "
+                "chat, call or the channel only public facts, and never their other accounts or "
+                "what they told you privately. A shared nickname proves nothing; two accounts "
+                "are one person only when the operator says so or when the person proves it "
+                "with a code you gave them privately. To be forgotten is the person's right: "
+                "raise a ticket for the operator."
+            )
         if s.host_ports:
             host = model_url.split("//", 1)[1].split(":", 1)[0]
             names = host_port_names(s.host_ports)
@@ -547,6 +562,7 @@ class HarnessHost:
                 self.listener,
                 self.stage,
                 self.chats,
+                self.people,
             ).handle,
             tuple(s.host_ports.values()),
         )

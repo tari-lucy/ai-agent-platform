@@ -257,6 +257,16 @@ def parser() -> argparse.ArgumentParser:
         "enable-memory", help="explicit offline automatic memory admission"
     )
     memory.add_argument("--root", type=Path, required=True)
+    people = commands.add_parser(
+        "people",
+        help="offline: list/show/link/split/erase people the persona has met (doc37, D94)",
+    )
+    people.add_argument(
+        "action", choices=["list", "show", "link", "split", "erase", "suspicions", "audit"]
+    )
+    people.add_argument("arguments", nargs="*", help="person id p-... or platform:account")
+    people.add_argument("--root", type=Path, required=True)
+    people.add_argument("--yes", action="store_true", help="confirm an erase")
     social = commands.add_parser(
         "enable-social",
         help="explicit offline rights for the private interlocutor and confirmed promises",
@@ -548,6 +558,12 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(enable_memory(arguments.root))
             print("automatic daily memory enabled; usage retained; agent stays STOPPED")
             return 0
+        if arguments.command == "people":
+            from .people_cli import run as run_people
+
+            return run_people(
+                arguments.root, arguments.action, arguments.arguments, yes=arguments.yes
+            )
         if arguments.command == "enable-social":
             asyncio.run(enable_social(arguments.root))
             print("private interlocutor and confirmed promises enabled; agent stays STOPPED")

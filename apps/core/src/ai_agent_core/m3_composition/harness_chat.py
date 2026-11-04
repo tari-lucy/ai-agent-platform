@@ -19,12 +19,15 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ai_agent_adapters.stream.chat_model import ChatError, ChatEvent, ChatMessage, ChatRemoved
 from ai_agent_contracts.common import Scope
 
 from .harness_events import Event, Level
+
+if TYPE_CHECKING:
+    from .harness_people import PeopleBook
 
 LOG = logging.getLogger(__name__)
 KEPT = 300
@@ -66,8 +69,10 @@ class ChatHub:
         retry: float = 15.0,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], datetime] = lambda: datetime.now(UTC),
+        people: PeopleBook | None = None,
     ) -> None:
         self.platforms, self.journal, self.check, self.rules = platforms, journal, check, rules
+        self.people = people
         self.own = {k: v.casefold() for k, v in (own or {}).items()}  # platform -> her nick
         self.daily, self.min_gap, self.retry, self.clock, self.wall = (
             daily_messages,
@@ -133,9 +138,27 @@ class ChatHub:
             return  # her own line coming back
         self._seq += 1
         self._log.append((self._seq, event))
+        if self.people is not None:
+            try:  # a proof code may be typed anywhere: it is checked on every line
+                self.people.redeem(event.platform, event.author_id, event.author, event.text)
+            except Exception:  # noqa: BLE001 - the book never stops the chat
+                LOG.warning("People book failed on a chat line")
         if self._pattern is not None and self._pattern.search(event.text.casefold()):
             key = f"chat-{event.platform}-{event.id or self._seq}"
-            self._called.append((key, _line(event), event))
+            self._called.append((key, self._with_known(event), event))
+
+    def _with_known(self, event: ChatMessage) -> str:
+        """The wake-up line, with what she may recall about this person in a public chat."""
+        line = _line(event)
+        if self.people is None:
+            return line
+        try:
+            person = self.people.seen(event.platform, event.author_id, event.author)
+            known = self.people.glimpse(person, event.platform) if person else ""
+        except Exception:  # noqa: BLE001
+            LOG.warning("People book failed on a mention")
+            return line
+        return f"{line} [{known}]" if known else line
 
     def _forget(self, gone: ChatRemoved) -> None:
         """Drop what was removed on the platform, from the buffer and from the waiting news."""
@@ -170,6 +193,9 @@ class ChatHub:
                 "messages": [
                     {
                         "n": n,
+                        "person": self.people.lookup(m.platform, m.author_id)
+                        if self.people is not None
+                        else None,
                         "platform": m.platform,
                         "author": m.author,
                         "text": m.text,

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
+    from ai_agent_core.m3_composition.harness_people import PeopleBook
     from ai_agent_core.m3_composition.harness_speech import Speaker
     from ai_agent_core.m3_composition.harness_stage import Stage
     from ai_agent_core.m3_composition.service import Runtime
@@ -262,6 +263,9 @@ def install(
     runtime.harness.speaker = speaker(
         settings, host, providers, runtime.harness.usage, runtime.harness.avatar
     )
+    from ai_agent_core.m3_composition.harness_people import PeopleBook
+
+    runtime.harness.people = PeopleBook(host.root / "data" / "harness" / "people.sqlite")
     runtime.harness.stage = stage(settings, providers)
     runtime.harness.chats = chats(
         settings,
@@ -270,6 +274,7 @@ def install(
         runtime.harness.usage,
         model=settings.models[0].name if settings.models else config.live.api_model,
         scope=runtime.supervisor.snapshot.scope,
+        people=runtime.harness.people,
     )
     if runtime.harness.chats is not None:
         runtime.harness.attach(runtime.harness.chats)
@@ -286,6 +291,8 @@ def install(
         model=settings.models[0].name if settings.models else config.live.api_model,
         scope=runtime.supervisor.snapshot.scope,
     )
+    if runtime.harness.channel is not None and runtime.harness.channel.comments is not None:
+        runtime.harness.channel.comments.people = runtime.harness.people
 
     # Local, possibly personal: the agent's alarm texts never go to Git or reports.
     runtime.harness.wakes = HarnessWakes(host.root / "data" / "harness" / "wakes.json")
@@ -318,6 +325,10 @@ def install(
         # The watcher: sources are looked at without a model; the news is graded by her focus and
         # she is woken once, with a digest, only when it matters.
         sources: list = [CommentsSource(runtime.harness), GmSource(runtime)]
+        if runtime.harness.people is not None:
+            from ai_agent_core.m3_composition.harness_people import PeopleSource
+
+            sources.append(PeopleSource(runtime.harness.people))
         if runtime.harness.chats is not None:
             from ai_agent_core.m3_composition.harness_chat import ChatSource
 
@@ -341,6 +352,7 @@ def install(
                 root=Path(settings.files_dir) / persona,
                 reflex=Reflex(),  # the operator's rules for fights, flight and death
                 people=Path(settings.files_dir) / persona / "playbook" / "people.md",
+                book=runtime.harness.people,
             )
             sources.append(game)
             sources.append(
@@ -465,6 +477,7 @@ def chats(
     *,
     model: str,
     scope: Scope,
+    people: PeopleBook | None = None,
 ) -> ChatHub | None:
     """The stream chats she joins: a platform needs its channel/video AND its secrets in .env."""
     from ai_agent_adapters.stream import twitch as tw
@@ -511,6 +524,7 @@ def chats(
         lambda: public_rules(folder / "public-rules.txt"),
         own=own,
         daily_messages=settings.chat_daily_messages,
+        people=people,
     )
 
 
