@@ -257,6 +257,13 @@ def parser() -> argparse.ArgumentParser:
         "enable-memory", help="explicit offline automatic memory admission"
     )
     memory.add_argument("--root", type=Path, required=True)
+    probe = commands.add_parser(
+        "avatar-probe",
+        help="offline: list what the VTube Studio model offers and draft the mapping profile",
+    )
+    probe.add_argument("--root", type=Path, required=True)
+    probe.add_argument("--port", type=int, default=8001, help="loopback port of VTube Studio")
+    probe.add_argument("--draft", help="write a first guess to data/harness/avatar/NAME.json")
     people = commands.add_parser(
         "people",
         help="offline: list/show/link/split/erase people the persona has met (doc37, D94)",
@@ -558,6 +565,10 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(enable_memory(arguments.root))
             print("automatic daily memory enabled; usage retained; agent stays STOPPED")
             return 0
+        if arguments.command == "avatar-probe":
+            from .avatar_cli import run as run_probe
+
+            return run_probe(arguments.root, arguments.port, arguments.draft)
         if arguments.command == "people":
             from .people_cli import run as run_people
 

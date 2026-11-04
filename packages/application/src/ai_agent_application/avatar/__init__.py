@@ -1,5 +1,6 @@
 """Avatar (doc37): semantic emotion, rig mapping profile, mixer service. No transport here."""
 
+from .draft import draft_profile
 from .lipsync import Smoother, drive, window_levels
 from .model import (
     AvatarError,
@@ -25,6 +26,7 @@ __all__ = [
     "ParameterRange",
     "Profile",
     "Smoother",
+    "draft_profile",
     "drive",
     "load_profile",
     "profile_from_json",
