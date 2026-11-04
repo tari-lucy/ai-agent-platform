@@ -15,7 +15,9 @@ the other people's voices) until the server closes the connection.
 Needs: pip install sounddevice.   List devices:  python pc_audio_bridge.py --list-devices
 Run:  python pc_audio_bridge.py --port 8003 --device "CABLE Input" \\
           --capture-port 8004 --capture-device "CABLE Output" --capture-rate 16000
-The device is matched by a part of its name, case-insensitively. Stop with Ctrl+C.
+The device is matched by a part of its name, case-insensitively, or given as the number printed by
+--list-devices (the same cable is listed once per audio API; try another number if one is
+refused). Stop with Ctrl+C.
 """
 
 import argparse
@@ -68,6 +70,8 @@ class DeviceOutput:
 def find_device(name: str | None, *, capture: bool = False) -> str | int | None:
     if name is None:
         return None
+    if name.isdigit():
+        return int(name)  # an index from --list-devices: the same cable appears once per audio API
     import sounddevice  # type: ignore[import-not-found,unused-ignore]
 
     for index, device in enumerate(sounddevice.query_devices()):

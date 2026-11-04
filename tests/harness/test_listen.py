@@ -224,3 +224,19 @@ def test_listen_tool_is_listed_only_with_a_listener_and_follows_the_run(tmp_path
         assert refused == "Отказ: STALE_CONTEXT" and not listener.on
 
     asyncio.run(with_listener())
+
+
+def test_she_does_not_hear_herself_while_speaking_and_just_after(tmp_path):
+    async def scenario():
+        speaking = {"now": True}
+        listener = make(tmp_path, (0.0, [("Опечатка, это я сама", True)]))
+        listener.echo_guard = lambda: speaking["now"]
+        listener.start()
+        await asyncio.sleep(0.3)
+        assert listener.take() == [] and listener.dropped == 1  # her own voice with her name
+        speaking["now"] = False
+        listener._phrase("Опечатка, а это человек")  # noqa: SLF001
+        assert len(listener.take()) == 1
+        await listener.stop()
+
+    asyncio.run(scenario())

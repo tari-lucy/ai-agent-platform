@@ -288,3 +288,15 @@ def test_the_mouth_waits_for_the_sound_by_the_configured_delay(tmp_path):
     spk = speaker(tmp_path, sink=TimedSink(), avatar=avatar, mouth_delay=0.3)
     assert say(spk) == "Сказано."
     assert first["mouth"] - first["sound"] >= 0.25
+
+
+def test_speaking_stays_true_for_a_few_seconds_after_her_voice_ends(tmp_path):
+    clock = {"t": 100.0}
+    spk = speaker(tmp_path, monotonic=lambda: clock["t"])
+    assert spk.speaking is False
+    assert say(spk) == "Сказано."
+    assert spk.speaking is True  # the ears may still catch her
+    clock["t"] += 2.9
+    assert spk.speaking is True
+    clock["t"] += 0.2
+    assert spk.speaking is False

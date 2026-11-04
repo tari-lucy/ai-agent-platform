@@ -341,6 +341,8 @@ def install(
         "listening",
         lambda: listener(settings, host, providers, owner.usage, runtime.supervisor.snapshot.scope),
     )
+    if owner.listener is not None and owner.speaker is not None:
+        owner.listener.echo_guard = lambda: owner.speaker is not None and owner.speaker.speaking
     if runtime.harness.listener is not None:
         runtime.harness.attach(runtime.harness.listener)
     runtime.harness.channel = channel(

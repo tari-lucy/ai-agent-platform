@@ -71,6 +71,8 @@ class Listener:
         self._talk_until = -1e9
         self._heard: deque[tuple[str, str]] = deque(maxlen=KEPT)  # (key, text)
         self.dropped = 0  # phrases not addressed to her: only counted, never kept
+        # Set by the host: True while her own voice may be what the ears catch (no feedback loop).
+        self.echo_guard: Callable[[], bool] | None = None
 
     @property
     def on(self) -> bool:
@@ -177,7 +179,9 @@ class Listener:
     def _flush(self, buffer: list[str]) -> None:
         text = " ".join("".join(buffer).split())
         buffer.clear()
-        if text:
+        if text and self.echo_guard is not None and self.echo_guard():
+            self.dropped += 1  # half-duplex: while she speaks, and just after, she does not listen
+        elif text:
             self._phrase(text[:MAX_PHRASE])
 
     def _phrase(self, text: str) -> None:

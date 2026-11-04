@@ -13,6 +13,7 @@ stored because it is her own public speech and the operator reads it back.
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ MAX_TEXT = 600
 QUEUE = 64  # chunks the synthesis may run ahead of playback (it is faster than real time)
 STUCK = 15.0  # seconds a consumer may refuse a chunk before the phrase is cut
 WATCH = 0.1  # seconds between two looks at STOP while a phrase plays
+ECHO_TAIL = 3.0  # seconds after her own voice ends in which what is heard may still be her
 
 
 class Sink(Protocol):
@@ -50,6 +52,7 @@ class Speaker:
         daily_chars: int = 20000,
         stuck_after: float = STUCK,
         mouth_delay: float = 0.0,
+        monotonic: Callable[[], float] = time.monotonic,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -60,6 +63,13 @@ class Speaker:
         self.mouth_delay = mouth_delay  # the sound takes the network and the device to be heard
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
         self._busy = False
+        self.monotonic = monotonic
+        self._spoke_at = -1e9
+
+    @property
+    def speaking(self) -> bool:
+        """Her own voice is playing, or has just stopped: what the ears catch may be herself."""
+        return self._busy or self.monotonic() - self._spoke_at < ECHO_TAIL
 
     def spoken_today(self) -> int:
         """Characters spoken today (UTC day), from the local journal."""
@@ -98,6 +108,7 @@ class Speaker:
             return await self._say(text, current)
         finally:
             self._busy = False
+            self._spoke_at = self.monotonic()
 
     async def _say(self, text: str, current: Callable[[], None]) -> str:
         # One queue per consumer that exists: an unread queue would fill up and cut the phrase.
