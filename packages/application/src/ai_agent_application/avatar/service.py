@@ -124,6 +124,11 @@ class Avatar:
         if self._held:
             await self.port.inject(self._held)
 
+    async def ready(self) -> bool:
+        """Connect now if not connected (one attempt per ``retry_after``); False: no avatar."""
+        async with self._lock:
+            return await self._ensure()
+
     async def express(self, emotion: Emotion) -> Outcome:
         async with self._lock:
             if not await self._ensure():

@@ -137,3 +137,43 @@ def test_remote_hosts_and_linked_tokens_are_refused(tmp_path):
         assert real.read_text() == "x"
 
     asyncio.run(scenario())
+
+
+def test_avatar_over_the_real_transport_end_to_end(tmp_path):
+    import math
+    from array import array
+
+    from ai_agent_application.avatar import Avatar, Emotion, drive, profile_from_json
+
+    async def scenario():
+        seen = []
+        profile = profile_from_json(
+            {
+                "version": 1,
+                "emotions": {"happy": {"hotkey": "Smile"}, "angry": {"expression": "a.exp3.json"}},
+                "neutral": {"hotkey": "Smile"},
+                "mouth_parameter": "MouthOpen",
+            }
+        )
+        async with serve(program(seen), "127.0.0.1", 0, logger=QUIET) as server:
+            avatar = Avatar(VtsPort(config(server, tmp_path)), profile)
+            speech = array(
+                "h", (int(20000 * math.sin(n / 5)) for n in range(1440 * 3))
+            ).tobytes()  # three loud windows
+
+            async def chunks():
+                yield speech
+
+            async def instant(_):
+                return None
+
+            await drive(avatar, chunks(), 24000, sleep=instant)
+            assert (await avatar.express(Emotion.HAPPY)).applied
+            await avatar.close()
+        kinds = [k for k, _ in seen]
+        assert kinds.count("InjectParameterDataRequest") >= 2  # a mouth frame and the closing one
+        assert "HotkeyTriggerRequest" in kinds
+        injected = [d for k, d in seen if k == "InjectParameterDataRequest"]
+        assert injected[-1]["parameterValues"] == [{"id": "MouthOpen", "value": 0.0}]
+
+    asyncio.run(scenario())
