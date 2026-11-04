@@ -151,6 +151,13 @@ class Avatar:
             )
             if look is None:
                 return Outcome(False, f"Для {emotion.value} в этой модели нет выражения.")
+            shown = self._usable(look)
+            if emotion is not Emotion.NEUTRAL and not (
+                shown.hotkey or shown.expression or shown.parameters
+            ):
+                # Mapped, but nothing it names exists in the loaded model: do not claim a feeling
+                # was shown that nobody can see.
+                return Outcome(False, f"Для {emotion.value} в этой модели нет выражения.")
             try:
                 await self._apply(look)
             except AvatarError, OSError, TimeoutError:

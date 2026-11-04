@@ -214,3 +214,15 @@ def test_profile_file_rules(tmp_path):
         load_profile(link)
     with pytest.raises(AvatarError):
         load_profile(tmp_path / "missing.json")
+
+
+def test_an_emotion_whose_names_all_miss_the_loaded_model_is_not_reported_as_shown():
+    async def scenario():
+        avatar, rig, clock = make()
+        out = await avatar.express(Emotion.SAD)  # mapped to the hotkey "Missing" in PROFILE
+        assert not out.applied and "нет выражения" in out.text
+        assert [c for c in rig.calls if c[0] == "hotkey"] == []
+        clock.now += 2
+        assert (await avatar.express(Emotion.HAPPY)).applied  # nothing was blocked by the miss
+
+    run(scenario())

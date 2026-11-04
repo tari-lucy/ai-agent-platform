@@ -267,6 +267,15 @@ def parser() -> argparse.ArgumentParser:
     probe.add_argument("--root", type=Path, required=True)
     probe.add_argument("--port", type=int, default=8001, help="loopback port of VTube Studio")
     probe.add_argument("--draft", help="write a first guess to data/harness/avatar/NAME.json")
+    live_test = commands.add_parser(
+        "live-test",
+        help="offline: try the avatar, the voice or OBS yourself, without starting the persona",
+    )
+    live_test.add_argument("what", choices=["avatar", "speak", "obs"])
+    live_test.add_argument("--root", type=Path, required=True)
+    live_test.add_argument("--env-file", type=Path, required=True)
+    live_test.add_argument("--text", default="", help="speak: what to say")
+    live_test.add_argument("--scene", default="", help="obs: a scene to switch to")
     people = commands.add_parser(
         "people",
         help="offline: list/show/link/split/erase people the persona has met (doc37, D94)",
@@ -569,6 +578,12 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(enable_memory(arguments.root))
             print("automatic daily memory enabled; usage retained; agent stays STOPPED")
             return 0
+        if arguments.command == "live-test":
+            from .live_test_cli import run as run_live_test
+
+            return run_live_test(
+                arguments.root, arguments.env_file, arguments.what, arguments.text, arguments.scene
+            )
         if arguments.command == "avatar-probe":
             from .avatar_cli import run as run_probe
 
