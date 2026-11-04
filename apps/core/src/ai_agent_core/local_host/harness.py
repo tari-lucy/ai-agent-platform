@@ -3,7 +3,8 @@
 import logging
 import os
 import secrets
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.harness_look import Look
+    from ai_agent_core.m3_composition.harness_speech import Speaker
     from ai_agent_core.m3_composition.service import Runtime
 
     from .provider import LocalProviders
@@ -254,6 +256,9 @@ def install(
     runtime.harness.avatar = avatar(settings, host)
     if runtime.harness.avatar is not None:
         runtime.harness.attach(AvatarPart(runtime.harness.avatar))
+    runtime.harness.speaker = speaker(
+        settings, host, providers, runtime.harness.usage, runtime.harness.avatar
+    )
     runtime.harness.channel = channel(
         settings,
         host,
@@ -382,6 +387,49 @@ def avatar(settings: HarnessConfig, host: HostPaths) -> Avatar | None:
     return Avatar(port, profile)
 
 
+def speaker(
+    settings: HarnessConfig,
+    host: HostPaths,
+    providers: LocalProviders,
+    usage: Usage,
+    avatar: Avatar | None,
+) -> Speaker | None:
+    """Live speech, when a voice, the bridge port and the Soniox key exist (doc37)."""
+    from ai_agent_adapters.voice.pcm_bridge import SinkConfig, TcpSink
+    from ai_agent_adapters.voice.soniox import KEY_SETTING, SonioxAdapter, SonioxConfig
+
+    from ai_agent_core.m3_composition.harness_speech import Speaker
+
+    if settings.speech_voice is None or settings.speech_port is None:
+        return None
+    if KEY_SETTING not in providers.secrets:
+        LOG.warning("Speech off: no Soniox key")
+        return None
+    voice = settings.speech_voice
+
+    async def synth(text: str) -> AsyncIterator[bytes]:
+        adapter = SonioxAdapter.from_env(environ=providers.secrets)
+        try:
+            async with aclosing(adapter.stream_pcm(text, voice)) as chunks:
+                async for chunk in chunks:
+                    yield chunk
+        finally:
+            await adapter.aclose()
+
+    rate = SonioxConfig().sample_rate
+    sink = TcpSink(SinkConfig(url=f"tcp://127.0.0.1:{settings.speech_port}", rate=rate))
+    return Speaker(
+        synth,
+        sink,
+        rate,
+        host.root / "data" / "harness" / "speech.jsonl",
+        avatar=avatar,
+        daily_chars=settings.speech_daily_chars,
+        usage=usage,
+        hour_rate=settings.speech_hour_rate,
+    )
+
+
 def channel(
     settings: HarnessConfig,
     host: HostPaths,
@@ -454,6 +502,7 @@ def configure(
     revoke: str | None = None,
     remove_channel: bool = False,
     remove_avatar: bool = False,
+    remove_speech: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -479,6 +528,12 @@ def configure(
         changes.update(channel=None, channel_voice=None, channel_comments=False)
     if remove_avatar:
         changes.update(avatar_port=None, avatar_profile=None)
+    if remove_speech:
+        changes.update(speech_voice=None, speech_port=None)
+    if (changes.get("speech_voice", current.speech_voice) is None) != (
+        changes.get("speech_port", current.speech_port) is None
+    ):
+        raise HostError("SPEECH_VOICE_AND_PORT")  # both or neither
     final_port = changes.get("avatar_port", current.avatar_port)
     final_profile = changes.get("avatar_profile", current.avatar_profile)
     if (final_port is None) != (final_profile is None):

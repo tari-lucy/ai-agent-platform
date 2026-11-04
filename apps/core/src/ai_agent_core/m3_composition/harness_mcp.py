@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from .harness_channel import ChannelPost
     from .harness_look import Look
+    from .harness_speech import Speaker
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -164,6 +165,20 @@ AVATAR_TOOL: dict[str, Any] = {
     },
 }
 
+SPEAK_TOOL: dict[str, Any] = {
+    "name": "speak",
+    "description": "Say a phrase aloud now, in your own voice: it goes to the live microphone "
+    "(the stream or the call the operator has open) and your avatar's mouth moves with it. "
+    "One phrase at a time, up to 600 characters; if you are still speaking you are told so. "
+    "There is a daily limit and a budget; STOP cuts the phrase off. Everything spoken is "
+    "public and is written to a journal: do not say what you would not post.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "exactly what to say"}},
+        "required": ["text"],
+    },
+}
+
 COMMENT_TOOLS: list[dict[str, Any]] = [
     {
         "name": "channel_comments",
@@ -206,9 +221,10 @@ class PlatformMcp:
         channel: ChannelPost | None = None,
         look: Look | None = None,
         avatar: Avatar | None = None,
+        speaker: Speaker | None = None,
     ) -> None:
         self.rt, self.epoch, self.wakes, self.channel = runtime, epoch, wakes, channel
-        self.look, self.avatar = look, avatar
+        self.look, self.avatar, self.speaker = look, avatar, speaker
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -243,6 +259,7 @@ class PlatformMcp:
                 tools = TOOLS + ([CHANNEL_TOOL] if self.channel else [])
                 tools += [LOOK_TOOL] if self.look else []
                 tools += [AVATAR_TOOL] if self.avatar else []
+                tools += [SPEAK_TOOL] if self.speaker else []
                 if (
                     self.channel is not None
                     and self.channel.comments is not None
@@ -355,6 +372,17 @@ class PlatformMcp:
             outcome = await self.avatar.express(emotion)
             self._current()  # STOP during the change: the answer is not released
             return _text(outcome.text)
+        if name == "speak":
+            if self.speaker is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            epoch = self.rt.supervisor.snapshot.control_epoch
+
+            def still() -> None:
+                self._current()
+                if self.rt.supervisor.snapshot.control_epoch != epoch:
+                    raise ContractError(ErrorCode.STALE_CONTEXT)
+
+            return _text(await self.speaker.speak(a.get("text", ""), still))
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

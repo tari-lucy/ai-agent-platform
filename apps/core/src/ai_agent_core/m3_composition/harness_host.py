@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from .harness_channel import ChannelPost
     from .harness_life import Life
     from .harness_look import Look
+    from .harness_speech import Speaker
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -187,6 +188,23 @@ class Usage:
         with self._path().open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry) + "\n")
 
+    def record_amount(self, amount: float, *, source: str) -> None:
+        """Money that is not a model call (speech, listening): a row of its own, same day sum."""
+        if self.settings.input_rate is None or amount <= 0:
+            return
+        entry = {
+            "at": datetime.now(UTC).isoformat(),
+            "input": None,
+            "output": None,
+            "cached": None,
+            "cost": round(amount, 6),
+            "currency": self.settings.currency,
+            "source": source,
+        }
+        self.settings.usage_dir.mkdir(parents=True, exist_ok=True)
+        with self._path().open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(entry) + "\n")
+
     def _rows(self) -> list[dict[str, Any]]:
         """Today's rows in the current currency: a switch (RUB -> USD) does not mix sums.
 
@@ -281,6 +299,7 @@ class HarnessHost:
         self.channel: ChannelPost | None = None
         self.look: Look | None = None
         self.avatar: Avatar | None = None
+        self.speaker: Speaker | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -487,7 +506,13 @@ class HarnessHost:
             s.port,
             self._record,
             PlatformMcp(
-                rt, lambda: self.epoch, self.wakes, self.channel, self.look, self.avatar
+                rt,
+                lambda: self.epoch,
+                self.wakes,
+                self.channel,
+                self.look,
+                self.avatar,
+                self.speaker,
             ).handle,
             tuple(s.host_ports.values()),
         )

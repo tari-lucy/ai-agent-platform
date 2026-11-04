@@ -359,6 +359,12 @@ class HarnessConfig(BaseModel):
     # (the reverse tunnel puts it there), and the rig mapping profile in data/harness/avatar/.
     avatar_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
     avatar_profile: str | None = Field(default=None, pattern=r"^[\w-]{1,60}\.json$")
+    # Live speech (doc37): Soniox voice, loopback port of the PC audio bridge (the tunnel puts it
+    # there), a daily cap of characters and the price of one hour of audio in ``currency``.
+    speech_voice: str | None = Field(default=None, pattern=r"^[\w -]{1,40}$")
+    speech_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
+    speech_daily_chars: int = Field(default=20000, strict=True, ge=100, le=1_000_000)
+    speech_hour_rate: float = Field(default=0.0, ge=0, le=10_000)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

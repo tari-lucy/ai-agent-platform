@@ -208,6 +208,15 @@ def parser() -> argparse.ArgumentParser:
         help="rig mapping file name inside data/harness/avatar/ (e.g. opechatka.json)",
     )
     harness.add_argument("--remove-avatar", action="store_true", help="turn the avatar off")
+    harness.add_argument("--speech-voice", help="Soniox voice for live speech (e.g. Kayla), doc37")
+    harness.add_argument(
+        "--speech-port", type=int, help="loopback port of the PC audio bridge (the tunnel's)"
+    )
+    harness.add_argument("--speech-daily-chars", type=int, help="characters she may speak a day")
+    harness.add_argument(
+        "--speech-hour-rate", type=float, help="price of one hour of speech/listening audio"
+    )
+    harness.add_argument("--remove-speech", action="store_true", help="turn live speech off")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -634,6 +643,11 @@ def main(argv: list[str] | None = None) -> int:
                     cached_rate=arguments.cached_rate,
                     models=_parse_models(arguments.models),
                     vision_models=_parse_models(arguments.vision_models),
+                    speech_voice=arguments.speech_voice,
+                    speech_port=arguments.speech_port,
+                    speech_daily_chars=arguments.speech_daily_chars,
+                    speech_hour_rate=arguments.speech_hour_rate,
+                    remove_speech=arguments.remove_speech,
                     avatar_port=arguments.avatar_port,
                     avatar_profile=arguments.avatar_profile,
                     remove_avatar=arguments.remove_avatar,
