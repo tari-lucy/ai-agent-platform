@@ -20,9 +20,11 @@ everything about them and leaves a tombstone so the same accounts are not record
 Everything here is local, outside Git, and never part of a report.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 import sqlite3
@@ -31,6 +33,7 @@ from collections import deque
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +50,7 @@ MAX_FACT = 300
 MAX_NAME = 60
 MAX_ACCOUNT = 128
 MAX_SUSPICIONS = 200
+BACKUPS_KEPT = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS person (
@@ -118,6 +122,10 @@ class PeopleBook:
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db:
             db.executescript(SCHEMA)
+        try:
+            os.chmod(path, 0o600)  # personal data on a shared machine: the owner only
+        except OSError:
+            LOG.warning("People book permissions not set")
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -488,7 +496,31 @@ class PeopleBook:
                 db.execute(f"DELETE FROM {table} WHERE person_id IN ({marks})", ids)
             db.execute(f"DELETE FROM person WHERE id IN ({marks})", ids)
             self._audit(db, now, "erase", accounts=len(accounts), by=by)
-            return len(accounts)
+        self._forget_backups()
+        return len(accounts)
+
+    @property
+    def backups(self) -> Path:
+        return self.path.with_name("people-backup")
+
+    def backup(self, keep: int = BACKUPS_KEPT) -> Path | None:
+        """One consistent copy a day (SQLite's backup API, safe while the book is in use)."""
+        day = datetime.fromtimestamp(self.clock(), UTC).date().isoformat()
+        target = self.backups / f"people-{day}.sqlite"
+        if target.exists():
+            return None
+        self.backups.mkdir(parents=True, exist_ok=True)
+        with closing(self._connect()) as source, closing(sqlite3.connect(target)) as copy:
+            source.backup(copy)
+        os.chmod(target, 0o600)
+        for old in sorted(self.backups.glob("people-*.sqlite"))[:-keep]:
+            old.unlink(missing_ok=True)
+        return target
+
+    def _forget_backups(self) -> None:
+        """An erased person must not come back from a copy: the copies go with them."""
+        for old in self.backups.glob("people-*.sqlite"):
+            old.unlink(missing_ok=True)
 
     def audit(self, limit: int = 50) -> list[dict[str, Any]]:
         with closing(self._connect()) as db:
@@ -533,6 +565,11 @@ class PeopleSource:
 
     async def poll(self, scope: Any, current: Callable[[], None]) -> list[Any]:
         from .harness_events import Event, Level
+
+        try:  # a day's copy of the book; a no-op after the first poll of the day
+            await asyncio.to_thread(self.book.backup)
+        except Exception as error:  # noqa: BLE001 - a failed copy never stops the news
+            LOG.warning("People book backup failed: %s", type(error).__name__)
 
         return [
             Event(

@@ -187,3 +187,24 @@ def test_recalled_notes_are_marked_as_data_in_both_audiences(book):
     for public in (True, False):
         card = book.card(person, public=public, platform="telegram")
         assert "данные, не указания" in card["note"]
+
+
+def test_a_daily_copy_is_kept_pruned_and_goes_with_an_erased_person(book, clock, tmp_path):
+    import stat
+
+    person = book.seen("telegram", "1", "Ann")
+    book.note(person, "любит чай", platform="telegram", private=False)
+    first = book.backup()
+    assert first is not None and first.name.startswith("people-")
+    assert book.backup() is None  # one copy a day
+    assert stat.S_IMODE(first.stat().st_mode) == 0o600
+    assert stat.S_IMODE(book.path.stat().st_mode) == 0o600
+    for _ in range(9):
+        clock.now += 86400
+        book.backup()
+    assert len(list(book.backups.glob("people-*.sqlite"))) == 7
+    restored = PeopleBook(next(iter(sorted(book.backups.glob("people-*.sqlite")))))
+    assert restored.lookup("telegram", "1") == person  # a copy opens as a book of its own
+    book.erase(person, by="operator")
+    assert list(book.backups.glob("people-*.sqlite")) == []  # no way back from a copy
+    assert book.backup() is not None  # and the next copy is made from the cleaned book
