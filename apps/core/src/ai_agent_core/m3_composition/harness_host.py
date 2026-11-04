@@ -282,6 +282,11 @@ class HarnessPart(Protocol):
 class HarnessHost:
     # Optional owners default to none, so a host built without __init__ (tests) still works.
     people: PeopleBook | None = None
+    avatar: Avatar | None = None
+    speaker: Speaker | None = None
+    listener: Listener | None = None
+    stage: Stage | None = None
+    chats: ChatHub | None = None
 
     def __init__(
         self,
@@ -403,6 +408,26 @@ class HarnessHost:
             "below. Any older addresses (192.168.*, 172.*, localhost of the operator's computer, "
             "old IPs from notes and scripts) are obsolete: do not use or probe them."
         )
+        live = [
+            label
+            for label, part in (
+                ("avatar_express (your face)", self.avatar),
+                ("speak (aloud)", self.speaker),
+                ("listen (hear a stream or call)", self.listener),
+                ("stream_status/stream_scene (OBS)", self.stage),
+                ("chat_read/chat_say (stream chats)", self.chats),
+            )
+            if part is not None
+        ]
+        if live:
+            prompt += (
+                "\n\n## Live\n"
+                "You can appear on streams and in calls: " + ", ".join(live) + ". The operator "
+                "starts and ends a broadcast or a call, never you. Keep phrases short, read the "
+                "chat between them, show feelings with your face sparingly. Voice and hearing cost "
+                "money by the hour: switch listening off when nobody talks to you. Read "
+                "/workspace/playbook/live.md at the start of a stream or call."
+            )
         if self.people is not None:
             prompt += (
                 "\n\n## People\n"
