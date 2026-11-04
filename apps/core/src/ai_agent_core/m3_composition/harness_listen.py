@@ -145,22 +145,27 @@ class Listener:
         stream = self.transcribe(metered(), rate)
         buffer: list[str] = []
         pending: asyncio.Future[Any] | None = None
+        loop = asyncio.get_running_loop()
+        last_word = loop.time()
         try:
             while True:
                 if pending is None:
                     pending = asyncio.ensure_future(anext(stream))
                 done, _ = await asyncio.wait({pending}, timeout=self.gap)
-                if not done:  # silence: the phrase is over
+                if done:
+                    update, pending = pending.result(), None
+                    for token in update.tokens:
+                        if not token.is_final:
+                            continue
+                        if token.text.startswith("<") and token.text.endswith(">"):
+                            self._flush(buffer)  # an end-of-phrase mark from the service
+                        else:
+                            buffer.append(token.text)
+                            last_word = loop.time()
+                # Silence after the last word ends the phrase even when the service keeps sending
+                # empty progress updates and no end mark: time since the last WORD, not update.
+                if buffer and loop.time() - last_word >= self.gap:
                     self._flush(buffer)
-                    continue
-                update, pending = pending.result(), None
-                for token in update.tokens:
-                    if not token.is_final:
-                        continue
-                    if token.text.startswith("<") and token.text.endswith(">"):
-                        self._flush(buffer)  # an end-of-phrase mark from the service
-                    else:
-                        buffer.append(token.text)
         except StopAsyncIteration:
             self._flush(buffer)
         finally:

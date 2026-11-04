@@ -240,3 +240,24 @@ def test_she_does_not_hear_herself_while_speaking_and_just_after(tmp_path):
         await listener.stop()
 
     asyncio.run(scenario())
+
+
+def test_a_phrase_ends_after_the_silence_even_when_the_service_keeps_chattering(tmp_path):
+    async def chatty(chunks, rate):
+        async for _ in chunks:
+            break
+        yield TranscriptUpdate((SpeechToken("Опечатка, слышишь?", True),), False, None, None)
+        for _ in range(100):  # progress updates without words, no end mark, faster than the gap
+            await asyncio.sleep(0.01)
+            yield TranscriptUpdate((), False, None, None)
+
+    async def scenario():
+        listener = Listener(
+            capture([]), chatty, ["Опечатка"], tmp_path / "l.jsonl", gap=0.1, retry=0.01
+        )
+        listener.start()
+        await asyncio.sleep(0.5)
+        assert [text for _, text in listener.take()] == ["Опечатка, слышишь?"]
+        await listener.stop()
+
+    asyncio.run(scenario())
