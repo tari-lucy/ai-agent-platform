@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 LOG = logging.getLogger(__name__)
 KEPT = 300
 ADDRESSED = 20
+SAME_VOICE = 15.0  # seconds: one viewer's repeated mentions make one wake-up, not many
 MAX_LINE = 200  # the shortest limit of the platforms (YouTube)
 READ_MAX = 30
 SLOW = {"youtube:not-live": 120.0, "twitch:denied": 900.0, "youtube:denied": 900.0}
@@ -91,6 +92,7 @@ class ChatHub:
         self._seq = 0
         self._called: deque[tuple[str, str, ChatMessage]] = deque(maxlen=ADDRESSED)
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._called_at: dict[tuple[str, str], float] = {}
         self._last_say: dict[str, tuple[float, str]] = {}
         self._lock = asyncio.Lock()
         self.connected: set[str] = set()
@@ -144,6 +146,13 @@ class ChatHub:
             except Exception:  # noqa: BLE001 - the book never stops the chat
                 LOG.warning("People book failed on a chat line")
         if self._pattern is not None and self._pattern.search(event.text.casefold()):
+            now = self.clock()
+            voice = (event.platform, event.author_id)
+            if now - self._called_at.get(voice, -1e9) < SAME_VOICE:
+                return  # still in the buffer for chat_read, but no second wake-up
+            if len(self._called_at) > 500:
+                self._called_at = {k: t for k, t in self._called_at.items() if now - t < SAME_VOICE}
+            self._called_at[voice] = now
             key = f"chat-{event.platform}-{event.id or self._seq}"
             self._called.append((key, self._with_known(event), event))
 
@@ -291,12 +300,14 @@ def _line(message: ChatMessage) -> str:
 class ChatSource:
     name = "chat"
 
-    def __init__(self, hub: ChatHub, interval: float = 5.0) -> None:
+    def __init__(self, hub: ChatHub, interval: float = 1.0) -> None:
         self.hub, self.interval = hub, interval
 
     async def poll(self, scope: Scope, current: Callable[[], None]) -> list[Event]:
+        # A viewer calling her by name in a live chat is a talk: it wakes her at once, like words
+        # addressed to her in the game (kind "talk": the short talk gap applies, not the HIGH one).
         return [
-            Event("chat", "mention", key, text, Level.HIGH) for key, text in self.hub.take_called()
+            Event("chat", "talk", key, text, Level.CRITICAL) for key, text in self.hub.take_called()
         ]
 
     async def delivered(self, scope: Scope, current: Callable[[], None]) -> None:

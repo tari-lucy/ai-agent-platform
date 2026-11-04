@@ -416,7 +416,14 @@ def install(
             sources.append(IdleSource(runtime, game))  # the drive: a push when she stops in a world
             focus = game.focus
         runtime.harness.attach(
-            Watch(runtime, sources, host.root / "data" / "harness" / "events.json", focus=focus)
+            Watch(
+                runtime,
+                sources,
+                host.root / "data" / "harness" / "events.json",
+                focus=focus,
+                # A live conversation cannot wait five seconds for the next look at the news.
+                step=1.0 if (runtime.harness.listener or runtime.harness.chats) else 5.0,
+            )
         )
     return None
 
