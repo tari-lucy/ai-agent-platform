@@ -372,6 +372,8 @@ class HarnessConfig(BaseModel):
         default_factory=list, max_length=8
     )
     listen_max_minutes: int = Field(default=180, strict=True, ge=1, le=1440)
+    # OBS (doc37): loopback port of obs-websocket on the operator's PC (the tunnel puts it there).
+    obs_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

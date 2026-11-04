@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .harness_listen import Listener
     from .harness_look import Look
     from .harness_speech import Speaker
+    from .harness_stage import Stage
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -194,6 +195,25 @@ LISTEN_TOOL: dict[str, Any] = {
     },
 }
 
+STAGE_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "stream_status",
+        "description": "Is the broadcast or the recording on, which scene is showing and which "
+        "scenes exist (OBS). You cannot start or end a broadcast: that is the operator's.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "stream_scene",
+        "description": "Switch OBS to one of the scenes the operator made (names from "
+        "stream_status). Changes closer than a few seconds are skipped.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"scene": {"type": "string"}},
+            "required": ["scene"],
+        },
+    },
+]
+
 COMMENT_TOOLS: list[dict[str, Any]] = [
     {
         "name": "channel_comments",
@@ -238,10 +258,11 @@ class PlatformMcp:
         avatar: Avatar | None = None,
         speaker: Speaker | None = None,
         listener: Listener | None = None,
+        stage: Stage | None = None,
     ) -> None:
         self.rt, self.epoch, self.wakes, self.channel = runtime, epoch, wakes, channel
         self.look, self.avatar, self.speaker = look, avatar, speaker
-        self.listener = listener
+        self.listener, self.stage = listener, stage
 
     def _current(self) -> None:
         run = self.rt.supervisor.snapshot
@@ -278,6 +299,7 @@ class PlatformMcp:
                 tools += [AVATAR_TOOL] if self.avatar else []
                 tools += [SPEAK_TOOL] if self.speaker else []
                 tools += [LISTEN_TOOL] if self.listener else []
+                tools += STAGE_TOOLS if self.stage else []
                 if (
                     self.channel is not None
                     and self.channel.comments is not None
@@ -412,6 +434,15 @@ class PlatformMcp:
             if mode == "off":
                 return _text(await self.listener.stop())
             return _text(self.listener.status())
+        if name in ("stream_status", "stream_scene"):
+            if self.stage is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            if name == "stream_status":
+                text = await self.stage.status()
+            else:
+                text = await self.stage.scene(a.get("scene", ""))
+            self._current()  # STOP during the call: the answer is not released
+            return _text(text)
         if name == "wake_me":
             if self.wakes is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

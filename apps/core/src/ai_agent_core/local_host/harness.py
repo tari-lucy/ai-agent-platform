@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
     from ai_agent_core.m3_composition.harness_speech import Speaker
+    from ai_agent_core.m3_composition.harness_stage import Stage
     from ai_agent_core.m3_composition.service import Runtime
 
     from .provider import LocalProviders
@@ -260,6 +261,7 @@ def install(
     runtime.harness.speaker = speaker(
         settings, host, providers, runtime.harness.usage, runtime.harness.avatar
     )
+    runtime.harness.stage = stage(settings, providers)
     runtime.harness.listener = listener(
         settings, host, providers, runtime.harness.usage, runtime.supervisor.snapshot.scope
     )
@@ -440,6 +442,23 @@ def speaker(
     )
 
 
+def stage(settings: HarnessConfig, providers: LocalProviders) -> Stage | None:
+    """The OBS stage, when the operator set a port; the password is optional in .env."""
+    from ai_agent_adapters.stream.obs import PASSWORD_SETTING, ObsConfig, ObsPort
+    from pydantic import SecretStr
+
+    from ai_agent_core.m3_composition.harness_stage import Stage
+
+    if settings.obs_port is None:
+        return None
+    password = providers.secrets.get(PASSWORD_SETTING)
+    port = ObsPort(
+        ObsConfig(url=f"ws://127.0.0.1:{settings.obs_port}"),
+        SecretStr(password) if password else None,
+    )
+    return Stage(port)
+
+
 def listener(
     settings: HarnessConfig,
     host: HostPaths,
@@ -559,6 +578,7 @@ def configure(
     remove_avatar: bool = False,
     remove_speech: bool = False,
     remove_listen: bool = False,
+    remove_obs: bool = False,
     **values: object,
 ) -> HarnessConfig:
     """Offline: enable or change the harness; unspecified values keep their current setting.
@@ -584,6 +604,8 @@ def configure(
         changes.update(channel=None, channel_voice=None, channel_comments=False)
     if remove_avatar:
         changes.update(avatar_port=None, avatar_profile=None)
+    if remove_obs:
+        changes.update(obs_port=None)
     if remove_listen:
         changes.update(listen_port=None, listen_names=[])
     if remove_speech:

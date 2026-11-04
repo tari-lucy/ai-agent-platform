@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from .harness_listen import Listener
     from .harness_look import Look
     from .harness_speech import Speaker
+    from .harness_stage import Stage
     from .harness_wakes import HarnessWakes
     from .service import Runtime
 
@@ -302,6 +303,7 @@ class HarnessHost:
         self.avatar: Avatar | None = None
         self.speaker: Speaker | None = None
         self.listener: Listener | None = None
+        self.stage: Stage | None = None
         self.life: Life | None = None
 
     def tick(self) -> None:
@@ -516,6 +518,7 @@ class HarnessHost:
                 self.avatar,
                 self.speaker,
                 self.listener,
+                self.stage,
             ).handle,
             tuple(s.host_ports.values()),
         )

@@ -225,6 +225,10 @@ def parser() -> argparse.ArgumentParser:
     )
     harness.add_argument("--listen-max-minutes", type=int, help="longest one listening session")
     harness.add_argument("--remove-listen", action="store_true", help="turn listening off")
+    harness.add_argument(
+        "--obs-port", type=int, help="loopback port of obs-websocket (the tunnel's), doc37"
+    )
+    harness.add_argument("--remove-obs", action="store_true", help="turn the OBS link off")
     harness.add_argument("--context-tokens", type=int)
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
@@ -662,6 +666,8 @@ def main(argv: list[str] | None = None) -> int:
                     else None,
                     listen_max_minutes=arguments.listen_max_minutes,
                     remove_listen=arguments.remove_listen,
+                    obs_port=arguments.obs_port,
+                    remove_obs=arguments.remove_obs,
                     avatar_port=arguments.avatar_port,
                     avatar_profile=arguments.avatar_profile,
                     remove_avatar=arguments.remove_avatar,
