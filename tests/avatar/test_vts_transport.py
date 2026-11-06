@@ -171,7 +171,7 @@ def test_avatar_over_the_real_transport_end_to_end(tmp_path):
                 yield speech
 
             async def instant(_):
-                return None
+                await asyncio.sleep(0.05)  # the connection is made meanwhile, as in real time
 
             await drive(avatar, chunks(), 24000, sleep=instant)
             assert (await avatar.express(Emotion.HAPPY)).applied

@@ -89,6 +89,7 @@ def make():
 
     async def sleep(seconds):  # the audio's pace, on the fake clock
         clock.now += seconds
+        await asyncio.sleep(0)  # other tasks (the connection) get their turn, as in real time
 
     return avatar, rig, sleep
 
@@ -202,3 +203,41 @@ def test_a_quiet_phrase_is_not_blown_up_to_a_wide_mouth():
 
     envelope = Envelope()
     assert [envelope(0.01) for _ in range(5)] == [0.0] * 5  # breathing/noise: shut
+
+
+def test_a_slow_connection_does_not_shift_the_mouth_later_than_the_voice():
+    """The program connects half-way through the phrase: earlier frames are skipped, the rest
+    stay in step, and the mouth does not run on after the voice has ended."""
+
+    async def scenario():
+        clock = Clock()
+        gate = asyncio.Event()
+        rig = Rig()
+        connect = rig.connect
+
+        async def slow_connect():
+            await gate.wait()  # the program answers late
+            return await connect()
+
+        rig.connect = slow_connect
+        profile = profile_from_json(
+            {"version": 1, "neutral": {"hotkey": "Reset"}, "mouth_parameter": "MouthOpen"}
+        )
+        avatar = Avatar(rig, profile, clock=clock)
+        windows = 40  # 2.4 s of speech
+
+        async def sleep(seconds):
+            clock.now += seconds
+            if clock.now - began > 1.2:
+                gate.set()  # connected half-way through
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        began = clock.now
+        speech = (tone(0.5, 2) + tone(0.0, 2)) * (windows // 4)  # syllables, so frames differ
+        await drive(avatar, stream(speech), RATE, sleep=sleep, now=clock)
+        return clock.now - began, len(rig.mouth)
+
+    took, frames = asyncio.run(scenario())
+    assert abs(took - 2.4) < 0.2  # it ends with the voice, not seconds after it
+    assert 5 < frames < 40  # the first half skipped, the second half drawn

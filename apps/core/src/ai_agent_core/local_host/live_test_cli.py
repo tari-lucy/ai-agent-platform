@@ -72,10 +72,20 @@ async def check(
         if speaker is None:
             out("Голос не настроен (--speech-voice, --speech-port) или нет ключа Soniox в .env.")
             return False
-        said = await speaker.speak(text or "Проверка голоса. Меня слышно?", lambda: None)
-        out(said)
-        if avatar is not None:
-            await avatar.close()
+        keeper = None
+        if avatar is not None:  # as in a running persona: connected beforehand, resting face held
+            await avatar.ready()
+            keeper = AvatarPart(avatar)
+            keeper.tick()
+            await asyncio.sleep(1.0)
+        try:
+            said = await speaker.speak(text or "Проверка голоса. Меня слышно?", lambda: None)
+            out(said)
+        finally:
+            if keeper is not None:
+                await keeper.close()
+            if avatar is not None:
+                await avatar.close()
         return said == "Сказано."
     if what == "obs":
         stage = build_stage(settings, providers)

@@ -105,7 +105,10 @@ async def drive(
     """
     smooth, envelope, pending = Smoother(), Envelope(), b""
     step, start, index = window_ms / 1000, 0.0, 0
-    await avatar.ready()  # speech may be the first thing she does: connect before the first frame
+    # Speech may be the first thing she does. The connection (seconds through a tunnel) is made
+    # while the sound already plays, and frames before it are skipped: waiting for it first
+    # would shift the whole mouth later than the voice.
+    connecting = asyncio.ensure_future(avatar.ready())
     size = rate * window_ms // 1000 * 2
     try:
         async for chunk in chunks:
@@ -120,10 +123,12 @@ async def drive(
                 due = start + index * step
                 index += 1
                 value = smooth(envelope(rms))
-                if now() - due <= 2 * step:  # a frame much too late is skipped, not sent
+                if connecting.done() and now() - due <= 2 * step:  # too late: skipped, not sent
                     await avatar.mouth(value)
                 await sleep(max(start + index * step - now(), 0.0))
     finally:
+        if not connecting.done():
+            connecting.cancel()
         # Also when cancelled: shielded, because the cleanup itself must not be cancelled.
         with suppress(Exception):
             await asyncio.shield(avatar.neutral())
