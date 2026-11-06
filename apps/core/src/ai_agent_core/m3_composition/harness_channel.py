@@ -387,7 +387,14 @@ def _completion(
     def call(prompt: str, image: bytes | None) -> dict[str, Any]:
         content: Any = prompt
         if image is not None:
-            url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
+            kind = (
+                "png"
+                if image.startswith(b"\x89PNG")
+                else "webp"
+                if image[:4] == b"RIFF" and image[8:12] == b"WEBP"
+                else "jpeg"
+            )
+            url = f"data:image/{kind};base64," + base64.b64encode(image).decode()
             content = [
                 {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": url}},

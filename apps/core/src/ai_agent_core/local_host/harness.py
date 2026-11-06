@@ -448,15 +448,19 @@ def look(
     models: list[str],
     scope: Scope,
 ) -> Look | None:
-    """Sight: the look tool over her shots folder, when the model binding and files exist."""
+    """Sight: the look tool over her shots and the operator's inbox, when the model binding and files exist."""
     from ai_agent_core.m3_composition.harness_channel import model_describe
     from ai_agent_core.m3_composition.harness_look import Look
 
     if not settings.files_dir or providers.binding is None:
         return None
     upstream, key = providers.binding
-    folder = Path(settings.files_dir) / scope.persona_id / "shots"
-    return Look(folder, model_describe(upstream, key, models, usage))
+    home = Path(settings.files_dir) / scope.persona_id
+    return Look(
+        home / "shots",
+        model_describe(upstream, key, models, usage),
+        others={"inbox": home / "inbox"},
+    )
 
 
 SPEECH_PREBUFFER = (

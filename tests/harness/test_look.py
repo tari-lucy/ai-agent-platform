@@ -59,9 +59,9 @@ def test_only_plain_names_of_regular_jpegs_in_the_folder(tmp_path):
     (folder / "text.jpg").write_bytes(b"not a jpeg")
     look = Look(folder, describe)
     for bad in ("../secret.jpg", "link.jpg", "text.jpg", "missing.jpg", "x.png"):
-        assert go(look.look(bad, "", lambda: None)).startswith("Нет такого кадра")
+        assert go(look.look(bad, "", lambda: None)).startswith("Нет такой картинки")
     listing = go(look.look("missing.jpg", "", lambda: None))
-    assert "Последние кадры:" in listing and "ok.jpg" in listing and "link.jpg" not in listing
+    assert "Последние файлы:" in listing and "ok.jpg" in listing and "link.jpg" not in listing
     assert seen == []
     assert Look(tmp_path / "nowhere", describe).newest() is None
 
@@ -166,3 +166,40 @@ def test_look_tells_the_agent_plainly_when_no_model_saw_the_picture(tmp_path):
     look = Look(shots(tmp_path, "a.jpg"), blind)
     text = go(look.look("a.jpg", "", lambda: None))
     assert "не получили картинку" in text and not look._cache  # noqa: SLF001
+
+
+PNG = b"\x89PNG\r\n\x1a\nsynthetic"
+
+
+def test_the_operator_inbox_and_png_pictures_can_be_looked_at(tmp_path):
+    describe, seen = describer("На картинке кот.")
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "Снимок экрана (1).png").write_bytes(PNG)
+    (inbox / "photo_2026-09-22_20-37-55.jpg").write_bytes(JPEG + b"cat")
+    os.utime(inbox / "photo_2026-09-22_20-37-55.jpg", (500, 500))
+    look = Look(shots(tmp_path, "a.jpg"), describe, others={"inbox": inbox})
+    answer = go(look.look("", "что на картинке?", lambda: None, "inbox"))
+    assert "На картинке кот." in answer and "Снимок экрана (1).png" in answer
+    assert seen[0][1] == PNG  # the newest file of the inbox, as it is
+    assert "photo_2026" in go(look.look("photo_2026-09-22_20-37-55.jpg", "", lambda: None, "inbox"))
+    go(look.look("", "", lambda: None))  # no folder: her game shots as before
+    assert seen[-1][1].endswith(b"a.jpg")
+
+
+def test_other_folders_links_and_odd_names_stay_closed(tmp_path):
+    describe, seen = describer()
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (tmp_path / "secret.png").write_bytes(PNG)
+    (inbox / "link.png").symlink_to(tmp_path / "secret.png")
+    (inbox / "fake.png").write_bytes(b"not a picture")
+    (inbox / "ok.webp").write_bytes(b"RIFF\x00\x00\x00\x00WEBPVP8 ")
+    look = Look(shots(tmp_path, "a.jpg"), describe, others={"inbox": inbox})
+    assert go(look.look("", "", lambda: None, "../etc")).startswith("Нет такой папки")
+    assert go(look.look("", "", lambda: None, "share")).startswith("Нет такой папки")
+    for bad in ("../secret.png", "link.png", "fake.png", ".hidden.png", "a/b.png"):
+        assert go(look.look(bad, "", lambda: None, "inbox")).startswith("Нет такой картинки")
+    assert seen == []
+    assert "ok.webp" in go(look.look("ok.webp", "", lambda: None, "inbox"))
+    assert seen[0][1].startswith(b"RIFF")
