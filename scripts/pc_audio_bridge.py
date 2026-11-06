@@ -117,7 +117,7 @@ async def handle(
                 if size > MAX_FRAME or size % 2:
                     return
                 await asyncio.to_thread(opened.write, await reader.readexactly(size))
-        except asyncio.IncompleteReadError, ConnectionError:
+        except (asyncio.IncompleteReadError, ConnectionError):  # fmt: skip
             pass  # closed without the end frame: an abort
         finally:
             if output is not None:
@@ -171,7 +171,7 @@ async def handle_capture(
                 writer.write(FRAME.pack(len(data)) + data)
                 await writer.drain()
             closed.cancel()
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):  # fmt: skip
             pass
         finally:
             if capture is not None:
