@@ -52,6 +52,7 @@ class Speaker:
         daily_chars: int = 20000,
         stuck_after: float = STUCK,
         mouth_delay: float = 0.0,
+        prebuffer: float = 0.0,
         monotonic: Callable[[], float] = time.monotonic,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
@@ -61,6 +62,7 @@ class Speaker:
         self.avatar, self.daily_chars, self.clock = avatar, daily_chars, clock
         self.stuck_after = stuck_after
         self.mouth_delay = mouth_delay  # the sound takes the network and the device to be heard
+        self.prebuffer = prebuffer  # seconds of audio gathered before the phrase starts playing
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
         self._busy = False
         self.monotonic = monotonic
@@ -118,16 +120,37 @@ class Speaker:
 
         made = 0  # bytes of audio synthesised: this is what is paid for, heard or not
 
+        threshold = int(self.prebuffer * self.rate * 2)  # 16-bit mono
+        held: list[bytes] = []
+        held_bytes = 0
+        released = threshold <= 0
+
+        async def deliver(chunk: bytes) -> None:
+            for queue in queues:
+                # The synthesis is faster than real time, playback and the mouth are not: a
+                # full queue just holds the producer back. Only a consumer that takes nothing
+                # for ``stuck_after`` seconds is stuck, and then the phrase is cut.
+                await asyncio.wait_for(queue.put(chunk), self.stuck_after)
+
         async def pump() -> None:
-            nonlocal made
+            nonlocal made, held_bytes, released
             async for chunk in self.synth(text):
                 made += len(chunk)
                 current()  # STOP between chunks: nothing more is released
-                for queue in queues:
-                    # The synthesis is faster than real time, playback and the mouth are not: a
-                    # full queue just holds the producer back. Only a consumer that takes nothing
-                    # for ``stuck_after`` seconds is stuck, and then the phrase is cut.
-                    await asyncio.wait_for(queue.put(chunk), self.stuck_after)
+                if released:
+                    await deliver(chunk)
+                    continue
+                # The synthesis runs only a little ahead of real time and delivers in bursts:
+                # started at once, the voice would run dry and stutter. Gather a lead first.
+                held.append(chunk)
+                held_bytes += len(chunk)
+                if held_bytes >= threshold:
+                    released = True
+                    for early in held:
+                        await deliver(early)
+                    held.clear()
+            for early in held:  # a phrase shorter than the lead
+                await deliver(early)
             # Only a phrase that really ended says so; on STOP or an error the group cancels the
             # consumers instead, so the output is aborted and not played out.
             for queue in queues:

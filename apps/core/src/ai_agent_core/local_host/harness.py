@@ -459,6 +459,11 @@ def look(
     return Look(folder, model_describe(upstream, key, models, usage))
 
 
+SPEECH_PREBUFFER = (
+    1.0  # seconds of voice gathered before it plays (the synthesis delivers in bursts)
+)
+
+
 class AvatarPart:
     """Keeps the avatar alive and honest around the harness: while she runs, the resting
     parameters (eyes open) are re-sent twice a second; on STOP, an epoch change or a failure the
@@ -583,6 +588,7 @@ def speaker(
         usage=usage,
         hour_rate=settings.speech_hour_rate,
         mouth_delay=settings.speech_mouth_delay,
+        prebuffer=SPEECH_PREBUFFER,
     )
 
 

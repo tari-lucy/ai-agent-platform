@@ -300,3 +300,46 @@ def test_speaking_stays_true_for_a_few_seconds_after_her_voice_ends(tmp_path):
     assert spk.speaking is True
     clock["t"] += 0.2
     assert spk.speaking is False
+
+
+def test_the_voice_waits_for_a_lead_so_it_does_not_run_dry(tmp_path):
+    """Chunks come in bursts; playback starts only when a second of sound is in hand."""
+
+    async def scenario():
+        produced = 0
+        first_seen_after = None
+
+        async def bursts(text):
+            nonlocal produced
+            for _ in range(30):  # 30 windows of 60 ms = 1.8 s
+                await asyncio.sleep(0)
+                produced += 1
+                yield window()
+
+        class Watching(Sink):
+            async def play(self, chunks):
+                nonlocal first_seen_after
+                async for chunk in chunks:
+                    if first_seen_after is None:
+                        first_seen_after = produced
+                    self.got += chunk
+                self.ended = "end"
+
+        sink = Watching()
+        speaker = Speaker(bursts, sink, RATE, tmp_path / "s.jsonl", prebuffer=1.0)
+        assert await speaker.speak("привет", lambda: None) == "Сказано."
+        return first_seen_after, len(sink.got)
+
+    first_seen_after, got = asyncio.run(scenario())
+    assert first_seen_after >= 17  # 17 windows of 60 ms = 1.02 s gathered before the first byte
+    assert got == 30 * len(window())  # and nothing lost
+
+
+def test_a_phrase_shorter_than_the_lead_is_still_played_whole(tmp_path):
+    async def scenario():
+        sink = Sink()
+        speaker = Speaker(synth(3), sink, RATE, tmp_path / "s.jsonl", prebuffer=1.0)
+        assert await speaker.speak("да", lambda: None) == "Сказано."
+        return len(sink.got)
+
+    assert asyncio.run(scenario()) == 3 * len(window())
