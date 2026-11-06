@@ -152,3 +152,26 @@ def test_the_prompt_tells_her_to_make_one_tool_call_per_step():
     from ai_agent_core.m3_composition import harness_host
 
     assert "One tool call per step" in inspect.getsource(harness_host)
+
+
+def test_the_model_is_declared_to_read_pictures_attached_in_the_chat(tmp_path):
+    settings = HarnessSettings(
+        image_id="i",
+        port=4096,
+        password="p",
+        upstream="https://x/v1",
+        key="k",
+        model="m",
+        usage_dir=tmp_path,
+        daily_budget=1.0,
+        input_rate=0.1,
+        output_rate=0.1,
+    )
+    host = HarnessHost.__new__(HarnessHost)
+    host.settings = settings
+    scope = SimpleNamespace(persona_id="p")
+    host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+    bound = host.config("http://x:8080/v1", "base", False)["provider"]["platform"]["models"][
+        "bound"
+    ]
+    assert bound["attachment"] is True and "image" in bound["modalities"]["input"]

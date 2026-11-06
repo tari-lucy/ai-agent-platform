@@ -540,6 +540,10 @@ class HarnessHost:
                             "name": s.model,
                             "limit": {"context": s.context_tokens, "output": s.output_tokens},
                             "tool_call": True,
+                            # Without these OpenCode never sends a picture attached in the chat:
+                            # it puts "this model does not support image input" in its place.
+                            "attachment": True,
+                            "modalities": {"input": ["text", "image"], "output": ["text"]},
                         }
                     },
                 }
