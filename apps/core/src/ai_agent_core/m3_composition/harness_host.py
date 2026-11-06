@@ -407,6 +407,15 @@ class HarnessHost:
             "the game and the local network are out of reach except for the connections granted "
             "below. Any older addresses (192.168.*, 172.*, localhost of the operator's computer, "
             "old IPs from notes and scripts) are obsolete: do not use or probe them."
+            "\n\n## Your folders\n"
+            "/workspace is your home. /workspace/inbox holds the files the operator left for "
+            "you (pictures, documents): when he says he left something, list it with "
+            "`ls -t /workspace/inbox`; a picture there you read with the look tool "
+            "(folder inbox). /workspace/share is what you prepared for him, /workspace/shots "
+            "your game screenshots, /workspace/playbook and /workspace/skills your notes. "
+            "A picture attached right in the chat is not a file and is not in the inbox: you "
+            "get it in the message itself; if it did not reach you, say so and ask him to "
+            "send it again or to put the file into the inbox."
         )
         live = [
             label
