@@ -14,6 +14,8 @@ $stateFolder = $PSScriptRoot
 $pidFile = Join-Path $stateFolder 'ssh.pid'
 $loopPidFile = Join-Path $stateFolder 'loop.pid'
 $logFile = Join-Path $stateFolder 'tunnel.log'
+# What ssh itself says when it leaves (a taken port, a refused key): kept for the last start only.
+$errFile = Join-Path $stateFolder 'ssh.err'
 
 function Write-Log([string]$text) {
     # Times and fixed words only: no host, key, port or account in the log.
@@ -90,7 +92,8 @@ try {
     while ($true) {
         $started = Get-Date
         $quoted = $arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }
-        $child = Start-Process -FilePath $ssh -ArgumentList $quoted -WindowStyle Hidden -PassThru
+        $child = Start-Process -FilePath $ssh -ArgumentList $quoted -WindowStyle Hidden -PassThru `
+            -RedirectStandardError $errFile
         Set-Content -LiteralPath $pidFile -Value $child.Id
         Write-Log "ssh started $($child.Id)"
         $bad = 0
@@ -109,9 +112,10 @@ try {
             }
         }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-        # Quick exits (the server is unreachable, the listener is not free yet) back off up to a
-        # minute; a tunnel that lived a while starts again after five seconds.
-        if (((Get-Date) - $started).TotalSeconds -gt 120) { $delay = 5 } else { $delay = [Math]::Min($delay * 2, 60) }
+        # Quick exits (the server is unreachable, the listener is not free yet) back off up to 15
+        # seconds, so a returning computer takes its ports back soon after the server lets go;
+        # a tunnel that lived a while starts again after five seconds.
+        if (((Get-Date) - $started).TotalSeconds -gt 120) { $delay = 5 } else { $delay = [Math]::Min($delay * 2, 15) }
         Write-Log "ssh ended; next start in $delay s"
         Start-Sleep -Seconds $delay
     }

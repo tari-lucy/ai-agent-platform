@@ -13,6 +13,7 @@ function Say([string]$text) {
 $folder = $PSScriptRoot
 $loopPidFile = Join-Path $folder 'loop.pid'
 $sshPidFile = Join-Path $folder 'ssh.pid'
+$audioPidFile = Join-Path $folder 'audio.pid'
 $taskName = 'AI Agent Platform - Game Tunnel'
 
 function Read-Pid([string]$file) {
@@ -29,11 +30,42 @@ function Own-Process([int]$processId, [string]$nameLike, [string]$commandLike) {
 }
 function Loop-Process { Own-Process (Read-Pid $loopPidFile) 'powershell*' '*start-game-tunnel.ps1*' }
 function Ssh-Process { Own-Process (Read-Pid $sshPidFile) 'ssh.exe' '*aw-game-tunnel@*' }
+function Audio-Process { Own-Process (Read-Pid $audioPidFile) 'python*' '*pc_audio_bridge.py*' }
+
+# The audio bridge (the persona's voice into the virtual cable) starts and stops with the tunnel.
+# Its settings are the "audio" part of the same config file:
+#   "audio": {"script": "C:/ai-pers2/runtime/pc_audio_bridge.py", "port": 8003, "device": "6"}
+# and, for listening, "capture_port", "capture_device", "capture_rate". Without "audio": nothing.
+function Start-Audio($settings) {
+    $audio = $settings.audio
+    if (-not $audio) { return '' }
+    if (Audio-Process) { return ' Мост звука уже запущен.' }
+    $script = [string]$audio.script
+    if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { return ' Мост звука: не найден файл ' + $script + '.' }
+    $python = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+    if (-not $python) { return ' Мост звука: не найден python.exe.' }
+    $port = [int]$audio.port
+    if ($port -lt 1024 -or $port -gt 65535) { return ' Мост звука: неверный порт.' }
+    $arguments = @('-u', ('"{0}"' -f $script), '--port', "$port", '--device', ('"{0}"' -f $audio.device))
+    if ($audio.capture_port) {
+        $arguments += @('--capture-port', ([string][int]$audio.capture_port),
+            '--capture-device', ('"{0}"' -f $audio.capture_device),
+            '--capture-rate', ([string][int]$audio.capture_rate))
+    }
+    $child = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput (Join-Path $folder 'audio.log') -RedirectStandardError (Join-Path $folder 'audio.err')
+    Set-Content -LiteralPath $audioPidFile -Value $child.Id
+    Start-Sleep -Seconds 3
+    if ($child.HasExited) { return ' Мост звука не запустился: причина в audio.err рядом со скриптом.' }
+    return ' Мост звука запущен.'
+}
 
 try {
     if ($Action -eq 'start') {
+        $settings = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+        $audioNote = Start-Audio $settings
         if (Loop-Process) {
-            Say 'Туннель уже запущен.'
+            Say ('Туннель уже запущен.' + $audioNote)
             return
         }
         $script = Join-Path $folder 'start-game-tunnel.ps1'
@@ -49,12 +81,12 @@ try {
                 $state = Get-NetTCPConnection -OwningProcess $ssh.ProcessId -RemotePort 22 -ErrorAction SilentlyContinue |
                     Select-Object -First 1 -ExpandProperty State
                 if ($state -eq 'Established') {
-                    Say 'Туннель включён. Можно запускать игру и Опечатку.'
+                    Say ('Туннель включён. Можно запускать игру и Опечатку.' + $audioNote)
                     return
                 }
             }
         }
-        Say 'Туннель запущен, но связь с сервером пока не установилась. Подождите минуту и нажмите «включить» ещё раз; подробности в tunnel.log рядом со скриптом.'
+        Say ('Туннель запущен, но связь с сервером пока не установилась. Подождите минуту и нажмите «включить» ещё раз; подробности в tunnel.log и ssh.err рядом со скриптом.' + $audioNote)
     } else {
         # If the scheduled task owns the loop, let the scheduler end it (it would otherwise restart it).
         & schtasks.exe /end /tn $taskName 2>$null | Out-Null
@@ -62,9 +94,11 @@ try {
         if ($ssh) { Stop-Process -Id $ssh.ProcessId -Force -ErrorAction SilentlyContinue }
         $loop = Loop-Process
         if ($loop) { Stop-Process -Id $loop.ProcessId -Force -ErrorAction SilentlyContinue }
+        $audio = Audio-Process
+        if ($audio) { Stop-Process -Id $audio.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 1
-        Remove-Item -LiteralPath $loopPidFile, $sshPidFile -Force -ErrorAction SilentlyContinue
-        Say 'Туннель выключен.'
+        Remove-Item -LiteralPath $loopPidFile, $sshPidFile, $audioPidFile -Force -ErrorAction SilentlyContinue
+        Say 'Туннель и мост звука выключены.'
     }
 } catch {
     Say ('Не получилось: ' + $_.Exception.Message)
