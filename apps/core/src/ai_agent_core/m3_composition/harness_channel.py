@@ -87,6 +87,7 @@ class ChannelSettings:
     journal: Path
     daily_posts: int = 3
     photos: Path | None = None  # the folder her pictures are read from (no links, plain names)
+    art: Path | None = None  # her own drawings, named in a post as ``art/<name>.jpg``
 
 
 class ChannelPost:
@@ -196,8 +197,8 @@ class ChannelPost:
             image = await asyncio.to_thread(self._photo, name)
             if image is None:
                 return (
-                    "Не опубликовано: нет такого файла. Нужен JPEG в /workspace/shots, "
-                    "имя без пути, до 8 МБ."
+                    "Не опубликовано: нет такого файла. Нужен JPEG в /workspace/shots "
+                    "или art/<имя>.jpg (твой рисунок), до 8 МБ."
                 )
             try:
                 prompt = CHECK_IMAGE.format(rules=self.rules(), text=text)
@@ -229,6 +230,8 @@ class ChannelPost:
             return "Опубликовано в канал картинкой."
 
     def _photo(self, name: str) -> bytes | None:
+        if name.startswith("art/"):
+            return read_photo(self.settings.art, name[4:])
         return read_photo(self.settings.photos, name)
 
     def posted_today(self) -> int:

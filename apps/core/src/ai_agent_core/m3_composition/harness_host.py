@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from .harness_channel import ChannelPost
     from .harness_chat import ChatHub
+    from .harness_imagine import Imagine
     from .harness_life import Life
     from .harness_listen import Listener
     from .harness_look import Look
@@ -287,6 +288,7 @@ class HarnessHost:
     listener: Listener | None = None
     stage: Stage | None = None
     chats: ChatHub | None = None
+    imagine: Imagine | None = None
 
     def __init__(
         self,
@@ -315,6 +317,7 @@ class HarnessHost:
         self.listener: Listener | None = None
         self.stage: Stage | None = None
         self.chats: ChatHub | None = None
+        self.imagine: Imagine | None = None
         self.people: PeopleBook | None = None
         self.life: Life | None = None
 
@@ -436,6 +439,17 @@ class HarnessHost:
                 "chat between them, show feelings with your face sparingly. Voice and hearing cost "
                 "money by the hour: switch listening off when nobody talks to you. Read "
                 "/workspace/playbook/live.md at the start of a stream or call."
+            )
+        if self.imagine is not None:
+            prompt += (
+                "\n\n## Pictures you make\n"
+                "You can draw with imagine. A picture is a decision, not a reflex: before you "
+                "call it know why you need it, what the viewer should feel or understand, what "
+                "exactly is in it, and which style fits that and why; keep your own look and "
+                "change it only on purpose. Read /workspace/playbook/art.md. Then look at the "
+                "result (look, folder art) and draw again if it does not say what you meant. A "
+                "picture for the channel goes out with channel_post, photo=art/<name>.jpg. "
+                f"Pictures cost money and are capped at {self.imagine.daily} a day."
             )
         if self.people is not None:
             prompt += (
@@ -605,6 +619,7 @@ class HarnessHost:
                 self.stage,
                 self.chats,
                 self.people,
+                self.imagine,
             ).handle,
             tuple(s.host_ports.values()),
         )

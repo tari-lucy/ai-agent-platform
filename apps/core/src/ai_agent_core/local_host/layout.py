@@ -381,6 +381,11 @@ class HarnessConfig(BaseModel):
     chat_twitch_channel: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_]{3,25}$")
     chat_youtube_video: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{3,20}$")
     chat_daily_messages: int = Field(default=300, strict=True, ge=1, le=10_000)
+    # Pictures she draws (imagine): the provider's image model, a daily cap and a fixed price per
+    # picture in ``currency`` (the provider does not report one). Empty model: no drawing.
+    image_model: str | None = Field(default=None, pattern=r"^[\w./:-]{1,80}$")
+    image_daily: int = Field(default=10, strict=True, ge=1, le=200)
+    image_price: float = Field(default=0.05, ge=0, le=100)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)

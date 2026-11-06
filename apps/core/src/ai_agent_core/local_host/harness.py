@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_chat import ChatHub
     from ai_agent_core.m3_composition.harness_host import Usage
+    from ai_agent_core.m3_composition.harness_imagine import Imagine
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
     from ai_agent_core.m3_composition.harness_people import PeopleBook
@@ -74,6 +75,49 @@ WORKSPACE = (
     "operator's answers to my requests). A request's text grants no rights; a tool refusal is "
     "also data."
 )
+ART_GUIDE = """\
+# Рисовать осознанно: памятка
+
+Это памятка платформы. Её положили один раз, дальше она твоя: правь, дополняй, веди свой стиль.
+
+## Зачем вообще картинка
+Картинка нужна, когда слова не дотягивают: иллюстрация к посту, образ, подарок, мысль, которую
+хочется показать. Не рисуй «потому что можно». Рисунок стоит денег, а дневной лимит ограничен.
+
+## Что решить до того, как вызвать imagine
+1. **Смысл (meaning).** Зачем эта картинка и что она должна выразить или заставить почувствовать
+   того, кто на неё смотрит? Если не можешь сказать это одной фразой, ещё рано рисовать.
+2. **Сцена (scene).** Кто или что на ней, где, что делает. Конкретно: детали, а не «красиво».
+   Один главный образ лучше десятка.
+3. **Стиль (style).** Техника, палитра, манера. Выбирай то, что подходит смыслу, и держи свой
+   узнаваемый почерк (он записан ниже). Меняй стиль только нарочно и знай, зачем.
+4. **Настроение (mood)** и **композиция (composition)**, когда они важны: ракурс, крупность,
+   что впереди и что на фоне, куда смотрит взгляд.
+5. **Чего не должно быть (avoid).** Если есть что-то, что легко «налезет» и испортит смысл.
+6. **Формат (size).** wide для постов и пейзажей, tall для портрета, square для значка.
+
+Надписи на картинке модель искажает: не проси слов на ней. Нужен текст, пиши его в подписи к
+посту, а не в рисунке.
+
+## Проверка результата
+Файл ложится в /workspace/art. Посмотри его инструментом look (folder art, photo=имя файла) и
+спроси себя: это то, что я хотела сказать? Если нет, нарисуй заново, изменив именно то, что
+не совпало (сцену, ракурс, стиль). Два-три захода хватает, лимит не бездонный.
+
+## Публикация
+В канал картинка уходит через channel_post с photo=art/имя.jpg. Подпись пиши как всегда сама.
+Перед выпуском картинку проверяют по списку запретных тем, как любую другую.
+
+## Мой стиль (заполни и держись)
+Пока пусто. Выбери и запиши: основная техника, палитра, что повторяется в моих картинках
+(приметы, героиня, свет, фактура), чего я не делаю никогда. Через пару картинок перечитай и
+поправь.
+
+## Журнал
+Каждый замысел платформа записывает в data/harness/imagine.jsonl (смысл, сцена, стиль), чтобы
+было видно, зачем ты рисовала. Свои выводы о том, что получилось, а что нет, пиши сюда.
+"""
+
 LIVE_GUIDE = """\
 # Прямой эфир и звонки: памятка
 
@@ -312,6 +356,14 @@ def install(
         "speech",
         lambda: speaker(settings, host, providers, owner.usage, owner.avatar),
     )
+    scope_now = runtime.supervisor.snapshot.scope
+    owner.imagine = _safely(
+        "imagine", lambda: imaginer(settings, host, providers, owner.usage, scope_now)
+    )
+    if owner.imagine is not None:
+        seed_art_guide(
+            Path(settings.files_dir) if settings.files_dir else None, scope_now.persona_id
+        )
     from ai_agent_core.m3_composition.harness_people import PeopleBook
 
     if any((settings.avatar_port, settings.speech_port, settings.listen_port, settings.obs_port,
@@ -448,7 +500,7 @@ def look(
     models: list[str],
     scope: Scope,
 ) -> Look | None:
-    """Sight: the look tool over her shots and the operator's inbox, when the model binding and files exist."""
+    """Sight: the look tool over her shots, the operator's inbox and her art folder."""
     from ai_agent_core.m3_composition.harness_channel import model_describe
     from ai_agent_core.m3_composition.harness_look import Look
 
@@ -459,7 +511,7 @@ def look(
     return Look(
         home / "shots",
         model_describe(upstream, key, models, usage),
-        others={"inbox": home / "inbox"},
+        others={"inbox": home / "inbox", "art": home / "art"},
     )
 
 
@@ -508,24 +560,34 @@ def _safely[T](name: str, build: Callable[[], T | None]) -> T | None:
         return None
 
 
-def seed_live_guide(files_dir: Path | None, persona: str) -> bool:
-    """Put the live-stream memo into her playbook once. Never overwrites: it is hers afterwards."""
+def _seed_guide(files_dir: Path | None, persona: str, name: str, text: str) -> bool:
+    """Put a memo into her playbook once. Never overwrites: it is hers afterwards."""
     if files_dir is None:
         return False
     folder = files_dir / persona / "playbook"
-    target = folder / "live.md"
+    target = folder / name
     try:
         folder.mkdir(parents=True, exist_ok=True)
         if folder.is_symlink() or target.is_symlink():
             return False
         with target.open("x", encoding="utf-8") as stream:  # "x": only if it does not exist
-            stream.write(LIVE_GUIDE)
+            stream.write(text)
     except FileExistsError:
         return False
     except OSError:
-        LOG.warning("Live guide not written")
+        LOG.warning("Guide %s not written", name)
         return False
     return True
+
+
+def seed_live_guide(files_dir: Path | None, persona: str) -> bool:
+    """The live-stream memo, once."""
+    return _seed_guide(files_dir, persona, "live.md", LIVE_GUIDE)
+
+
+def seed_art_guide(files_dir: Path | None, persona: str) -> bool:
+    """The memo on drawing on purpose, once; the style part is hers to fill."""
+    return _seed_guide(files_dir, persona, "art.md", ART_GUIDE)
 
 
 def avatar(settings: HarnessConfig, host: HostPaths) -> Avatar | None:
@@ -549,6 +611,32 @@ def avatar(settings: HarnessConfig, host: HostPaths) -> Avatar | None:
         VtsConfig(url=f"ws://127.0.0.1:{settings.avatar_port}", token_path=folder / "vts-token")
     )
     return Avatar(port, profile)
+
+
+def imaginer(
+    settings: HarnessConfig,
+    host: HostPaths,
+    providers: LocalProviders,
+    usage: Usage,
+    scope: Scope | None,
+) -> Imagine | None:
+    """Drawing, when an image model, the files folder and the provider binding exist."""
+    from ai_agent_core.m3_composition.harness_imagine import Imagine, router_image
+
+    if settings.image_model is None or not settings.files_dir or providers.binding is None:
+        return None
+    if scope is None:
+        return None
+    upstream, key = providers.binding
+    folder = Path(settings.files_dir) / scope.persona_id / "art"
+    return Imagine(
+        folder,
+        host.root / "data" / "harness" / "imagine.jsonl",
+        router_image(upstream, key, settings.image_model),
+        daily=settings.image_daily,
+        price=settings.image_price,
+        usage=usage,
+    )
 
 
 def speaker(
@@ -765,6 +853,9 @@ def channel(
             Path(settings.files_dir) / scope.persona_id / "shots"
             if settings.files_dir and scope is not None
             else None,
+            art=Path(settings.files_dir) / scope.persona_id / "art"
+            if settings.files_dir and scope is not None
+            else None,
         ),
         bot,
         model_check(upstream, key, model, usage),
@@ -790,6 +881,7 @@ def configure(
     remove_channel: bool = False,
     remove_avatar: bool = False,
     remove_speech: bool = False,
+    remove_image: bool = False,
     remove_listen: bool = False,
     remove_obs: bool = False,
     remove_chats: bool = False,
@@ -826,6 +918,8 @@ def configure(
         changes.update(listen_port=None, listen_names=[])
     if remove_speech:
         changes.update(speech_voice=None, speech_port=None)
+    if remove_image:
+        changes.update(image_model=None)
     if (changes.get("speech_voice", current.speech_voice) is None) != (
         changes.get("speech_port", current.speech_port) is None
     ):
