@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 import re
+import struct
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +33,13 @@ if TYPE_CHECKING:
 
 LOG = logging.getLogger(__name__)
 SIZES = {"square": "1024x1024", "wide": "1536x1024", "tall": "1024x1536"}
+# The provider's router ignores the size parameter (measured: "wide" came back near-square and
+# "tall" came back landscape); only words in the prompt set the shape of the frame.
+SHAPES = {
+    "square": "Формат кадра: квадрат, 1:1.",
+    "wide": "Формат кадра: горизонтальный, широкий, 3:2.",
+    "tall": "Формат кадра: вертикальный, 2:3.",
+}
 FIELD_MAX = 700  # characters in one part of the brief
 MIN_GAP = 20.0  # seconds between the starts of two pictures
 MAX_BYTES = 8 * 1024 * 1024
@@ -116,6 +124,21 @@ def router_image(upstream: str, key: str, model: str) -> Generate:
     return generate
 
 
+def jpeg_size(blob: bytes) -> tuple[int, int] | None:
+    """Width and height of a JPEG from its header, or None."""
+    index = 2
+    while index + 9 < len(blob):
+        if blob[index] != 0xFF:
+            index += 1
+            continue
+        marker = blob[index + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            height, width = struct.unpack(">HH", blob[index + 5 : index + 9])
+            return width, height
+        index += 2 + struct.unpack(">H", blob[index + 2 : index + 4])[0]
+    return None
+
+
 def _clean(value: object) -> str:
     return " ".join(str(value or "").split())
 
@@ -161,14 +184,14 @@ class Imagine:
                 continue
         return count
 
-    def prompt(self, brief: dict[str, str]) -> str:
-        """The prompt of the image model, built from the parts of the brief."""
+    def prompt(self, brief: dict[str, str], shape: str = "wide") -> str:
+        """The prompt of the image model, built from the parts of the brief and the frame shape."""
         lines = [
             f"{prefix}{brief[key]}" + ("" if brief[key].endswith((".", "!", "?")) else ".")
             for key, prefix in LABELS
             if brief.get(key)
         ]
-        return "\n".join([*lines, NO_TEXT])
+        return "\n".join([*lines, SHAPES.get(shape, SHAPES["wide"]), NO_TEXT])
 
     async def draw(self, arguments: Mapping[str, object], current: Callable[[], None]) -> str:
         brief = {key: _clean(arguments.get(key)) for key, _ in LABELS}
@@ -181,7 +204,9 @@ class Imagine:
             )
         if any(len(value) > FIELD_MAX for value in brief.values()):
             return f"Не нарисовано: каждая часть замысла не длиннее {FIELD_MAX} знаков."
-        size = SIZES.get(_clean(arguments.get("size")).lower(), SIZES["wide"])
+        shape = _clean(arguments.get("size")).lower()
+        shape = shape if shape in SIZES else "wide"
+        size = SIZES[shape]
         async with self._lock:
             current()
             left = self.usage.remaining() if self.usage is not None else None
@@ -193,7 +218,7 @@ class Imagine:
                 return "Не нарисовано: слишком часто, подожди полминуты и подумай над замыслом."
             self._last = self.clock()
             try:
-                blob = await self.generate(self.prompt(brief), size)
+                blob = await self.generate(self.prompt(brief, shape), size)
             except ImageRefused as refused:
                 self._journal(brief, size, "refused", "", refused.reason)
                 return f"Не нарисовано: {refused.reason}. Перепиши замысел или откажись от него."
@@ -211,11 +236,25 @@ class Imagine:
                 return "Не нарисовано: не удалось сохранить файл."
             if self.usage is not None:
                 self.usage.record_amount(self.price, source="image")
-            self._journal(brief, size, "made", name, "")
+            got = jpeg_size(blob)
+            self._journal(brief, size, "made", name, "" if got is None else f"{got[0]}x{got[1]}")
+            real = "" if got is None else f"{got[0]}×{got[1]}"
+            wanted = {"wide": "горизонтальный", "tall": "вертикальный", "square": "квадрат"}[shape]
+            off = got is not None and (
+                (shape == "wide" and got[0] <= got[1])
+                or (shape == "tall" and got[0] >= got[1])
+                or (shape == "square" and abs(got[0] - got[1]) > 0.2 * max(got))
+            )
+            note = (
+                f" Формат вышел не такой, как просила ({wanted}): если он важен, нарисуй заново."
+                if off
+                else ""
+            )
             return (
-                f"Готово: /workspace/art/{name} ({size}). Посмотри, что получилось, инструментом "
-                f"look (folder=art, photo={name}): совпало ли с замыслом? Если нет, нарисуй "
-                f"заново, изменив описание. Для поста в канал: channel_post с photo=art/{name}."
+                f"Готово: /workspace/art/{name} ({real or size}).{note} Посмотри, что получилось, "
+                f"инструментом look (folder=art, photo={name}): совпало ли с замыслом? Если нет, "
+                f"нарисуй заново, изменив описание. Для поста в канал: channel_post с "
+                f"photo=art/{name}."
             )
 
     def _save(self, name: str, blob: bytes) -> None:

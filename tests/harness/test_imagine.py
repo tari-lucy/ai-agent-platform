@@ -105,6 +105,7 @@ def test_the_prompt_carries_every_part_of_the_brief_and_forbids_stray_words(tmp_
         "Что картинка должна выразить: " + BRIEF["meaning"],
         "Не должно быть на картинке: людей",
         "Надписей и букв",
+        "Формат кадра: вертикальный, 2:3.",
     ):
         assert part in prompt
     assert size == "1024x1536"
@@ -293,3 +294,32 @@ def test_the_art_memo_is_put_once_and_never_overwritten(tmp_path):
     assert seed_art_guide(tmp_path, "p") is False
     assert target.read_text(encoding="utf-8") == "мой стиль: акварель"
     assert seed_art_guide(None, "p") is False
+
+
+def jpeg(width, height):
+    """A JPEG header with the given size (enough for the size reader)."""
+    import struct
+
+    return (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        + b"\xff\xc0\x00\x11\x08"
+        + struct.pack(">HH", height, width)
+        + b"\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    )
+
+
+def test_the_real_size_is_told_and_a_wrong_shape_is_pointed_out(tmp_path):
+    async def portrait(prompt, size):
+        return jpeg(1086, 1448)  # asked for a wide frame, the router gave a tall one
+
+    imagine, *_ = make(tmp_path, generate=portrait)
+    answer = go(imagine.draw({**BRIEF, "size": "wide"}, lambda: None))
+    assert "1086×1448" in answer and "Формат вышел не такой" in answer
+    assert journal(tmp_path)[0]["detail"] == "1086x1448"
+
+    async def wide(prompt, size):
+        return jpeg(1536, 1024)
+
+    imagine2, *_ = make(tmp_path / "second", generate=wide)
+    answer = go(imagine2.draw({**BRIEF, "size": "wide"}, lambda: None))
+    assert "1536×1024" in answer and "Формат вышел не такой" not in answer
