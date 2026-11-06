@@ -59,7 +59,9 @@ def test_avatar_check_shows_each_emotion_and_reports_a_mismatch(tmp_path):
             port = server.sockets[0].getsockname()[1]
             settings = HarnessConfig(avatar_port=port, avatar_profile="a.json")
             got, out = lines()
-            assert await check("avatar", settings, HostPaths(tmp_path), None, pause=1.6, out=out)
+            assert await check(
+                "avatar", settings, HostPaths(tmp_path), None, pause=1.6, settle=0.1, out=out
+            )
         text = "\n".join(got)
         assert "На связи" in text and "sad:hotkey:Missing" in text  # the mismatch is reported
         assert "happy: Выражение: happy." in got

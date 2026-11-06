@@ -18,6 +18,7 @@ from typing import Any
 
 from ai_agent_application.avatar import Emotion
 
+from .harness import AvatarPart
 from .harness import avatar as build_avatar
 from .harness import speaker as build_speaker
 from .harness import stage as build_stage
@@ -35,6 +36,7 @@ async def check(
     text: str = "",
     scene: str = "",
     pause: float = PAUSE,
+    settle: float = 3.0,
     out: Any = print,
 ) -> bool:
     """Run one check; every line goes to ``out``. True when it worked."""
@@ -47,13 +49,21 @@ async def check(
             out("VTube Studio не отвечает: запущен ли он, поднят ли туннель, включён ли Start API?")
             return False
         out(f"На связи. Несовпадения профиля с моделью: {avatar.problems or 'нет'}")
-        for emotion in (e for e in Emotion if e is not Emotion.NEUTRAL):
-            result = await avatar.express(emotion)
-            out(f"{emotion.value}: {result.text}")
-            await asyncio.sleep(pause)
-        await avatar.neutral()
-        out("Лицо возвращено в нейтральное.")
-        await avatar.close()
+        keeper = AvatarPart(avatar)  # the resting face, as while she runs (eyes open)
+        keeper.tick()
+        try:
+            out("Лицо в покое (3 секунды): глаза должны быть открыты.")
+            await asyncio.sleep(settle)
+            for emotion in (e for e in Emotion if e is not Emotion.NEUTRAL):
+                result = await avatar.express(emotion)
+                out(f"{emotion.value}: {result.text}")
+                await asyncio.sleep(pause)
+            await avatar.neutral()
+            out("Лицо возвращено в нейтральное (ещё 3 секунды в покое).")
+            await asyncio.sleep(settle)
+        finally:
+            await keeper.close()
+            await avatar.close()
         return True
     if what == "speak":
         usage = SimpleNamespace(remaining=lambda: None, record_amount=lambda *a, **k: None)
