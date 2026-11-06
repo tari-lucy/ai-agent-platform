@@ -69,6 +69,9 @@ class Profile:
     mouth_parameter: str | None = None
     mouth_gain: float = 1.0
     model: str | None = None  # when set, a different loaded model fails the check
+    # Parameters held all the time while the avatar is on: without face tracking a rig rests
+    # with its eyes shut, because only tracking opens them (e.g. EyeOpenLeft/Right at 1).
+    rest: Mapping[str, float] = field(default_factory=dict)
 
     def validate(self, info: ModelInfo) -> list[str]:
         """Problems of this profile against the loaded rig; empty means it fits.
@@ -90,6 +93,7 @@ class Profile:
                     problems.append(f"{label}:parameter:{name}")
         if self.mouth_parameter is not None and self.mouth_parameter not in info.parameters:
             problems.append(f"mouth:parameter:{self.mouth_parameter}")
+        problems.extend(f"rest:parameter:{n}" for n in self.rest if n not in info.parameters)
         return problems
 
 
@@ -119,7 +123,7 @@ def profile_from_json(raw: Any) -> Profile:
     """Parse a profile dict; any unknown key or wrong type is a fixed ``profile:...`` error."""
     if not isinstance(raw, dict) or raw.get("version") != 1:
         raise AvatarError("profile:version")
-    allowed = {"version", "model", "emotions", "neutral", "mouth_parameter", "mouth_gain"}
+    allowed = {"version", "model", "emotions", "neutral", "mouth_parameter", "mouth_gain", "rest"}
     if set(raw) - allowed:
         raise AvatarError("profile:keys")
     emotions: dict[Emotion, Look] = {}
@@ -140,7 +144,10 @@ def profile_from_json(raw: Any) -> Profile:
         raise AvatarError("profile:mouth_gain")
     if model is not None and not _name(model):
         raise AvatarError("profile:model")
-    return Profile(emotions, _look(raw.get("neutral", {}), "neutral"), mouth, float(gain), model)
+    rest = _look({"parameters": raw.get("rest", {})}, "rest").parameters
+    return Profile(
+        emotions, _look(raw.get("neutral", {}), "neutral"), mouth, float(gain), model, rest
+    )
 
 
 def load_profile(path: Path) -> Profile:

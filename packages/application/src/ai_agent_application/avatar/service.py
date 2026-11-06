@@ -52,6 +52,7 @@ class Avatar:
         self._current = Emotion.NEUTRAL
         self._expression: str | None = None
         self._held: dict[str, float] = {}
+        self._rest: dict[str, float] = {}
         self._changed = -1e9
         self._down_until = -1e9
         self._mouth = 0.0
@@ -88,6 +89,11 @@ class Avatar:
         self.problems = self.profile.validate(info)
         # A new session starts from neutral and replays nothing from before the loss.
         self._current, self._expression, self._held = Emotion.NEUTRAL, None, {}
+        self._rest = {
+            k: min(max(v, info.parameters[k].minimum), info.parameters[k].maximum)
+            for k, v in self.profile.rest.items()
+            if k in info.parameters
+        }
         self._changed, self._mouth = -1e9, 0.0
         if self.problems:
             LOG.warning("Avatar mapping does not fit the model: %s", ", ".join(self.problems))
@@ -129,7 +135,24 @@ class Avatar:
             for k, v in look.parameters.items()
         }
         if self._held:
-            await self.port.inject(self._held)
+            await self.port.inject({**self._rest, **self._held})
+
+    async def hold(self) -> None:
+        """Re-send the resting parameters (eyes open) so the program keeps them; best effort.
+
+        The program lets go of an injected value about a second after the last one, so this is
+        called twice a second while the persona runs. It also connects the avatar at START.
+        """
+        async with self._lock:
+            if not await self._ensure():
+                return
+            values = {**self._rest, **self._held}
+            if not values:
+                return
+            try:
+                await self.port.inject(values)
+            except AvatarError, OSError, TimeoutError:
+                await self._lost()
 
     async def ready(self) -> bool:
         """Connect now if not connected (one attempt per ``retry_after``); False: no avatar."""
@@ -183,7 +206,7 @@ class Avatar:
             return
         async with self._lock:
             try:
-                await self.port.inject({**self._held, name: value})
+                await self.port.inject({**self._rest, **self._held, name: value})
             except AvatarError, OSError, TimeoutError:
                 await self._lost()
                 return
@@ -202,7 +225,7 @@ class Avatar:
                 name, info = self.profile.mouth_parameter, self._info
                 if name is not None and name in info.parameters:
                     closed = info.parameters[name].minimum
-                    await self.port.inject({name: closed})
+                    await self.port.inject({**self._rest, name: closed})
                     self._mouth = closed
                 await self._apply(self.profile.neutral)
             except AvatarError, OSError, TimeoutError:

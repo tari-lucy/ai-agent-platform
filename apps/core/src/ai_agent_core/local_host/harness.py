@@ -1,5 +1,6 @@
 """Host wiring of the doc33 harness: settings, password file, persona prompt, internet."""
 
+import asyncio
 import logging
 import os
 import secrets
@@ -459,16 +460,33 @@ def look(
 
 
 class AvatarPart:
-    """Keeps the avatar's face honest around the harness: on STOP, an epoch change or a failure
-    the mouth closes and the face returns to neutral (doc37, D92). It does nothing on a tick."""
+    """Keeps the avatar alive and honest around the harness: while she runs, the resting
+    parameters (eyes open) are re-sent twice a second; on STOP, an epoch change or a failure the
+    mouth closes and the face returns to neutral (doc37, D92)."""
+
+    EVERY = 0.5
 
     def __init__(self, avatar: Avatar) -> None:
         self.avatar = avatar
+        self._task: asyncio.Task[None] | None = None
 
     def tick(self) -> None:
-        return None
+        if self._task is None or self._task.done():
+            self._task = asyncio.get_running_loop().create_task(self._keep())
+
+    async def _keep(self) -> None:
+        while True:
+            try:
+                await self.avatar.hold()
+            except Exception:  # noqa: BLE001 - the face never stops the host
+                LOG.warning("Avatar hold failed")
+            await asyncio.sleep(self.EVERY)
 
     async def close(self) -> None:
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         await self.avatar.neutral()
 
 

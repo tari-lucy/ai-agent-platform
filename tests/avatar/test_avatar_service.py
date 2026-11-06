@@ -226,3 +226,75 @@ def test_an_emotion_whose_names_all_miss_the_loaded_model_is_not_reported_as_sho
         assert (await avatar.express(Emotion.HAPPY)).applied  # nothing was blocked by the miss
 
     run(scenario())
+
+
+REST_INFO = ModelInfo(
+    "Test",
+    hotkeys={"Smile": "h1"},
+    parameters={
+        "MouthOpen": ParameterRange(0, 1),
+        "EyeOpenLeft": ParameterRange(0, 1),
+        "Blush": ParameterRange(0, 2),
+    },
+)
+
+
+def make_rest(**extra):
+    raw = {
+        "version": 1,
+        "emotions": {"happy": {"hotkey": "Smile"}, "embarrassed": {"parameters": {"Blush": 1}}},
+        "mouth_parameter": "MouthOpen",
+        "rest": {"EyeOpenLeft": 1, "Missing": 1, **extra},
+    }
+    rig, clock = Rig(REST_INFO), Clock()
+    return Avatar(rig, profile_from_json(raw), clock=clock), rig, clock
+
+
+def test_hold_connects_and_sends_only_parameters_the_rig_has():
+    avatar, rig, _ = make_rest()
+    run(avatar.hold())
+    assert rig.calls == [("connect",), ("inject", {"EyeOpenLeft": 1.0})]
+
+
+def test_hold_is_sent_every_time_and_survives_an_emotion_and_the_mouth():
+    avatar, rig, clock = make_rest()
+    run(avatar.hold())
+    clock.now += 5
+    assert run(avatar.express(Emotion.EMBARRASSED)).applied
+    run(avatar.mouth(0.5))
+    run(avatar.hold())
+    injects = [c[1] for c in rig.calls if c[0] == "inject"]
+    assert all(v.get("EyeOpenLeft") == 1.0 for v in injects)
+    assert any("MouthOpen" in v for v in injects)
+    assert injects[-1] == {"EyeOpenLeft": 1.0, "Blush": 1.0}
+
+
+def test_hold_with_nothing_to_hold_sends_nothing():
+    avatar, rig, _ = make()
+    run(avatar.hold())
+    assert rig.calls == [("connect",)]
+
+
+def test_hold_after_loss_is_quiet_and_waits_for_the_retry():
+    avatar, rig, clock = make_rest()
+    run(avatar.hold())
+    rig.fail = True
+    run(avatar.hold())
+    assert not avatar.available
+    rig.fail = False
+    run(avatar.hold())
+    assert rig.calls.count(("connect",)) == 1
+    clock.now += 31
+    run(avatar.hold())
+    assert rig.calls.count(("connect",)) == 2
+
+
+def test_rest_names_missing_in_the_model_are_reported():
+    avatar, _, _ = make_rest()
+    run(avatar.ready())
+    assert avatar.problems == ["rest:parameter:Missing"]
+
+
+def test_rest_must_be_numbers():
+    with pytest.raises(AvatarError):
+        profile_from_json({"version": 1, "rest": {"EyeOpenLeft": "open"}})

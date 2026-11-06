@@ -54,6 +54,14 @@ def draft_profile(info: ModelInfo) -> tuple[dict[str, Any], list[str]]:
         profile["mouth_parameter"] = mouth
     else:
         notes.append("рот: параметра с «mouth» в названии не нашлось, рот двигаться не будет")
+    eyes = {
+        n: 1.0
+        for n in sorted(info.parameters)
+        if n.casefold() in {"eyeopenleft", "eyeopenright", "eyeleftopen", "eyerightopen"}
+    }
+    if eyes:
+        profile["rest"] = eyes  # without face tracking the eyes would stay shut
+        notes.append("глаза: " + ", ".join(eyes) + " держатся открытыми (rest)")
     if not profile["model"]:
         del profile["model"]
     return profile, notes
