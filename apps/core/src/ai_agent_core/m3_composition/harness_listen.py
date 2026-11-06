@@ -61,11 +61,13 @@ class Listener:
         self.names = [n.casefold() for n in names if n]
         self.usage, self.hour_rate, self.max_minutes = usage, hour_rate, max_minutes
         self.talk_window, self.gap, self.retry, self.clock = talk_window, gap, retry, clock
-        self._pattern = (
-            re.compile(r"(?<!\w)(?:" + "|".join(re.escape(n) for n in self.names) + r")(?!\w)")
-            if self.names
-            else None
-        )
+        # A name may be heard in any case ("Опечатка", "Опечатку", "Опечатке"): a long name ending
+        # in а/я also matches its stem with up to two more letters.
+        forms = [
+            re.escape(n[:-1]) + r"\w{0,2}" if len(n) >= 5 and n[-1] in "ая" else re.escape(n)
+            for n in self.names
+        ]
+        self._pattern = re.compile(r"(?<!\w)(?:" + "|".join(forms) + r")(?!\w)") if forms else None
         self._task: asyncio.Task[None] | None = None
         self._until = 0.0
         self._talk_until = -1e9

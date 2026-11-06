@@ -220,6 +220,17 @@ def parser() -> argparse.ArgumentParser:
         "--speech-mouth-delay", type=float, help="seconds the mouth waits for the sound (0.15)"
     )
     harness.add_argument("--remove-speech", action="store_true", help="turn live speech off")
+    harness.add_argument(
+        "--asr-port", type=int, help="loopback port of the local recognition service (8090)"
+    )
+    harness.add_argument(
+        "--listen-engine",
+        choices=["soniox", "gigaam"],
+        help="what recognises speech when she listens: soniox (paid) or gigaam (local, free)",
+    )
+    harness.add_argument(
+        "--remove-asr", action="store_true", help="turn local recognition off (back to soniox)"
+    )
     harness.add_argument("--image-model", help="the provider's image model she draws with")
     harness.add_argument("--image-daily", type=int, help="pictures she may draw a day (10)")
     harness.add_argument(
@@ -717,6 +728,9 @@ def main(argv: list[str] | None = None) -> int:
                     speech_hour_rate=arguments.speech_hour_rate,
                     speech_mouth_delay=arguments.speech_mouth_delay,
                     remove_speech=arguments.remove_speech,
+                    asr_port=arguments.asr_port,
+                    listen_engine=arguments.listen_engine,
+                    remove_asr=arguments.remove_asr,
                     image_model=arguments.image_model,
                     image_daily=arguments.image_daily,
                     image_price=arguments.image_price,

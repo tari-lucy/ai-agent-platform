@@ -374,6 +374,11 @@ class HarnessConfig(BaseModel):
         default_factory=list, max_length=8
     )
     listen_max_minutes: int = Field(default=180, strict=True, ge=1, le=1440)
+    # What recognises speech: "soniox" (cloud, paid by the hour of audio) or "gigaam" (the local
+    # service in deploy/asr on ``asr_port``, free; Soniox is the fallback when it is down). The
+    # same service reads voice messages from her inbox (the transcribe tool).
+    listen_engine: Literal["soniox", "gigaam"] = "soniox"
+    asr_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
     # OBS (doc37): loopback port of obs-websocket on the operator's PC (the tunnel puts it there).
     obs_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)
     # Stream chats (doc37): the Twitch channel and the YouTube video whose chat she joins; the

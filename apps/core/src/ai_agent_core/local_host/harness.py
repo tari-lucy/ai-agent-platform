@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from ai_agent_core.m3_composition.harness_channel import ChannelPost
     from ai_agent_core.m3_composition.harness_chat import ChatHub
+    from ai_agent_core.m3_composition.harness_hear import Hear
     from ai_agent_core.m3_composition.harness_host import Usage
     from ai_agent_core.m3_composition.harness_imagine import Imagine
     from ai_agent_core.m3_composition.harness_listen import Listener
@@ -357,6 +358,7 @@ def install(
         lambda: speaker(settings, host, providers, owner.usage, owner.avatar),
     )
     scope_now = runtime.supervisor.snapshot.scope
+    owner.hear = _safely("transcribe", lambda: hearer(settings, scope_now))
     owner.imagine = _safely(
         "imagine", lambda: imaginer(settings, host, providers, owner.usage, scope_now)
     )
@@ -767,7 +769,8 @@ def listener(
     usage: Usage,
     scope: Scope,
 ) -> Listener | None:
-    """Listening, when the capture port and the Soniox key exist (doc37)."""
+    """Listening: the capture port, and an engine: the local GigaAM service or Soniox (doc37)."""
+    from ai_agent_adapters.voice.gigaam import AsrConfig, AsrError, GigaAm, local_transcribe
     from ai_agent_adapters.voice.pcm_bridge import SinkConfig, TcpSource
     from ai_agent_adapters.voice.soniox import KEY_SETTING, SonioxAdapter
 
@@ -775,12 +778,27 @@ def listener(
 
     if settings.listen_port is None:
         return None
-    if KEY_SETTING not in providers.secrets:
-        LOG.warning("Listening off: no Soniox key")
+    local = settings.listen_engine == "gigaam" and settings.asr_port is not None
+    cloud = KEY_SETTING in providers.secrets
+    if not local and not cloud:
+        LOG.warning("Listening off: no Soniox key and no local recognition")
         return None
     source = TcpSource(SinkConfig(url=f"tcp://127.0.0.1:{settings.listen_port}"))
+    asr = GigaAm(AsrConfig(f"http://127.0.0.1:{settings.asr_port}")) if local else None
+    ears: list[Listener] = []
 
     async def transcribe(chunks: AsyncIterable[bytes], rate: int) -> AsyncGenerator[Any]:
+        # Local first: it costs nothing. When it does not answer, the cloud engine hears (and is
+        # paid for by the hour); with neither, the session fails with a fixed code and is retried.
+        if asr is not None and await asr.healthy():
+            ears[0].hour_rate = 0.0
+            async with aclosing(local_transcribe(asr)(chunks, rate)) as updates:
+                async for update in updates:
+                    yield update
+            return
+        if not cloud:
+            raise AsrError("unavailable")
+        ears[0].hour_rate = settings.speech_hour_rate
         adapter = SonioxAdapter.from_env(environ=providers.secrets)
         try:
             async with aclosing(adapter.transcribe(chunks, sample_rate=rate)) as updates:
@@ -794,15 +812,30 @@ def listener(
         *settings.listen_names,
         *(n for n in (settings.agent_names.get(persona), persona) if n),
     ]
-    return Listener(
-        source.open,
-        transcribe,
-        names,
-        host.root / "data" / "harness" / "listening.jsonl",
-        usage=usage,
-        hour_rate=settings.speech_hour_rate,
-        max_minutes=settings.listen_max_minutes,
+    ears.append(
+        Listener(
+            source.open,
+            transcribe,
+            names,
+            host.root / "data" / "harness" / "listening.jsonl",
+            usage=usage,
+            hour_rate=0.0 if local else settings.speech_hour_rate,
+            max_minutes=settings.listen_max_minutes,
+        )
     )
+    return ears[0]
+
+
+def hearer(settings: HarnessConfig, scope: Scope | None) -> Hear | None:
+    """Voice messages from her inbox as text, when the local recognition service is configured."""
+    from ai_agent_adapters.voice.gigaam import AsrConfig, GigaAm
+
+    from ai_agent_core.m3_composition.harness_hear import Hear
+
+    if settings.asr_port is None or not settings.files_dir or scope is None:
+        return None
+    asr = GigaAm(AsrConfig(f"http://127.0.0.1:{settings.asr_port}"))
+    return Hear(Path(settings.files_dir) / scope.persona_id / "inbox", asr)
 
 
 def channel(
@@ -882,6 +915,7 @@ def configure(
     remove_avatar: bool = False,
     remove_speech: bool = False,
     remove_image: bool = False,
+    remove_asr: bool = False,
     remove_listen: bool = False,
     remove_obs: bool = False,
     remove_chats: bool = False,
@@ -920,6 +954,12 @@ def configure(
         changes.update(speech_voice=None, speech_port=None)
     if remove_image:
         changes.update(image_model=None)
+    if remove_asr:
+        changes.update(asr_port=None, listen_engine="soniox")
+    if changes.get("listen_engine", current.listen_engine) == "gigaam" and (
+        changes.get("asr_port", current.asr_port) is None
+    ):
+        raise HostError("ASR_PORT_REQUIRED")  # the local engine needs its service's port
     if (changes.get("speech_voice", current.speech_voice) is None) != (
         changes.get("speech_port", current.speech_port) is None
     ):
