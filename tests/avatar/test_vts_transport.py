@@ -78,7 +78,7 @@ def test_first_run_gets_a_token_then_reuses_it_and_discovers_the_rig(tmp_path):
             await port.expression("a.exp3.json", active=True)
             await port.inject({"MouthOpen": 0.5})
             assert seen[-1][1]["parameterValues"] == [{"id": "MouthOpen", "value": 0.5}]
-            assert seen[-1][1]["faceFound"] is False
+            assert seen[-1][1]["faceFound"] is True
             await port.close()
 
     asyncio.run(scenario())

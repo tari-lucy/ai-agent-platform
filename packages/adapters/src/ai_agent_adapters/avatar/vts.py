@@ -172,7 +172,9 @@ class VtsPort:
         await self._request(
             "InjectParameterDataRequest",
             {
-                "faceFound": False,
+                # "found": with False the program shows its own "tracking lost" state and keeps
+                # the eyes shut (checked on a rig without a camera).
+                "faceFound": True,
                 "mode": "set",
                 "parameterValues": [{"id": k, "value": v} for k, v in values.items()],
             },
