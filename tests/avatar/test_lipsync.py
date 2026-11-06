@@ -184,3 +184,21 @@ def test_a_slow_send_does_not_slow_the_mouth_down():
         return clock.now - began
 
     assert abs(asyncio.run(scenario()) - 1.8) < 0.15
+
+
+def test_syllables_open_the_mouth_and_dips_between_them_shut_it():
+    """Speech that never goes silent, only dips: the mouth must still close in the dips."""
+    from ai_agent_application.avatar import Envelope, Smoother
+
+    envelope, smooth = Envelope(), Smoother()
+    syllable, dip = 0.14, 0.04  # typical loudness of a voiced window and of a dip (RMS)
+    shown = [smooth(envelope(rms)) for _ in range(6) for rms in (syllable, syllable, dip, dip)]
+    tail = shown[8:]  # the first syllables only teach the envelope the peak
+    assert max(tail) > 0.85 and min(tail) < 0.2
+
+
+def test_a_quiet_phrase_is_not_blown_up_to_a_wide_mouth():
+    from ai_agent_application.avatar import Envelope
+
+    envelope = Envelope()
+    assert [envelope(0.01) for _ in range(5)] == [0.0] * 5  # breathing/noise: shut

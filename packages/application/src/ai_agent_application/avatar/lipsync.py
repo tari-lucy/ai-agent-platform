@@ -19,30 +19,57 @@ from .service import Avatar
 WINDOW_MS = 60  # one mouth frame per window (~16 Hz, inside the avatar's own 20 Hz limit)
 REFERENCE = 0.22  # RMS (of full scale) that opens the mouth fully; speech sits around 0.05-0.25
 FLOOR = 0.03  # below this RMS it is breathing/noise: the mouth stays shut
-CONTRAST = 1.5  # >1: quiet stretches between syllables close the mouth more
+CONTRAST = 1.5  # >1: quiet stretches between syllables close the mouth more (fixed scale)
+PEAK_MIN = 0.08  # the peak never falls below this: a quiet phrase is not blown up to full
+PEAK_DECAY = 0.97  # per window: the remembered peak fades with a half-life of about 1.2 s
+LOW = 0.35  # a window quieter than this share of the peak keeps the mouth shut
+HIGH = 0.8  # and this share opens it fully
 ATTACK = 0.8  # share of the way to a louder level covered in one window
 RELEASE = 0.6  # the same going down
 STALL = 0.25  # seconds: a gap in the stream this long starts the schedule again
 MAX_BUFFER = 24000 * 2 * 4  # bytes of samples waiting for a window: a stuck consumer is bounded
 
 
-def window_levels(pcm: bytes, rate: int, *, window_ms: int = WINDOW_MS) -> list[float]:
-    """Loudness 0..1 of each full window of 16-bit little-endian mono PCM; a tail is dropped."""
+def window_rms(pcm: bytes, rate: int, *, window_ms: int = WINDOW_MS) -> list[float]:
+    """RMS (0..1 of full scale) of each full window of 16-bit little-endian mono PCM."""
     size = rate * window_ms // 1000
     samples = array("h")
     samples.frombytes(pcm[: len(pcm) // 2 * 2])
     if samples.itemsize != 2:  # pragma: no cover - 'h' is 2 bytes on every supported platform
         raise ValueError("array('h') is not 16-bit")
     return [
-        _level(samples[start : start + size]) for start in range(0, len(samples) - size + 1, size)
+        math.sqrt(sum(s * s for s in samples[start : start + size]) / size) / 32768.0
+        for start in range(0, len(samples) - size + 1, size)
     ]
 
 
-def _level(window: array) -> float:  # type: ignore[type-arg]
-    rms = math.sqrt(sum(s * s for s in window) / len(window)) / 32768.0
+def window_levels(pcm: bytes, rate: int, *, window_ms: int = WINDOW_MS) -> list[float]:
+    """Loudness 0..1 of each full window, on a fixed scale; a tail is dropped."""
+    return [_scale(rms) for rms in window_rms(pcm, rate, window_ms=window_ms)]
+
+
+def _scale(rms: float) -> float:
     if rms < FLOOR:
         return 0.0
-    return min((rms - FLOOR) / (REFERENCE - FLOOR), 1.0) ** CONTRAST
+    return float(min((rms - FLOOR) / (REFERENCE - FLOOR), 1.0) ** CONTRAST)
+
+
+class Envelope:
+    """Mouth opening from loudness relative to the phrase's own recent peak.
+
+    Synthesised speech does not fall silent between syllables, only dips, so a fixed scale
+    leaves the mouth half open all the time. Compared with the recent peak, a dip below
+    ``LOW`` of it shuts the mouth and a syllable near the peak opens it fully.
+    """
+
+    def __init__(self) -> None:
+        self.peak = PEAK_MIN
+
+    def __call__(self, rms: float) -> float:
+        self.peak = max(self.peak * PEAK_DECAY, rms, PEAK_MIN)
+        if rms < FLOOR:
+            return 0.0
+        return min(max((rms / self.peak - LOW) / (HIGH - LOW), 0.0), 1.0)
 
 
 class Smoother:
@@ -76,7 +103,7 @@ async def drive(
     the program), and a pause of a full window after it would run the mouth slower than the
     voice and let the lag grow through a phrase. A frame that is a few windows late is dropped.
     """
-    smooth, pending = Smoother(), b""
+    smooth, envelope, pending = Smoother(), Envelope(), b""
     step, start, index = window_ms / 1000, 0.0, 0
     await avatar.ready()  # speech may be the first thing she does: connect before the first frame
     size = rate * window_ms // 1000 * 2
@@ -89,10 +116,10 @@ async def drive(
             data, pending = pending[:usable], pending[usable:]
             if index == 0 or now() - (start + index * step) > STALL:
                 start, index = now(), 0  # the first sound, or a stall: do not rush to catch up
-            for level in window_levels(data, rate, window_ms=window_ms):
+            for rms in window_rms(data, rate, window_ms=window_ms):
                 due = start + index * step
                 index += 1
-                value = smooth(level)
+                value = smooth(envelope(rms))
                 if now() - due <= 2 * step:  # a frame much too late is skipped, not sent
                     await avatar.mouth(value)
                 await sleep(max(start + index * step - now(), 0.0))
