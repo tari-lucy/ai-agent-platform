@@ -171,6 +171,9 @@ def main() -> None:
         os.environ.get("MODEL_DIR", "/data/models"), int(os.environ.get("THREADS", "2"))
     )
     port = int(os.environ.get("PORT", "8090"))
+    # Load the model now, not on the first phrase (it takes about twenty seconds): /health says
+    # "loaded" once it is ready, and nobody has to wait for it in the middle of a conversation.
+    threading.Thread(target=lambda: engine([0.0] * (RATE // 5)), daemon=True).start()
     # Bound inside the container; docker publishes the port on the host's loopback only.
     server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(engine, lambda: engine.loaded))
     server.serve_forever()
