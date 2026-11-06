@@ -43,6 +43,9 @@ FIRST_BYTE = float(config.get("first_byte", 60))
 VISION = config.get("vision") if isinstance(config.get("vision"), dict) else {}
 VISION_MODELS = [str(n) for n in VISION.get("models") or [] if isinstance(n, str)]
 VISION_PROMPT = str(VISION.get("prompt") or "Describe the picture.")
+# Tool names the model is known to get wrong (measured: "bash_tool" instead of OpenCode's "bash",
+# four times in one evening); the right name goes on to the agent, so the call is not wasted.
+WRONG_TOOL_NAME = re.compile(rb'("name"\s*:\s*")bash_tool(")')
 MIN_PICTURE_TOKENS = 500  # fewer prompt tokens than this: the picture did not arrive
 BLIND_FOR = 1800.0  # seconds a model that returned no picture is not asked again
 MAX_PICTURES = 4  # pictures described per request; the rest get a note
@@ -414,6 +417,7 @@ class Model(BaseHTTPRequestHandler):
                     chunk = response.read1(CHUNK) if stream else response.read(CHUNK)
                 if not chunk:
                     break
+                chunk = WRONG_TOOL_NAME.sub(rb"\1bash\2", chunk)
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                 self.wfile.flush()
                 if stream:

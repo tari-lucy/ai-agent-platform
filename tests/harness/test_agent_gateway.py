@@ -27,6 +27,7 @@ class Upstream:
         failing: dict[str, int] | None = None,
         odd: dict[str, str] | None = None,
         seeing: set[str] | None = None,
+        tool_name: str | None = None,
     ) -> None:
         self.calls: list[tuple[str, dict]] = []
         calls = self.calls
@@ -99,6 +100,20 @@ class Upstream:
                     elif mode == "silent":
                         time.sleep(3)  # longer than the gateway's first_byte in the test
                     self.wfile.write(b"0\r\n\r\n")
+                    return
+                if body.get("stream") and tool_name:
+                    call = {"index": 0, "id": "c1", "type": "function"}
+                    call["function"] = {"name": tool_name, "arguments": "{}"}
+                    events = [
+                        {"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
+                        {"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 3}},
+                    ]
+                    data = ("".join("data: " + json.dumps(e) + "\n\n" for e in events)).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
                     return
                 if body.get("stream"):
                     events = [
@@ -518,5 +533,28 @@ def test_without_vision_settings_a_picture_goes_on_untouched():
         gateway.post(with_picture())
         main = [body for _, body in upstream.calls][0]
         assert main["messages"][0]["content"][1]["type"] == "image_url"
+    finally:
+        gateway.close()
+
+
+def test_a_wrongly_named_shell_tool_reaches_the_agent_with_the_right_name():
+    upstream, agent = Upstream(tool_name="bash_tool"), Echo()
+    gateway = Gateway(upstream, agent)
+    try:
+        status, body = gateway.post(
+            {"stream": True, "messages": [{"role": "user", "content": "x"}]}
+        )
+        assert status == 200
+        assert b'"name": "bash"' in body and b"bash_tool" not in body
+    finally:
+        gateway.close()
+
+
+def test_other_tool_names_are_left_alone():
+    upstream, agent = Upstream(tool_name="platform_look"), Echo()
+    gateway = Gateway(upstream, agent)
+    try:
+        _, body = gateway.post({"stream": True, "messages": [{"role": "user", "content": "x"}]})
+        assert b'"name": "platform_look"' in body
     finally:
         gateway.close()
