@@ -15,7 +15,7 @@ QUIET.disabled = True
 TOKEN = "synthetic-plugin-token"
 
 
-def program(seen, *, approve=True, loaded=True):
+def program(seen, *, approve=True, loaded=True, frame_delay=0.0):
     async def handler(ws):
         async for raw in ws:
             msg = json.loads(raw)
@@ -45,6 +45,11 @@ def program(seen, *, approve=True, loaded=True):
                     "messageType": "APIError",
                     "data": {"errorID": 50, "message": "SECRET-REMOTE-TEXT"},
                 }
+            if frame_delay and kind == "InjectParameterDataRequest":  # a slow link
+                asyncio.get_running_loop().call_later(
+                    frame_delay, lambda r=reply: asyncio.ensure_future(ws.send(json.dumps(r)))
+                )
+                continue
             await ws.send(json.dumps(reply))
 
     return handler
@@ -77,6 +82,7 @@ def test_first_run_gets_a_token_then_reuses_it_and_discovers_the_rig(tmp_path):
             await port.hotkey("h1")
             await port.expression("a.exp3.json", active=True)
             await port.inject({"MouthOpen": 0.5})
+            await asyncio.sleep(0.1)  # a frame is only sent: the program gets it a moment later
             assert seen[-1][1]["parameterValues"] == [{"id": "MouthOpen", "value": 0.5}]
             assert seen[-1][1]["faceFound"] is True
             await port.close()
@@ -175,5 +181,41 @@ def test_avatar_over_the_real_transport_end_to_end(tmp_path):
         assert "HotkeyTriggerRequest" in kinds
         injected = [d for k, d in seen if k == "InjectParameterDataRequest"]
         assert injected[-1]["parameterValues"] == [{"id": "MouthOpen", "value": 0.0}]
+
+    asyncio.run(scenario())
+
+
+def test_parameter_frames_do_not_wait_for_a_round_trip_each(tmp_path):
+    async def scenario():
+        seen = []
+        async with serve(program(seen, frame_delay=0.2), "127.0.0.1", 0, logger=QUIET) as server:
+            port = VtsPort(config(server, tmp_path))
+            await port.connect()
+            loop = asyncio.get_running_loop()
+            began = loop.time()
+            for index in range(40):
+                await port.inject({"MouthOpen": index / 40})
+            took = loop.time() - began
+            await asyncio.sleep(0.2)
+            frames = [d for k, d in seen if k == "InjectParameterDataRequest"]
+            await port.close()
+            return took, len(frames)
+
+    took, frames = asyncio.run(scenario())
+    assert frames == 40 and took < 0.5
+
+
+def test_a_lost_connection_is_noticed_by_the_next_frame(tmp_path):
+    async def scenario():
+        seen = []
+        async with serve(program(seen), "127.0.0.1", 0, logger=QUIET) as server:
+            port = VtsPort(config(server, tmp_path))
+            await port.connect()
+            server.close()
+            await server.wait_closed()
+            await asyncio.sleep(0.2)
+            with pytest.raises(AvatarError):
+                await port.inject({"MouthOpen": 0.1})
+                await port.inject({"MouthOpen": 0.2})
 
     asyncio.run(scenario())

@@ -69,30 +69,73 @@ class VtsPort:
     def __init__(self, config: VtsConfig) -> None:
         self.config = config
         self._socket: ClientConnection | None = None
+        self._reader: asyncio.Task[None] | None = None
+        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+
+    async def _read(self, socket: ClientConnection) -> None:
+        """Read every frame of the program; hand a reply to whoever waits for its request id.
+
+        Frames nobody waits for (the answers to fire-and-forget parameter frames) are dropped
+        here, so a slow link never queues them up. When the connection ends, waiters fail.
+        """
+        try:
+            async for raw in socket:
+                try:
+                    reply = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(reply, dict):
+                    waiter = self._pending.pop(str(reply.get("requestID")), None)
+                    if waiter is not None and not waiter.done():
+                        waiter.set_result(reply)
+        except WebSocketException, OSError:
+            pass
+        finally:
+            waiters, self._pending = list(self._pending.values()), {}
+            for waiter in waiters:
+                if not waiter.done():
+                    waiter.set_exception(AvatarError("vts:transport"))
+            if self._socket is socket:
+                self._socket = None
 
     async def _request(
-        self, kind: str, data: Mapping[str, Any] | None = None, *, wait: float | None = None
+        self,
+        kind: str,
+        data: Mapping[str, Any] | None = None,
+        *,
+        wait: float | None = None,
+        reply: bool = True,
     ) -> dict[str, Any]:
+        """One request. With ``reply=False`` it is only sent: a stream of parameter frames must
+        not wait for a round trip each (through a tunnel that is 0.2 s, a 5 Hz mouth)."""
         socket = self._socket
         if socket is None:
             raise AvatarError("vts:closed")
         identifier = uuid4().hex
         frame = {**API, "requestID": identifier, "messageType": kind, "data": dict(data or {})}
+        waiter: asyncio.Future[dict[str, Any]] | None = None
+        if reply:
+            waiter = asyncio.get_running_loop().create_future()
+            self._pending[identifier] = waiter
         try:
             async with asyncio.timeout(wait or self.config.request_timeout):
                 await socket.send(json.dumps(frame))
-                while True:
-                    reply = json.loads(await socket.recv())
-                    if isinstance(reply, dict) and reply.get("requestID") == identifier:
-                        break
+                if waiter is None:
+                    return {}
+                answer = await waiter
         except TimeoutError:
+            self._pending.pop(identifier, None)
             await self.close()
             raise AvatarError("vts:timeout") from None
+        except AvatarError:
+            await self.close()
+            raise
         except (WebSocketException, OSError, ValueError) as error:
+            self._pending.pop(identifier, None)
             await self.close()
             raise AvatarError("vts:transport") from error
-        data_back = reply.get("data")
-        if reply.get("messageType") == "APIError" or not isinstance(data_back, dict):
+        data_back = answer.get("data")
+        if answer.get("messageType") == "APIError" or not isinstance(data_back, dict):
             code = data_back.get("errorID") if isinstance(data_back, dict) else None
             raise AvatarError(f"vts:api:{code if isinstance(code, int) else 'unknown'}")
         return data_back
@@ -111,6 +154,7 @@ class VtsPort:
         except (WebSocketException, OSError, TimeoutError) as error:
             self._socket = None
             raise AvatarError("vts:connect") from error
+        self._reader = asyncio.get_running_loop().create_task(self._read(self._socket))
         await self._authenticate()
         return await self._discover()
 
@@ -178,10 +222,15 @@ class VtsPort:
                 "mode": "set",
                 "parameterValues": [{"id": k, "value": v} for k, v in values.items()],
             },
+            reply=False,
         )
 
     async def close(self) -> None:
         socket, self._socket = self._socket, None
+        reader, self._reader = self._reader, None
+        if reader is not None and reader is not asyncio.current_task():
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
         if socket is not None:
             try:
                 await socket.close()
