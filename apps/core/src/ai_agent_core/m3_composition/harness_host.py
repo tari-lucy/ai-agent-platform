@@ -418,7 +418,12 @@ class HarnessHost:
             "your game screenshots, /workspace/playbook and /workspace/skills your notes. "
             "A picture attached right in the chat is not a file and is not in the inbox: you "
             "get it in the message itself; if it did not reach you, say so and ask him to "
-            "send it again or to put the file into the inbox."
+            "send it again or to put the file into the inbox.\n"
+            "Tool names are exact: the shell is `bash` (there is no bash_tool), files are read "
+            "with `read`, found with `glob` and `grep`, changed with `edit` and `write`; the "
+            "platform's own tools start with `platform_`. To see a folder run `ls -la` in "
+            "`bash`. If a call fails or the tool does not exist, say that plainly and use the "
+            "right name: never write down output that a tool did not give you."
         )
         live = [
             label
