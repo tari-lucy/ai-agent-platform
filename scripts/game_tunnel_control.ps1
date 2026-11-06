@@ -47,6 +47,7 @@ function Start-Audio($settings) {
     $port = [int]$audio.port
     if ($port -lt 1024 -or $port -gt 65535) { return ' Мост звука: неверный порт.' }
     $arguments = @('-u', ('"{0}"' -f $script), '--port', "$port", '--device', ('"{0}"' -f $audio.device))
+    if ($audio.latency) { $arguments += @('--latency', ([string]$audio.latency)) }
     if ($audio.capture_port) {
         $arguments += @('--capture-port', ([string][int]$audio.capture_port),
             '--capture-device', ('"{0}"' -f $audio.capture_device),

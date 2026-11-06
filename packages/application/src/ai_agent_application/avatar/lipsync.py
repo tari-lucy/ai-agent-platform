@@ -18,9 +18,10 @@ from .service import Avatar
 
 WINDOW_MS = 60  # one mouth frame per window (~16 Hz, inside the avatar's own 20 Hz limit)
 REFERENCE = 0.22  # RMS (of full scale) that opens the mouth fully; speech sits around 0.05-0.25
-FLOOR = 0.02  # below this RMS it is breathing/noise: the mouth stays shut
-ATTACK = 0.7  # share of the way to a louder level covered in one window
-RELEASE = 0.35  # the same going down
+FLOOR = 0.03  # below this RMS it is breathing/noise: the mouth stays shut
+CONTRAST = 1.5  # >1: quiet stretches between syllables close the mouth more
+ATTACK = 0.8  # share of the way to a louder level covered in one window
+RELEASE = 0.6  # the same going down
 STALL = 0.25  # seconds: a gap in the stream this long starts the schedule again
 MAX_BUFFER = 24000 * 2 * 4  # bytes of samples waiting for a window: a stuck consumer is bounded
 
@@ -41,7 +42,7 @@ def _level(window: array) -> float:  # type: ignore[type-arg]
     rms = math.sqrt(sum(s * s for s in window) / len(window)) / 32768.0
     if rms < FLOOR:
         return 0.0
-    return min((rms - FLOOR) / (REFERENCE - FLOOR), 1.0)
+    return min((rms - FLOOR) / (REFERENCE - FLOOR), 1.0) ** CONTRAST
 
 
 class Smoother:

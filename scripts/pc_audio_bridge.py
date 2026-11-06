@@ -44,11 +44,13 @@ class Output(Protocol):
 class DeviceOutput:
     """sounddevice output stream: blocking writes happen in a thread, not in the loop."""
 
-    def __init__(self, device: str | int | None, rate: int) -> None:
+    def __init__(self, device: str | int | None, rate: int, latency: str | float = "high") -> None:
         import sounddevice  # type: ignore[import-not-found,unused-ignore]
 
+        # A bigger buffer ("high") keeps the voice whole when the computer is busy (the avatar
+        # program takes much of it): a small one runs dry for a moment and the voice stutters.
         self.stream = sounddevice.RawOutputStream(
-            samplerate=rate, channels=1, dtype="int16", device=device
+            samplerate=rate, channels=1, dtype="int16", device=device, latency=latency
         )
         self.stream.start()
 
@@ -213,6 +215,11 @@ def main() -> None:
         "--capture-device", help="part of the INPUT device name, e.g. 'CABLE Output'"
     )
     parser.add_argument("--capture-rate", type=int, default=16000)
+    parser.add_argument(
+        "--latency",
+        default="high",
+        help="audio buffer: low, high or seconds (0.3); more is steadier, the voice lags more",
+    )
     parser.add_argument("--list-devices", action="store_true")
     arguments = parser.parse_args()
     if arguments.list_devices:
@@ -223,6 +230,14 @@ def main() -> None:
     if not 1024 <= arguments.port <= 65535:
         sys.exit("Port must be 1024..65535.")
     device = find_device(arguments.device)
+    latency: str | float = arguments.latency
+    if latency not in ("low", "high"):
+        try:
+            latency = float(latency)
+        except ValueError:
+            sys.exit("--latency must be low, high or a number of seconds.")
+        if not 0.01 <= latency <= 2.0:
+            sys.exit("--latency in seconds must be 0.01..2.")
     capture = None
     if arguments.capture_port is not None:
         if arguments.capture_rate not in (8000, 16000, 24000, 44100, 48000):
@@ -234,7 +249,9 @@ def main() -> None:
             arguments.capture_rate,
         )
     try:
-        asyncio.run(serve(arguments.port, lambda rate: DeviceOutput(device, rate), capture))
+        asyncio.run(
+            serve(arguments.port, lambda rate: DeviceOutput(device, rate, latency), capture)
+        )
     except KeyboardInterrupt:
         pass
 
