@@ -177,6 +177,7 @@ class AgentGateway:
         model: str,
         remaining: float | None,
         models: list[str] | None = None,
+        vision: dict[str, Any] | None = None,
     ) -> str:
         await cli(*self.args())
         await cli("network", "connect", network, self.name)
@@ -206,6 +207,7 @@ class AgentGateway:
                 "key": key,
                 "model": model,
                 **({"models": models} if models else {}),
+                **({"vision": vision} if vision else {}),
                 "remaining": remaining,
                 "model_bind": addresses[network],
                 "ui_bind": addresses["bridge"],

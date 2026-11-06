@@ -585,6 +585,7 @@ class HarnessHost:
         epoch = rt.supervisor.snapshot.control_epoch
         admission = rt.supervisor.admit("observation")
         ticket = rt.supervisor.register(admission, "harness-" + uuid4().hex)
+        from .harness_look import CHAT_PICTURE_PROMPT
         from .harness_mcp import PlatformMcp
 
         self.epoch = epoch
@@ -641,6 +642,14 @@ class HarnessHost:
                 model=s.model,
                 models=[name for name, *_ in s.models] or None,
                 remaining=self.remaining(),
+                vision=(
+                    {
+                        "models": [name for name, *_ in s.vision],
+                        "prompt": CHAT_PICTURE_PROMPT,
+                    }
+                    if s.vision
+                    else None
+                ),
             )
             host = model_url.split("//", 1)[1].split(":", 1)[0]
             proxy.update({"NO_PROXY": host, "no_proxy": host})

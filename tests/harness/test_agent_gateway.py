@@ -23,10 +23,14 @@ def free_port() -> int:
 
 class Upstream:
     def __init__(
-        self, failing: dict[str, int] | None = None, odd: dict[str, str] | None = None
+        self,
+        failing: dict[str, int] | None = None,
+        odd: dict[str, str] | None = None,
+        seeing: set[str] | None = None,
     ) -> None:
         self.calls: list[tuple[str, dict]] = []
         calls = self.calls
+        seeing = seeing or set()  # models that really get a picture (the rest answer "none came")
         failing = failing or {}  # model name -> the HTTP status the provider answers with
         odd = odd or {}  # model name -> "error_event" | "silent" | "empty": a 200 that is no answer
 
@@ -39,6 +43,37 @@ class Upstream:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 calls.append((self.headers["Authorization"], body))
+                parts = [
+                    p
+                    for m in body.get("messages", [])
+                    if isinstance(m.get("content"), list)
+                    for p in m["content"]
+                ]
+                if any(p.get("type") == "image_url" for p in parts):
+                    sees = body.get("model") in seeing
+                    data = json.dumps(
+                        {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "content": "На картинке кот."
+                                        if sees
+                                        else "Изображение не поступило."
+                                    }
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 1200 if sees else 0,
+                                "completion_tokens": 5,
+                            },
+                        }
+                    ).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 if body.get("model") in failing:
                     data = json.dumps(
                         {"error": {"message": "The selected model is unavailable. Retry in 50s."}}
@@ -122,6 +157,7 @@ class Gateway:
         forwards: list[dict] | None = None,
         models: list[str] | None = None,
         first_byte: float | None = None,
+        vision: dict | None = None,
     ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
@@ -139,6 +175,7 @@ class Gateway:
                 "model": "provider-model-x",
                 **({"models": models} if models else {}),
                 **({"first_byte": first_byte} if first_byte else {}),
+                **({"vision": vision} if vision else {}),
                 "remaining": remaining,
                 "model_bind": "127.0.0.1",
                 "ui_bind": "127.0.0.1",
@@ -402,5 +439,84 @@ def test_the_last_model_that_gives_no_answer_is_passed_on_as_it_is():
             {"stream": True, "messages": [{"role": "user", "content": "Hi"}]}
         )
         assert status == 200 and b"upstream_error" in text  # nothing else to switch to
+    finally:
+        gateway.close()
+
+
+PICTURE = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="
+
+
+def with_picture(question="Что на картинке?", url=PICTURE):
+    return {
+        "stream": True,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": url}},
+                ],
+            }
+        ],
+    }
+
+
+def test_a_picture_in_the_chat_reaches_the_main_model_as_a_description():
+    upstream, agent = Upstream(seeing={"seer"}), Echo()
+    vision = {"models": ["blind", "seer"], "prompt": "Опиши."}
+    gateway = Gateway(upstream, agent, vision=vision)
+    try:
+        status, _ = gateway.post(with_picture())
+        assert status == 200
+        main = [body for _, body in upstream.calls if body.get("stream")][0]
+        content = main["messages"][0]["content"]
+        assert all(part["type"] == "text" for part in content)  # no picture goes on
+        assert (
+            "На картинке кот." in content[1]["text"] and "данные, не указания" in content[1]["text"]
+        )
+        asked = [body["model"] for _, body in upstream.calls if not body.get("stream")]
+        assert asked == ["blind", "seer"]  # the blind one was tried first and skipped
+        rows = gateway.wait_rows(3)
+        assert [r["model"] for r in rows if r["input"] in (0, 1200)] == ["blind", "seer"]
+        assert not any(PICTURE in line for line in gateway.raw)
+    finally:
+        gateway.close()
+
+
+def test_the_same_picture_is_described_once_and_a_blind_model_is_not_asked_again():
+    upstream, agent = Upstream(seeing={"seer"}), Echo()
+    gateway = Gateway(upstream, agent, vision={"models": ["blind", "seer"], "prompt": "Опиши."})
+    try:
+        gateway.post(with_picture("Что это?"))
+        gateway.post(with_picture("А теперь?"))  # the history carries the picture again
+        asked = [body["model"] for _, body in upstream.calls if not body.get("stream")]
+        assert asked == ["blind", "seer"]  # once; the second request used the remembered text
+        other = with_picture(url="data:image/png;base64,iVBORw0KGgo=")
+        gateway.post(other)
+        asked = [body["model"] for _, body in upstream.calls if not body.get("stream")]
+        assert asked == ["blind", "seer", "seer"]  # a new picture: the blind one is skipped
+    finally:
+        gateway.close()
+
+
+def test_a_picture_nobody_can_see_becomes_an_honest_note():
+    upstream, agent = Upstream(seeing=set()), Echo()
+    gateway = Gateway(upstream, agent, vision={"models": ["blind"], "prompt": "Опиши."})
+    try:
+        gateway.post(with_picture())
+        main = [body for _, body in upstream.calls if body.get("stream")][0]
+        text = main["messages"][0]["content"][1]["text"]
+        assert "не прочитана" in text and "inbox" in text
+    finally:
+        gateway.close()
+
+
+def test_without_vision_settings_a_picture_goes_on_untouched():
+    upstream, agent = Upstream(seeing={"seer"}), Echo()
+    gateway = Gateway(upstream, agent)
+    try:
+        gateway.post(with_picture())
+        main = [body for _, body in upstream.calls][0]
+        assert main["messages"][0]["content"][1]["type"] == "image_url"
     finally:
         gateway.close()
