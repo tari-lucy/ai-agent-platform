@@ -152,3 +152,35 @@ def test_a_stuck_consumer_cannot_grow_the_buffer_forever():
         assert len(rig.mouth) <= 4 * 1000 // 60 + 3  # only the last ~4 s were ever windowed
 
     asyncio.run(scenario())
+
+
+def test_a_slow_send_does_not_slow_the_mouth_down():
+    """Each frame takes 40 ms to send; 30 windows must still last 30 windows, not 30 + sends."""
+
+    class SlowRig(Rig):
+        def __init__(self, clock):
+            super().__init__()
+            self.clock = clock
+
+        async def inject(self, values):
+            self.clock.now += 0.04
+            await super().inject(values)
+
+    async def scenario():
+        clock = Clock()
+        rig = SlowRig(clock)
+        profile = profile_from_json(
+            {"version": 1, "neutral": {"hotkey": "Reset"}, "mouth_parameter": "MouthOpen"}
+        )
+        avatar = Avatar(rig, profile, clock=clock)
+
+        async def sleep(seconds):
+            clock.now += seconds
+
+        pcm = tone(0.5, 30)  # 30 windows of 60 ms = 1.8 s of speech
+        await avatar.ready()
+        began = clock.now
+        await drive(avatar, stream(pcm), RATE, sleep=sleep, now=clock)
+        return clock.now - began
+
+    assert abs(asyncio.run(scenario()) - 1.8) < 0.15
