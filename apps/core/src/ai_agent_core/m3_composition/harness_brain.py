@@ -243,7 +243,7 @@ class VoiceBrain:
     def _hand_over(self, text: str, said: str, task: str) -> None:
         key = f"brain-{self.clock():.3f}"
         if task:
-            self.waiting = [self.clock(), 0, self.clock()]
+            self.waiting = [self.clock(), 0, -1e9]
             if self.express is not None:
                 with contextlib.suppress(RuntimeError):  # no loop: nothing to show
                     asyncio.get_running_loop().create_task(self._think())
