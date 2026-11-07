@@ -73,7 +73,7 @@ def own_tone():
         for value in tone:
             frames.extend([value, value])
 
-        def play(index=index, frames=frames):
+        def play(index=index, frames=frames, rate=rate, name=speaker.name):
             try:
                 out = sounddevice.RawOutputStream(
                     device=index, samplerate=rate, channels=2, dtype="int16"
@@ -83,7 +83,7 @@ def own_tone():
                 out.stop()
                 out.close()
             except Exception as error:
-                print(f"  could not play into {speaker.name}: {type(error).__name__}")
+                print(f"  could not play into {name}: {type(error).__name__}")
 
         try:
             microphone = soundcard.get_microphone(speaker.id, include_loopback=True)
