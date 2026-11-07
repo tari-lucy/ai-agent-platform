@@ -40,6 +40,11 @@ FIRST_BYTE = float(config.get("first_byte", 60))
 # A fast lane for live conversation: while the host says one is on (a person is talking to her),
 # these models answer first and the usual ones come after them. Outside it nothing changes.
 FAST = [str(n) for n in config.get("fast") or [] if isinstance(n, str)]
+# Keeping the provider's prefix warm: the first request after a pause with her big prefix (the
+# instructions and the tools, ~14k tokens) takes a minute or more, the next ones seconds. While
+# she runs, her last real request is repeated now and then with an answer of one token, so the
+# provider keeps that prefix; no real request is delayed by it.
+WARM_EVERY = float(config.get("warm_every", 150))
 # Pictures attached in the chat. The main model may be one that the router gives no pictures
 # (it answers "no image arrived"); then the picture is shown once to a model that really gets it
 # and the main model receives the short description as text. Optional: without it, untouched.
@@ -59,7 +64,15 @@ COOLDOWN = {429: 60.0}  # seconds by status; others use DEFAULT_COOLDOWN
 DEFAULT_COOLDOWN = 300.0
 cooling = {}  # model name -> time.monotonic() until which it is skipped
 TIMEOUT = float(config.get("timeout", 600))
-state = {"stopped": False, "remaining": config.get("remaining"), "agent": None, "fast_until": 0.0}
+state = {
+    "stopped": False,
+    "remaining": config.get("remaining"),
+    "agent": None,
+    "fast_until": 0.0,
+    "last_body": None,
+    "last_at": 0.0,
+    "warm_at": 0.0,
+}
 lock = threading.Lock()
 out = threading.Lock()
 # Platform MCP calls waiting for the host's answer on stdin: id -> [event, reply].
@@ -402,6 +415,10 @@ class Model(BaseHTTPRequestHandler):
         if VISION_MODELS:
             replace_pictures(body)
         stream = body.get("stream") is True
+        if body.get("messages"):
+            with lock:  # what the warm-up repeats: this very request, with the answer cut short
+                state["last_body"] = {k: v for k, v in body.items() if k != "stream_options"}
+                state["last_at"] = time.monotonic()
         if stream:
             body["stream_options"] = {"include_usage": True}
         if body.get("tools"):
@@ -536,10 +553,53 @@ for item in config.get("forwards", []):
         target=forward, args=(listener, item["host"], item["port"]), daemon=True
     ).start()
 
+
+def warm_up():
+    """Repeat her last request now and then (answer: one token) so the provider keeps the prefix."""
+    while True:
+        time.sleep(1.0)
+        with lock:
+            body = state["last_body"]
+            quiet_since = max(state["last_at"], state["warm_at"])
+            off = state["stopped"] or (state["remaining"] is not None and state["remaining"] <= 0)
+        if not WARM_EVERY or body is None or off:
+            continue
+        if time.monotonic() - quiet_since < WARM_EVERY:
+            continue
+        with lock:
+            state["warm_at"] = time.monotonic()
+        data = {**body, "stream": False, "max_tokens": 1}
+        data.pop("max_completion_tokens", None)
+        try:
+            connection, response, used, _ = Model.open_upstream(None, data, False)
+            try:
+                raw = response.read(2 * 1024 * 1024)
+            finally:
+                connection.close()
+            found = {}
+            if response.status == 200:
+                usage_of(json.loads(raw), found)
+        except OSError, http.client.HTTPException, ValueError:
+            continue
+        if found:
+            emit(
+                {
+                    "kind": "usage",
+                    "status": 200,
+                    "model": used,
+                    "input": found.get("prompt_tokens"),
+                    "output": found.get("completion_tokens"),
+                    "cached": (found.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                    "warm": True,
+                }
+            )
+
+
 model = ThreadingHTTPServer((config["model_bind"], config.get("model_port", 8080)), Model)
 model.daemon_threads = True
 ui = socket.create_server((config["ui_bind"], config.get("ui_port", 4096)))
 threading.Thread(target=model.serve_forever, daemon=True).start()
 threading.Thread(target=relay, args=(ui,), daemon=True).start()
+threading.Thread(target=warm_up, daemon=True).start()
 emit({"kind": "ready"})
 control()

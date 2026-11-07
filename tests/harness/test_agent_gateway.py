@@ -174,6 +174,7 @@ class Gateway:
         first_byte: float | None = None,
         vision: dict | None = None,
         fast: list[str] | None = None,
+        warm_every: float | None = None,
     ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
@@ -193,6 +194,7 @@ class Gateway:
                 **({"first_byte": first_byte} if first_byte else {}),
                 **({"vision": vision} if vision else {}),
                 **({"fast": fast} if fast else {}),
+                **({"warm_every": warm_every} if warm_every else {}),
                 "remaining": remaining,
                 "model_bind": "127.0.0.1",
                 "ui_bind": "127.0.0.1",
@@ -602,5 +604,43 @@ def test_a_junk_fast_line_is_ignored_and_without_fast_models_nothing_changes():
         time.sleep(0.3)
         gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
         assert upstream.calls[-1][1]["model"] == "main-model"
+    finally:
+        gateway.close()
+
+
+def test_her_last_request_is_repeated_with_one_token_so_the_prefix_stays_warm():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent, warm_every=1.0)
+    try:
+        time.sleep(2.0)
+        assert upstream.calls == []  # nothing to repeat before her first real request
+        question = {"stream": True, "messages": [{"role": "user", "content": "Расскажи о себе"}]}
+        gateway.post(question)
+        assert len(upstream.calls) == 1
+        time.sleep(3.0)  # quiet for longer than warm_every: the request is repeated
+        warm = [body for _, body in upstream.calls[1:]]
+        assert warm, "the warm-up did not go out"
+        assert all(w["max_tokens"] == 1 and w["stream"] is False for w in warm)
+        assert all(w["messages"] == question["messages"] for w in warm)  # the same prefix
+        rows = [r for r in gateway.wait_rows(2) if r.get("warm")]
+        assert rows and rows[0]["kind"] == "usage" and rows[0]["input"] == 50
+    finally:
+        gateway.close()
+
+
+def test_a_real_request_postpones_the_warm_up_and_stop_ends_it():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent, warm_every=2.0)
+    try:
+        question = {"messages": [{"role": "user", "content": "Привет"}]}
+        for _ in range(4):  # a request every second: it is never quiet for two seconds
+            gateway.post(question)
+            time.sleep(1.0)
+        assert len(upstream.calls) == 4  # no warm-up went out meanwhile
+        gateway.send({"kind": "stop"})
+        time.sleep(0.3)
+        before = len(upstream.calls)
+        time.sleep(3.0)
+        assert len(upstream.calls) == before  # stopped: nothing is repeated
     finally:
         gateway.close()
