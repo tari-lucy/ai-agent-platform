@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import secrets
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -350,6 +350,10 @@ def install(
     )
     owner = runtime.harness  # the lambdas below cannot keep the "is not None" narrowing
     api_model = config.live.api_model
+    if providers.binding is not None:
+        upstream_url, upstream_key = providers.binding
+        main_model = settings.models[0].name if settings.models else api_model
+        runtime.harness.attach(ModelWarm(model_ping(upstream_url, upstream_key, main_model)))
     owner.avatar = _safely("avatar", lambda: avatar(settings, host))
     if runtime.harness.avatar is not None:
         runtime.harness.attach(AvatarPart(runtime.harness.avatar))
@@ -551,6 +555,71 @@ class AvatarPart:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         await self.avatar.neutral()
+
+
+class ModelWarm:
+    """Keeps the route to her main model warm while she runs.
+
+    Measured: after an idle spell the first request to the main model's route waits a minute
+    or more (63 s, then 2 s for the next one), and every first step after a pause feels like a
+    hang. A tiny request now at START and every few minutes keeps the route awake; it costs a
+    handful of tokens and changes nothing in her conversation.
+    """
+
+    EVERY = 240.0
+
+    def __init__(self, ping: Callable[[], Awaitable[None]], every: float = EVERY) -> None:
+        self.ping, self.every = ping, every
+        self._task: asyncio.Task[None] | None = None
+
+    def tick(self) -> None:
+        if self._task is None or self._task.done():
+            self._task = asyncio.get_running_loop().create_task(self._keep())
+
+    async def _keep(self) -> None:
+        while True:
+            try:
+                await self.ping()
+            except Exception:  # noqa: BLE001 - a failed warm-up is only a missed warm-up
+                LOG.warning("Model warm-up failed")
+            await asyncio.sleep(self.every)
+
+    async def close(self) -> None:
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+def model_ping(upstream: str, key: str, model: str) -> Callable[[], Awaitable[None]]:
+    """One-token request to the model, through the provider's own endpoint."""
+    import json
+    import urllib.request
+
+    def call() -> None:
+        body = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ok"}],
+        }
+        request = urllib.request.Request(
+            upstream.rstrip("/") + "/chat/completions",
+            data=json.dumps(body).encode(),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+                "User-Agent": "ai-agent-platform/1.0",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=180) as response:
+            response.read(65536)
+
+    async def ping() -> None:
+        await asyncio.to_thread(call)
+
+    return ping
 
 
 def _safely[T](name: str, build: Callable[[], T | None]) -> T | None:

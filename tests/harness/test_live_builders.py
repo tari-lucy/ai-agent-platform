@@ -115,3 +115,29 @@ def test_an_optional_owner_that_fails_to_build_is_off_and_never_stops_the_start(
         assert _safely("chats", lambda: "built") == "built"
     assert "chats off: RuntimeError" in caplog.text
     assert "secret-token" not in caplog.text  # only the error's type is logged
+
+
+def test_the_model_route_is_kept_warm_from_start_until_stop():
+    import asyncio
+
+    from ai_agent_core.local_host.harness import ModelWarm
+
+    async def scenario():
+        pings = []
+
+        async def ping():
+            pings.append(1)
+            if len(pings) == 2:
+                raise OSError("the provider is down")  # one failed warm-up changes nothing
+
+        warm = ModelWarm(ping, every=0.01)
+        warm.tick()
+        warm.tick()  # a second tick never starts a second loop
+        await asyncio.sleep(0.1)
+        await warm.close()
+        stopped = len(pings)
+        await asyncio.sleep(0.05)
+        return stopped, len(pings)
+
+    stopped, after = asyncio.run(scenario())
+    assert stopped >= 3 and after == stopped  # it kept going through the failure, then stopped
