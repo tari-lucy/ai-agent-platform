@@ -177,3 +177,24 @@ def test_the_model_is_declared_to_read_pictures_attached_in_the_chat(tmp_path):
         "bound"
     ]
     assert bound["attachment"] is True and "image" in bound["modalities"]["input"]
+
+
+def test_a_slow_tool_call_is_given_five_minutes_before_it_is_dropped(tmp_path):
+    settings = HarnessSettings(
+        image_id="i",
+        port=4096,
+        password="p",
+        upstream="https://x/v1",
+        key="k",
+        model="m",
+        usage_dir=tmp_path,
+        daily_budget=1.0,
+        input_rate=0.1,
+        output_rate=0.1,
+    )
+    host = HarnessHost.__new__(HarnessHost)
+    host.settings = settings
+    scope = SimpleNamespace(persona_id="p")
+    host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+    mcp = host.config("http://x:8080/v1", "base", False)["mcp"]["platform"]
+    assert mcp["timeout"] == 300_000

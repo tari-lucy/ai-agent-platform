@@ -592,6 +592,10 @@ class HarnessHost:
                     "type": "remote",
                     "url": model_url.rsplit("/v1", 1)[0] + "/mcp",
                     "enabled": True,
+                    # How long OpenCode waits for one tool call (it defaults to about a minute):
+                    # a picture takes 30-70 s, and a call dropped at the minute made her draw
+                    # the same picture twice. The gateway waits five minutes for the host.
+                    "timeout": 300_000,
                 }
             },
             "default_agent": name,
