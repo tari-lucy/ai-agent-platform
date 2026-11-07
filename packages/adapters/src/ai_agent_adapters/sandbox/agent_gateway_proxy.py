@@ -36,7 +36,7 @@ MODEL = config["model"]
 # Ordered models: the first that the provider answers for is used. A failing one is skipped for
 # a while (cooldown) and tried again later. Only before the answer starts: never mid-stream.
 MODELS = [str(name) for name in config.get("models") or [] if isinstance(name, str)] or [MODEL]
-FIRST_BYTE = float(config.get("first_byte", 60))
+FIRST_BYTE = float(config.get("first_byte", 25))
 # A fast lane for live conversation: while the host says one is on (a person is talking to her),
 # these models answer first and the usual ones come after them. Outside it nothing changes.
 FAST = [str(n) for n in config.get("fast") or [] if isinstance(n, str)]
