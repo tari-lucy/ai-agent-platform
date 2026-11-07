@@ -283,3 +283,88 @@ def test_every_real_source_has_the_whole_source_interface():
         for member in ("poll", "delivered"):
             assert callable(getattr(cls, member, None)), f"{cls.__name__} lacks {member}"
         assert isinstance(cls.name if hasattr(cls, "name") else "", str)
+
+
+def test_a_person_talking_to_her_turns_the_fast_lane_on_other_news_does_not():
+    import asyncio
+    from types import SimpleNamespace
+
+    from ai_agent_core.m3_composition.harness_events import Event, Level
+    from ai_agent_core.m3_composition.harness_watch import Watch
+
+    def build(source_name):
+        class Src:
+            name = source_name
+            interval = 0
+
+            async def poll(self, scope, current):
+                return [Event(source_name, "talk", "k1", "Мне говорят: привет", Level.CRITICAL)]
+
+            async def delivered(self, scope, current):
+                return None
+
+        class Wakes:
+            async def open_count(self, scope):
+                return 0
+
+            async def get(self, identifier, scope):
+                return None
+
+            async def set(self, minutes, text, **kwargs):
+                return SimpleNamespace(id="w1")
+
+        lanes = []
+        run = SimpleNamespace(
+            autonomy="autonomous",
+            activity=SimpleNamespace(value="OPEN"),
+            scope=SimpleNamespace(memory_mode="work"),
+            control_epoch=1,
+        )
+        harness = SimpleNamespace(
+            wakes=Wakes(),
+            usage=SimpleNamespace(remaining=lambda: 1.0),
+            current=lambda: True,
+            fast_lane=lambda: lanes.append(1),
+        )
+        runtime = SimpleNamespace(harness=harness, supervisor=SimpleNamespace(snapshot=run))
+        return Watch(runtime, [Src()], focus=lambda: "free"), lanes
+
+    for source, expected in (("voice", 1), ("chat", 1), ("channel", 0)):
+        watch, lanes = build(source)
+        asyncio.run(watch._step())
+        assert len(lanes) == expected, source
+
+
+def test_the_host_hands_the_fast_lane_to_the_gateway_only_when_models_are_set(tmp_path):
+    from ai_agent_core.m3_composition.harness_host import HarnessHost, HarnessSettings
+
+    def make(fast_models):
+        settings = HarnessSettings(
+            image_id="i",
+            port=4096,
+            password="p",
+            upstream="https://x/v1",
+            key="k",
+            model="m",
+            usage_dir=tmp_path,
+            daily_budget=1.0,
+            input_rate=0.1,
+            output_rate=0.1,
+            fast_models=fast_models,
+            fast_seconds=90.0,
+        )
+        host = HarnessHost.__new__(HarnessHost)
+        host.settings = settings
+        sent = []
+        host._fast_gateway = type("G", (), {"fast": lambda self, seconds: sent.append(seconds)})()
+        return host, sent
+
+    host, sent = make(("quick",))
+    host.fast_lane()
+    assert sent == [90.0]
+    host, sent = make(())
+    host.fast_lane()
+    assert sent == []
+    host, sent = make(("quick",))
+    host._fast_gateway = None  # not running: nothing to tell
+    host.fast_lane()

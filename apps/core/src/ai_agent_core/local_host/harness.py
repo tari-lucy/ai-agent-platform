@@ -319,6 +319,8 @@ def install(
             vision=tuple(
                 (m.name, m.input_rate, m.output_rate, m.cached_rate) for m in settings.vision_models
             ),
+            fast_models=tuple(settings.fast_models),
+            fast_seconds=float(settings.fast_seconds),
             native_chatgpt=settings.native_chatgpt,
             native_chatgpt_model=settings.native_chatgpt_model,
             usage_dir=host.egress_log.parent / "usage",
@@ -985,6 +987,7 @@ def configure(
     remove_avatar: bool = False,
     remove_speech: bool = False,
     remove_image: bool = False,
+    remove_fast: bool = False,
     remove_asr: bool = False,
     remove_listen: bool = False,
     remove_obs: bool = False,
@@ -1024,6 +1027,8 @@ def configure(
         changes.update(speech_voice=None, speech_port=None)
     if remove_image:
         changes.update(image_model=None)
+    if remove_fast:
+        changes.update(fast_models=[])
     if remove_asr:
         changes.update(asr_port=None, listen_engine="soniox")
     if changes.get("listen_engine", current.listen_engine) == "gigaam" and (

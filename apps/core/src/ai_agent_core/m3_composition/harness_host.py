@@ -126,6 +126,10 @@ class HarnessSettings:
     models: tuple[tuple[str, float, float, float | None], ...] = ()
     # The look tool's models with their prices (name, input, output, cached), in order.
     vision: tuple[tuple[str, float, float, float | None], ...] = ()
+    # Models that answer first while a live conversation is on (voice or a stream chat talking to
+    # her), for ``fast_seconds`` after the last such news; the usual ones follow them. Empty: off.
+    fast_models: tuple[str, ...] = ()
+    fast_seconds: float = 120.0
     native_chatgpt: bool = False  # see HarnessConfig.native_chatgpt
     native_chatgpt_model: str | None = None
 
@@ -291,6 +295,7 @@ class HarnessHost:
     chats: ChatHub | None = None
     imagine: Imagine | None = None
     hear: Hear | None = None
+    _fast_gateway: AgentGateway | None = None
 
     def __init__(
         self,
@@ -386,6 +391,12 @@ class HarnessHost:
 
     def attach(self, part: HarnessPart) -> None:
         self.parts.append(part)
+
+    def fast_lane(self) -> None:
+        """Somebody is talking to her right now: the fast models answer for a while."""
+        gateway = self._fast_gateway
+        if gateway is not None and self.settings.fast_models:
+            gateway.fast(self.settings.fast_seconds)
 
     def current(self) -> bool:
         """Ready, ACTIVE and still in the epoch this harness started with."""
@@ -680,6 +691,7 @@ class HarnessHost:
                 model=s.model,
                 models=[name for name, *_ in s.models] or None,
                 remaining=self.remaining(),
+                fast=list(s.fast_models) or None,
                 vision=(
                     {
                         "models": [name for name, *_ in s.vision],
@@ -699,6 +711,7 @@ class HarnessHost:
                 proxy=proxy,
             )
             gateway.agent(address)
+            self._fast_gateway = gateway
             await self._wait_ready(epoch)
             self.ready = True
             LOG.warning("Harness ready: opencode attach http://127.0.0.1:%d", s.port)
@@ -720,6 +733,7 @@ class HarnessHost:
                 await asyncio.sleep(0.5)
         finally:
             self.ready = False
+            self._fast_gateway = None
             for part in self.parts:
                 try:
                     await asyncio.wait_for(part.close(), 10)

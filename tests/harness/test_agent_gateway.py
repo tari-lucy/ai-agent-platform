@@ -173,6 +173,7 @@ class Gateway:
         models: list[str] | None = None,
         first_byte: float | None = None,
         vision: dict | None = None,
+        fast: list[str] | None = None,
     ):
         self.model_port, self.ui_port = free_port(), free_port()
         self.process = subprocess.Popen(
@@ -191,6 +192,7 @@ class Gateway:
                 **({"models": models} if models else {}),
                 **({"first_byte": first_byte} if first_byte else {}),
                 **({"vision": vision} if vision else {}),
+                **({"fast": fast} if fast else {}),
                 "remaining": remaining,
                 "model_bind": "127.0.0.1",
                 "ui_bind": "127.0.0.1",
@@ -556,5 +558,49 @@ def test_other_tool_names_are_left_alone():
     try:
         _, body = gateway.post({"stream": True, "messages": [{"role": "user", "content": "x"}]})
         assert b'"name": "platform_look"' in body
+    finally:
+        gateway.close()
+
+
+def test_the_fast_lane_answers_first_only_while_a_conversation_is_on():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent, models=["main-model"], fast=["quick-model"])
+    try:
+        question = {"messages": [{"role": "user", "content": "Hi"}]}
+        gateway.post(question)
+        assert upstream.calls[-1][1]["model"] == "main-model"  # no conversation: the usual order
+        gateway.send({"kind": "fast", "seconds": 1.5})
+        time.sleep(0.3)  # the control line is read by the script
+        gateway.post(question)
+        assert upstream.calls[-1][1]["model"] == "quick-model"  # a person is talking: fast first
+        time.sleep(1.5)
+        gateway.post(question)
+        assert upstream.calls[-1][1]["model"] == "main-model"  # the window is over
+    finally:
+        gateway.close()
+
+
+def test_the_fast_lane_falls_back_to_the_usual_models_when_the_fast_one_fails():
+    upstream, agent = Upstream(failing={"quick-model": 503}), Echo()
+    gateway = Gateway(upstream, agent, models=["main-model"], fast=["quick-model"])
+    try:
+        gateway.send({"kind": "fast", "seconds": 30})
+        time.sleep(0.3)
+        status, _ = gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
+        assert status == 200
+        assert [c[1]["model"] for c in upstream.calls] == ["quick-model", "main-model"]
+    finally:
+        gateway.close()
+
+
+def test_a_junk_fast_line_is_ignored_and_without_fast_models_nothing_changes():
+    upstream, agent = Upstream(), Echo()
+    gateway = Gateway(upstream, agent, models=["main-model"])
+    try:
+        gateway.send({"kind": "fast", "seconds": 30})
+        gateway.send({"kind": "fast", "seconds": "soon"})
+        time.sleep(0.3)
+        gateway.post({"messages": [{"role": "user", "content": "Hi"}]})
+        assert upstream.calls[-1][1]["model"] == "main-model"
     finally:
         gateway.close()

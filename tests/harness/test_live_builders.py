@@ -141,3 +141,31 @@ def test_the_model_route_is_kept_warm_from_start_until_stop():
 
     stopped, after = asyncio.run(scenario())
     assert stopped >= 3 and after == stopped  # it kept going through the failure, then stopped
+
+
+def test_configure_sets_and_clears_the_fast_lane(monkeypatch, tmp_path):
+    import pytest
+
+    from ai_agent_core.local_host import harness, layout
+
+    class Config:
+        work_sessions = object()
+
+        def __init__(self, harness_config=None):
+            self.harness = harness_config
+
+        def model_copy(self, update):
+            return Config(update["harness"])
+
+    monkeypatch.setattr(layout, "paths", lambda root: root)
+    monkeypatch.setattr(harness, "load_config", lambda host: Config())
+    monkeypatch.setattr(harness, "save_config", lambda host, config: None)
+    monkeypatch.setattr(harness, "password", lambda host: "")
+    done = harness.configure(tmp_path, fast_models=["ag/gemini-3.8-flash-high"], fast_seconds=150)
+    assert (done.fast_models, done.fast_seconds) == (["ag/gemini-3.8-flash-high"], 150)
+    assert harness.configure(tmp_path, remove_fast=True).fast_models == []
+    assert HarnessConfig().fast_models == [] and HarnessConfig().fast_seconds == 120
+    with pytest.raises(ValueError):
+        harness.configure(tmp_path, fast_models=["a", "b", "c"])  # at most two
+    with pytest.raises(ValueError):
+        harness.configure(tmp_path, fast_seconds=5)  # not under half a minute

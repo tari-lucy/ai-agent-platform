@@ -231,6 +231,14 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument(
         "--remove-asr", action="store_true", help="turn local recognition off (back to soniox)"
     )
+    harness.add_argument(
+        "--fast-models",
+        help="comma-separated models that answer first while someone talks to her live",
+    )
+    harness.add_argument(
+        "--fast-seconds", type=int, help="seconds the fast lane lasts after the last live news"
+    )
+    harness.add_argument("--remove-fast", action="store_true", help="turn the fast lane off")
     harness.add_argument("--image-model", help="the provider's image model she draws with")
     harness.add_argument("--image-daily", type=int, help="pictures she may draw a day (10)")
     harness.add_argument(
@@ -731,6 +739,11 @@ def main(argv: list[str] | None = None) -> int:
                     asr_port=arguments.asr_port,
                     listen_engine=arguments.listen_engine,
                     remove_asr=arguments.remove_asr,
+                    fast_models=[m.strip() for m in arguments.fast_models.split(",") if m.strip()]
+                    if arguments.fast_models
+                    else None,
+                    fast_seconds=arguments.fast_seconds,
+                    remove_fast=arguments.remove_fast,
                     image_model=arguments.image_model,
                     image_daily=arguments.image_daily,
                     image_price=arguments.image_price,

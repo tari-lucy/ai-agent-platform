@@ -69,6 +69,9 @@ class CommentsSource:
             await comments.told(scope, current)
 
 
+LIVE_SOURCES = frozenset({"voice", "chat"})  # news from people talking to her right now
+
+
 class Watch:
     """HarnessPart. ``focus`` says what she is doing now; the default is free."""
 
@@ -160,6 +163,10 @@ class Watch:
             urgent=batch.urgent,
         )
         self.mine = getattr(wake, "id", None)
+        if any(event.source in LIVE_SOURCES for event in batch.events):
+            lane = getattr(host, "fast_lane", None)  # a person is talking to her: answer fast
+            if lane is not None:
+                lane()
         self.queue.delivered(batch)
         for source in self.sources:
             if any(event.source == source.name for event in batch.events):

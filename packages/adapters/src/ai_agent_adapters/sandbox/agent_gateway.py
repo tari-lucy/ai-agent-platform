@@ -178,6 +178,7 @@ class AgentGateway:
         remaining: float | None,
         models: list[str] | None = None,
         vision: dict[str, Any] | None = None,
+        fast: list[str] | None = None,
     ) -> str:
         await cli(*self.args())
         await cli("network", "connect", network, self.name)
@@ -208,6 +209,7 @@ class AgentGateway:
                 "model": model,
                 **({"models": models} if models else {}),
                 **({"vision": vision} if vision else {}),
+                **({"fast": fast} if fast else {}),
                 "remaining": remaining,
                 "model_bind": addresses[network],
                 "ui_bind": addresses["bridge"],
@@ -232,6 +234,10 @@ class AgentGateway:
 
     def agent(self, address: str) -> None:
         self._send({"kind": "agent", "address": address})
+
+    def fast(self, seconds: float) -> None:
+        """Answer with the fast models for this many seconds (a live conversation is going on)."""
+        self._send({"kind": "fast", "seconds": seconds})
 
     def stop(self) -> None:
         self._send({"kind": "stop"})

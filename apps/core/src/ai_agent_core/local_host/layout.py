@@ -386,6 +386,12 @@ class HarnessConfig(BaseModel):
     chat_twitch_channel: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_]{3,25}$")
     chat_youtube_video: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{3,20}$")
     chat_daily_messages: int = Field(default=300, strict=True, ge=1, le=10_000)
+    # A fast lane for live conversation: while a person talks to her (voice or a stream chat) and
+    # for ``fast_seconds`` after, these models answer first. Empty: always the usual order.
+    fast_models: list[Annotated[str, Field(pattern=r"^[\w./:-]{1,80}$")]] = Field(
+        default_factory=list, max_length=2
+    )
+    fast_seconds: int = Field(default=120, strict=True, ge=30, le=900)
     # Pictures she draws (imagine): the provider's image model, a daily cap and a fixed price per
     # picture in ``currency`` (the provider does not report one). Empty model: no drawing.
     image_model: str | None = Field(default=None, pattern=r"^[\w./:-]{1,80}$")

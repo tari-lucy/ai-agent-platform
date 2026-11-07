@@ -37,6 +37,9 @@ MODEL = config["model"]
 # a while (cooldown) and tried again later. Only before the answer starts: never mid-stream.
 MODELS = [str(name) for name in config.get("models") or [] if isinstance(name, str)] or [MODEL]
 FIRST_BYTE = float(config.get("first_byte", 60))
+# A fast lane for live conversation: while the host says one is on (a person is talking to her),
+# these models answer first and the usual ones come after them. Outside it nothing changes.
+FAST = [str(n) for n in config.get("fast") or [] if isinstance(n, str)]
 # Pictures attached in the chat. The main model may be one that the router gives no pictures
 # (it answers "no image arrived"); then the picture is shown once to a model that really gets it
 # and the main model receives the short description as text. Optional: without it, untouched.
@@ -56,7 +59,7 @@ COOLDOWN = {429: 60.0}  # seconds by status; others use DEFAULT_COOLDOWN
 DEFAULT_COOLDOWN = 300.0
 cooling = {}  # model name -> time.monotonic() until which it is skipped
 TIMEOUT = float(config.get("timeout", 600))
-state = {"stopped": False, "remaining": config.get("remaining"), "agent": None}
+state = {"stopped": False, "remaining": config.get("remaining"), "agent": None, "fast_until": 0.0}
 lock = threading.Lock()
 out = threading.Lock()
 # Platform MCP calls waiting for the host's answer on stdin: id -> [event, reply].
@@ -83,6 +86,10 @@ def control():
                 state["agent"] = row.get("address")
             elif row.get("kind") == "stop":
                 state["stopped"] = True
+            elif row.get("kind") == "fast":
+                seconds = row.get("seconds")
+                if isinstance(seconds, int | float) and not isinstance(seconds, bool):
+                    state["fast_until"] = time.monotonic() + min(max(float(seconds), 0.0), 900.0)
             elif row.get("kind") == "mcp_reply" and row.get("id") in pending:
                 waiter = pending[row["id"]]
                 waiter[1] = row.get("body")
@@ -229,8 +236,11 @@ def order():
     """Models to try now: those not cooling first (in order), then the rest by soonest return."""
     now = time.monotonic()
     with lock:
-        ready = [name for name in MODELS if cooling.get(name, 0) <= now]
-        rest = sorted((n for n in MODELS if n not in ready), key=lambda n: cooling.get(n, 0))
+        names = list(MODELS)
+        if FAST and now < state["fast_until"]:
+            names = FAST + [n for n in MODELS if n not in FAST]
+        ready = [name for name in names if cooling.get(name, 0) <= now]
+        rest = sorted((n for n in names if n not in ready), key=lambda n: cooling.get(n, 0))
     return ready + rest
 
 
