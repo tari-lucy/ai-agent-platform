@@ -184,6 +184,8 @@ def test_the_chosen_engine_decides_whether_listening_is_paid(tmp_path):
         )
         ears = listener(settings, host(tmp_path), providers, usage, scope)  # type: ignore[arg-type]
         assert ears is not None
+        assert ears.auto  # free local hearing starts by itself ...
+        ears.auto = False  # ... but listening that was asked for may fall back to the cloud
 
         async def capture():
             yield b"\x00\x00" * 1600
@@ -200,6 +202,12 @@ def test_the_chosen_engine_decides_whether_listening_is_paid(tmp_path):
         except Exception:  # noqa: BLE001 - the cloud engine has no network here
             pass
         assert ears.hour_rate == 0.12  # fell back to the cloud: paid by the hour again
+        ears.auto, ears.hour_rate = True, 0.0
+        try:
+            await asyncio.wait_for(run_one(), 5)
+        except Exception:  # noqa: BLE001 - the automatic ears refuse the paid engine
+            pass
+        assert ears.hour_rate == 0.0  # the automatic ears never run up a bill
 
     asyncio.run(scenario())
 
