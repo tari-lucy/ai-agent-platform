@@ -36,7 +36,11 @@ async def settle(brain: VoiceBrain) -> None:
     await asyncio.gather(*list(brain._tasks))
 
 
-async def test_chat_is_answered_without_waking_the_slow_mind(tmp_path: Path) -> None:
+def test_chat_is_answered_without_waking_the_slow_mind(tmp_path: Path) -> None:
+    asyncio.run(_test_chat_is_answered_without_waking_the_slow_mind(tmp_path))
+
+
+async def _test_chat_is_answered_without_waking_the_slow_mind(tmp_path: Path) -> None:
     brain, said, seen = make(tmp_path, "Всё хорошо, а у тебя?")
     brain.hear("Опечатка, как дела?")
     await settle(brain)
@@ -46,7 +50,11 @@ async def test_chat_is_answered_without_waking_the_slow_mind(tmp_path: Path) -> 
     assert "Я: Всё хорошо" in (tmp_path / "talk.log").read_text(encoding="utf-8")
 
 
-async def test_action_is_handed_over_with_what_was_said(tmp_path: Path) -> None:
+def test_action_is_handed_over_with_what_was_said(tmp_path: Path) -> None:
+    asyncio.run(_test_action_is_handed_over_with_what_was_said(tmp_path))
+
+
+async def _test_action_is_handed_over_with_what_was_said(tmp_path: Path) -> None:
     brain, said, seen = make(tmp_path, "Секунду, иду.\nДЕЛО: подойди к игроку")
     brain.hear("Опечатка, подойди ко мне")
     await settle(brain)
@@ -59,7 +67,11 @@ async def test_action_is_handed_over_with_what_was_said(tmp_path: Path) -> None:
     assert "Человек: Опечатка, подойди ко мне" in seen[1][1]["content"]
 
 
-async def test_failed_model_falls_back_to_the_slow_mind(tmp_path: Path) -> None:
+def test_failed_model_falls_back_to_the_slow_mind(tmp_path: Path) -> None:
+    asyncio.run(_test_failed_model_falls_back_to_the_slow_mind(tmp_path))
+
+
+async def _test_failed_model_falls_back_to_the_slow_mind(tmp_path: Path) -> None:
     brain, said, _ = make(tmp_path, "", fail=True)
     brain.hear("Опечатка, привет")
     await settle(brain)
@@ -68,7 +80,11 @@ async def test_failed_model_falls_back_to_the_slow_mind(tmp_path: Path) -> None:
     assert "Быстрый голос не ответил" in text
 
 
-async def test_listen_source_gives_only_handovers(tmp_path: Path) -> None:
+def test_listen_source_gives_only_handovers(tmp_path: Path) -> None:
+    asyncio.run(_test_listen_source_gives_only_handovers(tmp_path))
+
+
+async def _test_listen_source_gives_only_handovers(tmp_path: Path) -> None:
     brain, _, _ = make(tmp_path, "Ок.\nДЕЛО: сделай")
     brain.hear("Опечатка, сделай")
     await settle(brain)
