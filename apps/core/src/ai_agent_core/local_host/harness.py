@@ -475,6 +475,7 @@ def install(
             )
             if brain is not None:
                 runtime.harness.listener.on_heard = brain.hear
+                owner.brain = brain
                 runtime.harness.attach(brain)
             sources.append(ListenSource(runtime.harness.listener, brain=brain))
         focus = None

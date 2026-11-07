@@ -291,6 +291,7 @@ class HarnessHost:
     avatar: Avatar | None = None
     speaker: Speaker | None = None
     listener: Listener | None = None
+    brain: Any = None
     stage: Stage | None = None
     chats: ChatHub | None = None
     imagine: Imagine | None = None
@@ -322,6 +323,7 @@ class HarnessHost:
         self.avatar: Avatar | None = None
         self.speaker: Speaker | None = None
         self.listener: Listener | None = None
+        self.brain: Any = None  # the fast voice (harness_brain), when there is one
         self.stage: Stage | None = None
         self.chats: ChatHub | None = None
         self.imagine: Imagine | None = None
@@ -460,13 +462,22 @@ class HarnessHost:
                 "\n\n## Live\n"
                 "You can appear on streams and in calls: " + ", ".join(live) + ". The operator "
                 "starts and ends a broadcast or a call, never you. Keep phrases short, read the "
-                "chat between them, show feelings with your face sparingly. Voice and hearing cost "
-                "money by the hour: switch listening off when nobody talks to you. Read "
+                "chat between them, show feelings with your face sparingly. Read "
                 "/workspace/playbook/live.md at the start of a stream or call. When what you "
                 "hear is addressed to you (the news says someone is talking to you), answer at "
                 "once with one short speak, before any other step, and end the turn after it: no "
                 "status checks, no notes, no extra text; the person is waiting for your voice."
             )
+            if self.brain is not None:
+                prompt += (
+                    " A fast voice of yours talks with people while you work: what is said to "
+                    "you reaches you only when a task is for you (the news says what the voice "
+                    "already answered: do not repeat it). Do the task, and pass what you found "
+                    "or did to the voice with voice_brief (facts only, in stages if the work is "
+                    "long): it works them into the talk in your manner. Use speak only for what "
+                    "the voice cannot know. Money for hearing is not an issue: it switches itself "
+                    "on and off."
+                )
         if self.hear is not None:
             prompt += (
                 "\n\n## Voice messages\n"
@@ -657,6 +668,7 @@ class HarnessHost:
                 self.people,
                 self.imagine,
                 self.hear,
+                self.brain,
             ).handle,
             tuple(s.host_ports.values()),
         )

@@ -90,3 +90,38 @@ async def _test_listen_source_gives_only_handovers(tmp_path: Path) -> None:
     await settle(brain)
     events = await ListenSource(object(), brain=brain).poll(None, lambda: None)  # type: ignore[arg-type]
     assert [e.kind for e in events] == ["talk"]
+
+
+def test_findings_are_woven_into_a_live_talk(tmp_path: Path) -> None:
+    asyncio.run(_findings(tmp_path))
+
+
+async def _findings(tmp_path: Path) -> None:
+    now = [100.0]
+    said: list[str] = []
+    seen: list[list[dict[str, str]]] = []
+
+    async def ask(messages: list[dict[str, str]]) -> str:
+        seen.append(messages)
+        return "Нашла: у нас ровно три шахты." if len(seen) > 1 else "Секунду.\nДЕЛО: узнай"
+
+    async def speak(text: str) -> None:
+        said.append(text)
+
+    async def core() -> str:
+        return "Ты Опечатка."
+
+    brain = VoiceBrain(ask, speak, core, tmp_path / "talk.log", clock=lambda: now[0])
+    brain.hear("Опечатка, сколько тут шахт?")
+    await settle(brain)
+    assert "voice_brief" in brain.take()[0][1]
+    now[0] += 30  # a live talk: the voice brings the finding up itself
+    assert "вплетёт" in brain.brief("шахт три: A, B, C")
+    await settle(brain)
+    assert said == ["Секунду.", "Нашла: у нас ровно три шахты."]
+    assert "шахт три" in seen[1][0]["content"] and "Медленный ум" in seen[1][1]["content"]
+    assert brain.take() == []  # a finding never wakes the slow mind again
+    now[0] += 600  # nobody talks: only remembered, not said out of the blue
+    assert "знает" in brain.brief("ещё факт", now=True)
+    assert len(said) == 2 and "ещё факт" in " ".join(brain.briefs)
+    assert "Нечего" in brain.brief("  ")
