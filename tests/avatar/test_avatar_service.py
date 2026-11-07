@@ -262,6 +262,7 @@ def test_hold_is_sent_every_time_and_survives_an_emotion_and_the_mouth():
     clock.now += 5
     assert run(avatar.express(Emotion.EMBARRASSED)).applied
     run(avatar.mouth(0.5))
+    clock.now += 1  # nothing was sent for a while: the resting face is sent again
     run(avatar.hold())
     injects = [c[1] for c in rig.calls if c[0] == "inject"]
     assert all(v.get("EyeOpenLeft") == 1.0 for v in injects)
@@ -278,6 +279,7 @@ def test_hold_with_nothing_to_hold_sends_nothing():
 def test_hold_after_loss_is_quiet_and_waits_for_the_retry():
     avatar, rig, clock = make_rest()
     run(avatar.hold())
+    clock.now += 1  # a frame went out a moment ago, so the next hold would be skipped
     rig.fail = True
     run(avatar.hold())
     assert not avatar.available
@@ -298,3 +300,14 @@ def test_rest_names_missing_in_the_model_are_reported():
 def test_rest_must_be_numbers():
     with pytest.raises(AvatarError):
         profile_from_json({"version": 1, "rest": {"EyeOpenLeft": "open"}})
+
+
+def test_hold_is_skipped_while_a_frame_that_carried_the_face_just_went_out():
+    avatar, rig, clock = make_rest()
+    run(avatar.hold())  # connects and sends
+    sent = sum(1 for c in rig.calls if c[0] == "inject")
+    run(avatar.hold())  # right after: the last frame still holds the face
+    assert sum(1 for c in rig.calls if c[0] == "inject") == sent
+    clock.now += 0.3
+    run(avatar.hold())  # a quarter of a second later it is sent again
+    assert sum(1 for c in rig.calls if c[0] == "inject") == sent + 1

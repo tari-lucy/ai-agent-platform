@@ -16,7 +16,7 @@ from ai_agent_application.avatar import (
 )
 
 RATE = 24000
-WINDOW = RATE * 60 // 1000  # samples per 60 ms window
+WINDOW = RATE * 80 // 1000  # samples per 80 ms window
 
 
 def tone(amplitude: float, windows: int) -> bytes:
@@ -178,13 +178,13 @@ def test_a_slow_send_does_not_slow_the_mouth_down():
         async def sleep(seconds):
             clock.now += seconds
 
-        pcm = tone(0.5, 30)  # 30 windows of 60 ms = 1.8 s of speech
+        pcm = tone(0.5, 30)  # 30 windows of 80 ms = 2.4 s of speech
         await avatar.ready()
         began = clock.now
         await drive(avatar, stream(pcm), RATE, sleep=sleep, now=clock)
         return clock.now - began
 
-    assert abs(asyncio.run(scenario()) - 1.8) < 0.15
+    assert abs(asyncio.run(scenario()) - 2.4) < 0.15
 
 
 def test_syllables_open_the_mouth_and_dips_between_them_shut_it():
@@ -224,7 +224,7 @@ def test_a_slow_connection_does_not_shift_the_mouth_later_than_the_voice():
             {"version": 1, "neutral": {"hotkey": "Reset"}, "mouth_parameter": "MouthOpen"}
         )
         avatar = Avatar(rig, profile, clock=clock)
-        windows = 40  # 2.4 s of speech
+        windows = 40  # 3.2 s of speech
 
         async def sleep(seconds):
             clock.now += seconds
@@ -239,5 +239,5 @@ def test_a_slow_connection_does_not_shift_the_mouth_later_than_the_voice():
         return clock.now - began, len(rig.mouth)
 
     took, frames = asyncio.run(scenario())
-    assert abs(took - 2.4) < 0.2  # it ends with the voice, not seconds after it
+    assert abs(took - 3.2) < 0.2  # it ends with the voice, not seconds after it
     assert 5 < frames < 40  # the first half skipped, the second half drawn

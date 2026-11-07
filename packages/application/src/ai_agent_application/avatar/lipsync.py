@@ -16,7 +16,7 @@ from contextlib import suppress
 
 from .service import Avatar
 
-WINDOW_MS = 60  # one mouth frame per window (~16 Hz, inside the avatar's own 20 Hz limit)
+WINDOW_MS = 80  # one mouth frame per window (12.5 Hz: inside the avatar's own 14 Hz limit)
 REFERENCE = 0.22  # RMS (of full scale) that opens the mouth fully; speech sits around 0.05-0.25
 FLOOR = 0.03  # below this RMS it is breathing/noise: the mouth stays shut
 CONTRAST = 1.5  # >1: quiet stretches between syllables close the mouth more (fixed scale)

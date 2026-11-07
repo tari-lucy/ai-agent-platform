@@ -21,7 +21,8 @@ from .model import AvatarError, AvatarPort, Emotion, Look, ModelInfo, Profile
 
 LOG = logging.getLogger(__name__)
 MIN_INTERVAL = 1.5  # seconds between accepted emotion changes
-MOUTH_HZ = 20.0  # at most this many mouth frames per second
+MOUTH_HZ = 14.0  # at most this many mouth frames per second (a busy rig handles a few per frame)
+HOLD_GAP = 0.25  # the resting face is re-sent only when nothing was sent for this long
 MOUTH_STEP = 0.03  # smaller changes of the mouth are not worth a frame
 RETRY_AFTER = 4.0  # seconds before a lost rig is tried again (a recording cannot sleep for 30)
 
@@ -57,6 +58,7 @@ class Avatar:
         self._down_until = -1e9
         self._mouth = 0.0
         self._mouth_at = -1e9
+        self._sent_at = -1e9  # when anything was last injected: a mouth frame holds the face too
 
     @property
     def available(self) -> bool:
@@ -149,10 +151,11 @@ class Avatar:
             if not await self._ensure():
                 return
             values = {**self._rest, **self._held}
-            if not values:
-                return
+            if not values or self.clock() - self._sent_at < HOLD_GAP:
+                return  # nothing to hold, or a frame just went out and carried it
             try:
                 await self.port.inject(values)
+                self._sent_at = self.clock()
             except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
                 await self._lost(error)
 
@@ -209,6 +212,7 @@ class Avatar:
         async with self._lock:
             try:
                 await self.port.inject({**self._rest, **self._held, name: value})
+                self._sent_at = now
             except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
                 await self._lost(error)
                 return
