@@ -11,6 +11,7 @@ stored because it is her own public speech and the operator reads it back.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -67,6 +68,10 @@ class Speaker:
         self._busy = False
         self.monotonic = monotonic
         self._spoke_at = -1e9
+        # Short replies made ready beforehand (see ``prepare_acks``): they play at once, with no
+        # synthesis, the moment she is addressed, while the real answer is still being thought.
+        self._acks: dict[str, list[bytes]] = {}
+        self._ack_task: asyncio.Task[None] | None = None
 
     @property
     def speaking(self) -> bool:
@@ -90,6 +95,50 @@ class Speaker:
                 continue
         return total
 
+    async def prepare_acks(self, texts: list[str]) -> None:
+        """Synthesise short replies now, so that ``ack`` can play them without any wait."""
+        for text in texts:
+            text = " ".join(text.split())
+            if not text or len(text) > 60 or text in self._acks:
+                continue
+            chunks: list[bytes] = []
+            try:
+                async for chunk in self.synth(text):
+                    chunks.append(chunk)
+            except Exception:  # noqa: BLE001 - a reply that cannot be prepared is just not used
+                LOG.warning("A short reply was not prepared")
+                continue
+            if chunks:
+                self._acks[text] = chunks
+
+    def has_ack(self, text: str) -> bool:
+        return text in self._acks
+
+    def ack(self, text: str) -> bool:
+        """Play a prepared short reply at once; False when it cannot (not ready, or she speaks)."""
+        if self._busy or text not in self._acks:
+            return False
+        if self._ack_task is not None and not self._ack_task.done():
+            return False
+        self._ack_task = asyncio.get_running_loop().create_task(self._ack(text))
+        return True
+
+    async def _ack(self, text: str) -> None:
+        chunks = self._acks[text]
+
+        async def stored(_: str) -> AsyncIterator[bytes]:
+            for chunk in chunks:
+                yield chunk
+
+        self._busy = True
+        try:
+            await self._say(text, lambda: None, stored)
+        except Exception:  # noqa: BLE001 - a short reply that fails is no reason to stop anything
+            LOG.warning("A short reply failed")
+        finally:
+            self._busy = False
+            self._spoke_at = self.monotonic()
+
     async def speak(self, text: str, current: Callable[[], None]) -> str:
         """Say ``text`` now; the returned line is what she is told. ``current`` raises on STOP."""
         text = " ".join(text.split())
@@ -97,6 +146,10 @@ class Speaker:
             return "Нечего сказать: текст пуст."
         if len(text) > MAX_TEXT:
             return f"Слишком длинно: до {MAX_TEXT} символов за раз, разбей на фразы."
+        if self._busy and self._ack_task is not None and not self._ack_task.done():
+            # Her short reply is playing (a second or two): the real answer follows it.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(asyncio.shield(self._ack_task), 6)
         if self._busy:
             return "Я ещё говорю предыдущую фразу."
         left = self.usage.remaining() if self.usage is not None else None
@@ -112,7 +165,7 @@ class Speaker:
             self._busy = False
             self._spoke_at = self.monotonic()
 
-    async def _say(self, text: str, current: Callable[[], None]) -> str:
+    async def _say(self, text: str, current: Callable[[], None], synth: Synth | None = None) -> str:
         # One queue per consumer that exists: an unread queue would fill up and cut the phrase.
         queues: list[asyncio.Queue[bytes | None]] = [
             asyncio.Queue(QUEUE) for _ in range(2 if self.avatar is not None else 1)
@@ -134,7 +187,7 @@ class Speaker:
 
         async def pump() -> None:
             nonlocal made, held_bytes, released
-            async for chunk in self.synth(text):
+            async for chunk in (synth or self.synth)(text):
                 made += len(chunk)
                 current()  # STOP between chunks: nothing more is released
                 if released:

@@ -47,7 +47,7 @@ def test_the_prompt_says_where_she_lives_and_names_the_variables(tmp_path):
     assert "172.19.0.3:25350 (environment variable AW_HOST_MINECRAFT_UNIONCLEF_MCP)" in prompt
     assert "read the address from the named environment variable" in prompt
     assert "Safety in the game" in prompt and "getOpenScreen" in prompt
-    assert "/workspace/inbox" in prompt and "is not in the inbox" in prompt
+    assert "/workspace/inbox" in prompt and "is not a file" in prompt
     assert "there is no bash_tool" in prompt and "never write down output" in prompt
 
 

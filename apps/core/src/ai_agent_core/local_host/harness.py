@@ -404,6 +404,16 @@ def install(
     )
     if owner.listener is not None and owner.speaker is not None:
         owner.listener.echo_guard = lambda: owner.speaker is not None and owner.speaker.speaking
+        persona_dir = (
+            Path(settings.files_dir) / scope_now.persona_id if settings.files_dir else None
+        )
+        seed_fillers(Path(settings.files_dir) if settings.files_dir else None, scope_now.persona_id)
+        wire_ack(
+            owner.listener,
+            owner.speaker,
+            owner.avatar,
+            None if persona_dir is None else persona_dir / "playbook" / "fillers.txt",
+        )
     if runtime.harness.listener is not None:
         runtime.harness.attach(runtime.harness.listener)
     runtime.harness.channel = channel(
@@ -657,6 +667,86 @@ def _seed_guide(files_dir: Path | None, persona: str, name: str, text: str) -> b
 def seed_live_guide(files_dir: Path | None, persona: str) -> bool:
     """The live-stream memo, once."""
     return _seed_guide(files_dir, persona, "live.md", LIVE_GUIDE)
+
+
+FILLERS_TEXT = """\
+# Короткие отклики. Платформа проигрывает один из них сразу, как только к тебе обратились по имени
+# после паузы, пока ты думаешь над настоящим ответом (так человек не ждёт в тишине). По одному на
+# строку, до 60 знаков, строки с # не читаются. Подбери свои: твоя манера, без вопросов, на которые
+# надо отвечать. Настоящий ответ говори сама через speak: он пойдёт сразу после отклика.
+Мм?
+Да, слушаю.
+Секунду.
+Так.
+"""
+DEFAULT_FILLERS = ["Мм?", "Да, слушаю.", "Секунду.", "Так."]
+
+
+def seed_fillers(files_dir: Path | None, persona: str) -> bool:
+    """Her list of short replies, once; it is hers afterwards."""
+    return _seed_guide(files_dir, persona, "fillers.txt", FILLERS_TEXT)
+
+
+def read_fillers(path: Path | None) -> list[str]:
+    """Her short replies: the lines of her file, or the defaults when it holds none."""
+    found: list[str] = []
+    if path is not None:
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and len(line) <= 60:
+                    found.append(line)
+        except OSError:
+            pass
+    return (found or DEFAULT_FILLERS)[:12]
+
+
+def wire_ack(
+    listener: Listener,
+    speaker: Speaker,
+    avatar: Avatar | None,
+    fillers: Path | None,
+    *,
+    gap: float = 20.0,
+    clock: Callable[[], float] | None = None,
+) -> None:
+    """The instant reply: when she is addressed by name after a quiet spell, a short prepared
+    phrase plays at once (and the face turns thoughtful) while the real answer is still being
+    thought. The phrases are synthesised when listening starts, so nothing waits."""
+    import random
+    import time
+
+    from ai_agent_application.avatar import Emotion
+
+    now = clock or time.monotonic
+    state = {"last": -1e9}
+    recent: list[str] = []
+    tasks: set[asyncio.Task[Any]] = set()
+
+    def keep(task: asyncio.Task[Any]) -> None:
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    def prepare() -> None:
+        keep(asyncio.get_running_loop().create_task(speaker.prepare_acks(read_fillers(fillers))))
+
+    def addressed() -> None:
+        moment = now()
+        if moment - state["last"] < gap:
+            return
+        ready = [t for t in read_fillers(fillers) if speaker.has_ack(t)]
+        if not ready:
+            return
+        text = random.choice([t for t in ready if t not in recent[-2:]] or ready)
+        if not speaker.ack(text):
+            return
+        state["last"] = moment
+        recent.append(text)
+        if avatar is not None:
+            keep(asyncio.get_running_loop().create_task(avatar.express(Emotion.THINKING)))
+
+    listener.on_start = prepare
+    listener.on_addressed = addressed
 
 
 def seed_art_guide(files_dir: Path | None, persona: str) -> bool:

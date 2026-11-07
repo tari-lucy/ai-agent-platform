@@ -425,19 +425,15 @@ class HarnessHost:
             "below. Any older addresses (192.168.*, 172.*, localhost of the operator's computer, "
             "old IPs from notes and scripts) are obsolete: do not use or probe them."
             "\n\n## Your folders\n"
-            "/workspace is your home. /workspace/inbox holds the files the operator left for "
-            "you (pictures, documents): when he says he left something, list it with "
-            "`ls -t /workspace/inbox`; a picture there you read with the look tool "
-            "(folder inbox). /workspace/share is what you prepared for him, /workspace/shots "
-            "your game screenshots, /workspace/playbook and /workspace/skills your notes. "
-            "A picture attached right in the chat is not a file and is not in the inbox: you "
-            "get it in the message itself; if it did not reach you, say so and ask him to "
-            "send it again or to put the file into the inbox.\n"
-            "Tool names are exact: the shell is `bash` (there is no bash_tool), files are read "
-            "with `read`, found with `glob` and `grep`, changed with `edit` and `write`; the "
-            "platform's own tools start with `platform_`. To see a folder run `ls -la` in "
-            "`bash`. If a call fails or the tool does not exist, say that plainly and use the "
-            "right name: never write down output that a tool did not give you."
+            "/workspace is your home: inbox (files the operator left, `ls -t /workspace/inbox`; "
+            "read a picture there with look, folder inbox), share (for him), shots (game "
+            "screenshots), art (your drawings), playbook and skills (notes). A picture attached "
+            "in the chat is not a file: you get it in the message itself; if it did not reach "
+            "you, say so.\n"
+            "Tool names are exact: `bash` (there is no bash_tool), `read`, `glob`, `grep`, "
+            "`edit`, `write`; the platform's tools start with `platform_`. If a call fails or "
+            "the tool does not exist, say so and use the right name: never write down output "
+            "that a tool did not give you."
         )
         live = [
             label
@@ -459,8 +455,8 @@ class HarnessHost:
                 "money by the hour: switch listening off when nobody talks to you. Read "
                 "/workspace/playbook/live.md at the start of a stream or call. When what you "
                 "hear is addressed to you (the news says someone is talking to you), answer at "
-                "once with one short speak, before any other step: no status checks, no notes "
-                "first; the person is waiting for your voice."
+                "once with one short speak, before any other step, and end the turn after it: no "
+                "status checks, no notes, no extra text; the person is waiting for your voice."
             )
         if self.hear is not None:
             prompt += (
@@ -472,13 +468,11 @@ class HarnessHost:
         if self.imagine is not None:
             prompt += (
                 "\n\n## Pictures you make\n"
-                "You can draw with imagine. A picture is a decision, not a reflex: before you "
-                "call it know why you need it, what the viewer should feel or understand, what "
-                "exactly is in it, and which style fits that and why; keep your own look and "
-                "change it only on purpose. Read /workspace/playbook/art.md. Then look at the "
-                "result (look, folder art) and draw again if it does not say what you meant. A "
-                "picture for the channel goes out with channel_post, photo=art/<name>.jpg. "
-                f"Pictures cost money and are capped at {self.imagine.daily} a day."
+                "You can draw with imagine: a picture is a decision, so know why, what the "
+                "viewer should feel, what is in it and which style fits; keep your own look "
+                "(/workspace/playbook/art.md). Check the result with look (folder art) and redraw "
+                "if it misses; for the channel use channel_post with photo=art/<name>.jpg. "
+                f"Pictures cost money, at most {self.imagine.daily} a day."
             )
         if self.people is not None:
             prompt += (
