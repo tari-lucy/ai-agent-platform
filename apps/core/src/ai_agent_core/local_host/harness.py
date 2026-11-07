@@ -471,7 +471,9 @@ def install(
 
             brain = _safely(
                 "voice brain",
-                lambda: voice_brain(settings, providers, owner, runtime.supervisor.snapshot.scope),
+                lambda: voice_brain(
+                    settings, providers, owner, runtime.supervisor.snapshot.scope, host
+                ),
             )
             if brain is not None:
                 runtime.harness.listener.on_heard = brain.hear
@@ -758,7 +760,7 @@ def wire_ack(
 
 
 def voice_brain(
-    settings: HarnessConfig, providers: LocalProviders, owner: Any, scope: Scope
+    settings: HarnessConfig, providers: LocalProviders, owner: Any, scope: Scope, host: HostPaths
 ) -> Any:
     """The fast voice: needs a fast model, the provider binding, a voice and ears."""
     import time
@@ -788,8 +790,32 @@ def voice_brain(
     async def core() -> str:
         return persona_core(await owner.prompt())
 
+    async def express(name: str) -> object:
+        from ai_agent_application.avatar import Emotion
+
+        return await owner.avatar.express(Emotion(name)) if owner.avatar is not None else None
+
     folder = Path(settings.files_dir) / scope.persona_id / "voice"
-    return VoiceBrain(ask, speak, core, folder / "talk.log", clock=time.monotonic)
+    brain = VoiceBrain(
+        ask, speak, core, folder / "talk.log", express=express, clock=time.monotonic
+    )
+    password_file = host.root / "data" / "harness" / "password"
+    try:
+        password = password_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        password = ""
+    if password:  # the slow mind's tool log, as a true line for the voice
+        from ai_agent_core.m3_composition.harness_activity import Activity
+
+        seen = Activity(
+            f"http://127.0.0.1:{settings.port}",
+            password,
+            on_tool=brain.slow_event,
+            on_idle=brain.slow_idle,
+        )
+        brain.activity = seen.describe
+        owner.attach(seen)
+    return brain
 
 
 def seed_art_guide(files_dir: Path | None, persona: str) -> bool:
