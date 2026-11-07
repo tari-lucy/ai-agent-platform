@@ -367,6 +367,9 @@ class HarnessConfig(BaseModel):
     speech_hour_rate: float = Field(default=0.0, ge=0, le=10_000)
     # Seconds the mouth waits for the sound (network, device buffer); tune by eye.
     speech_mouth_delay: float = Field(default=0.15, ge=0, le=2)
+    # Let the host follow the measured lead of the mouth over the voice. Found unreliable on a busy
+    # computer (the end lines up and the start does not): off, and the number above is used.
+    speech_mouth_auto: bool = False
     # Listening (doc37): loopback port of the PC capture bridge, the names that address her (the
     # persona's own name is always included) and how long one listening session may last.
     listen_port: int | None = Field(default=None, strict=True, ge=1024, le=65535)

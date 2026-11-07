@@ -363,13 +363,15 @@ def test_the_mouth_delay_follows_the_measured_lead_and_is_kept_between_runs(tmp_
         sink = LateSink()
         spk = Speaker(
             synth(5), sink, RATE, tmp_path / "s.jsonl", avatar=quiet_avatar(), sync_file=sync,
-            mouth_delay=0.1, prebuffer=0.0,
+            mouth_delay=0.1, prebuffer=0.0, auto_delay=True,
         )  # fmt: skip
         spk.calibrate_min = 0.0  # a short test phrase counts
         before = spk.mouth_delay
         assert await spk.speak("Раз два три", lambda: None) == "Сказано."
         grown = spk.mouth_delay
-        again = Speaker(synth(5), LateSink(), RATE, tmp_path / "s2.jsonl", sync_file=sync)
+        again = Speaker(
+            synth(5), LateSink(), RATE, tmp_path / "s2.jsonl", sync_file=sync, auto_delay=True
+        )
         return before, grown, again.mouth_delay
 
     before, grown, reloaded = asyncio.run(scenario())
@@ -378,7 +380,7 @@ def test_the_mouth_delay_follows_the_measured_lead_and_is_kept_between_runs(tmp_
 
 
 def test_short_phrases_and_odd_leads_do_not_move_the_delay(tmp_path):
-    spk = Speaker(synth(1), Sink(), RATE, tmp_path / "s.jsonl", mouth_delay=0.3)
+    spk = Speaker(synth(1), Sink(), RATE, tmp_path / "s.jsonl", mouth_delay=0.3, auto_delay=True)
     spk._adapt(1.0, 0.5)  # under the minimum length: too little to learn from
     assert spk.mouth_delay == 0.3
     spk._adapt(9.0, 5.0)  # an absurd lead (a hang, not a delay)
@@ -392,3 +394,12 @@ def test_short_phrases_and_odd_leads_do_not_move_the_delay(tmp_path):
     assert spk.mouth_delay == 0.0
     spk._adapt(4.0, 5.0)  # one big lead moves it by the bounded step only
     assert spk.mouth_delay == pytest.approx(0.4)
+
+
+def test_without_the_auto_mode_the_delay_is_the_configured_number_only(tmp_path):
+    sync = tmp_path / "sync.json"
+    sync.write_text('{"mouth_delay": 2.0}', encoding="utf-8")  # an old value of the auto mode
+    spk = Speaker(synth(1), Sink(), RATE, tmp_path / "s.jsonl", mouth_delay=0.4, sync_file=sync)
+    assert spk.mouth_delay == 0.4  # the file is not read
+    spk._adapt(3.0, 9.0)  # a measured lead does not move it
+    assert spk.mouth_delay == 0.4 and sync.read_text(encoding="utf-8") == '{"mouth_delay": 2.0}'

@@ -59,6 +59,7 @@ class Speaker:
         mouth_delay: float = 0.0,
         prebuffer: float = 0.0,
         sync_file: Path | None = None,
+        auto_delay: bool = False,
         monotonic: Callable[[], float] = time.monotonic,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
@@ -73,7 +74,8 @@ class Speaker:
         # the computer's audio buffer, and that grows when the computer is busy (recording!). After
         # every longer phrase the lead (when the sound was reported played minus when the mouth
         # finished) is measured and the delay follows it; it is kept in a file between runs.
-        self.sync_file = sync_file
+        self.sync_file = sync_file if auto_delay else None
+        self.auto_delay = auto_delay
         self.calibrate_min = CALIBRATE_MIN
         self.mouth_delay = self._load_delay(self.mouth_delay)
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
@@ -96,7 +98,7 @@ class Speaker:
 
     def _adapt(self, lead: float, seconds: float) -> None:
         """Follow the measured lead of the mouth over the voice (positive: the mouth is early)."""
-        if seconds < self.calibrate_min or not -3.0 < lead < 5.0:
+        if not self.auto_delay or seconds < self.calibrate_min or not -3.0 < lead < 5.0:
             return
         # Measurements wobble by a few tenths of a second (the computer is busy): a gentle gain and
         # a bounded step, so one odd phrase cannot throw the delay off.

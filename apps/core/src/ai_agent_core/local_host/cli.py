@@ -219,6 +219,12 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument(
         "--speech-mouth-delay", type=float, help="seconds the mouth waits for the sound (0.15)"
     )
+    harness.add_argument(
+        "--speech-mouth-auto",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="let the mouth delay follow the measured lead (off by default)",
+    )
     harness.add_argument("--remove-speech", action="store_true", help="turn live speech off")
     harness.add_argument(
         "--asr-port", type=int, help="loopback port of the local recognition service (8090)"
@@ -754,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
                     speech_daily_chars=arguments.speech_daily_chars,
                     speech_hour_rate=arguments.speech_hour_rate,
                     speech_mouth_delay=arguments.speech_mouth_delay,
+                    speech_mouth_auto=arguments.speech_mouth_auto,
                     remove_speech=arguments.remove_speech,
                     asr_port=arguments.asr_port,
                     listen_engine=arguments.listen_engine,

@@ -846,6 +846,7 @@ def speaker(
         mouth_delay=settings.speech_mouth_delay,
         prebuffer=SPEECH_PREBUFFER,
         sync_file=host.root / "data" / "harness" / "speech-sync.json",
+        auto_delay=settings.speech_mouth_auto,
     )
 
 
