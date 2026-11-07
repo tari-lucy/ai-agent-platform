@@ -19,13 +19,14 @@ mkdir -p "$target"
 install -m 644 "$here/gigaam_server.py" "$target/gigaam_server.py"
 docker rm -f aw-asr >/dev/null 2>&1 || true
 docker run -d --name aw-asr --restart unless-stopped \
-    --memory 1500m --cpus 2 \
+    --memory 2g --cpus 2 \
     --read-only --tmpfs /tmp:size=256m \
     --cap-drop ALL --security-opt no-new-privileges \
     -p "127.0.0.1:${port}:8090" \
     -v "$volume":/data:ro \
     -v "$target/gigaam_server.py":/srv/gigaam_server.py:ro \
     -e THREADS=2 -e MODEL_DIR=/data/models \
+    -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=262144 \
     --entrypoint python "$image" /srv/gigaam_server.py >/dev/null
 for _ in $(seq 1 20); do
     if curl -fsS -m 2 "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then

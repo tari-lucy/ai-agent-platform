@@ -14,6 +14,8 @@ It is published on the host's loopback only (see install-asr.sh); there is no ke
 nothing outside the machine can reach it, and nothing it receives is stored.
 """
 
+import ctypes
+import gc
 import json
 import os
 import subprocess
@@ -31,6 +33,16 @@ MAX_FILE_SECONDS = 600
 FFMPEG_TIMEOUT = 180
 
 Recognize = Callable[[list[float]], str]  # 16 kHz samples in -1..1 -> text
+
+
+def release_memory() -> None:
+    """Give freed memory back to the system: a long recording would otherwise leave the process
+    holding the memory of its biggest moment (measured: 570 MB idle, 1.1 GB after three minutes)."""
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):  # fmt: skip
+        pass
 
 
 def samples_of(pcm: bytes) -> list[float]:
@@ -161,6 +173,9 @@ def make_handler(recognize: Recognize, loaded: Callable[[], bool]) -> type[BaseH
                 return self.reply(415, {"error": "not an audio file"})
             except (OSError, subprocess.SubprocessError):  # fmt: skip
                 return self.reply(500, {"error": "recognition failed"})
+            finally:
+                del body
+                release_memory()
             self.reply(200, {"text": text})
 
     return Handler
