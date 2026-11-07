@@ -373,7 +373,7 @@ def test_the_mouth_delay_follows_the_measured_lead_and_is_kept_between_runs(tmp_
         return before, grown, again.mouth_delay
 
     before, grown, reloaded = asyncio.run(scenario())
-    assert grown > before + 0.15  # it moved towards the lead (about 0.6 of the 0.6 s lead)
+    assert grown > before + 0.1  # it moved towards the lead, gently
     assert reloaded == pytest.approx(grown, abs=0.002)  # and it is remembered
 
 
@@ -388,5 +388,7 @@ def test_short_phrases_and_odd_leads_do_not_move_the_delay(tmp_path):
     assert 0.0 <= spk.mouth_delay < 0.3
     spk._adapt(0.0, 5.0)
     for _ in range(20):
-        spk._adapt(-3.0 + 0.001, 5.0)
+        spk._adapt(-2.5, 5.0)
     assert spk.mouth_delay == 0.0
+    spk._adapt(4.0, 5.0)  # one big lead moves it by the bounded step only
+    assert spk.mouth_delay == pytest.approx(0.4)

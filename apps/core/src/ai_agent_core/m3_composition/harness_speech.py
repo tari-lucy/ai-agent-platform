@@ -30,6 +30,7 @@ LOG = logging.getLogger(__name__)
 CALIBRATE_MIN = 1.5  # seconds of audio: shorter phrases tell too little about the delay
 ACK_DELAY = 0.1  # the computer's "played" answer takes about this long to come back
 MAX_MOUTH_DELAY = 3.0
+ADAPT_STEP = 0.4  # the most the delay moves after one phrase
 MAX_TEXT = 600
 QUEUE = 64  # chunks the synthesis may run ahead of playback (it is faster than real time)
 STUCK = 15.0  # seconds a consumer may refuse a chunk before the phrase is cut
@@ -97,10 +98,10 @@ class Speaker:
         """Follow the measured lead of the mouth over the voice (positive: the mouth is early)."""
         if seconds < self.calibrate_min or not -3.0 < lead < 5.0:
             return
-        target = self.mouth_delay + (lead - ACK_DELAY)
-        self.mouth_delay = min(
-            max(self.mouth_delay + 0.6 * (target - self.mouth_delay), 0.0), MAX_MOUTH_DELAY
-        )
+        # Measurements wobble by a few tenths of a second (the computer is busy): a gentle gain and
+        # a bounded step, so one odd phrase cannot throw the delay off.
+        step = min(max(0.35 * (lead - ACK_DELAY), -ADAPT_STEP), ADAPT_STEP)
+        self.mouth_delay = min(max(self.mouth_delay + step, 0.0), MAX_MOUTH_DELAY)
         if self.sync_file is not None:
             try:
                 self.sync_file.parent.mkdir(parents=True, exist_ok=True)
