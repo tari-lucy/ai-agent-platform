@@ -433,7 +433,13 @@ class HarnessHost:
             "Tool names are exact: `bash` (there is no bash_tool), `read`, `glob`, `grep`, "
             "`edit`, `write`; the platform's tools start with `platform_`. If a call fails or "
             "the tool does not exist, say so and use the right name: never write down output "
-            "that a tool did not give you."
+            "that a tool did not give you.\n"
+            "Your tools and /workspace are always there. Every bash call starts a fresh shell: "
+            "variables are not kept between calls, so load them in the same command "
+            "(`source /workspace/skills/minecraft/env.sh && python3 …`). If something seems "
+            "missing (a tool, /workspace, a variable), you have not become another assistant and "
+            "you are not somewhere else: run `ls /workspace` or one platform_ tool, and tell "
+            "only what they really printed."
         )
         live = [
             label
