@@ -262,3 +262,24 @@ def test_a_computer_that_never_says_played_is_a_fixed_timeout():
         assert error.value.code in ("bridge:aborted", "bridge:transport")
 
     asyncio.run(scenario())
+
+
+def test_loopback_samples_become_16_bit_pcm_without_clipping_errors():
+    from array import array
+
+    pcm = bridge.floats_to_pcm16([0.0, 0.5, -0.5, 1.0, -1.0, 2.5, -3.0])
+    samples = array("h")
+    samples.frombytes(pcm)
+    assert list(samples) == [0, 16383, -16383, 32767, -32767, 32767, -32768]
+    assert bridge.floats_to_pcm16([]) == b""
+
+
+def test_loopback_capture_refuses_a_missing_device_with_a_plain_error(monkeypatch):
+    import sys
+    import types
+
+    fake = types.ModuleType("soundcard")
+    fake.all_speakers = lambda: [types.SimpleNamespace(name="Динамики (Realtek)", id="1")]
+    monkeypatch.setitem(sys.modules, "soundcard", fake)
+    with pytest.raises(OSError):
+        bridge.LoopbackCapture("Наушники", 16000)

@@ -49,9 +49,14 @@ function Start-Audio($settings) {
     $arguments = @('-u', ('"{0}"' -f $script), '--port', "$port", '--device', ('"{0}"' -f $audio.device))
     if ($audio.latency) { $arguments += @('--latency', ([string]$audio.latency)) }
     if ($audio.capture_port) {
-        $arguments += @('--capture-port', ([string][int]$audio.capture_port),
-            '--capture-device', ('"{0}"' -f $audio.capture_device),
-            '--capture-rate', ([string][int]$audio.capture_rate))
+        $arguments += @('--capture-port', ([string][int]$audio.capture_port))
+        if ($audio.capture_loopback) {
+            # Listen to what a playback device (the speakers) plays: no second cable needed.
+            $arguments += @('--capture-loopback', ('"{0}"' -f $audio.capture_loopback))
+        } else {
+            $arguments += @('--capture-device', ('"{0}"' -f $audio.capture_device))
+        }
+        $arguments += @('--capture-rate', ([string][int]$audio.capture_rate))
     }
     $child = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $folder 'audio.log') -RedirectStandardError (Join-Path $folder 'audio.err')

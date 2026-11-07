@@ -12,6 +12,12 @@ Capture (listening) is the other direction, on its own port: the server connects
 sends the header and frames from an INPUT device (for a call: the virtual cable that carries
 the other people's voices) until the server closes the connection.
 
+Listening without a second cable: ``--capture-loopback "Динамики"`` listens to what a playback
+device (your speakers or headphones) is playing, i.e. the voices of a call or of Minecraft's voice
+chat as you hear them; it needs ``pip install soundcard numpy`` and a part of the playback
+device's name (``--list-devices`` prints them). The persona's own voice goes to the cable, so it
+is only heard there if you monitor the cable on the same speakers (the host then ignores it).
+
 Needs: pip install sounddevice.   List devices:  python pc_audio_bridge.py --list-devices
 Run:  python pc_audio_bridge.py --port 8003 --device "CABLE Input" \\
           --capture-port 8004 --capture-device "CABLE Output" --capture-rate 16000
@@ -24,7 +30,8 @@ import argparse
 import asyncio
 import struct
 import sys
-from collections.abc import Callable
+from array import array
+from collections.abc import Callable, Iterable
 from typing import Protocol
 
 HEADER = struct.Struct(">4sIB")
@@ -151,6 +158,34 @@ class DeviceCapture:
         self.stream.close()
 
 
+def floats_to_pcm16(values: Iterable[float]) -> bytes:
+    """Samples in -1..1 as 16-bit little-endian PCM (no numpy needed for the conversion)."""
+    return array("h", (max(-32768, min(32767, int(v * 32767))) for v in values)).tobytes()
+
+
+class LoopbackCapture:
+    """What a playback device (the speakers) plays, as mono PCM: the voices of people you hear."""
+
+    def __init__(self, name: str, rate: int) -> None:
+        import soundcard  # type: ignore[import-not-found,unused-ignore]
+
+        speaker = next(
+            (s for s in soundcard.all_speakers() if name.lower() in s.name.lower()), None
+        )
+        if speaker is None:
+            raise OSError("no such playback device")
+        microphone = soundcard.get_microphone(speaker.id, include_loopback=True)
+        self.recorder = microphone.recorder(samplerate=rate, channels=1, blocksize=rate // 10)
+        self.recorder.__enter__()
+
+    def read(self, frames: int) -> bytes:
+        block = self.recorder.record(numframes=frames)
+        return floats_to_pcm16(block[:, 0])
+
+    def close(self) -> None:
+        self.recorder.__exit__(None, None, None)
+
+
 async def handle_capture(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
@@ -214,6 +249,11 @@ def main() -> None:
     parser.add_argument(
         "--capture-device", help="part of the INPUT device name, e.g. 'CABLE Output'"
     )
+    parser.add_argument(
+        "--capture-loopback",
+        help="listen to what this PLAYBACK device plays (a part of its name, e.g. 'Динамики'); "
+        "needs: pip install soundcard numpy",
+    )
     parser.add_argument("--capture-rate", type=int, default=16000)
     parser.add_argument(
         "--latency",
@@ -226,6 +266,14 @@ def main() -> None:
         import sounddevice  # type: ignore[import-not-found,unused-ignore]
 
         print(sounddevice.query_devices())
+        try:
+            import soundcard  # type: ignore[import-not-found,unused-ignore]
+
+            print("\nPlayback devices you can listen to (--capture-loopback):")
+            for speaker in soundcard.all_speakers():
+                print("  " + speaker.name)
+        except Exception:  # noqa: BLE001 - the library is optional
+            print("\n(pip install soundcard numpy: lists the devices for --capture-loopback)")
         return
     if not 1024 <= arguments.port <= 65535:
         sys.exit("Port must be 1024..65535.")
@@ -242,12 +290,20 @@ def main() -> None:
     if arguments.capture_port is not None:
         if arguments.capture_rate not in (8000, 16000, 24000, 44100, 48000):
             sys.exit("Capture rate must be 8000, 16000, 24000, 44100 or 48000.")
-        in_device = find_device(arguments.capture_device, capture=True)
-        capture = (
-            arguments.capture_port,
-            lambda rate: DeviceCapture(in_device, rate),
-            arguments.capture_rate,
-        )
+        if arguments.capture_loopback:
+            name = arguments.capture_loopback
+
+            def open_loopback(rate: int) -> Capture:
+                return LoopbackCapture(name, rate)
+
+            capture = (arguments.capture_port, open_loopback, arguments.capture_rate)
+        else:
+            in_device = find_device(arguments.capture_device, capture=True)
+            capture = (
+                arguments.capture_port,
+                lambda rate: DeviceCapture(in_device, rate),
+                arguments.capture_rate,
+            )
     try:
         asyncio.run(
             serve(arguments.port, lambda rate: DeviceOutput(device, rate, latency), capture)
