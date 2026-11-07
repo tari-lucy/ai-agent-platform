@@ -105,3 +105,23 @@ def test_an_audio_file_is_decoded_and_a_non_audio_file_is_refused(tmp_path):
         assert status == 415
     finally:
         server.shutdown()
+
+
+def test_a_long_file_makes_the_model_reload_and_a_short_one_does_not():
+    refreshed = []
+    handler = server_module.make_handler(Fake(), lambda: True, lambda: refreshed.append(1))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        post(url + "/recognize", pcm(10))  # a live phrase: the model stays
+        assert refreshed == []
+        post(url + "/recognize", pcm(55))  # still not long
+        assert refreshed == []
+        server_module.LONG_SECONDS = 5  # shrink the threshold instead of sending minutes
+        post(url + "/recognize", pcm(10))
+        assert refreshed == [1]
+    finally:
+        server_module.LONG_SECONDS = 90
+        server.shutdown()
+        server.server_close()

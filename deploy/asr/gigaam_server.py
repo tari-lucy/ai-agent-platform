@@ -26,6 +26,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 RATE = 16000
+LONG_SECONDS = 90  # a file longer than this makes the model be reloaded (its buffers do not shrink)
 CHUNK_SECONDS = 30  # a longer stretch is cut: memory stays small, long recordings still work
 MAX_PCM = RATE * 2 * 60
 MAX_FILE = 20 * 1024 * 1024
@@ -110,6 +111,14 @@ class Engine:
     def loaded(self) -> bool:
         return self._recognizer is not None
 
+    def reload(self) -> None:
+        """Drop the model and load a fresh one: the engine keeps the memory of its biggest job for
+        as long as the model lives (measured: 520 MB idle, 1 GB after three minutes of audio)."""
+        with self._lock:
+            self._recognizer = None
+            release_memory()
+        threading.Thread(target=lambda: self([0.0] * (RATE // 5)), daemon=True).start()
+
     def __call__(self, samples: list[float]) -> str:
         with self._lock:
             if self._recognizer is None:
@@ -131,7 +140,11 @@ class Engine:
             return str(stream.result.text or "")
 
 
-def make_handler(recognize: Recognize, loaded: Callable[[], bool]) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    recognize: Recognize,
+    loaded: Callable[[], bool],
+    refresh: Callable[[], None] = lambda: None,
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -176,6 +189,8 @@ def make_handler(recognize: Recognize, loaded: Callable[[], bool]) -> type[BaseH
             finally:
                 del body
                 release_memory()
+            if len(pcm) > LONG_SECONDS * RATE * 2:
+                refresh()  # after the answer is ready; the next request waits for the reload
             self.reply(200, {"text": text})
 
     return Handler
@@ -190,7 +205,9 @@ def main() -> None:
     # "loaded" once it is ready, and nobody has to wait for it in the middle of a conversation.
     threading.Thread(target=lambda: engine([0.0] * (RATE // 5)), daemon=True).start()
     # Bound inside the container; docker publishes the port on the host's loopback only.
-    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(engine, lambda: engine.loaded))
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", port), make_handler(engine, lambda: engine.loaded, engine.reload)
+    )
     server.serve_forever()
 
 
