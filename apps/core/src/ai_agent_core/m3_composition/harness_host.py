@@ -446,7 +446,10 @@ class HarnessHost:
                 "starts and ends a broadcast or a call, never you. Keep phrases short, read the "
                 "chat between them, show feelings with your face sparingly. Voice and hearing cost "
                 "money by the hour: switch listening off when nobody talks to you. Read "
-                "/workspace/playbook/live.md at the start of a stream or call."
+                "/workspace/playbook/live.md at the start of a stream or call. When what you "
+                "hear is addressed to you (the news says someone is talking to you), answer at "
+                "once with one short speak, before any other step: no status checks, no notes "
+                "first; the person is waiting for your voice."
             )
         if self.hear is not None:
             prompt += (

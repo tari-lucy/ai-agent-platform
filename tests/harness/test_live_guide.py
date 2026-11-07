@@ -73,3 +73,4 @@ def test_the_prompt_names_only_the_live_abilities_that_exist(tmp_path):
     end = everything.find("## ", start + 3)
     section = everything[start : end if end != -1 else None]
     assert 200 < len(section) < 1200  # the prompt stays small: details live in the memo
+    assert "answer at once with one short speak" in section

@@ -561,12 +561,13 @@ class ModelWarm:
     """Keeps the route to her main model warm while she runs.
 
     Measured: after an idle spell the first request to the main model's route waits a minute
-    or more (63 s, then 2 s for the next one), and every first step after a pause feels like a
-    hang. A tiny request now at START and every few minutes keeps the route awake; it costs a
-    handful of tokens and changes nothing in her conversation.
+    or more (63 s, then 2 s for the next one). The route stays warm for several minutes and is
+    cold after about five (3-5 s after pauses up to 240 s, 122 s after a pause of 360 s), so the
+    request goes every 90 s: well inside the warm time. It costs a handful of tokens and changes
+    nothing in her conversation.
     """
 
-    EVERY = 240.0
+    EVERY = 90.0
 
     def __init__(self, ping: Callable[[], Awaitable[None]], every: float = EVERY) -> None:
         self.ping, self.every = ping, every
