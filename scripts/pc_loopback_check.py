@@ -41,6 +41,67 @@ def main():
             print(f"  could not listen to {speaker.name}: {type(error).__name__}: {error}")
 
 
+def own_tone():
+    """Play a quiet tone into each playback device and listen to that device's loopback."""
+    import math
+    import threading
+
+    import soundcard
+    import sounddevice
+
+    print("\nOwn test tone (played by this script into each device, 2 seconds):")
+    for speaker in soundcard.all_speakers():
+        index = next(
+            (
+                i
+                for i, d in enumerate(sounddevice.query_devices())
+                if d["max_output_channels"] > 0
+                and d["name"][:20] == speaker.name[:20]
+                and sounddevice.query_hostapis(d["hostapi"])["name"] == "MME"
+            ),
+            None,
+        )
+        if index is None:
+            print(f"  (no matching output to play into) {speaker.name}")
+            continue
+        rate = 48000
+        tone = array(
+            "h",
+            (int(32767 * 0.2 * math.sin(2 * math.pi * 440 * n / rate)) for n in range(rate * 2)),
+        )
+        frames = array("h")
+        for value in tone:
+            frames.extend([value, value])
+
+        def play(index=index, frames=frames):
+            try:
+                out = sounddevice.RawOutputStream(
+                    device=index, samplerate=rate, channels=2, dtype="int16"
+                )
+                out.start()
+                out.write(frames.tobytes())
+                out.stop()
+                out.close()
+            except Exception as error:
+                print(f"  could not play into {speaker.name}: {type(error).__name__}")
+
+        try:
+            microphone = soundcard.get_microphone(speaker.id, include_loopback=True)
+            with microphone.recorder(samplerate=rate, channels=2) as recorder:
+                thread = threading.Thread(target=play)
+                thread.start()
+                loudest = 0.0
+                end = time.monotonic() + 2.4
+                while time.monotonic() < end:
+                    block = recorder.record(numframes=4800)
+                    loudest = max(loudest, float(abs(block).max()))
+                thread.join()
+            verdict = "HEARD" if loudest > 0.01 else "not heard"
+            print(f"  {verdict:9} peak {loudest:.3f}  {speaker.name}")
+        except Exception as error:
+            print(f"  could not listen to {speaker.name}: {type(error).__name__}: {error}")
+
+
 def stereo_mix():
     try:
         import sounddevice
@@ -79,4 +140,8 @@ def stereo_mix():
 
 if __name__ == "__main__":
     main()
+    try:
+        own_tone()
+    except Exception as error:
+        print("own tone test failed:", type(error).__name__, error)
     stereo_mix()
