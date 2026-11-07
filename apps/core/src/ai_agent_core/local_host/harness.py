@@ -469,7 +469,14 @@ def install(
         if runtime.harness.listener is not None:
             from ai_agent_core.m3_composition.harness_listen import ListenSource
 
-            sources.append(ListenSource(runtime.harness.listener))
+            brain = _safely(
+                "voice brain",
+                lambda: voice_brain(settings, providers, owner, runtime.supervisor.snapshot.scope),
+            )
+            if brain is not None:
+                runtime.harness.listener.on_heard = brain.hear
+                runtime.harness.attach(brain)
+            sources.append(ListenSource(runtime.harness.listener, brain=brain))
         focus = None
         game_port = next(
             (port for label, port in settings.host_ports.items() if "unionclef" in label.lower()),
@@ -747,6 +754,41 @@ def wire_ack(
 
     listener.on_start = prepare
     listener.on_addressed = addressed
+
+
+def voice_brain(
+    settings: HarnessConfig, providers: LocalProviders, owner: Any, scope: Scope
+) -> Any:
+    """The fast voice: needs a fast model, the provider binding, a voice and ears."""
+    import time
+
+    from ai_agent_core.m3_composition.harness_brain import VoiceBrain, complete
+    from ai_agent_core.m3_composition.harness_host import persona_core
+
+    if not settings.fast_models or providers.binding is None or not settings.files_dir:
+        return None
+    if owner.speaker is None or owner.listener is None:
+        return None
+    upstream, key = providers.binding
+    model = settings.fast_models[0]
+    speaker = owner.speaker
+
+    async def ask(messages: list[dict[str, str]]) -> str:
+        return await asyncio.to_thread(complete, upstream, key, model, messages)
+
+    async def speak(text: str) -> object:
+        for _ in range(20):  # her previous phrase is still playing: wait for it, not over it
+            result = await speaker.speak(text, lambda: None)
+            if not result.startswith("Я ещё говорю"):
+                return result
+            await asyncio.sleep(0.5)
+        return None
+
+    async def core() -> str:
+        return persona_core(await owner.prompt())
+
+    folder = Path(settings.files_dir) / scope.persona_id / "voice"
+    return VoiceBrain(ask, speak, core, folder / "talk.log", clock=time.monotonic)
 
 
 def seed_art_guide(files_dir: Path | None, persona: str) -> bool:

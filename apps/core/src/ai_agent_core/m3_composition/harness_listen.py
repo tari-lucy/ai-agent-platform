@@ -79,6 +79,8 @@ class Listener:
         # short reply can be played), and when listening starts (replies can be prepared).
         self.on_addressed: Callable[[], None] | None = None
         self.on_start: Callable[[], None] | None = None
+        # Set by the host: the fast voice brain takes what is said to her instead of the queue.
+        self.on_heard: Callable[[str], None] | None = None
 
     @property
     def on(self) -> bool:
@@ -214,8 +216,18 @@ class Listener:
                     self.on_addressed()
                 except Exception:  # noqa: BLE001 - an instant reply never stops the listening
                     LOG.warning("Address hook failed")
+        if self.on_heard is not None:
+            self._journal_row(text)
+            try:
+                self.on_heard(text)
+            except Exception:  # noqa: BLE001 - the brain never stops the listening
+                LOG.warning("Voice brain hook failed")
+            return
         key = "heard-" + hashlib.sha256(f"{now}\0{text}".encode()).hexdigest()[:16]
         self._heard.append((key, text))
+        self._journal_row(text)
+
+    def _journal_row(self, text: str) -> None:
         row = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "text": text}
         try:
             self.journal.parent.mkdir(parents=True, exist_ok=True)
@@ -230,10 +242,14 @@ class ListenSource:
 
     name = "voice"
 
-    def __init__(self, listener: Listener, interval: float = 1.0) -> None:
-        self.listener, self.interval = listener, interval
+    def __init__(self, listener: Listener, interval: float = 1.0, brain: Any = None) -> None:
+        self.listener, self.interval, self.brain = listener, interval, brain
 
     async def poll(self, scope: Scope, current: Callable[[], None]) -> list[Event]:
+        if self.brain is not None:  # the fast voice answered; only hand-overs wake her
+            return [
+                Event("voice", "talk", key, text, Level.CRITICAL) for key, text in self.brain.take()
+            ]
         return [
             Event(
                 "voice",
