@@ -81,6 +81,11 @@ class Listener:
         self.on_start: Callable[[], None] | None = None
         # Set by the host: the fast voice brain takes what is said to her instead of the queue.
         self.on_heard: Callable[[str], None] | None = None
+        # Set by the host when hearing costs nothing (local recognition): the ears switch
+        # themselves on whenever the capture can be had and stay on, until somebody says "off".
+        self.auto = False
+        self._manual_off = False
+        self._fails = 0
 
     @property
     def on(self) -> bool:
@@ -93,6 +98,7 @@ class Listener:
         return f"Слушаю. Само выключится через {left} мин."
 
     def start(self) -> str:
+        self._manual_off = False
         if self.on:
             return self.status()
         self._until = self.clock() + self.max_minutes * 60
@@ -105,19 +111,24 @@ class Listener:
         return "Слушаю: отвечу на обращение по имени и на разговор после него."
 
     async def stop(self) -> str:
+        self._manual_off = True  # asked to be quiet: the automatic start leaves it so
+        await self._halt()
+        return "Слушание выключено."
+
+    async def _halt(self) -> None:
         task, self._task = self._task, None
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         self._talk_until = -1e9
-        return "Слушание выключено."
 
     async def close(self) -> None:
         """HarnessPart: on STOP, an epoch change or a failure listening ends."""
-        await self.stop()
+        await self._halt()
 
     def tick(self) -> None:
-        return None
+        if self.auto and not self._manual_off and not self.on:
+            self.start()
 
     def take(self) -> list[tuple[str, str]]:
         heard = list(self._heard)
@@ -128,14 +139,20 @@ class Listener:
         while self.clock() < self._until:
             try:
                 async with self.open_capture() as (rate, chunks):
+                    if self._fails:
+                        LOG.info("Listening: the capture is back")
+                    self._fails = 0
                     await self._listen(rate, chunks)
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001 - a dropped capture is retried, not fatal
-                LOG.warning(
-                    "Listening interrupted: %s", getattr(error, "code", type(error).__name__)
-                )
-            await asyncio.sleep(self.retry)
+                self._fails += 1
+                if self._fails <= 2:  # a PC that is off must not fill the log every few seconds
+                    LOG.warning(
+                        "Listening interrupted: %s", getattr(error, "code", type(error).__name__)
+                    )
+            # The capture is not there (the computer is off): look again less and less often.
+            await asyncio.sleep(self.retry if self._fails < 3 else max(self.retry, 30.0))
         LOG.info("Listening ended: time is up")
 
     async def _listen(self, rate: int, chunks: AsyncIterator[bytes]) -> None:

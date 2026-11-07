@@ -261,3 +261,26 @@ def test_a_phrase_ends_after_the_silence_even_when_the_service_keeps_chattering(
         await listener.stop()
 
     asyncio.run(scenario())
+
+
+def test_auto_ears_switch_on_alone_and_stay_off_when_told(tmp_path):
+    async def scenario():
+        log = []
+        listener = make(tmp_path, (0.0, []), log=log)
+        listener.tick()
+        assert not listener.on  # automatic start is for free hearing only
+        listener.auto = True
+        listener.tick()
+        await asyncio.sleep(0.1)
+        assert listener.on and "open" in log
+        await listener.stop()  # "off" sticks: the tick does not turn it on again
+        listener.tick()
+        assert not listener.on
+        listener.start()  # asked again: on
+        assert listener.on
+        await listener.close()
+        listener.tick()  # closed by STOP, not by a word: the next run decides
+        assert listener.on
+        await listener.close()
+
+    asyncio.run(scenario())

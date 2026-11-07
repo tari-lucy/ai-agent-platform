@@ -1002,7 +1002,7 @@ def listener(
                 async for update in updates:
                     yield update
             return
-        if not cloud:
+        if not cloud or ears[0].auto:  # the automatic ears never run up a bill
             raise AsrError("unavailable")
         ears[0].hour_rate = settings.speech_hour_rate
         adapter = SonioxAdapter.from_env(environ=providers.secrets)
@@ -1029,6 +1029,7 @@ def listener(
             max_minutes=settings.listen_max_minutes,
         )
     )
+    ears[0].auto = local  # free hearing switches itself on; the paid one only when asked
     return ears[0]
 
 
