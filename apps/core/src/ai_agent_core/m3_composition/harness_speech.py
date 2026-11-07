@@ -95,11 +95,12 @@ class Speaker:
                 continue
         return total
 
-    async def prepare_acks(self, texts: list[str]) -> None:
-        """Synthesise short replies now, so that ``ack`` can play them without any wait."""
+    async def prepare_acks(self, texts: list[str], limit: int = 60) -> None:
+        """Synthesise phrases now (up to ``limit`` characters each), so that they play with no
+        wait: the short replies of ``ack``, or the lines of a rehearsed script."""
         for text in texts:
             text = " ".join(text.split())
-            if not text or len(text) > 60 or text in self._acks:
+            if not text or len(text) > limit or text in self._acks:
                 continue
             chunks: list[bytes] = []
             try:
@@ -113,6 +114,18 @@ class Speaker:
 
     def has_ack(self, text: str) -> bool:
         return text in self._acks
+
+    def prepared(self, text: str) -> Synth | None:
+        """The stored audio of a prepared phrase as a ``synth`` (for ``speak``), or None."""
+        chunks = self._acks.get(" ".join(text.split()))
+        if chunks is None:
+            return None
+
+        async def stored(_: str) -> AsyncIterator[bytes]:
+            for chunk in chunks:
+                yield chunk
+
+        return stored
 
     def ack(self, text: str) -> bool:
         """Play a prepared short reply at once; False when it cannot (not ready, or she speaks)."""
@@ -139,7 +152,9 @@ class Speaker:
             self._busy = False
             self._spoke_at = self.monotonic()
 
-    async def speak(self, text: str, current: Callable[[], None]) -> str:
+    async def speak(
+        self, text: str, current: Callable[[], None], synth: Synth | None = None
+    ) -> str:
         """Say ``text`` now; the returned line is what she is told. ``current`` raises on STOP."""
         text = " ".join(text.split())
         if not text:
@@ -160,7 +175,7 @@ class Speaker:
         self._busy = True
         try:
             current()
-            return await self._say(text, current)
+            return await self._say(text, current, synth)
         finally:
             self._busy = False
             self._spoke_at = self.monotonic()
