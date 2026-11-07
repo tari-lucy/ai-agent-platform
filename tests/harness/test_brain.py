@@ -125,3 +125,19 @@ async def _findings(tmp_path: Path) -> None:
     assert "знает" in brain.brief("ещё факт", now=True)
     assert len(said) == 2 and "ещё факт" in " ".join(brain.briefs)
     assert "Нечего" in brain.brief("  ")
+
+
+def test_say_drop_feeds_the_voice_and_removes_the_file(tmp_path: Path) -> None:
+    from ai_agent_core.m3_composition.harness_brain import SayDrop
+
+    async def scenario() -> None:
+        brain, said, _ = make(tmp_path, "Привет-привет.")
+        folder = tmp_path / "say"
+        folder.mkdir()
+        (folder / "a.say").write_text("Опечатка,   привет", encoding="utf-8")
+        SayDrop(brain, folder, every=0).tick()
+        await settle(brain)
+        assert said == ["Привет-привет."]
+        assert not list(folder.glob("*.say"))
+
+    asyncio.run(scenario())

@@ -276,6 +276,12 @@ def parser() -> argparse.ArgumentParser:
     )
     models.add_argument("--root", type=Path, required=True)
     models.add_argument("--env-file", type=Path, required=True)
+    sayer = commands.add_parser(
+        "say", help="test: the fast voice hears this text as if it was said to her (she runs)"
+    )
+    sayer.add_argument("--root", type=Path, required=True)
+    sayer.add_argument("--wait", type=int, default=40, help="seconds to wait for the answer")
+    sayer.add_argument("text", nargs="+")
     tester = commands.add_parser(
         "test-model", help="one tiny real request: does this model answer, and how fast"
     )
@@ -529,6 +535,34 @@ def _parse_models(text: str | None) -> list[dict[str, object]] | None:
             row["cached_rate"] = values[2]
         rows.append(row)
     return rows
+
+
+def _say(root: Path, text: str, wait: int) -> int:
+    """Drop a phrase for the running fast voice and print what it says and hands over."""
+    import time
+    import uuid
+
+    folder = root / "data" / "harness" / "say"
+    log = folder / "talk.log"
+    folder.mkdir(parents=True, exist_ok=True)
+    seen = log.stat().st_size if log.exists() else 0
+    (folder / f"{uuid.uuid4().hex}.say").write_text(text, encoding="utf-8")
+    deadline = time.monotonic() + wait
+    printed = ""
+    while time.monotonic() < deadline:
+        time.sleep(1)
+        if log.exists() and log.stat().st_size > seen:
+            with log.open("rb") as stream:
+                stream.seek(seen)
+                printed = stream.read().decode("utf-8", "replace")
+            if "Я:" in printed:
+                time.sleep(1)  # a hand-over line may follow the speech
+                break
+    if not printed:
+        print("Нет ответа: она запущена? Включены ли быстрая модель, голос и слух?")
+        return EXIT_CONFIG
+    print(printed.rstrip())
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -803,6 +837,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Password file: {password_file(paths(arguments.root))}")
             return 0
+        if arguments.command == "say":
+            return _say(arguments.root, " ".join(arguments.text), arguments.wait)
         if arguments.command in ("list-models", "test-model", "set-model"):
             from . import models as model_commands
 

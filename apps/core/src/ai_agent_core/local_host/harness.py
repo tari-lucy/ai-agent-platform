@@ -795,10 +795,15 @@ def voice_brain(
 
         return await owner.avatar.express(Emotion(name)) if owner.avatar is not None else None
 
+    from ai_agent_core.m3_composition.harness_brain import SayDrop
+
     folder = Path(settings.files_dir) / scope.persona_id / "voice"
+    drop = host.root / "data" / "harness" / "say"
     brain = VoiceBrain(
-        ask, speak, core, folder / "talk.log", express=express, clock=time.monotonic
-    )
+        ask, speak, core, folder / "talk.log", mirror=drop / "talk.log", express=express,
+        clock=time.monotonic,
+    )  # fmt: skip
+    owner.attach(SayDrop(brain, drop))
     password_file = host.root / "data" / "harness" / "password"
     try:
         password = password_file.read_text(encoding="utf-8").strip()

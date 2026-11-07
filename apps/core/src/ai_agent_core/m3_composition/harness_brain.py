@@ -92,12 +92,13 @@ class VoiceBrain:
         core: Callable[[], Awaitable[str]],
         log: Path,
         *,
+        mirror: Path | None = None,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
-        self.activity, self.express = activity, express
+        self.activity, self.express, self.mirror = activity, express, mirror
         # The hand-over the slow mind is working on: (since, remarks made, last remark at).
         self.waiting: list[float] | None = None
         self.clock = clock
@@ -172,12 +173,15 @@ class VoiceBrain:
 
     def _note(self, who: str, text: str) -> None:
         self.turns.append((who, text))
-        try:
-            self.log.parent.mkdir(parents=True, exist_ok=True)
-            with self.log.open("a", encoding="utf-8") as stream:
-                stream.write(f"{who}: {text}\n")
-        except OSError:
-            LOG.warning("Talk log not written")
+        for target in (self.log, self.mirror):
+            if target is None:
+                continue
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with target.open("a", encoding="utf-8") as stream:
+                    stream.write(f"{who}: {text}\n")
+            except OSError:
+                LOG.warning("Talk log not written")
 
     async def _messages(
         self, text: str | None, found: str = "", wait: bool = False
@@ -243,6 +247,7 @@ class VoiceBrain:
     def _hand_over(self, text: str, said: str, task: str) -> None:
         key = f"brain-{self.clock():.3f}"
         if task:
+            self._note("Дело (медленному уму)", task)
             self.waiting = [self.clock(), 0, -1e9]
             if self.express is not None:
                 with contextlib.suppress(RuntimeError):  # no loop: nothing to show
@@ -259,3 +264,37 @@ class VoiceBrain:
                 "Быстрый голос не ответил. Ответь голосом одним коротким speak и закончи ход."
             )
         self.delegated.append((key, body))
+
+
+class SayDrop:
+    """HarnessPart: text dropped into a folder is heard by the fast voice as if it was said.
+
+    For testing without a microphone: ``local_host say "..."`` writes a file here; it is read
+    once and removed. The folder is private to the operator's user; nothing is exposed.
+    """
+
+    def __init__(self, brain: VoiceBrain, folder: Path, every: float = 1.0) -> None:
+        self.brain, self.folder, self.every = brain, folder, every
+        self._next = 0.0
+
+    def tick(self) -> None:
+        now = time.monotonic()
+        if now < self._next:
+            return
+        self._next = now + self.every
+        try:
+            files = sorted(self.folder.glob("*.say"))
+        except OSError:
+            return
+        for path in files[:3]:
+            try:
+                text = path.read_text(encoding="utf-8")
+                path.unlink()
+            except OSError:
+                continue
+            text = " ".join(text.split())[:500]
+            if text:
+                self.brain.hear(text)
+
+    async def close(self) -> None:
+        return None
