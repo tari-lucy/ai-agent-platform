@@ -156,3 +156,15 @@ export function restoreBlocked(run: RunSession | undefined, backupId: string): s
   if (!backupIdPattern.test(backupId)) return 'Укажите идентификатор копии (латиница, цифры, . _ : -).';
   return null;
 }
+
+// The mode picked for the next START is kept in the browser: the screen is rebuilt whenever the
+// data refreshes, and a choice held only in the component fell back to "observation" by itself.
+export type StartMode = 'observation' | 'autonomous';
+const startModeKey = 'ai-panel.start-autonomy';
+type Store = Pick<Storage, 'getItem' | 'setItem'> | undefined;
+export function loadStartMode(storage: Store): StartMode {
+  try { return storage?.getItem(startModeKey) === 'autonomous' ? 'autonomous' : 'observation'; } catch { return 'observation'; }
+}
+export function saveStartMode(storage: Store, mode: StartMode): void {
+  try { storage?.setItem(startModeKey, mode); } catch { /* private window: the choice just is not kept */ }
+}

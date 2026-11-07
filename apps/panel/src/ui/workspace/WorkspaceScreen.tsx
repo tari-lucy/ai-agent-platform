@@ -9,9 +9,9 @@ import { PlanFlow, type PlanSpec } from '../plan/PlanFlow.tsx';
 import {
   accessBlocked, accessExecute, accessPreview, DAY,
   afterControl, backupIdPattern, cancelCommand, canCancel, controlAvailability, controlCommand, controlLabels, degradation, effectLabels,
-  healthLabels, indicators, levelLabels, levels, needsReconciliation, operationLabels, orderOperations, overdue, permissionCommand,
-  permissionState, permissionWarning, recoveryExecute, recoveryPreview, recoveryProblem, restoreBlocked, runNotice, verificationLabels,
-  type Control, type ControlKind,
+  healthLabels, indicators, levelLabels, levels, loadStartMode, needsReconciliation, operationLabels, orderOperations, overdue, permissionCommand,
+  permissionState, permissionWarning, recoveryExecute, recoveryPreview, recoveryProblem, restoreBlocked, runNotice, saveStartMode, verificationLabels,
+  type Control, type ControlKind, type StartMode,
 } from './model.ts';
 
 const when = (value: string) => formatTime(value, 'short');
@@ -24,7 +24,8 @@ function useRead<T>(scope: Scope, resource: string, read: (signal: AbortSignal) 
 function Controls({ api, scope, run }: { api: PanelApi; scope: Scope; run: RunSession | undefined }) {
   const cache = useQueryClient();
   const [state, setState] = useState<Control>({ phase: 'idle' });
-  const [autonomy, setAutonomy] = useState<'observation' | 'autonomous'>('observation');
+  const [autonomy, setAutonomyState] = useState<StartMode>(() => loadStartMode(globalThis.localStorage));
+  const setAutonomy = (mode: StartMode) => { setAutonomyState(mode); saveStartMode(globalThis.localStorage, mode); };
   async function submit(command: ReturnType<typeof controlCommand>) {
     setState({ phase: 'sending', command });
     try {
@@ -41,7 +42,7 @@ function Controls({ api, scope, run }: { api: PanelApi; scope: Scope; run: RunSe
         return <Button key={kind} variant="light" size="compact-md" disabled={!open.enabled || busy} title={open.reason}
           onClick={() => run && void submit(controlCommand(run, kind, kind === 'agent.start' ? autonomy : null, crypto.randomUUID()))}>{controlLabels[kind]}</Button>;
       })}
-      <Select label="Режим при запуске" size="xs" w={190} allowDeselect={false} value={autonomy} onChange={(v) => v && setAutonomy(v as typeof autonomy)}
+      <Select label="Режим при запуске" size="xs" w={190} allowDeselect={false} value={autonomy} onChange={(v) => v && setAutonomy(v as StartMode)}
         data={[{ value: 'observation', label: 'Наблюдение' }, { value: 'autonomous', label: 'Автономная работа' }]} />
     </Group>
     <Text size="xs" c="dimmed">Управление не заменяет STOP: он остаётся отдельной кнопкой вверху и не ждёт этих операций.</Text>
