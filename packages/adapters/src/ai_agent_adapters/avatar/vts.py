@@ -37,7 +37,7 @@ class VtsConfig:
     plugin: str = "Opechatka"
     developer: str = "ai-agent-platform"
     connect_timeout: float = 5.0
-    request_timeout: float = 5.0
+    request_timeout: float = 10.0
     allow_remote: bool = False
 
     def __post_init__(self) -> None:

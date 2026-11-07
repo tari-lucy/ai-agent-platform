@@ -23,7 +23,7 @@ LOG = logging.getLogger(__name__)
 MIN_INTERVAL = 1.5  # seconds between accepted emotion changes
 MOUTH_HZ = 20.0  # at most this many mouth frames per second
 MOUTH_STEP = 0.03  # smaller changes of the mouth are not worth a frame
-RETRY_AFTER = 30.0  # seconds before a lost rig is tried again
+RETRY_AFTER = 4.0  # seconds before a lost rig is tried again (a recording cannot sleep for 30)
 
 
 @dataclass(frozen=True)
@@ -99,7 +99,9 @@ class Avatar:
             LOG.warning("Avatar mapping does not fit the model: %s", ", ".join(self.problems))
         return True
 
-    async def _lost(self) -> None:
+    async def _lost(self, error: BaseException | None = None) -> None:
+        if error is not None:
+            LOG.warning("Avatar lost: %s", getattr(error, "code", type(error).__name__))
         self._info = None
         self._down_until = self.clock() + self.retry_after
         try:
@@ -151,8 +153,8 @@ class Avatar:
                 return
             try:
                 await self.port.inject(values)
-            except AvatarError, OSError, TimeoutError:
-                await self._lost()
+            except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
+                await self._lost(error)
 
     async def ready(self) -> bool:
         """Connect now if not connected (one attempt per ``retry_after``); False: no avatar."""
@@ -183,8 +185,8 @@ class Avatar:
                 return Outcome(False, f"Для {emotion.value} в этой модели нет выражения.")
             try:
                 await self._apply(look)
-            except AvatarError, OSError, TimeoutError:
-                await self._lost()
+            except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
+                await self._lost(error)
                 return Outcome(False, "Аватар сейчас недоступен: связь потеряна.")
             self._current, self._changed = emotion, self.clock()
             return Outcome(True, f"Выражение: {emotion.value}.")
@@ -207,8 +209,8 @@ class Avatar:
         async with self._lock:
             try:
                 await self.port.inject({**self._rest, **self._held, name: value})
-            except AvatarError, OSError, TimeoutError:
-                await self._lost()
+            except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
+                await self._lost(error)
                 return
             self._mouth, self._mouth_at = value, now
 
@@ -228,8 +230,8 @@ class Avatar:
                     await self.port.inject({**self._rest, name: closed})
                     self._mouth = closed
                 await self._apply(self.profile.neutral)
-            except AvatarError, OSError, TimeoutError:
-                await self._lost()
+            except (AvatarError, OSError, TimeoutError) as error:  # fmt: skip
+                await self._lost(error)
             self._current, self._changed = Emotion.NEUTRAL, -1e9
 
     async def close(self) -> None:

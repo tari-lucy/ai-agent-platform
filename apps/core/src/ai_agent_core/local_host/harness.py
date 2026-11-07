@@ -540,10 +540,10 @@ SPEECH_PREBUFFER = (
 
 class AvatarPart:
     """Keeps the avatar alive and honest around the harness: while she runs, the resting
-    parameters (eyes open) are re-sent twice a second; on STOP, an epoch change or a failure the
-    mouth closes and the face returns to neutral (doc37, D92)."""
+    parameters (eyes open) are re-sent four times a second; on STOP, an epoch change or a
+    failure the mouth closes and the face returns to neutral (doc37, D92)."""
 
-    EVERY = 0.5
+    EVERY = 0.25  # a busy computer lets go of an injected value that is a second late
 
     def __init__(self, avatar: Avatar) -> None:
         self.avatar = avatar
