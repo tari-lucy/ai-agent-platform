@@ -343,3 +343,50 @@ def test_a_phrase_shorter_than_the_lead_is_still_played_whole(tmp_path):
         return len(sink.got)
 
     assert asyncio.run(scenario()) == 3 * len(window())
+
+
+def quiet_avatar():
+    return Avatar(Rig(), profile_from_json({"version": 1, "mouth_parameter": "MouthOpen"}))
+
+
+def test_the_mouth_delay_follows_the_measured_lead_and_is_kept_between_runs(tmp_path):
+    """The voice comes out later than the mouth (network, the computer's buffer): after a longer
+    phrase the delay grows by the measured lead, and a new Speaker starts from that value."""
+
+    class LateSink(Sink):
+        async def play(self, chunks):
+            await super().play(chunks)
+            await asyncio.sleep(1.0)  # the computer plays the buffer out after the last frame
+
+    async def scenario():
+        sync = tmp_path / "sync.json"
+        sink = LateSink()
+        spk = Speaker(
+            synth(5), sink, RATE, tmp_path / "s.jsonl", avatar=quiet_avatar(), sync_file=sync,
+            mouth_delay=0.1, prebuffer=0.0,
+        )  # fmt: skip
+        spk.calibrate_min = 0.0  # a short test phrase counts
+        before = spk.mouth_delay
+        assert await spk.speak("Раз два три", lambda: None) == "Сказано."
+        grown = spk.mouth_delay
+        again = Speaker(synth(5), LateSink(), RATE, tmp_path / "s2.jsonl", sync_file=sync)
+        return before, grown, again.mouth_delay
+
+    before, grown, reloaded = asyncio.run(scenario())
+    assert grown > before + 0.15  # it moved towards the lead (about 0.6 of the 0.6 s lead)
+    assert reloaded == pytest.approx(grown, abs=0.002)  # and it is remembered
+
+
+def test_short_phrases_and_odd_leads_do_not_move_the_delay(tmp_path):
+    spk = Speaker(synth(1), Sink(), RATE, tmp_path / "s.jsonl", mouth_delay=0.3)
+    spk._adapt(1.0, 0.5)  # under the minimum length: too little to learn from
+    assert spk.mouth_delay == 0.3
+    spk._adapt(9.0, 5.0)  # an absurd lead (a hang, not a delay)
+    spk._adapt(-9.0, 5.0)
+    assert spk.mouth_delay == 0.3
+    spk._adapt(-0.2, 5.0)  # the mouth ends late: the delay shrinks, never below zero
+    assert 0.0 <= spk.mouth_delay < 0.3
+    spk._adapt(0.0, 5.0)
+    for _ in range(20):
+        spk._adapt(-3.0 + 0.001, 5.0)
+    assert spk.mouth_delay == 0.0

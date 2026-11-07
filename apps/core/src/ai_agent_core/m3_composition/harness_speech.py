@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from .harness_host import Usage
 
 LOG = logging.getLogger(__name__)
+CALIBRATE_MIN = 1.5  # seconds of audio: shorter phrases tell too little about the delay
+ACK_DELAY = 0.1  # the computer's "played" answer takes about this long to come back
+MAX_MOUTH_DELAY = 3.0
 MAX_TEXT = 600
 QUEUE = 64  # chunks the synthesis may run ahead of playback (it is faster than real time)
 STUCK = 15.0  # seconds a consumer may refuse a chunk before the phrase is cut
@@ -54,6 +57,7 @@ class Speaker:
         stuck_after: float = STUCK,
         mouth_delay: float = 0.0,
         prebuffer: float = 0.0,
+        sync_file: Path | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         usage: Usage | None = None,
         hour_rate: float = 0.0,
@@ -64,6 +68,13 @@ class Speaker:
         self.stuck_after = stuck_after
         self.mouth_delay = mouth_delay  # the sound takes the network and the device to be heard
         self.prebuffer = prebuffer  # seconds of audio gathered before the phrase starts playing
+        # The delay of the mouth is not a constant: the voice comes out later by the network and
+        # the computer's audio buffer, and that grows when the computer is busy (recording!). After
+        # every longer phrase the lead (when the sound was reported played minus when the mouth
+        # finished) is measured and the delay follows it; it is kept in a file between runs.
+        self.sync_file = sync_file
+        self.calibrate_min = CALIBRATE_MIN
+        self.mouth_delay = self._load_delay(self.mouth_delay)
         self.usage, self.hour_rate = usage, hour_rate  # price of one hour of synthesised audio
         self._busy = False
         self.monotonic = monotonic
@@ -72,6 +83,32 @@ class Speaker:
         # synthesis, the moment she is addressed, while the real answer is still being thought.
         self._acks: dict[str, list[bytes]] = {}
         self._ack_task: asyncio.Task[None] | None = None
+
+    def _load_delay(self, default: float) -> float:
+        if self.sync_file is None:
+            return default
+        try:
+            value = float(json.loads(self.sync_file.read_text(encoding="utf-8"))["mouth_delay"])
+        except OSError, ValueError, KeyError, TypeError:
+            return default
+        return min(max(value, 0.0), MAX_MOUTH_DELAY)
+
+    def _adapt(self, lead: float, seconds: float) -> None:
+        """Follow the measured lead of the mouth over the voice (positive: the mouth is early)."""
+        if seconds < self.calibrate_min or not -3.0 < lead < 5.0:
+            return
+        target = self.mouth_delay + (lead - ACK_DELAY)
+        self.mouth_delay = min(
+            max(self.mouth_delay + 0.6 * (target - self.mouth_delay), 0.0), MAX_MOUTH_DELAY
+        )
+        if self.sync_file is not None:
+            try:
+                self.sync_file.parent.mkdir(parents=True, exist_ok=True)
+                self.sync_file.write_text(
+                    json.dumps({"mouth_delay": round(self.mouth_delay, 3)}), encoding="utf-8"
+                )
+            except OSError:
+                LOG.warning("Mouth delay not saved")
 
     @property
     def speaking(self) -> bool:
@@ -228,6 +265,11 @@ class Speaker:
             assert self.avatar is not None
             await asyncio.sleep(self.mouth_delay)
             await drive(self.avatar, drain(queues[1]), self.rate)
+            marks["mouth"] = self.monotonic()
+
+        async def play() -> None:
+            await self.sink.play(drain(queues[0]))
+            marks["sink"] = self.monotonic()
 
         async def watch() -> None:
             """STOP is noticed while the buffered audio plays too, not only while synthesising."""
@@ -239,13 +281,14 @@ class Speaker:
             while (chunk := await queue.get()) is not None:
                 yield chunk
 
+        marks: dict[str, float] = {}
         status, detail = "interrupted", ""  # until the phrase really ends
         stopped: ContractError | None = None
         try:
             async with asyncio.TaskGroup() as group:
                 work = [
                     group.create_task(pump()),
-                    group.create_task(self.sink.play(drain(queues[0]))),
+                    group.create_task(play()),
                 ]
                 if self.avatar is not None:
                     work.append(group.create_task(mouth()))
@@ -258,6 +301,10 @@ class Speaker:
                 for task in work:
                     task.add_done_callback(finished)
             status = "spoken"
+            if "mouth" in marks and "sink" in marks:
+                lead = marks["sink"] - marks["mouth"]
+                detail = f"mouth_lead={lead:.2f}"
+                self._adapt(lead, made / (self.rate * 2))
         except ExceptionGroup as failure:
             errors = failure.exceptions
             stopped = next((e for e in errors if isinstance(e, ContractError)), None)
