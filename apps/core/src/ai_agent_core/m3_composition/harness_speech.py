@@ -32,6 +32,7 @@ ACK_DELAY = 0.1  # the computer's "played" answer takes about this long to come 
 MAX_MOUTH_DELAY = 3.0
 ADAPT_STEP = 0.4  # the most the delay moves after one phrase
 MAX_TEXT = 600
+REPEAT = 120.0  # seconds in which the same phrase is not said twice
 QUEUE = 64  # chunks the synthesis may run ahead of playback (it is faster than real time)
 STUCK = 15.0  # seconds a consumer may refuse a chunk before the phrase is cut
 WATCH = 0.1  # seconds between two looks at STOP while a phrase plays
@@ -86,6 +87,7 @@ class Speaker:
         # synthesis, the moment she is addressed, while the real answer is still being thought.
         self._acks: dict[str, list[bytes]] = {}
         self._ack_task: asyncio.Task[None] | None = None
+        self._recent: dict[str, float] = {}  # what was said lately: the same phrase is not repeated
 
     def _load_delay(self, default: float) -> float:
         if self.sync_file is None:
@@ -199,6 +201,10 @@ class Speaker:
         text = " ".join(text.split())
         if not text:
             return "Нечего сказать: текст пуст."
+        now = self.monotonic()
+        self._recent = {t: at for t, at in self._recent.items() if now - at < REPEAT}
+        if len(text) > 20 and text in self._recent:  # the same words twice: a double answer
+            return "Эту фразу я только что говорила: не повторяю."
         if len(text) > MAX_TEXT:
             return f"Слишком длинно: до {MAX_TEXT} символов за раз, разбей на фразы."
         if self._busy and self._ack_task is not None and not self._ack_task.done():
@@ -215,6 +221,7 @@ class Speaker:
         self._busy = True
         try:
             current()
+            self._recent[text] = self.monotonic()
             return await self._say(text, current, synth)
         finally:
             self._busy = False

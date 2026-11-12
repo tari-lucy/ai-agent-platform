@@ -403,3 +403,18 @@ def test_without_the_auto_mode_the_delay_is_the_configured_number_only(tmp_path)
     assert spk.mouth_delay == 0.4  # the file is not read
     spk._adapt(3.0, 9.0)  # a measured lead does not move it
     assert spk.mouth_delay == 0.4 and sync.read_text(encoding="utf-8") == '{"mouth_delay": 2.0}'
+
+
+def test_the_same_phrase_is_not_said_twice_within_two_minutes(tmp_path):
+    async def scenario():
+        clock = [100.0]
+        voice = speaker(tmp_path, monotonic=lambda: clock[0])
+        phrase = "Поняла, закрываем. Если что-то новое всплывёт — скажи."
+        assert await voice.speak(phrase, lambda: None) == "Сказано."
+        assert "не повторяю" in await voice.speak(phrase, lambda: None)
+        assert await voice.speak("Мм?", lambda: None) == "Сказано."  # short replies may repeat
+        assert await voice.speak("Мм?", lambda: None) == "Сказано."
+        clock[0] += 130  # long ago: said again
+        assert await voice.speak(phrase, lambda: None) == "Сказано."
+
+    asyncio.run(scenario())
