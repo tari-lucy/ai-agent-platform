@@ -1091,6 +1091,7 @@ def listener(
             usage=usage,
             hour_rate=0.0 if local else settings.speech_hour_rate,
             max_minutes=settings.listen_max_minutes,
+            talk_window=150.0,  # a talk goes on for two and a half minutes without her name
         )
     )
     ears[0].auto = local  # free hearing switches itself on; the paid one only when asked
