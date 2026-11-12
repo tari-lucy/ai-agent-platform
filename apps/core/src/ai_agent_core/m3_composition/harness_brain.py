@@ -490,8 +490,10 @@ class SayDrop:
             return
         for path in files[:3]:
             try:
+                waited = time.time() - path.stat().st_mtime
                 text = path.read_text(encoding="utf-8")
                 path.unlink()
+                self.brain._note("Принято", f"файл лежал {waited:.1f} с")
             except OSError:
                 continue
             text = " ".join(text.split())[:500]

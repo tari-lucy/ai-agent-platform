@@ -243,6 +243,7 @@ class Speaker:
         async def pump() -> None:
             nonlocal made, held_bytes, released
             async for chunk in (synth or self.synth)(text):
+                marks.setdefault("first_chunk", self.monotonic())
                 made += len(chunk)
                 current()  # STOP between chunks: nothing more is released
                 if released:
@@ -254,6 +255,7 @@ class Speaker:
                 held_bytes += len(chunk)
                 if held_bytes >= threshold:
                     released = True
+                    marks["released"] = self.monotonic()
                     for early in held:
                         await deliver(early)
                     held.clear()
@@ -285,6 +287,7 @@ class Speaker:
                 yield chunk
 
         marks: dict[str, float] = {}
+        began = self.monotonic()
         status, detail = "interrupted", ""  # until the phrase really ends
         stopped: ContractError | None = None
         try:
@@ -304,9 +307,12 @@ class Speaker:
                 for task in work:
                     task.add_done_callback(finished)
             status = "spoken"
+            if "first_chunk" in marks:  # how long the voice took to start: synthesis, then lead
+                detail = f"first_chunk={marks['first_chunk'] - began:.1f}s "
+                detail += f"released={marks.get('released', marks['first_chunk']) - began:.1f}s "
             if "mouth" in marks and "sink" in marks:
                 lead = marks["sink"] - marks["mouth"]
-                detail = f"mouth_lead={lead:.2f}"
+                detail += f"mouth_lead={lead:.2f}"
                 self._adapt(lead, made / (self.rate * 2))
         except ExceptionGroup as failure:
             errors = failure.exceptions
