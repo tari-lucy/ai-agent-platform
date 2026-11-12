@@ -284,3 +284,15 @@ def test_auto_ears_switch_on_alone_and_stay_off_when_told(tmp_path):
         await listener.close()
 
     asyncio.run(scenario())
+
+
+def test_the_ears_write_their_level(tmp_path):
+    async def scenario():
+        listener = make(tmp_path, (0.0, []), retry=0.01)
+        listener.start()
+        await asyncio.sleep(0.2)
+        await listener.stop()
+        row = json.loads((tmp_path / "listening-level.json").read_text(encoding="utf-8"))
+        assert row["bytes"] > 0 and row["peak"] == 1  # CHUNK is the sample 1 repeated
+
+    asyncio.run(scenario())

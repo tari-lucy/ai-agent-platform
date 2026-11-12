@@ -86,6 +86,9 @@ class Listener:
         self.auto = False
         self._manual_off = False
         self._fails = 0
+        self._bytes = 0
+        self._peak = 0
+        self._level_at = 0.0
 
     @property
     def on(self) -> bool:
@@ -162,6 +165,7 @@ class Listener:
         async def metered() -> AsyncIterator[bytes]:
             nonlocal sent, total
             async for chunk in chunks:
+                self._level(chunk)
                 if self.clock() >= self._until:
                     return
                 seconds = len(chunk) / (rate * 2)
@@ -206,6 +210,33 @@ class Listener:
             self._pay(sent)
             with contextlib.suppress(Exception):
                 await stream.aclose()
+
+    def _level(self, chunk: bytes) -> None:
+        """What the ears get: bytes and the loudest sample, written every few seconds to a small
+        file (it says whether the microphone is alive when nothing is recognised)."""
+        from array import array
+
+        samples = array("h")
+        samples.frombytes(chunk[: len(chunk) // 2 * 2])
+        self._bytes += len(chunk)
+        self._peak = max(self._peak, max(map(abs, samples), default=0))
+        now = self.clock()
+        if now < self._level_at:
+            return
+        self._level_at = now + 5.0
+        row = {
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "bytes": self._bytes,
+            "peak": self._peak,
+            "heard": self.dropped,
+        }
+        self._peak = 0
+        try:
+            self.journal.with_name("listening-level.json").write_text(
+                json.dumps(row), encoding="utf-8"
+            )
+        except OSError:
+            pass
 
     def _pay(self, seconds: float) -> None:
         if self.usage is not None and seconds > 0:
