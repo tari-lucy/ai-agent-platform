@@ -25,7 +25,9 @@ PUSH_TEXT = (
     "or /warps and read the answer, open the hotbar menu (compass, star), read the signs at the "
     "spawn, ask the players where the best places are, and write the places into the profile. "
     "Otherwise pick a place you have not visited (main places first), go there (tour.py), shoot "
-    "the entrance, look around, note it in ideas.md. One concrete action now."
+    "the entrance, look around, note it in ideas.md. If players are near or wrote to you, answer "
+    "them in the chat first, briefly and in your own way, and ask what they are doing here. "
+    "One concrete action now."
 )
 WORKED = 90.0  # a run of at least this many seconds after a push counts as real work
 

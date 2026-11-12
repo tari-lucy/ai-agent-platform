@@ -522,7 +522,9 @@ def install(
                     Path(settings.files_dir) / persona,
                 )
             )
-            sources.append(IdleSource(runtime, game))  # the drive: a push when she stops in a world
+            sources.append(
+                IdleSource(runtime, game, base=60.0, cap=300.0, per_day=80)
+            )  # the drive: a push a minute after she stops in a world (was three)
             focus = game.focus
         runtime.harness.attach(
             Watch(
