@@ -146,3 +146,32 @@ def test_say_drop_feeds_the_voice_and_removes_the_file(tmp_path: Path) -> None:
         assert not list(folder.glob("*.say"))
 
     asyncio.run(scenario())
+
+
+def test_old_findings_and_talk_are_forgotten(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        now = [0.0]
+        seen: list[list[dict[str, str]]] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            seen.append(messages)
+            return "Ок."
+
+        async def speak(text: str) -> None:
+            return None
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", clock=lambda: now[0])
+        brain.brief("цены на билеты 300-1500", now=False)
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        assert "цены на билеты" in seen[0][0]["content"]
+        now[0] = 1000.0  # a new talk much later: the old finding and turns are gone
+        brain.hear("Опечатка, где ты была?")
+        await settle(brain)
+        assert "цены на билеты" not in seen[1][0]["content"]
+        assert "привет" not in seen[1][1]["content"]
+
+    asyncio.run(scenario())

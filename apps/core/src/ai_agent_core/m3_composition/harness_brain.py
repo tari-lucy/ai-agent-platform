@@ -31,6 +31,8 @@ FILLER_GAP = 20.0  # ... and the least time between two such remarks
 FILLER_MAX = 2  # remarks per hand-over
 WAIT_LIMIT = 150.0  # a hand-over this old is no longer waited for
 AWAITED = 480.0  # a finding for a hand-over this young is still waited for: it is said
+BRIEF_TTL = 900.0  # a finding older than this is forgotten: it is about another talk
+TALK_TTL = 600.0  # so are the turns of a talk that ended this long ago
 LIVE_TALK = 120.0  # seconds after a person's last words that a talk still counts as live
 TAIL = (
     "\n\n## Voice brain\n"
@@ -86,7 +88,7 @@ def parse(reply: str) -> tuple[str, str]:
 
 def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]) -> str:
     """One plain chat request (blocking), the text of the answer."""
-    body = {"model": model, "temperature": 0.8, "max_tokens": 220, "messages": messages}
+    body = {"model": model, "temperature": 0.8, "max_tokens": 900, "messages": messages}
     request = urllib.request.Request(
         upstream.rstrip("/") + "/chat/completions",
         data=json.dumps(body).encode(),
@@ -99,7 +101,10 @@ def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]
     )
     with urllib.request.urlopen(request, timeout=25) as response:
         data = json.loads(response.read(1_000_000))
-    return str(data["choices"][0]["message"]["content"] or "")
+    choice = data["choices"][0]
+    if choice.get("finish_reason") == "length":  # cut off (the model's own thinking eats the limit)
+        raise ValueError("truncated")
+    return str(choice["message"]["content"] or "")
 
 
 Ask = Callable[[list[dict[str, str]]], Awaitable[str]]
@@ -128,6 +133,8 @@ class VoiceBrain:
         self.briefs: deque[str] = deque(maxlen=6)  # what the slow mind found and passed back
         self._human_at = -1e9  # when a person last spoke to her
         self._handed_at = -1e9  # when the last task went to the slow mind
+        self._brief_at = -1e9
+        self._turn_at = -1e9
         self.turns: deque[tuple[str, str]] = deque(maxlen=TURNS)  # (who, text)
         self.delegated: deque[tuple[str, str]] = deque(maxlen=8)  # (key, event text)
         self._lock = asyncio.Lock()  # one answer at a time: no two voices over each other
@@ -147,6 +154,7 @@ class VoiceBrain:
         if not facts:
             return "Нечего передавать: текст пуст."
         awaited = self.clock() - self._handed_at < AWAITED  # somebody waits for this answer
+        self._brief_at = self.clock()
         self.briefs.append(facts)
         self.waiting = None
         self._note("Находка", facts)
@@ -197,6 +205,7 @@ class VoiceBrain:
 
     def _note(self, who: str, text: str) -> None:
         self.turns.append((who, text))
+        self._turn_at = self.clock()
         for target in (self.log, self.mirror):
             if target is None:
                 continue
@@ -207,9 +216,18 @@ class VoiceBrain:
             except OSError:
                 LOG.warning("Talk log not written")
 
+    def _forget(self) -> None:
+        now = self.clock()
+        if now - self._brief_at > BRIEF_TTL:
+            self.briefs.clear()
+            self.doing.clear()
+        if now - self._turn_at > TALK_TTL:
+            self.turns.clear()
+
     async def _messages(
         self, text: str | None, found: str = "", wait: bool = False
     ) -> list[dict[str, str]]:
+        self._forget()
         system = await self.core() + TAIL
         doing = "; ".join(self.doing)
         system += "\n## What the slow mind is doing\n" + (doing or "nothing known right now") + "\n"
@@ -273,6 +291,7 @@ class VoiceBrain:
         key = f"brain-{self.clock():.3f}"
         if task:
             self._handed_at = self.clock()
+            self._brief_at = max(self._brief_at, self.clock())
             self._note("Дело (медленному уму)", task)
             self.waiting = [self.clock(), 0, -1e9]
             if self.express is not None:
