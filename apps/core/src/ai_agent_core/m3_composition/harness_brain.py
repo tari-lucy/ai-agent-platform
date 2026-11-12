@@ -18,7 +18,7 @@ import re
 import time
 import urllib.request
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 LOG = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ TAIL = (
     "\n\n## Voice brain\n"
     "You are her fast voice: you talk with people by voice right now, in her own way, "
     "briefly (one to three short sentences), like a live person in a call; no lists, no "
-    "markdown, no stage directions.\n"
+    "markdown, no stage directions. Begin with a very short first sentence (up to six words), "
+    "then the rest in one or two sentences.\n"
     "You have NO hands and NO memory of your own: you cannot look at notes, files, goals, "
     "plans, the game, the internet, pictures or what happened earlier; you do not know them. "
     "Her other, slower mind has all that. So:\n"
@@ -108,6 +109,58 @@ def parse(reply: str) -> tuple[str, str]:
     return speech[:MAX_SPEECH], task[:300]
 
 
+SENTENCE_END = re.compile(r"[.!?…]+[\"»)]*(?=\s)")
+
+
+def take_sentences(buffer: str) -> tuple[list[str], str]:
+    """Complete sentences at the start of ``buffer`` and the unfinished rest. Nothing from a
+    ``ДЕЛО:`` marker on is a sentence to speak."""
+    sentences: list[str] = []
+    while True:
+        found = SENTENCE_END.search(buffer)
+        mark = MARK.search(buffer)
+        if mark is not None and (found is None or mark.start() < found.end()):
+            return sentences, buffer  # the hand-over starts: the rest is not for the voice
+        if found is None:
+            return sentences, buffer
+        sentences.append(buffer[: found.end()].strip())
+        buffer = buffer[found.end() :].lstrip()
+
+
+async def stream_complete(
+    upstream: str, key: str, model: str, messages: list[dict[str, str]]
+) -> AsyncIterator[str]:
+    """The answer as it is written: pieces of text (server-sent events)."""
+    import httpx
+
+    body = {
+        "model": model, "temperature": 0.6, "max_tokens": 900, "stream": True,
+        "messages": messages,
+    }  # fmt: skip
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "ai-agent-platform/1.0",
+    }
+    url = upstream.rstrip("/") + "/chat/completions"
+    async with (
+        httpx.AsyncClient(timeout=httpx.Timeout(25.0)) as client,
+        client.stream("POST", url, json=body, headers=headers) as response,
+    ):
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                return
+            try:
+                delta = json.loads(data)["choices"][0].get("delta", {}).get("content")
+            except (ValueError, KeyError, IndexError):
+                continue
+            if delta:
+                yield str(delta)
+
+
 def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]) -> str:
     """One plain chat request (blocking), the text of the answer."""
     body = {"model": model, "temperature": 0.6, "max_tokens": 900, "messages": messages}
@@ -131,6 +184,7 @@ def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]
 
 Ask = Callable[[list[dict[str, str]]], Awaitable[str]]
 Recall = Callable[[str], Awaitable[str]]
+Stream = Callable[[list[dict[str, str]]], AsyncIterator[str]]
 Speak = Callable[[str], Awaitable[object]]
 
 
@@ -144,12 +198,14 @@ class VoiceBrain:
         *,
         mirror: Path | None = None,
         recall: Recall | None = None,
+        stream: Stream | None = None,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
+        self.stream = stream  # the model's answer as it is written: spoken by sentences
         self.recall = recall  # her memory search: fast, no model; None when she has none
         self._remembered = False  # the last question was answered with memory in hand
         # The hand-over the slow mind is working on: (since, remarks made, last remark at).
@@ -299,27 +355,63 @@ class VoiceBrain:
             user = (talk + "\n" if talk else "") + f"Человек: {text}"
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
+    async def _chunks(self, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+        if self.stream is not None:
+            async for piece in self.stream(messages):
+                yield piece
+        else:
+            yield await self.ask(messages)
+
+    async def _voice(self, sentences: asyncio.Queue[str | None]) -> None:
+        """Speaks the sentences one after another while the model is still writing."""
+        while (sentence := await sentences.get()) is not None:
+            try:
+                await self.speak(sentence)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                LOG.warning("Voice brain could not speak: %s", type(error).__name__)
+
     async def _turn(self, text: str | None, found: str = "", wait: bool = False) -> None:
         if text is not None:
             self._human_at = self.clock()
         async with self._lock:
+            messages = await self._messages(text, found, wait)
+            sentences: asyncio.Queue[str | None] = asyncio.Queue()
+            voice = asyncio.get_running_loop().create_task(self._voice(sentences))
+            spoken: list[str] = []
+            buffer = ""
             try:
-                reply = await self.ask(await self._messages(text, found, wait))
+                async for piece in self._chunks(messages):
+                    buffer += piece
+                    ready, buffer = take_sentences(buffer)
+                    for sentence in ready:
+                        sentence = re.sub(r"[*_`#]+", "", sentence).strip()
+                        if sentence and sentence != "-":
+                            spoken.append(sentence)
+                            sentences.put_nowait(sentence)
             except asyncio.CancelledError:
+                voice.cancel()
                 raise
-            except Exception as error:  # noqa: BLE001 - the slow mind answers instead
+            except Exception as error:  # noqa: BLE001 - what was said stays said
                 self.failed += 1
                 LOG.warning("Voice brain failed: %s", type(error).__name__)
-                if text is not None:
-                    self._hand_over(text, "", "")
-                return
-            say, task = parse(reply)
-            if say and say[-1] not in TERMINAL and not task:  # cut off in the middle: once more
-                with contextlib.suppress(Exception):
-                    say, task = parse(await self.ask(await self._messages(text, found, wait)))
-                if say and say[-1] not in TERMINAL:  # still cut: keep the finished sentences
-                    cut = max(say.rfind(mark) for mark in ".!?…")
-                    say = say[: cut + 1] if cut > 10 else ""
+                if not spoken:
+                    sentences.put_nowait(None)
+                    await voice
+                    if text is not None:
+                        self._hand_over(text, "", "")
+                    return
+                buffer = ""  # an unfinished tail is dropped
+            # The tail: a last sentence without its dot is spoken only when the hand-over marker
+            # follows it (the marker ends it); otherwise it is cut off in the middle: dropped.
+            tail_speech, task = parse(buffer)
+            if tail_speech and tail_speech != "-" and (task or tail_speech[-1] in TERMINAL):
+                spoken.append(tail_speech)
+                sentences.put_nowait(tail_speech)
+            sentences.put_nowait(None)
+            await voice
+            say = " ".join(spoken)
             if text is not None and not task and (
                 NEEDS_FACTS.search(text) or PROMISE.search(say)
             ):
@@ -328,12 +420,6 @@ class VoiceBrain:
                 self._note("Человек", text)
             if say:
                 self._note("Я", say)
-                try:
-                    await self.speak(say)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as error:  # noqa: BLE001
-                    LOG.warning("Voice brain could not speak: %s", type(error).__name__)
             if task and text is not None:
                 self._hand_over(text, say, task)
 

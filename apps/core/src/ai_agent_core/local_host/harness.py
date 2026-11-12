@@ -785,12 +785,17 @@ def voice_brain(
         return await asyncio.to_thread(complete, upstream, key, model, messages)
 
     async def speak(text: str) -> object:
-        for _ in range(20):  # her previous phrase is still playing: wait for it, not over it
+        for _ in range(60):  # her previous phrase is still playing: wait for it, not over it
             result = await speaker.speak(text, lambda: None)
             if not result.startswith("Я ещё говорю"):
                 return result
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.15)
         return None
+
+    def stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+        from ai_agent_core.m3_composition.harness_brain import stream_complete
+
+        return stream_complete(upstream, key, model, messages)
 
     async def core() -> str:
         return persona_core(await owner.prompt())
@@ -822,7 +827,7 @@ def voice_brain(
 
     brain = VoiceBrain(
         ask, speak, core, folder / "talk.log", mirror=drop / "talk.log", express=express,
-        recall=recall, clock=time.monotonic,
+        recall=recall, stream=stream, clock=time.monotonic,
     )  # fmt: skip
     owner.attach(SayDrop(brain, drop))
     password_file = host.root / "data" / "harness" / "password"

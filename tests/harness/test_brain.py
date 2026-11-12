@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from ai_agent_core.m3_composition.harness_brain import VoiceBrain, parse
+from ai_agent_core.m3_composition.harness_brain import VoiceBrain, parse, take_sentences
 from ai_agent_core.m3_composition.harness_listen import ListenSource
 
 
@@ -290,5 +290,75 @@ def test_say_drop_bang_speaks_the_exact_words(tmp_path: Path) -> None:
         SayDrop(brain, folder, every=0).tick()
         await asyncio.sleep(0.05)
         assert said == ["зам+ок звон+ит"] and seen == []  # the model is not asked
+
+    asyncio.run(scenario())
+
+
+def test_take_sentences_splits_and_stops_at_the_marker() -> None:
+    assert take_sentences("Секунду. Сейчас гляну") == (["Секунду."], "Сейчас гляну")
+    assert take_sentences("Иду. ДЕЛО: узнай. Точно.") == (["Иду."], "ДЕЛО: узнай. Точно.")
+    assert take_sentences("Цена 3.5 рубля") == ([], "Цена 3.5 рубля")  # no split inside a number
+    assert take_sentences("Да! Нет? Ладно… Ок") == (["Да!", "Нет?", "Ладно…"], "Ок")
+
+
+def test_the_first_sentence_is_spoken_while_the_model_still_writes(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        log: list[str] = []
+        gate = asyncio.Event()
+
+        async def stream(messages: list[dict[str, str]]):
+            yield "Секунду. Сей"
+            log.append("first-piece-sent")
+            await gate.wait()  # the model is still writing: the rest has not come
+            yield "час гляну в блокнот. ДЕЛО: прочитать цели"
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return ""
+
+        said: list[str] = []
+
+        async def speak(text: str) -> None:
+            log.append("said:" + text)
+            said.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", stream=stream)
+        brain.hear("Опечатка, привет")
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if said:
+                break
+        assert said == ["Секунду."]  # spoken before the model finished
+        gate.set()
+        await settle(brain)
+        assert said == ["Секунду.", "Сейчас гляну в блокнот."]
+        ((_, text),) = brain.take()
+        assert "прочитать цели" in text and "Секунду. Сейчас гляну" in text
+
+    asyncio.run(scenario())
+
+
+def test_a_stream_that_dies_before_any_speech_goes_to_the_slow_mind(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async def stream(messages: list[dict[str, str]]):
+            raise TimeoutError
+            yield ""
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return ""
+
+        async def speak(text: str) -> None:
+            raise AssertionError("nothing to say")
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", stream=stream)
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        ((_, text),) = brain.take()
+        assert "Быстрый голос не ответил" in text
 
     asyncio.run(scenario())
