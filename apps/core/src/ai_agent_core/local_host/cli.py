@@ -558,7 +558,7 @@ def _say(root: Path, text: str, wait: int) -> int:
             with log.open("rb") as stream:
                 stream.seek(seen)
                 printed = stream.read().decode("utf-8", "replace")
-            if "Я:" in printed:
+            if " Я: " in printed:
                 time.sleep(1)  # a hand-over line may follow the speech
                 break
     if not printed:

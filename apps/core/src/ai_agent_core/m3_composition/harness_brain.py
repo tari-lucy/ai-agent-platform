@@ -17,6 +17,7 @@ import logging
 import re
 import time
 import urllib.request
+from datetime import datetime
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -294,7 +295,7 @@ class VoiceBrain:
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with target.open("a", encoding="utf-8") as stream:
-                    stream.write(f"{who}: {text}\n")
+                    stream.write(f"{datetime.now().strftime('%H:%M:%S')} {who}: {text}\n")
             except OSError:
                 LOG.warning("Talk log not written")
 
@@ -366,7 +367,9 @@ class VoiceBrain:
         """Speaks the sentences one after another while the model is still writing."""
         while (sentence := await sentences.get()) is not None:
             try:
+                started = self.clock()
                 await self.speak(sentence)
+                LOG.info("Voice sentence spoken in %.1f s", self.clock() - started)
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001
@@ -375,19 +378,25 @@ class VoiceBrain:
     async def _turn(self, text: str | None, found: str = "", wait: bool = False) -> None:
         if text is not None:
             self._human_at = self.clock()
+        queued = self.clock()
         async with self._lock:
+            began = self.clock()
             messages = await self._messages(text, found, wait)
+            prepared = self.clock()
+            marks: dict[str, float] = {}
             sentences: asyncio.Queue[str | None] = asyncio.Queue()
             voice = asyncio.get_running_loop().create_task(self._voice(sentences))
             spoken: list[str] = []
             buffer = ""
             try:
                 async for piece in self._chunks(messages):
+                    marks.setdefault("first_piece", self.clock())
                     buffer += piece
                     ready, buffer = take_sentences(buffer)
                     for sentence in ready:
                         sentence = re.sub(r"[*_`#]+", "", sentence).strip()
                         if sentence and sentence != "-":
+                            marks.setdefault("first_sentence", self.clock())
                             spoken.append(sentence)
                             sentences.put_nowait(sentence)
             except asyncio.CancelledError:
@@ -412,6 +421,13 @@ class VoiceBrain:
             sentences.put_nowait(None)
             await voice
             say = " ".join(spoken)
+            self._note(
+                "Время",
+                f"ждала очереди {began - queued:.1f} с, подготовка {prepared - began:.1f} с, "
+                f"1-й кусок модели +{marks.get('first_piece', prepared) - prepared:.1f} с, "
+                f"1-е предложение +{marks.get('first_sentence', prepared) - prepared:.1f} с, "
+                f"вся речь +{self.clock() - prepared:.1f} с",
+            )
             if text is not None and not task and (
                 NEEDS_FACTS.search(text) or PROMISE.search(say)
             ):
