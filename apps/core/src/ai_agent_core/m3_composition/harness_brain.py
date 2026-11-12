@@ -28,7 +28,7 @@ DELEGATE = re.compile(r"^\s*(?:ДЕЛО|TASK)\s*:\s*(.+?)\s*$", re.IGNORECASE | 
 MAX_SPEECH = 400
 FILLER_FIRST = 12.0  # seconds of waiting for the slow mind before the voice says something
 FILLER_GAP = 20.0  # ... and the least time between two such remarks
-FILLER_MAX = 3  # remarks per hand-over
+FILLER_MAX = 2  # remarks per hand-over
 WAIT_LIMIT = 150.0  # a hand-over this old is no longer waited for
 LIVE_TALK = 120.0  # seconds after a person's last words that a talk still counts as live
 TAIL = (
@@ -46,6 +46,10 @@ TAIL = (
     "'go', 'draw', 'write'): say one short natural line that you are "
     "on it (no content, no guesses) and end with a last line `ДЕЛО: <what exactly to do, in "
     "one sentence>`.\n"
+    "- Questions about how it is going ('ну что там', 'чем занята', 'готово?', 'долго ещё'): "
+    "answer yourself, in your own words, from 'Right now' and 'What the slow mind is doing' "
+    "below (what it is doing, how long); if nothing is going on, say nothing is running. "
+    "Do NOT add a `ДЕЛО:` to such a question.\n"
     "- Never fill the answer from 'memory' or invent details, even plausible ones: your own "
     "past, plans and doings are NOT known to you. A fact is yours only if it stands in the "
     "sections below.\n"
@@ -215,9 +219,10 @@ class VoiceBrain:
         talk = "\n".join(f"{who}: {line}" for who, line in self.turns)
         if text is None and wait:
             user = (talk + "\n" if talk else "") + (
-                "(Ты ждёшь медленный ум, он ещё работает. Скажи одну короткую живую реплику по "
-                "делу: подумай вслух, задай один уточняющий вопрос или выскажи мнение как "
-                "мнение. Новых фактов не выдумывай. Если молчать сейчас естественнее — `-`.)"
+                "(Ты ждёшь медленный ум, он ещё работает. Скажи одну очень короткую реплику (до 15 "
+                "слов) по теме разговора: подумай вслух, задай один уточняющий вопрос или "
+                "выскажи мнение как мнение. Ничего не утверждай о себе, о делах и о состоянии "
+                "дел, не повторяй сказанное раньше. Если молчать естественнее — `-`.)"
             )
         elif text is None:
             user = (talk + "\n" if talk else "") + (
