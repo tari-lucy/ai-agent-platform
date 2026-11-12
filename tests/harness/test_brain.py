@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from ai_agent_core.m3_composition.harness_brain import VoiceBrain, parse, take_sentences
+from ai_agent_core.m3_composition.harness_brain import VoiceBrain, parse, race, take_sentences
 from ai_agent_core.m3_composition.harness_listen import ListenSource
 
 
@@ -413,5 +413,34 @@ def test_a_failed_sentence_is_tried_once_more(tmp_path: Path) -> None:
         brain.hear("Опечатка, привет")
         await settle(brain)
         assert calls == ["Привет.", "Привет."]
+
+    asyncio.run(scenario())
+
+
+def test_race_uses_the_second_model_when_the_first_is_slow() -> None:
+    async def scenario() -> None:
+        async def slow(messages):
+            await asyncio.sleep(5)
+            yield "медленно."
+
+        async def quick(messages):
+            yield "Быстро."
+            yield " Ещё."
+
+        got = [p async for p in race([slow, quick], [], wait=0.05)]
+        assert got == ["Быстро.", " Ещё."]
+
+        async def first(messages):
+            yield "Первая."
+
+        got = [p async for p in race([first, quick], [], wait=0.5)]
+        assert got == ["Первая."]  # the first answered in time: the second is never asked
+
+        async def broken(messages):
+            raise TimeoutError
+            yield ""
+
+        got = [p async for p in race([broken, quick], [], wait=0.5)]
+        assert got == ["Быстро.", " Ещё."]  # a failure of the first starts the second at once
 
     asyncio.run(scenario())

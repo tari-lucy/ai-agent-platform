@@ -793,9 +793,13 @@ def voice_brain(
         return None
 
     def stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
-        from ai_agent_core.m3_composition.harness_brain import stream_complete
+        from functools import partial
 
-        return stream_complete(upstream, key, model, messages)
+        from ai_agent_core.m3_composition.harness_brain import race, stream_complete
+
+        models = [model, *(m for m in settings.fast_models if m != model)][:2]
+        streams = [partial(stream_complete, upstream, key, name) for name in models]
+        return race(streams, messages, wait=5.0)
 
     cached: dict[str, Any] = {"at": -1e9, "text": ""}
 

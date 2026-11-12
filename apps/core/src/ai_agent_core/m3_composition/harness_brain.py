@@ -174,6 +174,67 @@ async def stream_complete(
                 yield str(delta)
 
 
+async def race(streams: list[Stream], messages: list[dict[str, str]], wait: float) -> AsyncIterator[str]:
+    """The first model's answer; when it has not started after ``wait`` seconds the next model
+    is asked too, and the one that speaks first is used (the other one is dropped)."""
+    queue: asyncio.Queue[tuple[int, str | None, BaseException | None]] = asyncio.Queue()
+    tasks: dict[int, asyncio.Task[None]] = {}
+
+    async def feed(index: int) -> None:
+        try:
+            async for piece in streams[index](messages):
+                await queue.put((index, piece, None))
+            await queue.put((index, None, None))
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            await queue.put((index, None, error))
+
+    def start(index: int) -> None:
+        tasks[index] = asyncio.get_running_loop().create_task(feed(index))
+
+    start(0)
+    started, winner, failed = 1, -1, 0
+    try:
+        while True:
+            try:
+                timeout = wait if winner < 0 and started < len(streams) else None
+                index, piece, error = await asyncio.wait_for(queue.get(), timeout)
+            except TimeoutError:
+                start(started)  # the first one is slow: ask the next model as well
+                started += 1
+                continue
+            if winner >= 0 and index != winner:
+                continue
+            if error is not None:
+                failed += 1
+                if winner >= 0 or failed >= started and started >= len(streams):
+                    raise error
+                if started < len(streams):
+                    start(started)
+                    started += 1
+                continue
+            if piece is None:
+                if winner < 0:
+                    failed += 1
+                    if started < len(streams):
+                        start(started)
+                        started += 1
+                        continue
+                    return
+                return
+            if winner < 0:
+                winner = index
+                for other, task in tasks.items():
+                    if other != winner:
+                        task.cancel()
+            yield piece
+    finally:
+        for task in tasks.values():
+            task.cancel()
+        await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+
 def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]) -> str:
     """One plain chat request (blocking), the text of the answer."""
     body = {"model": model, "temperature": 0.6, "max_tokens": 900, "messages": messages}
