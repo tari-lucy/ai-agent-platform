@@ -175,3 +175,40 @@ def test_old_findings_and_talk_are_forgotten(tmp_path: Path) -> None:
         assert "привет" not in seen[1][1]["content"]
 
     asyncio.run(scenario())
+
+
+def test_a_fact_question_is_always_handed_over(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        brain, said, _ = make(tmp_path, "Да где только не была!")  # the model forgot ДЕЛО
+        brain.hear("Опечатка, а где ты уже была в квадратном мире?")
+        await settle(brain)
+        assert said == ["Да где только не была!"]
+        ((_, text),) = brain.take()
+        assert "Не повторяй" in text and "записи и память" in text
+        brain.hear("Опечатка, ты любишь кофе?")  # plain talk: no hand-over
+        await settle(brain)
+        assert brain.take() == []
+
+    asyncio.run(scenario())
+
+
+def test_a_cut_off_answer_is_asked_again_or_trimmed(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        replies = iter(["Всегда пожалуйста. Если вдруг Глав", "Всегда пожалуйста. Если вдруг Глав"])
+        said: list[str] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return next(replies)
+
+        async def speak(text: str) -> None:
+            said.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log")
+        brain.hear("Опечатка, спасибо")
+        await settle(brain)
+        assert said == ["Всегда пожалуйста."]  # the cut tail is not spoken
+
+    asyncio.run(scenario())

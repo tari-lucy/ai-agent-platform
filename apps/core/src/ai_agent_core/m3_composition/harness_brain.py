@@ -26,6 +26,15 @@ LOG = logging.getLogger(__name__)
 TURNS = 12  # last turns of the talk the fast model sees
 DELEGATE = re.compile(r"^\s*(?:ДЕЛО|TASK)\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 MAX_SPEECH = 400
+# Words that ask for what only the slow mind knows (her past, notes, goals, the world, doing).
+# If the fast model answered them without a hand-over, the platform makes the hand-over itself.
+NEEDS_FACTS = re.compile(
+    r"(вчера|позавчера|на прошлой|в прошлый|раньше|помнишь|вспомни|где ты (уже )?была|"
+    r"что ты (уже )?(делала|нашла|видела|успела)|чем ты занималась|цел[иья]|план[ыа]?\b|"
+    r"блокнот|дневник|найди|поищи|проверь|посмотри|нарисуй|сходи|добудь|построй|прочитай)",
+    re.IGNORECASE,
+)
+TERMINAL = ".!?…»\")"
 FILLER_FIRST = 12.0  # seconds of waiting for the slow mind before the voice says something
 FILLER_GAP = 20.0  # ... and the least time between two such remarks
 FILLER_MAX = 2  # remarks per hand-over
@@ -88,7 +97,7 @@ def parse(reply: str) -> tuple[str, str]:
 
 def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]) -> str:
     """One plain chat request (blocking), the text of the answer."""
-    body = {"model": model, "temperature": 0.8, "max_tokens": 900, "messages": messages}
+    body = {"model": model, "temperature": 0.6, "max_tokens": 900, "messages": messages}
     request = urllib.request.Request(
         upstream.rstrip("/") + "/chat/completions",
         data=json.dumps(body).encode(),
@@ -269,6 +278,14 @@ class VoiceBrain:
                     self._hand_over(text, "", "")
                 return
             say, task = parse(reply)
+            if say and say[-1] not in TERMINAL and not task:  # cut off in the middle: once more
+                with contextlib.suppress(Exception):
+                    say, task = parse(await self.ask(await self._messages(text, found, wait)))
+                if say and say[-1] not in TERMINAL:  # still cut: keep the finished sentences
+                    cut = max(say.rfind(mark) for mark in ".!?…")
+                    say = say[: cut + 1] if cut > 10 else ""
+            if text is not None and not task and NEEDS_FACTS.search(text):
+                task = f"Человек сказал: «{text[:200]}». Ответь по существу, используя записи и память."
             if text is not None:
                 self._note("Человек", text)
             if say:
