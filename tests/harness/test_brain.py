@@ -121,9 +121,14 @@ async def _findings(tmp_path: Path) -> None:
     assert said == ["Секунду.", "Нашла: у нас ровно три шахты."]
     assert "шахт три" in seen[1][0]["content"] and "Медленный ум" in seen[1][1]["content"]
     assert brain.take() == []  # a finding never wakes the slow mind again
-    now[0] += 600  # nobody talks: only remembered, not said out of the blue
+    now[0] += 300  # a task is still awaited (slow mind took minutes): the finding is said
+    brain.briefs.clear()
+    assert "вплетёт" in brain.brief("позднее, но ждали")
+    await settle(brain)
+    assert len(said) == 3
+    now[0] += 600  # nobody talks, nothing awaited: only remembered, not said out of the blue
     assert "знает" in brain.brief("ещё факт", now=True)
-    assert len(said) == 2 and "ещё факт" in " ".join(brain.briefs)
+    assert len(said) == 3 and "ещё факт" in " ".join(brain.briefs)
     assert "Нечего" in brain.brief("  ")
 
 

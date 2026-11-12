@@ -30,6 +30,7 @@ FILLER_FIRST = 12.0  # seconds of waiting for the slow mind before the voice say
 FILLER_GAP = 20.0  # ... and the least time between two such remarks
 FILLER_MAX = 2  # remarks per hand-over
 WAIT_LIMIT = 150.0  # a hand-over this old is no longer waited for
+AWAITED = 480.0  # a finding for a hand-over this young is still waited for: it is said
 LIVE_TALK = 120.0  # seconds after a person's last words that a talk still counts as live
 TAIL = (
     "\n\n## Voice brain\n"
@@ -126,6 +127,7 @@ class VoiceBrain:
         self.doing: deque[str] = deque(maxlen=3)  # tasks handed to the slow mind
         self.briefs: deque[str] = deque(maxlen=6)  # what the slow mind found and passed back
         self._human_at = -1e9  # when a person last spoke to her
+        self._handed_at = -1e9  # when the last task went to the slow mind
         self.turns: deque[tuple[str, str]] = deque(maxlen=TURNS)  # (who, text)
         self.delegated: deque[tuple[str, str]] = deque(maxlen=8)  # (key, event text)
         self._lock = asyncio.Lock()  # one answer at a time: no two voices over each other
@@ -144,10 +146,11 @@ class VoiceBrain:
         facts = " ".join(facts.split())[:1500]
         if not facts:
             return "Нечего передавать: текст пуст."
+        awaited = self.clock() - self._handed_at < AWAITED  # somebody waits for this answer
         self.briefs.append(facts)
         self.waiting = None
         self._note("Находка", facts)
-        if now and self.clock() - self._human_at < LIVE_TALK:
+        if now and (awaited or self.clock() - self._human_at < LIVE_TALK):
             task = asyncio.get_running_loop().create_task(self._turn(None, facts))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
@@ -269,6 +272,7 @@ class VoiceBrain:
     def _hand_over(self, text: str, said: str, task: str) -> None:
         key = f"brain-{self.clock():.3f}"
         if task:
+            self._handed_at = self.clock()
             self._note("Дело (медленному уму)", task)
             self.waiting = [self.clock(), 0, -1e9]
             if self.express is not None:
