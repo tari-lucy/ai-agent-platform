@@ -773,12 +773,12 @@ def voice_brain(
     from ai_agent_core.m3_composition.harness_brain import VoiceBrain, complete
     from ai_agent_core.m3_composition.harness_host import persona_core
 
-    if not settings.fast_models or providers.binding is None or not settings.files_dir:
+    model = settings.voice_model or (settings.fast_models[0] if settings.fast_models else None)
+    if model is None or providers.binding is None or not settings.files_dir:
         return None
     if owner.speaker is None or owner.listener is None:
         return None
     upstream, key = providers.binding
-    model = settings.fast_models[0]
     speaker = owner.speaker
 
     async def ask(messages: list[dict[str, str]]) -> str:

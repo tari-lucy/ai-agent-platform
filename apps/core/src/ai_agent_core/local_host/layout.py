@@ -395,6 +395,9 @@ class HarnessConfig(BaseModel):
         default_factory=list, max_length=2
     )
     fast_seconds: int = Field(default=120, strict=True, ge=30, le=900)
+    # The fast voice's own model (answers by voice while the main agent works); empty: the first
+    # of ``fast_models``. Older releases do not know this field: remove it before rolling back.
+    voice_model: str | None = Field(default=None, pattern=r"^[\w./:-]{1,80}$")
     # Pictures she draws (imagine): the provider's image model, a daily cap and a fixed price per
     # picture in ``currency`` (the provider does not report one). Empty model: no drawing.
     image_model: str | None = Field(default=None, pattern=r"^[\w./:-]{1,80}$")
