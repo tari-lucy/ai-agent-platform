@@ -784,9 +784,9 @@ def voice_brain(
     async def ask(messages: list[dict[str, str]]) -> str:
         return await asyncio.to_thread(complete, upstream, key, model, messages)
 
-    async def speak(text: str) -> object:
+    async def speak(text: str, synth: Any = None) -> object:
         for _ in range(60):  # her previous phrase is still playing: wait for it, not over it
-            result = await speaker.speak(text, lambda: None)
+            result = await speaker.speak(text, lambda: None, synth)
             if not result.startswith("Я ещё говорю"):
                 return result
             await asyncio.sleep(0.15)
@@ -833,7 +833,7 @@ def voice_brain(
 
     brain = VoiceBrain(
         ask, speak, core, folder / "talk.log", mirror=drop / "talk.log", express=express,
-        recall=recall, stream=stream, clock=time.monotonic,
+        recall=recall, stream=stream, prefetch=speaker.synth, clock=time.monotonic,
     )  # fmt: skip
     owner.attach(SayDrop(brain, drop))
     password_file = host.root / "data" / "harness" / "password"

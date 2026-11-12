@@ -57,7 +57,9 @@ TAIL = (
     "You are her fast voice: you talk with people by voice right now, in her own way, "
     "briefly (one to three short sentences), like a live person in a call; no lists, no "
     "markdown, no stage directions. Begin with a very short first sentence (up to six words), "
-    "then the rest in one or two sentences.\n"
+    "then the rest in one or two sentences. In Russian she speaks of herself always in the "
+    "feminine (я рада, я была, я нашла), never the masculine. Do not greet again or repeat "
+    "yourself in a talk that is already going.\n"
     "You have NO hands and NO memory of your own: you cannot look at notes, files, goals, "
     "plans, the game, the internet, pictures or what happened earlier; you do not know them. "
     "Her other, slower mind has all that. So:\n"
@@ -186,6 +188,7 @@ def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]
 Ask = Callable[[list[dict[str, str]]], Awaitable[str]]
 Recall = Callable[[str], Awaitable[str]]
 Stream = Callable[[list[dict[str, str]]], AsyncIterator[str]]
+Synth = Callable[[str], AsyncIterator[bytes]]
 Speak = Callable[[str], Awaitable[object]]
 
 
@@ -200,12 +203,14 @@ class VoiceBrain:
         mirror: Path | None = None,
         recall: Recall | None = None,
         stream: Stream | None = None,
+        prefetch: Synth | None = None,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
+        self.prefetch = prefetch  # the voice's synthesis: the next sentence is made while one plays
         self.stream = stream  # the model's answer as it is written: spoken by sentences
         self.recall = recall  # her memory search: fast, no model; None when she has none
         self._remembered = False  # the last question was answered with memory in hand
@@ -369,17 +374,51 @@ class VoiceBrain:
         else:
             yield await self.ask(messages)
 
-    async def _voice(self, sentences: asyncio.Queue[str | None]) -> None:
+    def _make(self, sentence: str) -> asyncio.Task[list[bytes]] | None:
+        """Start the synthesis of a sentence at once: it is ready when its turn to play comes."""
+        if self.prefetch is None:
+            return None
+        prefetch = self.prefetch
+
+        async def collect() -> list[bytes]:
+            return [chunk async for chunk in prefetch(sentence)]
+
+        return asyncio.get_running_loop().create_task(collect())
+
+    async def _voice(
+        self, sentences: asyncio.Queue[tuple[str, asyncio.Task[list[bytes]] | None] | None]
+    ) -> None:
         """Speaks the sentences one after another while the model is still writing."""
-        while (sentence := await sentences.get()) is not None:
+        while (item := await sentences.get()) is not None:
+            sentence, made = item
             try:
                 started = self.clock()
-                await self.speak(sentence)
+                chunks: list[bytes] | None = None
+                if made is not None:
+                    try:
+                        chunks = await made
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:  # noqa: BLE001 - spoken the usual way instead
+                        LOG.warning("Voice prefetch failed: %s", type(error).__name__)
+                result = await self._say(sentence, chunks)
+                if isinstance(result, str) and result.startswith("Не удалось сказать"):
+                    await self._say(sentence, None)  # one more try: a dropped connection
                 LOG.info("Voice sentence spoken in %.1f s", self.clock() - started)
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001
                 LOG.warning("Voice brain could not speak: %s", type(error).__name__)
+
+    async def _say(self, sentence: str, chunks: list[bytes] | None) -> object:
+        if chunks is None:
+            return await self.speak(sentence)
+
+        async def stored(_: str) -> AsyncIterator[bytes]:
+            for chunk in chunks:
+                yield chunk
+
+        return await self.speak(sentence, stored)
 
     async def _turn(self, text: str | None, found: str = "", wait: bool = False) -> None:
         if text is not None:
@@ -390,7 +429,9 @@ class VoiceBrain:
             messages = await self._messages(text, found, wait)
             prepared = self.clock()
             marks: dict[str, float] = {}
-            sentences: asyncio.Queue[str | None] = asyncio.Queue()
+            sentences: asyncio.Queue[tuple[str, asyncio.Task[list[bytes]] | None] | None] = (
+                asyncio.Queue()
+            )
             voice = asyncio.get_running_loop().create_task(self._voice(sentences))
             spoken: list[str] = []
             buffer = ""
@@ -404,7 +445,7 @@ class VoiceBrain:
                         if sentence and sentence != "-":
                             marks.setdefault("first_sentence", self.clock())
                             spoken.append(sentence)
-                            sentences.put_nowait(sentence)
+                            sentences.put_nowait((sentence, self._make(sentence)))
             except asyncio.CancelledError:
                 voice.cancel()
                 raise
@@ -423,7 +464,7 @@ class VoiceBrain:
             tail_speech, task = parse(buffer)
             if tail_speech and tail_speech != "-" and (task or tail_speech[-1] in TERMINAL):
                 spoken.append(tail_speech)
-                sentences.put_nowait(tail_speech)
+                sentences.put_nowait((tail_speech, self._make(tail_speech)))
             sentences.put_nowait(None)
             await voice
             say = " ".join(spoken)

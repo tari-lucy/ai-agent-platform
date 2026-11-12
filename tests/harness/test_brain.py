@@ -362,3 +362,56 @@ def test_a_stream_that_dies_before_any_speech_goes_to_the_slow_mind(tmp_path: Pa
         assert "Быстрый голос не ответил" in text
 
     asyncio.run(scenario())
+
+
+def test_the_next_sentence_is_made_while_the_first_is_spoken(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        order: list[str] = []
+
+        async def prefetch(text: str):
+            order.append("made:" + text)
+            yield b"\x00\x00"
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Привет. Как дела? Я рада."
+
+        async def speak(text: str, synth=None) -> str:
+            order.append("say:" + text)
+            await asyncio.sleep(0.05)  # the first one is still playing
+            return "Сказано."
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", prefetch=prefetch)
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        # all three are made before the first has finished playing: no gaps between them
+        assert [o for o in order if o.startswith("made")] == [
+            "made:Привет.", "made:Как дела?", "made:Я рада.",
+        ]  # fmt: skip
+        assert order.index("made:Я рада.") < order.index("say:Как дела?")
+
+    asyncio.run(scenario())
+
+
+def test_a_failed_sentence_is_tried_once_more(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        calls: list[str] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Привет."
+
+        async def speak(text: str) -> str:
+            calls.append(text)
+            return "Не удалось сказать (SONIOX_TRANSPORT_ERROR)." if len(calls) == 1 else "Сказано."
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log")
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        assert calls == ["Привет.", "Привет."]
+
+    asyncio.run(scenario())
