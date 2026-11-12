@@ -277,3 +277,18 @@ def test_a_promise_to_check_always_comes_with_a_hand_over(tmp_path: Path) -> Non
         assert "Не повторяй" in text
 
     asyncio.run(scenario())
+
+
+def test_say_drop_bang_speaks_the_exact_words(tmp_path: Path) -> None:
+    from ai_agent_core.m3_composition.harness_brain import SayDrop
+
+    async def scenario() -> None:
+        brain, said, seen = make(tmp_path, "не должна вызываться")
+        folder = tmp_path / "say"
+        folder.mkdir()
+        (folder / "a.say").write_text("!зам+ок звон+ит", encoding="utf-8")
+        SayDrop(brain, folder, every=0).tick()
+        await asyncio.sleep(0.05)
+        assert said == ["зам+ок звон+ит"] and seen == []  # the model is not asked
+
+    asyncio.run(scenario())

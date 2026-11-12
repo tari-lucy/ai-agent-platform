@@ -393,7 +393,9 @@ class SayDrop:
             except OSError:
                 continue
             text = " ".join(text.split())[:500]
-            if text:
+            if text.startswith("!"):  # exact words for her voice, no model: for sound tests
+                asyncio.get_running_loop().create_task(self.brain.speak(text[1:].strip()))
+            elif text:
                 self.brain.hear(text)
 
     async def close(self) -> None:

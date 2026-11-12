@@ -547,6 +547,9 @@ def _say(root: Path, text: str, wait: int) -> int:
     folder.mkdir(parents=True, exist_ok=True)
     seen = log.stat().st_size if log.exists() else 0
     (folder / f"{uuid.uuid4().hex}.say").write_text(text, encoding="utf-8")
+    if text.startswith("!"):
+        print("Отправлено на озвучивание (слушай в наушниках).")
+        return 0
     deadline = time.monotonic() + wait
     printed = ""
     while time.monotonic() < deadline:
