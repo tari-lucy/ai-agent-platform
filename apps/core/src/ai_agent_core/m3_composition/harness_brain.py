@@ -217,6 +217,7 @@ class VoiceBrain:
         self._human_at = -1e9  # when a person last spoke to her
         self._handed_at = -1e9  # when the last task went to the slow mind
         self._brief_at = -1e9
+        self._warmed = False
         self._turn_at = -1e9
         self.turns: deque[tuple[str, str]] = deque(maxlen=TURNS)  # (who, text)
         self.delegated: deque[tuple[str, str]] = deque(maxlen=8)  # (key, event text)
@@ -251,6 +252,11 @@ class VoiceBrain:
     def tick(self) -> None:
         """While the slow mind works on a hand-over in a live talk, fill the pause now and then
         with one short remark (thinking aloud, a question, a view), not with silence."""
+        if not self._warmed:  # build her character now: the first answer must not wait for it
+            self._warmed = True
+            warm = asyncio.get_running_loop().create_task(self.core())
+            self._tasks.add(warm)
+            warm.add_done_callback(self._tasks.discard)
         waiting = self.waiting
         if waiting is None or self._lock.locked():
             return

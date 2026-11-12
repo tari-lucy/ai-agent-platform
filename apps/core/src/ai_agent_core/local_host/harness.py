@@ -797,8 +797,14 @@ def voice_brain(
 
         return stream_complete(upstream, key, model, messages)
 
+    cached: dict[str, Any] = {"at": -1e9, "text": ""}
+
     async def core() -> str:
-        return persona_core(await owner.prompt())
+        """Her character, built once in a while: building it takes up to two seconds."""
+        if time.monotonic() - cached["at"] > 120.0 or not cached["text"]:
+            cached["text"] = persona_core(await owner.prompt())
+            cached["at"] = time.monotonic()
+        return str(cached["text"])
 
     async def express(name: str) -> object:
         from ai_agent_application.avatar import Emotion
