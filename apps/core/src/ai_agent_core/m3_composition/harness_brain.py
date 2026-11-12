@@ -24,7 +24,7 @@ from pathlib import Path
 LOG = logging.getLogger(__name__)
 
 TURNS = 12  # last turns of the talk the fast model sees
-DELEGATE = re.compile(r"^\s*(?:ДЕЛО|TASK)\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+MARK = re.compile(r"(?:ДЕЛО|TASK)\s*:", re.IGNORECASE)
 MAX_SPEECH = 400
 # Words that ask for what only the slow mind knows (her past, notes, goals, the world, doing).
 # If the fast model answered them without a hand-over, the platform makes the hand-over itself.
@@ -93,12 +93,15 @@ TAIL = (
 
 
 def parse(reply: str) -> tuple[str, str]:
-    """(what to say, what to hand over). The model's last ``ДЕЛО:`` line is the hand-over."""
+    """(what to say, what to hand over). The last ``ДЕЛО:`` marker starts the hand-over, on its
+    own line or at the end of the sentence; nothing after it is ever spoken."""
     reply = reply.strip()
-    found = DELEGATE.findall(reply)
-    task = found[-1].strip() if found else ""
-    speech = DELEGATE.sub("", reply).strip()
-    speech = re.sub(r"[*_`#]+", "", speech)
+    marks = list(MARK.finditer(reply))
+    task = ""
+    if marks:
+        task = " ".join(reply[marks[-1].end() :].split())
+        reply = reply[: marks[0].start()]
+    speech = re.sub(r"[*_`#]+", "", reply)
     speech = " ".join(speech.split())
     if speech == "-":
         speech = ""
@@ -318,7 +321,7 @@ class VoiceBrain:
                     cut = max(say.rfind(mark) for mark in ".!?…")
                     say = say[: cut + 1] if cut > 10 else ""
             if text is not None and not task and (
-                (NEEDS_FACTS.search(text) and not self._remembered) or PROMISE.search(say)
+                NEEDS_FACTS.search(text) or PROMISE.search(say)
             ):
                 task = f"Человек сказал: «{text[:200]}». Ответь по существу, используя записи и память."
             if text is not None:

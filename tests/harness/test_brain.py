@@ -11,6 +11,9 @@ def test_parse_splits_speech_and_task() -> None:
     assert parse("Сейчас гляну.\nДЕЛО: найди алмазы") == ("Сейчас гляну.", "найди алмазы")
     assert parse("**Привет**, как дела?") == ("Привет, как дела?", "")
     assert parse("-") == ("", "")
+    # the marker in the same line: the task is never spoken
+    assert parse("Дай подумать. ДЕЛО: поднять архив") == ("Дай подумать.", "поднять архив")
+    assert parse("Иду.\nДЕЛО: узнай\nещё") == ("Иду.", "узнай ещё")
 
 
 def make(tmp_path: Path, reply: str, fail: bool = False):
@@ -214,7 +217,7 @@ def test_a_cut_off_answer_is_asked_again_or_trimmed(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_memory_is_read_for_the_voice_and_answers_without_a_hand_over(tmp_path: Path) -> None:
+def test_memory_is_read_for_the_voice_and_the_slow_mind_still_checks(tmp_path: Path) -> None:
     async def scenario() -> None:
         seen: list[list[dict[str, str]]] = []
 
@@ -235,7 +238,8 @@ def test_memory_is_read_for_the_voice_and_answers_without_a_hand_over(tmp_path: 
         brain.hear("Опечатка, где ты уже была в квадратном мире?")
         await settle(brain)
         assert "в норе, внизу обсидиан" in seen[0][0]["content"]
-        assert brain.take() == []  # answered from memory: the slow mind is not woken
+        ((_, text),) = brain.take()  # canon memory is no diary: the slow mind checks too
+        assert "записи и память" in text
 
     asyncio.run(scenario())
 
