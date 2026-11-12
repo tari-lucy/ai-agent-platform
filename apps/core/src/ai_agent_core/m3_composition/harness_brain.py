@@ -34,6 +34,8 @@ NEEDS_FACTS = re.compile(
     r"блокнот|дневник|найди|поищи|проверь|посмотри|нарисуй|сходи|добудь|построй|прочитай)",
     re.IGNORECASE,
 )
+MEMORY_WAIT = 4.0  # seconds the memory search may take before the voice answers without it
+NO_MEMORY = "Ничего не нашлось."
 TERMINAL = ".!?…»\")"
 FILLER_FIRST = 12.0  # seconds of waiting for the slow mind before the voice says something
 FILLER_GAP = 20.0  # ... and the least time between two such remarks
@@ -117,6 +119,7 @@ def complete(upstream: str, key: str, model: str, messages: list[dict[str, str]]
 
 
 Ask = Callable[[list[dict[str, str]]], Awaitable[str]]
+Recall = Callable[[str], Awaitable[str]]
 Speak = Callable[[str], Awaitable[object]]
 
 
@@ -129,12 +132,15 @@ class VoiceBrain:
         log: Path,
         *,
         mirror: Path | None = None,
+        recall: Recall | None = None,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
+        self.recall = recall  # her memory search: fast, no model; None when she has none
+        self._remembered = False  # the last question was answered with memory in hand
         # The hand-over the slow mind is working on: (since, remarks made, last remark at).
         self.waiting: list[float] | None = None
         self.clock = clock
@@ -243,6 +249,23 @@ class VoiceBrain:
         live = self.activity().strip()
         if live:
             system += f"Right now (true, from its tool log): {live}.\n"
+        self._remembered = False
+        if text is not None and self.recall is not None and NEEDS_FACTS.search(text):
+            try:
+                memory = await asyncio.wait_for(self.recall(text), MEMORY_WAIT)
+            except Exception as error:  # noqa: BLE001 - no memory in time: the slow mind helps
+                LOG.info("Memory not read for the voice: %s", type(error).__name__)
+                memory = ""
+            memory = memory.strip()[:1500]
+            if memory and NO_MEMORY not in memory:
+                self._remembered = True
+                system += (
+                    "\n## From her memory (true, found by the memory search just now)\n"
+                    + memory
+                    + "\nIf this answers the question, answer from it in your own words, "
+                    "briefly, and do not hand it over; if it does not, say what is missing and "
+                    "hand it over.\n"
+                )
         if self.briefs:
             system += "\n## What the slow mind found\n" + "\n".join(f"- {b}" for b in self.briefs)
             system += "\n"
@@ -284,7 +307,7 @@ class VoiceBrain:
                 if say and say[-1] not in TERMINAL:  # still cut: keep the finished sentences
                     cut = max(say.rfind(mark) for mark in ".!?…")
                     say = say[: cut + 1] if cut > 10 else ""
-            if text is not None and not task and NEEDS_FACTS.search(text):
+            if text is not None and not task and not self._remembered and NEEDS_FACTS.search(text):
                 task = f"Человек сказал: «{text[:200]}». Ответь по существу, используя записи и память."
             if text is not None:
                 self._note("Человек", text)

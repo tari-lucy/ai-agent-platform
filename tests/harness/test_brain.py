@@ -212,3 +212,52 @@ def test_a_cut_off_answer_is_asked_again_or_trimmed(tmp_path: Path) -> None:
         assert said == ["Всегда пожалуйста."]  # the cut tail is not spoken
 
     asyncio.run(scenario())
+
+
+def test_memory_is_read_for_the_voice_and_answers_without_a_hand_over(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        seen: list[list[dict[str, str]]] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            seen.append(messages)
+            return "Была в норе у обсидиана."
+
+        async def speak(text: str) -> None:
+            return None
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        async def recall(query: str) -> str:
+            return "Что я помню по теме:\n- Была в норе, внизу обсидиан."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", recall=recall)
+        brain.hear("Опечатка, где ты уже была в квадратном мире?")
+        await settle(brain)
+        assert "в норе, внизу обсидиан" in seen[0][0]["content"]
+        assert brain.take() == []  # answered from memory: the slow mind is not woken
+
+    asyncio.run(scenario())
+
+
+def test_memory_that_is_empty_or_slow_leaves_it_to_the_slow_mind(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Дай вспомню."
+
+        async def speak(text: str) -> None:
+            return None
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        async def recall(query: str) -> str:
+            raise TimeoutError
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", recall=recall)
+        brain.hear("Опечатка, где ты уже была в квадратном мире?")
+        await settle(brain)
+        ((_, text),) = brain.take()
+        assert "записи и память" in text
+
+    asyncio.run(scenario())

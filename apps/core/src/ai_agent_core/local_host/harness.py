@@ -472,7 +472,7 @@ def install(
             brain = _safely(
                 "voice brain",
                 lambda: voice_brain(
-                    settings, providers, owner, runtime.supervisor.snapshot.scope, host
+                    settings, providers, owner, runtime.supervisor.snapshot.scope, host, runtime
                 ),
             )
             if brain is not None:
@@ -760,7 +760,12 @@ def wire_ack(
 
 
 def voice_brain(
-    settings: HarnessConfig, providers: LocalProviders, owner: Any, scope: Scope, host: HostPaths
+    settings: HarnessConfig,
+    providers: LocalProviders,
+    owner: Any,
+    scope: Scope,
+    host: HostPaths,
+    runtime: Any,
 ) -> Any:
     """The fast voice: needs a fast model, the provider binding, a voice and ears."""
     import time
@@ -799,9 +804,25 @@ def voice_brain(
 
     folder = Path(settings.files_dir) / scope.persona_id / "voice"
     drop = host.root / "data" / "harness" / "say"
+    async def recall(query: str) -> str:
+        """Her memory search for the voice: the same read as the memory_recall tool."""
+        from ai_agent_contracts.states import RunState
+
+        from ai_agent_core.m3_composition.workplace_experience import persona
+
+        run = runtime.supervisor.snapshot
+        if run.state != RunState.ACTIVE:
+            return ""
+        epoch = run.control_epoch
+        brief = await persona(runtime).build(run.scope, query[:1000])
+        if runtime.supervisor.snapshot.control_epoch != epoch:
+            return ""  # STOP in between: nothing is released
+        marker = "Что я помню по теме:"
+        return brief.text[brief.text.index(marker) :] if marker in brief.text else ""
+
     brain = VoiceBrain(
         ask, speak, core, folder / "talk.log", mirror=drop / "talk.log", express=express,
-        clock=time.monotonic,
+        recall=recall, clock=time.monotonic,
     )  # fmt: skip
     owner.attach(SayDrop(brain, drop))
     password_file = host.root / "data" / "harness" / "password"
