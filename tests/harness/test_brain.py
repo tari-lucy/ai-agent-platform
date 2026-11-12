@@ -261,3 +261,15 @@ def test_memory_that_is_empty_or_slow_leaves_it_to_the_slow_mind(tmp_path: Path)
         assert "записи и память" in text
 
     asyncio.run(scenario())
+
+
+def test_a_promise_to_check_always_comes_with_a_hand_over(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        brain, said, _ = make(tmp_path, "Дай секунду, сверюсь с заметками.")  # no ДЕЛО
+        brain.hear("Опечатка, расскажи про свою поездку")
+        await settle(brain)
+        assert said == ["Дай секунду, сверюсь с заметками."]
+        ((_, text),) = brain.take()
+        assert "Не повторяй" in text
+
+    asyncio.run(scenario())

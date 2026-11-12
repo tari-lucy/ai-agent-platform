@@ -36,6 +36,12 @@ NEEDS_FACTS = re.compile(
 )
 MEMORY_WAIT = 4.0  # seconds the memory search may take before the voice answers without it
 NO_MEMORY = "Ничего не нашлось."
+# A promise to go and check: it must come with a hand-over, or nobody checks anything.
+PROMISE = re.compile(
+    r"(сверюсь|загляну|гляну|посмотрю|проверю|узнаю|выясню|вспомню|дай (?:вспомню|гляну|"
+    r"секунду|сверюсь)|сейчас найду|поищу|схожу|добуду|нарисую)",
+    re.IGNORECASE,
+)
 TERMINAL = ".!?…»\")"
 FILLER_FIRST = 12.0  # seconds of waiting for the slow mind before the voice says something
 FILLER_GAP = 20.0  # ... and the least time between two such remarks
@@ -64,6 +70,8 @@ TAIL = (
     "answer yourself, in your own words, from 'Right now' and 'What the slow mind is doing' "
     "below (what it is doing, how long); if nothing is going on, say nothing is running. "
     "Do NOT add a `ДЕЛО:` to such a question.\n"
+    "- Never promise to check, look up, find or do something without the `ДЕЛО:` line: a "
+    "promise with no hand-over means nobody does it.\n"
     "- Never fill the answer from 'memory' or invent details, even plausible ones: your own "
     "past, plans and doings are NOT known to you. A fact is yours only if it stands in the "
     "sections below.\n"
@@ -251,12 +259,14 @@ class VoiceBrain:
             system += f"Right now (true, from its tool log): {live}.\n"
         self._remembered = False
         if text is not None and self.recall is not None and NEEDS_FACTS.search(text):
+            started = self.clock()
             try:
                 memory = await asyncio.wait_for(self.recall(text), MEMORY_WAIT)
             except Exception as error:  # noqa: BLE001 - no memory in time: the slow mind helps
                 LOG.info("Memory not read for the voice: %s", type(error).__name__)
                 memory = ""
             memory = memory.strip()[:1500]
+            self._note("Память", f"{self.clock() - started:.1f} с, {len(memory)} зн.: {memory[:160]}")
             if memory and NO_MEMORY not in memory:
                 self._remembered = True
                 system += (
@@ -307,7 +317,9 @@ class VoiceBrain:
                 if say and say[-1] not in TERMINAL:  # still cut: keep the finished sentences
                     cut = max(say.rfind(mark) for mark in ".!?…")
                     say = say[: cut + 1] if cut > 10 else ""
-            if text is not None and not task and not self._remembered and NEEDS_FACTS.search(text):
+            if text is not None and not task and (
+                (NEEDS_FACTS.search(text) and not self._remembered) or PROMISE.search(say)
+            ):
                 task = f"Человек сказал: «{text[:200]}». Ответь по существу, используя записи и память."
             if text is not None:
                 self._note("Человек", text)
