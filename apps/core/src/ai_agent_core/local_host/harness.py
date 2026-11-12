@@ -492,12 +492,29 @@ def install(
                 # The token the mod gave her, from her own workspace; never logged.
                 Path(settings.files_dir) / persona / "projects" / "unionclef" / "mcp-token.txt",
                 [name for name in (settings.agent_names.get(persona), persona) if name],
+                interval=3.0,  # players wait for an answer: the chat is looked at every 3 s
                 root=Path(settings.files_dir) / persona,
                 reflex=Reflex(),  # the operator's rules for fights, flight and death
                 people=Path(settings.files_dir) / persona / "playbook" / "people.md",
                 book=runtime.harness.people,
             )
             sources.append(game)
+            talker = _safely(
+                "game brain",
+                lambda: game_brain(
+                    settings, providers, owner, runtime.supervisor.snapshot.scope, host, runtime, game
+                ),
+            )
+            if talker is not None:
+                from ai_agent_core.m3_composition.harness_brain import BrainSource, Brains
+
+                game.on_talk = talker.hear
+                runtime.harness.attach(talker)
+                sources.append(BrainSource("gamechat", talker))
+                voice = owner.brain
+                if voice is not None:
+                    voice.peers.append(talker)  # the slow mind's steps reach both brains
+                owner.brain = Brains(voice, talker) if voice is not None else talker
             sources.append(
                 ServerSource(
                     game,
@@ -759,38 +776,26 @@ def wire_ack(
     listener.on_addressed = addressed
 
 
-def voice_brain(
-    settings: HarnessConfig,
-    providers: LocalProviders,
-    owner: Any,
-    scope: Scope,
-    host: HostPaths,
-    runtime: Any,
+def brain_kit(
+    settings: HarnessConfig, providers: LocalProviders, owner: Any, host: HostPaths, runtime: Any
 ) -> Any:
-    """The fast voice: needs a fast model, the provider binding, a voice and ears."""
+    """What the fast brains (voice and game chat) share: the model race, her character, her memory
+    search and the slow mind's tool log. Built once."""
     import time
+    from types import SimpleNamespace
 
-    from ai_agent_core.m3_composition.harness_brain import VoiceBrain, complete
+    from ai_agent_core.m3_composition.harness_brain import complete
     from ai_agent_core.m3_composition.harness_host import persona_core
 
+    if getattr(owner, "brain_kit", None) is not None:
+        return owner.brain_kit
     model = settings.voice_model or (settings.fast_models[0] if settings.fast_models else None)
     if model is None or providers.binding is None or not settings.files_dir:
         return None
-    if owner.speaker is None or owner.listener is None:
-        return None
     upstream, key = providers.binding
-    speaker = owner.speaker
 
     async def ask(messages: list[dict[str, str]]) -> str:
         return await asyncio.to_thread(complete, upstream, key, model, messages)
-
-    async def speak(text: str, synth: Any = None) -> object:
-        for _ in range(60):  # her previous phrase is still playing: wait for it, not over it
-            result = await speaker.speak(text, lambda: None, synth)
-            if not result.startswith("Я ещё говорю"):
-                return result
-            await asyncio.sleep(0.15)
-        return None
 
     def stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
         from functools import partial
@@ -810,17 +815,8 @@ def voice_brain(
             cached["at"] = time.monotonic()
         return str(cached["text"])
 
-    async def express(name: str) -> object:
-        from ai_agent_application.avatar import Emotion
-
-        return await owner.avatar.express(Emotion(name)) if owner.avatar is not None else None
-
-    from ai_agent_core.m3_composition.harness_brain import SayDrop
-
-    folder = Path(settings.files_dir) / scope.persona_id / "voice"
-    drop = host.root / "data" / "harness" / "say"
     async def recall(query: str) -> str:
-        """Her memory search for the voice: the same read as the memory_recall tool."""
+        """Her memory search: the same read as the memory_recall tool."""
         from ai_agent_contracts.states import RunState
 
         from ai_agent_core.m3_composition.workplace_experience import persona
@@ -835,27 +831,136 @@ def voice_brain(
         marker = "Что я помню по теме:"
         return brief.text[brief.text.index(marker) :] if marker in brief.text else ""
 
-    brain = VoiceBrain(
-        ask, speak, core, folder / "talk.log", mirror=drop / "talk.log", express=express,
-        recall=recall, stream=stream, prefetch=speaker.synth, clock=time.monotonic,
-    )  # fmt: skip
-    owner.attach(SayDrop(brain, drop))
+    kit = SimpleNamespace(ask=ask, stream=stream, core=core, recall=recall, brains=[], activity=None)
+
+    def tell(brain: Any) -> None:
+        kit.brains.append(brain)
+        if kit.activity is not None:
+            brain.activity = kit.activity.describe
+
+    kit.add = tell
     password_file = host.root / "data" / "harness" / "password"
     try:
         password = password_file.read_text(encoding="utf-8").strip()
     except OSError:
         password = ""
-    if password:  # the slow mind's tool log, as a true line for the voice
+    if password:  # the slow mind's tool log, as a true line for the voices
         from ai_agent_core.m3_composition.harness_activity import Activity
 
-        seen = Activity(
+        kit.activity = Activity(
             f"http://127.0.0.1:{settings.port}",
             password,
-            on_tool=brain.slow_event,
-            on_idle=brain.slow_idle,
+            on_tool=lambda tool, status: [b.slow_event(tool, status) for b in kit.brains[:1]],
+            on_idle=lambda: [b.slow_idle() for b in kit.brains[:1]],
         )
-        brain.activity = seen.describe
-        owner.attach(seen)
+        owner.attach(kit.activity)
+    owner.brain_kit = kit
+    return kit
+
+
+def voice_brain(
+    settings: HarnessConfig,
+    providers: LocalProviders,
+    owner: Any,
+    scope: Scope,
+    host: HostPaths,
+    runtime: Any,
+) -> Any:
+    """The fast voice: needs a fast model, the provider binding, a voice and ears."""
+    import time
+
+    from ai_agent_core.m3_composition.harness_brain import SayDrop, VoiceBrain
+
+    kit = brain_kit(settings, providers, owner, host, runtime)
+    if kit is None or owner.speaker is None or owner.listener is None:
+        return None
+    speaker = owner.speaker
+
+    async def speak(text: str, synth: Any = None) -> object:
+        for _ in range(60):  # her previous phrase is still playing: wait for it, not over it
+            result = await speaker.speak(text, lambda: None, synth)
+            if not result.startswith("Я ещё говорю"):
+                return result
+            await asyncio.sleep(0.15)
+        return None
+
+    async def express(name: str) -> object:
+        from ai_agent_application.avatar import Emotion
+
+        return await owner.avatar.express(Emotion(name)) if owner.avatar is not None else None
+
+    folder = Path(settings.files_dir) / scope.persona_id / "voice"
+    drop = host.root / "data" / "harness" / "say"
+    brain = VoiceBrain(
+        kit.ask, speak, kit.core, folder / "talk.log", mirror=drop / "talk.log", express=express,
+        recall=kit.recall, stream=kit.stream, prefetch=speaker.synth, clock=time.monotonic,
+    )  # fmt: skip
+    owner.attach(SayDrop(brain, drop))
+    kit.add(brain)
+    return brain
+
+
+def game_brain(
+    settings: HarnessConfig,
+    providers: LocalProviders,
+    owner: Any,
+    scope: Scope,
+    host: HostPaths,
+    runtime: Any,
+    game: Any,
+) -> Any:
+    """The fast voice of the game chat: answers players in the chat at once (text), hands actions
+    to the slow mind. What she writes never starts with a command character."""
+    import re
+    import time
+
+    from ai_agent_core.m3_composition.harness_brain import (
+        GAME_ACTION,
+        GAME_TAIL,
+        NEEDS_FACTS,
+        VoiceBrain,
+    )
+
+    kit = brain_kit(settings, providers, owner, host, runtime)
+    if kit is None:
+        return None
+    last = {"at": 0.0}
+
+    async def say(text: str, synth: Any = None) -> object:
+        text = re.sub(r"^[\s@/.!#]+", "", " ".join(text.split()))[:200]  # '@' and '/' are commands
+        if not text:
+            return "пусто"
+        wait = 1.3 - (time.monotonic() - last["at"])  # chat servers cut those who write too fast
+        if wait > 0:
+            await asyncio.sleep(wait)
+        last["at"] = time.monotonic()
+        try:
+            await asyncio.to_thread(game.fetch, "ChatMessage", {"message": text})
+        except Exception as error:  # noqa: BLE001 - the game is away: nothing to say it to
+            LOG.warning("Game chat not written: %s", type(error).__name__)
+            return "Не удалось написать в чат."
+        return "Сказано."
+
+    def scene() -> str:
+        state = game.state if isinstance(game.state, dict) else {}
+        me = state.get("self") if isinstance(state.get("self"), dict) else {}
+        if not game.in_game or not me:
+            return "she is not in a world right now"
+        text = (
+            f"hp {me.get('hp', '?')}/{me.get('maxHp', 20)}, food {me.get('food', '?')}, "
+            f"at {me.get('pos', '?')}, {me.get('dimension', '')}"
+        )
+        near = sorted(getattr(game, "_near", set()))[:5]
+        return text + (("; players near: " + ", ".join(near)) if near else "")
+
+    folder = Path(settings.files_dir) / scope.persona_id / "voice"
+    brain = VoiceBrain(
+        kit.ask, say, kit.core, folder / "game-talk.log", recall=kit.recall, stream=kit.stream,
+        tail=GAME_TAIL, context=scene, needs=re.compile(
+            NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE
+        ), where="game", clock=time.monotonic,
+    )  # fmt: skip
+    kit.add(brain)
     return brain
 
 

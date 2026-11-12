@@ -278,3 +278,14 @@ def test_a_sender_is_read_from_common_chat_formats():
     assert sender("ɢ |   | ☾Креатив☽ [unknown player head] Pavel_9  » го по комнатам") == "Pavel_9"
     assert sender("Eve: hello") == "Eve"
     assert sender("just a server notice") is None
+
+
+def test_a_fast_voice_takes_the_players_talk_and_the_slow_mind_is_not_woken():
+    got: list[tuple[str, str]] = []
+    base = ["<Eve> hi"]
+    src = chat_source([base, base + ["<Bob> Опечатка, ты тут?", "<Alto Clef> Опечатка done"]])
+    src.on_talk = lambda line, known: got.append((line, known))
+    poll(src)
+    events = poll(src)
+    assert [e for e in events if e.kind == "talk"] == []  # nobody is woken by the talk itself
+    assert got == [("<Bob> Опечатка, ты тут?", "")]  # the mod's own line is no player's talk

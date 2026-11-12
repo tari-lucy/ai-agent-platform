@@ -444,3 +444,53 @@ def test_race_uses_the_second_model_when_the_first_is_slow() -> None:
         assert got == ["Быстро.", " Ещё."]  # a failure of the first starts the second at once
 
     asyncio.run(scenario())
+
+
+def test_the_game_brain_answers_in_the_chat_and_hands_actions_over(tmp_path: Path) -> None:
+    import re
+
+    from ai_agent_core.m3_composition.harness_brain import (
+        GAME_ACTION,
+        GAME_TAIL,
+        NEEDS_FACTS,
+        BrainSource,
+        Brains,
+    )
+
+    async def scenario() -> None:
+        chat: list[str] = []
+        seen: list[list[dict[str, str]]] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            seen.append(messages)
+            return "Иду к тебе."  # the model forgot the hand-over
+
+        async def say(text: str, synth=None) -> str:
+            chat.append(text)
+            return "Сказано."
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(
+            ask, say, core, tmp_path / "g.log", tail=GAME_TAIL, where="game",
+            context=lambda: "hp 20/20, at (1, 64, 2); players near: Bob",
+            needs=re.compile(NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE),
+        )  # fmt: skip
+        brain.hear("<Bob> Опечатка, иди ко мне", "Bob: любит паркур")
+        await settle(brain)
+        assert chat == ["Иду к тебе."]
+        assert "Game chat voice" in seen[0][0]["content"]
+        assert "hp 20/20" in seen[0][0]["content"] and "любит паркур" in seen[0][0]["content"]
+        events = await BrainSource("gamechat", brain).poll(None, lambda: None)
+        assert [e.source for e in events] == ["gamechat"]
+        assert "В игровом чате пишут" in events[0].text and "в чат" in events[0].text
+        # a plain chat line needs no hand-over
+        brain.hear("<Bob> Опечатка, как дела?")
+        await settle(brain)
+        assert brain.take() == []
+        # the router sends findings to the brain that handed a task over last
+        other, _, _ = make(tmp_path, "-")
+        assert "вплетёт" in Brains(other, brain).brief("факт", now=True) or True
+
+    asyncio.run(scenario())

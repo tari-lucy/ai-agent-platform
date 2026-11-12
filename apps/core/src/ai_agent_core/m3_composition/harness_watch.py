@@ -69,7 +69,7 @@ class CommentsSource:
             await comments.told(scope, current)
 
 
-LIVE_SOURCES = frozenset({"voice", "chat"})  # news from people talking to her right now
+LIVE_SOURCES = frozenset({"voice", "chat", "gamechat"})  # news from people talking to her right now
 
 
 class Watch:

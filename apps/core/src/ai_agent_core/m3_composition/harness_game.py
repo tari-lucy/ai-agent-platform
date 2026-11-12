@@ -38,6 +38,7 @@ SCREEN_AGAIN = 180.0
 # Lobbies and the End look "closed" to it and it bridges and pillars forever; she can turn a
 # setting on for a job with ExecuteCommand and the platform sets it again at the next entry.
 JOIN_SETTINGS = ("allowPlace", "allowBreak")
+BOTS = frozenset({"alto clef", "altoclef", "alto", "clef", "tungsten", "server", "system", "console"})
 TALK_WINDOW = 120.0  # seconds a player who spoke to her is followed after his last line
 SENDER = re.compile(r"(?:<([A-Za-z0-9_]{3,16})>|([A-Za-z0-9_]{3,16})\s*[\u00bb>:])")
 MOB_PAUSE = 60  # polls to wait before asking again when the mod has no such tool
@@ -116,6 +117,9 @@ class GameSource:
         self.people = people  # her notes about players: name and a fact per line
         self.book = book  # the cross-platform book of people (harness_people), or None
         self._talk: dict[str, float] = {}
+        # Set by the host: a fast voice that answers players in the chat at once. It gets the line
+        # and what is known of the player; the slow mind is woken only by its hand-overs.
+        self.on_talk: Callable[[str, str], None] | None = None
         self.reflex = reflex
         self.clock = clock or time.monotonic
         self._alive = True
@@ -578,6 +582,14 @@ class GameSource:
                     except Exception:  # noqa: BLE001
                         seen = ""
                     known = " | ".join(part for part in (known, seen) if part)
+                if self.on_talk is not None:
+                    if sender is not None and sender.casefold() in BOTS:
+                        continue  # the mod's and the server's own lines are no player's talk
+                    try:
+                        self.on_talk(line, known)
+                    except Exception:  # noqa: BLE001 - the fast voice never stops the game watch
+                        LOG.warning("Game talk hook failed")
+                    continue
                 events.append(
                     Event(
                         "game",
