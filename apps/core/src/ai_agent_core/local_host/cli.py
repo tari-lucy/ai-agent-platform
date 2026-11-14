@@ -293,6 +293,13 @@ def parser() -> argparse.ArgumentParser:
     )
     chooser.add_argument("--root", type=Path, required=True)
     chooser.add_argument("model")
+    renew = commands.add_parser(
+        "renew-permissions",
+        help="offline: extend the prepared permissions that ended (memory, reflection, game "
+        "master, dialogue); grants nothing new; stop the server first",
+    )
+    renew.add_argument("--root", type=Path, required=True)
+    renew.add_argument("--days", type=int, default=90, help="1..90 days from now")
     memory = commands.add_parser(
         "enable-memory", help="explicit offline automatic memory admission"
     )
@@ -632,6 +639,12 @@ def main(argv: list[str] | None = None) -> int:
                 f" interval_minutes={settings.interval_minutes}"
                 f" line={'set' if settings.line_direction else 'none'}; agent stays STOPPED"
             )
+            return 0
+        if arguments.command == "renew-permissions":
+            from .permissions import renew_permissions
+
+            count, end = asyncio.run(renew_permissions(arguments.root, arguments.days))
+            print(f"Permissions extended: {count}; they now last until {end.isoformat()}")
             return 0
         if arguments.command == "configure-activity":
             changes = {}
