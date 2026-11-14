@@ -44,11 +44,11 @@ def test_renew_extends_the_ended_permits_and_grants_nothing_new(tmp_path):
     database = sqlite3.connect(paths(root).database)
     ended = "2020-01-01T00:00:00+00:00"
     database.execute("update records set expires_at=? where kind='Permission'", (ended,))
-    database.execute("update revisions set expires_at=? where kind='Permission'", (ended,))
+    database.execute("update record_revisions set expires_at=? where kind='Permission'", (ended,))
     database.commit()
     database.close()
     _, ended_now = read_ends(root)
-    assert all(p is None for p in ended_now.values())  # not readable any more
+    assert all(p is None for p in ended_now.values())  # a plain read does not return them
     result = subprocess.run(
         command("renew-permissions", "--root", str(root), "--days", "60"),
         capture_output=True, text=True, timeout=120, check=False,
