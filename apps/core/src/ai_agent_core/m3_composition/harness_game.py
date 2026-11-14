@@ -562,6 +562,17 @@ class GameSource:
         mine = [r for r in rows if name.casefold() in r.casefold()]
         return " | ".join(r[:160] for r in mine[:2])
 
+    def _named(self, line: str) -> bool:
+        """Is she addressed in this line (by her name in any case, or by the nick of her bot)?"""
+        low = line.casefold()
+        if any(name in low for name in self.names):
+            return True
+        for name in self.names:  # «Опечатку», «Опечатке»: the stem and up to two more letters
+            if len(name) >= 5 and name[-1] in "ая":
+                if re.search(r"(?<!\w)" + re.escape(name[:-1]) + r"\w{0,2}(?!\w)", low):
+                    return True
+        return any(re.search(r"(?<!\w)" + re.escape(nick) + r"(?!\w)", low) for nick in self.own_nicks)
+
     def _own(self, line: str) -> bool:
         """Her own name opens the line as the sender: <Name> text, Name: text, [rank] Name >>."""
         head = line[:40].casefold()
@@ -593,7 +604,7 @@ class GameSource:
                     self.book.redeem("minecraft", sender, sender, line)
                 except Exception:  # noqa: BLE001 - the book never stops the game watch
                     LOG.warning("People book failed on a game line")
-            named = any(name in line.casefold() for name in self.names)
+            named = self._named(line)
             following = sender is not None and self._talk.get(sender, 0.0) > now
             if named or following:
                 if sender is not None:

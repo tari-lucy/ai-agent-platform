@@ -315,3 +315,18 @@ def test_the_nick_of_her_bot_is_learned_from_what_she_just_sent():
     assert [e for e in poll(src) if e.kind == "talk"] == []  # her own line came back
     assert "lucytari" in src.own_nicks  # and her nick is known now
     assert [e for e in poll(src) if e.kind == "talk"] == []  # whatever else that nick writes
+
+
+def test_she_is_addressed_by_her_name_in_any_case_or_by_the_nick_of_her_bot():
+    base = ["<Eve> hi"]
+    lines = [
+        "<Bob> Ох, Lucytari, заходи скорее в нору!",
+        "<Bob> Опечатку видел кто?",
+        "<Bob> привет, Опечатке",
+        "<Bob> просто болтаю про погоду",
+    ]
+    src = chat_source([base, base + lines])
+    src.own_nicks.add("lucytari")  # the nick of her bot (told by her notes, or learned)
+    poll(src)
+    talk = [e for e in poll(src) if e.kind == "talk"]
+    assert [e.text for e in talk] == lines[:3]  # all three address her; the last one does not
