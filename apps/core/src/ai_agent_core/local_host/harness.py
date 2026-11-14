@@ -119,6 +119,92 @@ ART_GUIDE = """\
 было видно, зачем ты рисовала. Свои выводы о том, что получилось, а что нет, пиши сюда.
 """
 
+MINECRAFT_GUIDE = """\
+# Minecraft: старт игры и правила (платформа положила один раз; дальше файл твой, правь)
+
+Читай это в начале каждого захода в мир и всякий раз, когда запуталась. Ты в своей обычной среде:
+/workspace и инструменты на месте. Если кажется иначе, выполни `ls /workspace` и `status.py`.
+
+## Ориентация (одной командой)
+`source /workspace/skills/minecraft/env.sh && python3 /workspace/skills/minecraft/orient.py`
+Она сама покажет: где ты и кто рядом, что пишут в чате, начало заметки о сервере и последние
+строки дневника. Дальше выбери одно действие из плана (servers/<сервер>.md, ideas.md).
+
+## Твой ник и имена
+Ник бота записан в /workspace/README.md строкой «Бот `Ник`». Игроки зовут тебя ником или
+«Опечатка» (в любом падеже): это всё ты. Своё имя в чате не повторяй как приветствие.
+
+## Чат с игроками: одна речь на двоих голов
+- Игрокам в чате отвечает твоя быстрая голова сама, за секунды. Она не двигает тебя: если игрок
+  просит что-то сделать, она передаёт тебе дело в событии «В игровом чате пишут…».
+- Сама пиши игрокам ТОЛЬКО через инструмент `platform_game_say` (коротко, одно-два предложения;
+  начало не `;` `@` `/`). ChatMessage руками не вызывай, `sendChatMessage` не существует.
+  Через него платформа держит паузу сервера и сообщает быстрой голове, что ты сказала.
+- Когда выполнила дело: расскажи результат через `platform_game_say` (что нашла или сделала) или
+  передай факты через `platform_voice_brief`: быстрая голова вплетёт их в разговор.
+- Не пиши в чат про свою работу, логи и ошибки; не здоровайся повторно.
+
+## Работа в мире
+- Каждая bash-команда начинается с `source /workspace/skills/minecraft/env.sh &&`.
+- Скрипты: status, preflight, survey, goto_wait, tour, shot, screen, wait_action (см. SKILL.md).
+  Других нет; имена не выдумывай. Папку смотри через `ls`, поиск glob по ней пуст.
+- `goto_wait.py` сам повторяет вызов при обрыве. Оборвался совсем: запусти ещё раз.
+- Кадр: `shot.py имя`, подожди 1–2 секунды, проверь `ls /workspace/shots`, потом `look`.
+  Не называй разные снимки одним кадром, между съёмками делай паузу.
+- Просьбу игрока (например «вход в нору слева направо, блоками посередине») выполняй его словами.
+- Все факты и результаты бери только из того, что напечатали команды.
+"""
+
+ORIENT_SCRIPT = '''#!/usr/bin/env python3
+"""orient.py: ориентация одной командой: статус, чат, заметка о сервере, хвост дневника.
+Запуск: source /workspace/skills/minecraft/env.sh && python3 /workspace/skills/minecraft/orient.py
+"""
+import glob
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def run(*args):
+    try:
+        done = subprocess.run([sys.executable, *args], capture_output=True, text=True, timeout=40)
+        return (done.stdout + done.stderr).strip()
+    except Exception as error:  # noqa: BLE001
+        return "ошибка: %s" % error
+
+
+def head(path, lines):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return "".join(stream.readlines()[:lines]).strip()
+    except OSError:
+        return "(нет файла %s)" % path
+
+
+def tail(path, lines):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return "".join(stream.readlines()[-lines:]).strip()
+    except OSError:
+        return "(нет файла %s)" % path
+
+
+print("== Где я и кто рядом ==")
+print(run(os.path.join(HERE, "status.py")))
+print("\n== Вокруг и чат ==")
+print(run(os.path.join(HERE, "survey.py"), "--chat", "10"))
+print("\n== Заметки о серверах ==")
+for note in sorted(glob.glob("/workspace/servers/*.md"))[:3]:
+    print("--", os.path.basename(note))
+    print(head(note, 12))
+print("\n== Последние строки дневника ==")
+print(tail("/workspace/DIARY.md", 8))
+print("\nДальше: выбери одно действие из плана (servers/*.md, ideas.md). "
+      "Игрокам в чат пиши только через platform_game_say.")
+'''
+
 LIVE_GUIDE = """\
 # Прямой эфир и звонки: памятка
 
@@ -699,6 +785,22 @@ def _seed_guide(files_dir: Path | None, persona: str, name: str, text: str) -> b
         LOG.warning("Guide %s not written", name)
         return False
     return True
+
+
+def seed_minecraft_guide(files_dir: Path | None, persona: str) -> bool:
+    """The Minecraft start guide (playbook) and the orientation script, once each; hers after."""
+    done = _seed_guide(files_dir, persona, "minecraft-start.md", MINECRAFT_GUIDE)
+    if files_dir is None:
+        return done
+    target = files_dir / persona / "skills" / "minecraft" / "orient.py"
+    try:
+        if target.parent.is_dir() and not target.exists() and not target.parent.is_symlink():
+            with target.open("x", encoding="utf-8") as stream:
+                stream.write(ORIENT_SCRIPT)
+            done = True
+    except OSError:
+        LOG.warning("orient.py not written")
+    return done
 
 
 def seed_live_guide(files_dir: Path | None, persona: str) -> bool:

@@ -449,7 +449,13 @@ class GameSource:
             where += "; near: " + ", ".join(f"{t} {d:.0f}m" for t, d in close[:3])
         prev = self._prev
         if not was_in:
-            events.append(Event("game", "joined", "joined", "You are in the world.", Level.NORMAL))
+            events.append(Event(
+                    "game", "joined", "joined",
+                    "You are in the world. Orient yourself first: read "
+                    "/workspace/playbook/minecraft-start.md and run its orientation command "
+                    "(orient.py), then take the next step of your plan.",
+                    Level.NORMAL,
+                ))
         if prev is not None:
             lost = float(prev["hp"]) - hp
             before = _floats(prev.get("pos"))
