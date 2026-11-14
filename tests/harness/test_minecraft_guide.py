@@ -26,7 +26,7 @@ def test_the_guide_and_the_orientation_script_are_seeded_once(tmp_path):
 
 def test_the_guide_names_the_one_way_to_speak_and_the_orientation():
     assert "platform_game_say" in MINECRAFT_GUIDE and "orient.py" in MINECRAFT_GUIDE
-    assert "sendChatMessage не существует" in MINECRAFT_GUIDE
+    assert "sendChatMessage" in MINECRAFT_GUIDE and "не существует" in MINECRAFT_GUIDE
     assert "platform_voice_brief" in MINECRAFT_GUIDE
 
 

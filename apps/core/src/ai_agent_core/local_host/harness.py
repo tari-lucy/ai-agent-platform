@@ -155,7 +155,7 @@ MINECRAFT_GUIDE = """\
 - Все факты и результаты бери только из того, что напечатали команды.
 """
 
-ORIENT_SCRIPT = '''#!/usr/bin/env python3
+ORIENT_SCRIPT = r'''#!/usr/bin/env python3
 """orient.py: ориентация одной командой: статус, чат, заметка о сервере, хвост дневника.
 Запуск: source /workspace/skills/minecraft/env.sh && python3 /workspace/skills/minecraft/orient.py
 """
