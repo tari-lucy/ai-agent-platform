@@ -38,6 +38,17 @@ def test_renew_extends_the_ended_permits_and_grants_nothing_new(tmp_path):
     _, before = read_ends(root)
     soon = datetime.now(UTC) + timedelta(days=2)
     assert all(p.expires_at < soon for p in before.values() if p is not None)
+    # make every permit ended, as on a host whose days ran out (a plain read does not return it)
+    import sqlite3
+
+    database = sqlite3.connect(paths(root).database)
+    ended = "2020-01-01T00:00:00+00:00"
+    database.execute("update records set expires_at=? where kind='Permission'", (ended,))
+    database.execute("update revisions set expires_at=? where kind='Permission'", (ended,))
+    database.commit()
+    database.close()
+    _, ended_now = read_ends(root)
+    assert all(p is None for p in ended_now.values())  # not readable any more
     result = subprocess.run(
         command("renew-permissions", "--root", str(root), "--days", "60"),
         capture_output=True, text=True, timeout=120, check=False,
@@ -48,6 +59,7 @@ def test_renew_extends_the_ended_permits_and_grants_nothing_new(tmp_path):
     end = datetime.now(UTC) + timedelta(days=59)
     assert all(p.expires_at > end for p in after.values() if p is not None)
     assert [k for k, p in before.items() if p is None] == [k for k, p in after.items() if p is None]
+    assert sum(p is not None for p in after.values()) == sum(p is not None for p in before.values())
     assert datetime.fromisoformat(config.permission_expires_at) > end  # host.json moved too
     assert json.loads((root / "host.json").read_text())["permission_expires_at"]
     again = subprocess.run(  # nothing left to extend: a repeat is harmless

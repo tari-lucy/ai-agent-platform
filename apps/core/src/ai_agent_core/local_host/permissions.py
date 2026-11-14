@@ -45,7 +45,8 @@ async def renew_permissions(root: Path, days: int = MAX_PERMISSION_DAYS) -> tupl
         try:
             repository = store.repository(Permission, PRINCIPALS[Owner.WORKSPACE], scope)
             for kind in ROLES:
-                existing = await repository.get("permit-" + kind)
+                # An ended permit is not returned by a plain read: that is what renewal is for.
+                existing = await repository.get_for_lifecycle("permit-" + kind)
                 if existing is None or (existing.expires_at is not None and existing.expires_at >= end):
                     continue  # no such permit (never granted), or it already lasts longer
                 await put(
