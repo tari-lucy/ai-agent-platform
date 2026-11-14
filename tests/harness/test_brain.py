@@ -494,3 +494,32 @@ def test_the_game_brain_answers_in_the_chat_and_hands_actions_over(tmp_path: Pat
         assert "вплетёт" in Brains(other, brain).brief("факт", now=True) or True
 
     asyncio.run(scenario())
+
+
+def test_the_off_file_switches_the_fast_voice_off(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        off = tmp_path / "brain.off"
+        said: list[str] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Привет."
+
+        async def speak(text: str) -> None:
+            said.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, speak, core, tmp_path / "t.log", off=off)
+        off.write_text("", encoding="utf-8")
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        assert said == []  # the fast voice is off
+        ((_, text),) = brain.take()
+        assert "Быстрый голос не ответил" in text  # the slow mind is asked to answer
+        off.unlink()
+        brain.hear("Опечатка, привет")
+        await settle(brain)
+        assert said == ["Привет."]  # and back on when the file is gone
+
+    asyncio.run(scenario())

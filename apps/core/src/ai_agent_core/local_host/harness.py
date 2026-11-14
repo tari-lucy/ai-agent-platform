@@ -896,6 +896,7 @@ def voice_brain(
     brain = VoiceBrain(
         kit.ask, speak, kit.core, folder / "talk.log", mirror=drop / "talk.log", express=express,
         recall=kit.recall, stream=kit.stream, prefetch=speaker.synth, clock=time.monotonic,
+        off=folder / "brain.off",
     )  # fmt: skip
     owner.attach(SayDrop(brain, drop))
     kit.add(brain)
@@ -929,7 +930,8 @@ def game_brain(
     last = {"at": 0.0}
 
     async def say(text: str, synth: Any = None) -> object:
-        text = re.sub(r"^[\s@/.!#]+", "", " ".join(text.split()))[:200]  # '@' and '/' are commands
+        # '@' (altoclef), ';' (tungsten) and '/' are commands to the mod and the server: never first
+        text = re.sub(r"^[\s@;/.!#]+", "", " ".join(text.split()))[:200]
         if not text:
             return "пусто"
         wait = 1.3 - (time.monotonic() - last["at"])  # chat servers cut those who write too fast
@@ -937,9 +939,12 @@ def game_brain(
             await asyncio.sleep(wait)
         last["at"] = time.monotonic()
         try:
-            await asyncio.to_thread(game.fetch, "ChatMessage", {"message": text})
+            sent = await asyncio.to_thread(game.fetch, "ChatMessage", {"msg": text})
         except Exception as error:  # noqa: BLE001 - the game is away: nothing to say it to
             LOG.warning("Game chat not written: %s", type(error).__name__)
+            return "Не удалось написать в чат."
+        if isinstance(sent, str) and "error" in sent.lower():  # the mod answered with a tool error
+            LOG.warning("Game chat refused by the mod")
             return "Не удалось написать в чат."
         return "Сказано."
 
@@ -960,7 +965,7 @@ def game_brain(
         kit.ask, say, kit.core, folder / "game-talk.log", recall=kit.recall, stream=kit.stream,
         tail=GAME_TAIL, context=scene, needs=re.compile(
             NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE
-        ), where="game", clock=time.monotonic,
+        ), where="game", clock=time.monotonic, off=folder / "brain.off",
     )  # fmt: skip
     kit.add(brain)
     return brain

@@ -313,6 +313,7 @@ class VoiceBrain:
         context: Callable[[], str] = lambda: "",
         needs: re.Pattern[str] = NEEDS_FACTS,
         where: str = "voice",
+        off: Path | None = None,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -320,6 +321,7 @@ class VoiceBrain:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
         self.tail, self.context, self.needs, self.where = tail, context, needs, where
+        self.off = off  # a file that switches the fast voice off: the slow mind answers as before
         self.peers: list[VoiceBrain] = []  # other brains told about the slow mind's steps
         self._extra = ""  # what is known about the player who is talking
         self.prefetch = prefetch  # the voice's synthesis: the next sentence is made while one plays
@@ -345,6 +347,9 @@ class VoiceBrain:
     def hear(self, text: str, extra: str = "") -> None:
         """A phrase said to her (called by the listener); answered in the background."""
         self._extra = extra
+        if self.off is not None and self.off.exists():
+            self._hand_over(text, "", "")  # the switch is on: no fast answer, the slow mind speaks
+            return
         task = asyncio.get_running_loop().create_task(self._turn(text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
