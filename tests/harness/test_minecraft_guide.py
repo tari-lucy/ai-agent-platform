@@ -5,6 +5,7 @@ import py_compile
 from ai_agent_core.local_host.harness import (
     MINECRAFT_GUIDE,
     ORIENT_SCRIPT,
+    READ_SIGN_SCRIPT,
     seed_minecraft_guide,
 )
 
@@ -34,3 +35,14 @@ def test_orient_script_is_valid_python(tmp_path):
     path = tmp_path / "orient.py"
     path.write_text(ORIENT_SCRIPT, encoding="utf-8")
     py_compile.compile(str(path), doraise=True)
+
+
+def test_read_sign_script_is_seeded_and_valid_python(tmp_path):
+    skills = tmp_path / "opechatka" / "skills" / "minecraft"
+    skills.mkdir(parents=True)
+    seed_minecraft_guide(tmp_path, "opechatka")
+    script = skills / "read_sign.py"
+    assert script.read_text(encoding="utf-8") == READ_SIGN_SCRIPT
+    py_compile.compile(str(script), doraise=True)
+    assert "read_sign.py" in MINECRAFT_GUIDE and "ДВУХ кадров" in MINECRAFT_GUIDE
+    assert "readSign" in MINECRAFT_GUIDE  # it says there is none

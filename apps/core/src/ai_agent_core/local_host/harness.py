@@ -153,7 +153,121 @@ MINECRAFT_GUIDE = """\
   Не называй разные снимки одним кадром, между съёмками делай паузу.
 - Просьбу игрока (например «вход в нору слева направо, блоками посередине») выполняй его словами.
 - Все факты и результаты бери только из того, что напечатали команды.
+
+## Таблички: как их читать (проверено)
+В моде НЕТ инструмента readSign: текст табличек он не отдаёт (`getBlockAt` даёт только «дубовая
+табличка»). Читай их глазами по кадру:
+1. `source /workspace/skills/minecraft/env.sh && python3 /workspace/skills/minecraft/read_sign.py X Y Z`
+   сам подойдёт на свободную клетку вплотную перед табличкой, наведёт камеру, спрячет интерфейс и
+   снимет кадр (путь напечатает). X Y Z бери из `survey.py --signs` (он перечисляет таблички) или
+   из `getBlocksAround`.
+2. Потом `platform_look` с `folder=shots`, `photo=<имя>.jpg` и вопросом «прочитай дословно текст
+   таблички, цифры внимательно». Читает быстро (секунды). Цифры сверяй: если слово не разобрать,
+   так и пиши [?], не угадывай.
+3. Не больше ДВУХ кадров на табличку. Не вышло: запиши в ideas.md «не разобрать» и иди дальше.
+   Не возвращайся к той же табличке по кругу и не жди ответа дольше минуты.
+4. Таблички на x=-401 (стена результатов, «№ N Участник … баллов Бонус») уже записаны в
+   servers/agicraft-ru.md; новые кадры нужны только если надо узнать, что изменилось.
 """
+
+READ_SIGN_SCRIPT = r'''#!/usr/bin/env python3
+"""read_sign.py: подойти к табличке, навести камеру и снять кадр для чтения (look).
+
+    source /workspace/skills/minecraft/env.sh && python3 /workspace/skills/minecraft/read_sign.py X Y Z [имя]
+
+Мод не отдаёт текст табличек (readSign нет): текст читают по картинке. Скрипт встаёт на свободную
+клетку вплотную перед табличкой, наводит камеру (lookAt) на её центр, прячет интерфейс, снимает кадр
+и печатает путь. Дальше: platform_look, folder shots, photo <имя>.jpg, вопрос «прочитай дословно
+текст таблички». Не удалось разобрать за 2 кадра: запиши «не разобрать» и иди дальше.
+"""
+import base64
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.environ.get("UNIONCLEF_DIR", "/workspace/projects/unionclef"))
+import mcp_client as m  # noqa: E402
+
+SHOTS = os.environ.get("SHOTS_DIR", "/workspace/shots")
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def token():
+    value = os.environ.get("UNIONCLEF_MCP_TOKEN", "").strip()
+    if value:
+        return value
+    with open(os.path.join(os.environ.get("UNIONCLEF_DIR", "/workspace/projects/unionclef"),
+                           "mcp-token.txt")) as stream:
+        return stream.read().strip()
+
+
+def block(client, x, y, z):
+    text, error = client.call("getBlockAt", {"x": x, "y": y, "z": z})
+    if error:
+        return {}
+    try:
+        return json.loads(text)
+    except ValueError:
+        return {}
+
+
+def main():
+    if len(sys.argv) < 4:
+        print(__doc__)
+        return 2
+    x, y, z = (int(float(v)) for v in sys.argv[1:4])
+    name = sys.argv[4] if len(sys.argv) > 4 else "sign_%d_%d_%d" % (x, y, z)
+    client = m.McpClient(m.DEFAULT_URL, token(), timeout=30.0)
+    client.initialize()
+    found = block(client, x, y, z)
+    if "sign" not in str(found.get("id", "")):
+        print("НЕТ ТАБЛИЧКИ в (%d,%d,%d): там %s" % (x, y, z, found.get("block", "?")))
+        return 1
+    # A free cell right in front of the sign: floor under it, air for feet and head.
+    spot = None
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
+        sx, sz = x + dx, z + dz
+        feet, head, floor = (block(client, sx, y - 1, sz), block(client, sx, y, sz),
+                             block(client, sx, y - 2, sz))
+        if (feet.get("is_air") == "true" and head.get("is_air") == "true"
+                and floor.get("is_air") == "false"):
+            spot = (sx, y - 1, sz)
+            break
+    if spot is None:
+        print("НЕТ СВОБОДНОЙ КЛЕТКИ перед табличкой: подойди сама и снимай через lookAt + shot.py")
+        return 1
+    state_text, _ = client.call("getGameState", {})
+    pos = [float(v) for v in json.loads(state_text)["self"]["pos"].split(",")]
+    if max(abs(pos[0] - spot[0]), abs(pos[2] - spot[2])) > 1.6 or abs(pos[1] - spot[1]) > 1.6:
+        walk = subprocess.run([sys.executable, os.path.join(HERE, "goto_wait.py"), *map(str, spot)],
+                              capture_output=True, text=True, timeout=120)
+        print("идти:", (walk.stdout.strip().splitlines() or ["?"])[-1])
+    client.call("lookAt", {"x": x, "y": y, "z": z})
+    time.sleep(0.8)
+    client.call("setHudHidden", {"hidden": True})
+    time.sleep(0.5)
+    try:
+        text, error = client.call("takeScreenshot", {"maxWidth": 1920})
+    finally:
+        client.call("setHudHidden", {"hidden": False})
+    if error:
+        print("ОШИБКА СНИМКА", text[:160])
+        return 1
+    data = json.loads(text)
+    os.makedirs(SHOTS, exist_ok=True)
+    path = os.path.join(SHOTS, name + ".jpg")
+    with open(path, "wb") as stream:
+        stream.write(base64.b64decode(data["base64"]))
+    print("OK %s %sx%s" % (path, data["width"], data["height"]))
+    print("Дальше: platform_look folder=shots photo=%s.jpg, вопрос: прочитай дословно текст "
+          "таблички." % name)
+    return 0
+
+
+sys.exit(main())
+'''
 
 ORIENT_SCRIPT = r'''#!/usr/bin/env python3
 """orient.py: ориентация одной командой: статус, чат, заметка о сервере, хвост дневника.
@@ -792,14 +906,15 @@ def seed_minecraft_guide(files_dir: Path | None, persona: str) -> bool:
     done = _seed_guide(files_dir, persona, "minecraft-start.md", MINECRAFT_GUIDE)
     if files_dir is None:
         return done
-    target = files_dir / persona / "skills" / "minecraft" / "orient.py"
-    try:
-        if target.parent.is_dir() and not target.exists() and not target.parent.is_symlink():
-            with target.open("x", encoding="utf-8") as stream:
-                stream.write(ORIENT_SCRIPT)
-            done = True
-    except OSError:
-        LOG.warning("orient.py not written")
+    for name, body in (("orient.py", ORIENT_SCRIPT), ("read_sign.py", READ_SIGN_SCRIPT)):
+        target = files_dir / persona / "skills" / "minecraft" / name
+        try:
+            if target.parent.is_dir() and not target.exists() and not target.parent.is_symlink():
+                with target.open("x", encoding="utf-8") as stream:
+                    stream.write(body)
+                done = True
+        except OSError:
+            LOG.warning("%s not written", name)
     return done
 
 
