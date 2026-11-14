@@ -26,6 +26,7 @@ LOG = logging.getLogger(__name__)
 HOURLY = 30  # looks per hour: a loop of "look again" cannot burn the day's money
 CACHED = 64  # descriptions kept in memory
 MAX_QUESTION = 300
+WAIT = 10.0
 MAX_ANSWER = 1800
 # A plain file name (letters of any language, digits, space, dot, dash, underscore, brackets) of a
 # JPEG, PNG or WebP picture: no path, no leading dot.
@@ -87,8 +88,11 @@ class Look:
         hourly: int = HOURLY,
         clock: Callable[[], float] = time.monotonic,
         others: Mapping[str, Path] | None = None,
+        wait: float | None = None,
     ) -> None:
         self.folder, self.describe, self.hourly, self.clock = folder, describe, hourly, clock
+        # seconds a named picture that is not there yet may be waited for
+        self.wait = WAIT if wait is None else wait
         # Where she may look: her game shots, and what the operator drops for her (inbox).
         self.folders: dict[str, Path] = {"shots": folder, **(others or {})}
         self._cache: OrderedDict[str, str] = OrderedDict()
@@ -132,6 +136,14 @@ class Look:
                 latest = await asyncio.to_thread(self.newest, where)
                 name = latest or ""
             image = await asyncio.to_thread(read_image, self.folders[where], name) if name else None
+            # She often asks to look in the same step in which the shot is still being written:
+            # a named picture that is not there yet is waited for a few seconds.
+            waited = 0.0
+            while image is None and name and waited < self.wait:
+                await asyncio.sleep(0.5)
+                waited += 0.5
+                current()
+                image = await asyncio.to_thread(read_image, self.folders[where], name)
             if image is None:
                 names = await asyncio.to_thread(self.recent, 8, where)
                 have = "Последние файлы: " + ", ".join(names) + "." if names else "Файлов пока нет."

@@ -8,11 +8,15 @@ import pytest
 from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.states import ErrorCode, RunState
 
+import ai_agent_core.m3_composition.harness_look as harness_look
 from ai_agent_core.m3_composition.harness_channel import Spent
 from ai_agent_core.m3_composition.harness_look import Look
 from ai_agent_core.m3_composition.harness_mcp import PlatformMcp
 
 JPEG = b"\xff\xd8\xff\xe0synthetic"
+
+
+harness_look.WAIT = 0.0  # a missing picture is not waited for in the old tests
 
 
 def shots(tmp_path, *names):
@@ -203,3 +207,26 @@ def test_other_folders_links_and_odd_names_stay_closed(tmp_path):
     assert seen == []
     assert "ok.webp" in go(look.look("ok.webp", "", lambda: None, "inbox"))
     assert seen[0][1].startswith(b"RIFF")
+
+
+def test_a_picture_that_is_still_being_written_is_waited_for(tmp_path):
+    import threading
+    import time
+
+    folder = tmp_path / "shots"
+    folder.mkdir()
+
+    def later():
+        time.sleep(0.6)  # the shot lands after the look was asked
+        (folder / "late.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"x" * 64)
+
+    threading.Thread(target=later).start()
+
+    async def describe(prompt, image):
+        return "стена с табличками"
+
+    look = Look(folder, describe, wait=3.0)
+    text = go(look.look("late.jpg", "", lambda: None))
+    assert "стена с табличками" in text  # the picture appeared while it waited
+    gone = go(Look(folder, describe, wait=0.6).look("never.jpg", "", lambda: None))
+    assert "Нет такой картинки" in gone  # one that never comes is refused after the wait
