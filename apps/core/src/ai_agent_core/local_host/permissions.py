@@ -33,6 +33,8 @@ async def renew_permissions(root: Path, days: int = MAX_PERMISSION_DAYS) -> tupl
     with exclusive_host(root):
         config = load_config(host)
         read_secret(host.password_hash)  # proves the private prepared host boundary
+        if not config.operator_controls:
+            raise HostError("CONTROLS_REQUIRED")  # the workspace owner may write only with them
         registry = new_registry()
         store = SQLiteStore(host.database, extensions=registry)
         scope = work_scope(config.workspace_id, config.persona_id, config.work_space_id)
@@ -64,9 +66,7 @@ async def renew_permissions(root: Path, days: int = MAX_PERMISSION_DAYS) -> tupl
                 )
                 changed += 1
         finally:
-            close = getattr(store, "close", None)
-            if close is not None:
-                close()
+            await store.close()
         later = datetime.fromisoformat(config.permission_expires_at)
         if later < end:
             save_config(host, config.model_copy(update={"permission_expires_at": end.isoformat()}))

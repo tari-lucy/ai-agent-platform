@@ -27,13 +27,13 @@ def read_ends(root):
         return {k: await repository.get("permit-" + k) for k in ROLES}
 
     permits = asyncio.run(read())
-    getattr(store, "close", lambda: None)()
+    asyncio.run(store.close())
     return config, permits
 
 
 def test_renew_extends_the_ended_permits_and_grants_nothing_new(tmp_path):
     root = tmp_path / "host"
-    done = init(root, "--permission-days", "1")
+    done = init(root, "--operator-controls", "--permission-days", "1")
     assert done.returncode == 0, done.stderr
     _, before = read_ends(root)
     soon = datetime.now(UTC) + timedelta(days=2)
