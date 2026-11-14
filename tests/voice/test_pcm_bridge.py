@@ -338,5 +338,6 @@ def test_loopback_capture_default_follows_the_default_playback_device(monkeypatc
     assert opened == ["buds", "speakers"]
     named = bridge.LoopbackCapture("realme", 16000, clock=lambda: now[0])
     assert not named.follow and opened[-1] == "buds"  # a part of a name keeps to that device
-    for word in ("", "default", "По умолчанию"):
-        assert bridge.LoopbackCapture(word, 16000).follow or word == ""
+    fake.default_speaker = lambda: types.SimpleNamespace(name="Default", id="speakers")
+    for word in ("", "default", "По умолчанию", "AUTO"):
+        assert bridge.LoopbackCapture(word, 16000).follow  # all of these mean «the default device»
