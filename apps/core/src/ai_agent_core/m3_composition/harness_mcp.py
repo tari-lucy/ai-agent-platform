@@ -230,6 +230,20 @@ SPEAK_TOOL: dict[str, Any] = {
     },
 }
 
+GAME_SAY_TOOL: dict[str, Any] = {
+    "name": "game_say",
+    "description": "Say something to the players in the Minecraft chat. Use this and nothing else "
+    "to write there (do not call ChatMessage by hand: the platform keeps the pace the server "
+    "demands and tells your fast voice what you said, so you do not talk past each other). One "
+    "or two short sentences. Never start with ; @ /. Players' questions are answered by the fast "
+    "voice already: use this for what only you know (you arrived, you found the entrance).",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "what to write, up to 200 chars"}},
+        "required": ["text"],
+    },
+}
+
 BRIEF_TOOL: dict[str, Any] = {
     "name": "voice_brief",
     "description": "Pass what you found out or did to your fast voice, which is talking with "
@@ -490,6 +504,7 @@ class PlatformMcp:
                 tools += [TRANSCRIBE_TOOL] if self.hear else []
                 tools += [LISTEN_TOOL] if self.listener else []
                 tools += [BRIEF_TOOL] if self.brain else []
+                tools += [GAME_SAY_TOOL] if getattr(self.brain, "game_say", None) else []
                 tools += STAGE_TOOLS if self.stage else []
                 tools += CHAT_TOOLS if self.chats else []
                 tools += PEOPLE_TOOLS if self.people else []
@@ -627,6 +642,12 @@ class PlatformMcp:
                     raise ContractError(ErrorCode.STALE_CONTEXT)
 
             return _text(await self.speaker.speak(a.get("text", ""), still))
+        if name == "game_say":
+            say = getattr(self.brain, "game_say", None)
+            if say is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            self._current()
+            return _text(await say(a.get("text", "")))
         if name == "voice_brief":
             if self.brain is None:
                 raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)

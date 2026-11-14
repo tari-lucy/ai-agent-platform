@@ -449,7 +449,9 @@ class HarnessHost:
             "section БЫСТРЫЙ СТАРТ lists every script and command). List that folder with "
             "`ls /workspace/skills/minecraft`: `glob` shows nothing there, which does not mean "
             "the files are gone. Never invent script names; to call the mod directly use "
-            "`python3 /workspace/projects/unionclef/mcp_client.py call <tool> '<json>'`."
+            "`python3 /workspace/projects/unionclef/mcp_client.py call <tool> '<json>'`. To say "
+            "something to players in the game chat use platform_game_say (the only way: there is "
+            "no sendChatMessage, and a hand-made ChatMessage talks past your fast voice)."
         )
         live = [
             label

@@ -608,3 +608,50 @@ def test_the_same_task_is_not_handed_over_again(tmp_path: Path) -> None:
         assert len(brain.take()) == 1  # long after: it may be asked again
 
     asyncio.run(scenario())
+
+
+def test_the_slow_mind_speaks_in_the_game_chat_through_the_same_voice(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from ai_agent_contracts.states import RunState
+
+    from ai_agent_core.m3_composition.harness_brain import Brains
+    from ai_agent_core.m3_composition.harness_mcp import PlatformMcp
+
+    async def scenario() -> None:
+        chat: list[str] = []
+        seen: list[list[dict[str, str]]] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            seen.append(messages)
+            return "Хорошо."
+
+        async def say(text: str, synth=None) -> None:
+            chat.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        game = VoiceBrain(ask, say, core, tmp_path / "g.log", where="game")
+        voice = VoiceBrain(ask, say, core, tmp_path / "v.log")
+        assert not hasattr(voice, "game_say")  # only the game voice has it
+        snapshot = SimpleNamespace(state=RunState.ACTIVE, control_epoch=3, scope=None)
+        rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=snapshot), tickets=None)
+        mcp = PlatformMcp(rt, lambda: 3, brain=Brains(voice, game))  # type: ignore[arg-type]
+
+        async def ask_mcp(method, params=None):
+            body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+            return (await mcp.handle(body))["result"]
+
+        names = {t["name"] for t in (await ask_mcp("tools/list"))["tools"]}
+        assert "game_say" in names
+        reply = await ask_mcp("tools/call", {"name": "game_say", "arguments": {"text": "Иду к норе."}})
+        assert "Сказано" in reply["content"][0]["text"] and chat == ["Иду к норе."]
+        game.hear("<Bob> Опечатка, ты где?")
+        await settle(game)
+        assert "Основной ум: Иду к норе." in seen[0][1]["content"]  # the fast voice knows it
+        none = PlatformMcp(rt, lambda: 3, brain=voice)  # type: ignore[arg-type]
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        assert "game_say" not in {t["name"] for t in (await none.handle(body))["result"]["tools"]}
+
+    asyncio.run(scenario())

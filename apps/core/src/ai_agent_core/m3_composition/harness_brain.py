@@ -125,7 +125,13 @@ GAME_TAIL = (
     "- A request to DO something ('иди сюда', 'добудь', 'построй', 'покажи', 'помоги', 'посмотри') "
     "or a question needing a fact you were not given (the world, her past, her notes): say one "
     "short natural line that you are on it (no content, no guesses) and end with a last line "
-    "`ДЕЛО: <what exactly to do, in one sentence>`.\n"
+    "`ДЕЛО: <what exactly to do, in one sentence>`. The task must be about THIS line: who asked, "
+    "what exactly, where (a player's directions go into it word for word: 'вход в нору слева "
+    "направо, блоками посередине' becomes 'идти ко входу в нору: слева направо, блоками "
+    "посередине, по просьбе <player>'). Never repeat an earlier task, never write a generic "
+    "'analyse the situation'. If the line is only chat, there is no `ДЕЛО:`.\n"
+    "- If 'The slow mind said in the chat' shows what her other mind already told the players, "
+    "go on from it: do not contradict it and do not say it again.\n"
     "- Facts about her state come ONLY from 'Game now' below (position, health, food, who is "
     "near); never invent coordinates, items, places or results. Never claim to have done "
     "something you did not see in 'What the slow mind is doing'.\n"
@@ -325,6 +331,8 @@ class VoiceBrain:
         self.activity, self.express, self.mirror = activity, express, mirror
         self.tail, self.context, self.needs, self.where = tail, context, needs, where
         self.join = join  # one message for the whole reply (a chat has a pause between messages)
+        if where == "game":
+            self.game_say = self._game_say  # her slow mind speaks in the chat through this voice
         self.dedupe, self.per_minute = dedupe, per_minute  # loop guards (0: off)
         self._seen: dict[str, float] = {}  # lines answered lately: the same line is not answered twice
         self._answered: list[float] = []
@@ -661,6 +669,16 @@ class VoiceBrain:
             if self.express is not None:
                 await self.express("thinking")
 
+    async def _game_say(self, text: str) -> str:
+        """The slow mind says something in the game chat: one channel, one pace, and the fast
+        voice knows it was said (it goes into its talk as «Основной ум»)."""
+        text = " ".join(text.split())[:200]
+        if not text:
+            return "Нечего сказать: текст пуст."
+        self._note("Основной ум", text)
+        await self.speak(text)
+        return "Сказано в игровой чат."
+
     def _hand_over(self, text: str, said: str, task: str) -> None:
         key = f"brain-{self.clock():.3f}"
         if task:
@@ -740,6 +758,13 @@ class Brains:
 
     def __init__(self, *brains: VoiceBrain) -> None:
         self.brains = [b for b in brains if b is not None]
+
+    @property
+    def game_say(self) -> Any:
+        for brain in self.brains:
+            if getattr(brain, "game_say", None) is not None:
+                return brain.game_say
+        return None
 
     def brief(self, facts: str, now: bool = True) -> str:
         if not self.brains:
