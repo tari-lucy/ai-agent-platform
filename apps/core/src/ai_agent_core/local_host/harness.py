@@ -168,6 +168,10 @@ MINECRAFT_GUIDE = """\
    Не возвращайся к той же табличке по кругу и не жди ответа дольше минуты.
 4. Таблички на x=-401 (стена результатов, «№ N Участник … баллов Бонус») уже записаны в
    servers/agicraft-ru.md; новые кадры нужны только если надо узнать, что изменилось.
+
+## Строительство
+Просят построить что-то по идее, без схемы: прочитай /workspace/playbook/build-from-idea.md
+(процесс, библиотека деталей blueprint.py, правила дизайна) и действуй по нему.
 """
 
 READ_SIGN_SCRIPT = r'''#!/usr/bin/env python3
@@ -912,6 +916,27 @@ def seed_minecraft_guide(files_dir: Path | None, persona: str) -> bool:
             if target.parent.is_dir() and not target.exists() and not target.parent.is_symlink():
                 with target.open("x", encoding="utf-8") as stream:
                     stream.write(body)
+                done = True
+        except OSError:
+            LOG.warning("%s not written", name)
+    return done
+
+
+def seed_building_kit(files_dir: Path | None, persona: str) -> bool:
+    """The building library (blueprint.py, recipes.py) and its guide, once each; hers afterwards."""
+    if files_dir is None:
+        return False
+    from .seeds.building_guide import BUILD_GUIDE
+
+    done = _seed_guide(files_dir, persona, "build-from-idea.md", BUILD_GUIDE)
+    folder = files_dir / persona / "skills" / "minecraft"
+    for name in ("blueprint.py", "recipes.py"):
+        source = Path(__file__).parent / "seeds" / name
+        target = folder / name
+        try:
+            if folder.is_dir() and not folder.is_symlink() and not target.exists():
+                with target.open("x", encoding="utf-8") as stream:
+                    stream.write(source.read_text(encoding="utf-8"))
                 done = True
         except OSError:
             LOG.warning("%s not written", name)
