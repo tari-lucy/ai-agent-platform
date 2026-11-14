@@ -78,7 +78,8 @@ def test_gable_roof_has_a_ridge_and_closed_ends():
     b = Blueprint().gable_roof(0, 0, 6, 4, 0, "roof", ridge="x", overhang=0, end_ref="wall")
     assert b.bounds()[4] == 2  # 5 wide: three steps up (0, 1, 2)
     assert b.get(3, 2, 2) == "roof"  # the ridge
-    assert b.get(0, 1, 2) == "wall" and b.get(0, 1, 1) is None or b.get(0, 1, 1) == "wall"
+    assert b.get(0, 1, 2) == "wall"  # the gable end is filled under the ridge
+    assert b.get(0, 1, 1) == "roof"  # and the slope edge stays roof
     steep = Blueprint().gable_roof(0, 0, 3, 3, 0, "roof", ridge="z", overhang=1)
     assert steep.get(-1, 0, 1) == "roof" and steep.get(4, 0, 1) == "roof"  # overhang on both sides
 
