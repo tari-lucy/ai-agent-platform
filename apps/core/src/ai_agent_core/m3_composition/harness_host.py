@@ -444,7 +444,12 @@ class HarnessHost:
             "(`source /workspace/skills/minecraft/env.sh && python3 …`). If something seems "
             "missing (a tool, /workspace, a variable), you have not become another assistant and "
             "you are not somewhere else: run `ls /workspace` or one platform_ tool, and tell "
-            "only what they really printed."
+            "only what they really printed.\n"
+            "Minecraft: before any game script read /workspace/skills/minecraft/SKILL.md (the "
+            "section БЫСТРЫЙ СТАРТ lists every script and command). List that folder with "
+            "`ls /workspace/skills/minecraft`: `glob` shows nothing there, which does not mean "
+            "the files are gone. Never invent script names; to call the mod directly use "
+            "`python3 /workspace/projects/unionclef/mcp_client.py call <tool> '<json>'`."
         )
         live = [
             label
