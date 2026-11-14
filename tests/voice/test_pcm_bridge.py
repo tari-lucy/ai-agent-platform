@@ -304,7 +304,11 @@ def test_loopback_capture_default_follows_the_default_playback_device(monkeypatc
             closed.append(self.ident)
 
         def record(self, numframes):
-            return [[0.0]] * numframes
+            class Block:  # what numpy would give: block[:, 0] is the first channel
+                def __getitem__(self, _):
+                    return [0.0] * numframes
+
+            return Block()
 
     def get_microphone(ident, include_loopback):
         assert include_loopback
