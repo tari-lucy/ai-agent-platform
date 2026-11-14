@@ -12,7 +12,9 @@ Capture (listening) is the other direction, on its own port: the server connects
 sends the header and frames from an INPUT device (for a call: the virtual cable that carries
 the other people's voices) until the server closes the connection.
 
-Listening without a second cable: ``--capture-loopback "Динамики"`` listens to what a playback
+Listening without a second cable: ``--capture-loopback default`` listens to what the current
+default playback device plays and follows it when you switch headphones and speakers; with a
+part of a name (``"Динамики"``) it keeps to that device. It listens to what a playback
 device (your speakers or headphones) is playing, i.e. the voices of a call or of Minecraft's voice
 chat as you hear them; it needs ``pip install soundcard numpy`` and a part of the playback
 device's name (``--list-devices`` prints them). The persona's own voice goes to the cable, so it
@@ -30,9 +32,10 @@ import argparse
 import asyncio
 import struct
 import sys
+import time
 from array import array
 from collections.abc import Callable, Iterable
-from typing import Protocol
+from typing import Any, Protocol
 
 HEADER = struct.Struct(">4sIB")
 FRAME = struct.Struct(">I")
@@ -163,22 +166,66 @@ def floats_to_pcm16(values: Iterable[float]) -> bytes:
     return array("h", (max(-32768, min(32767, int(v * 32767))) for v in values)).tobytes()
 
 
-class LoopbackCapture:
-    """What a playback device (the speakers) plays, as mono PCM: the voices of people you hear."""
+DEFAULT_OUTPUT = {"", "default", "auto", "по умолчанию", "системное", "*"}
+FOLLOW_SECONDS = 2.0  # how often the default playback device is looked at again
 
-    def __init__(self, name: str, rate: int) -> None:
+
+class LoopbackCapture:
+    """What a playback device (the speakers) plays, as mono PCM: the voices of people you hear.
+
+    The name «default» (or empty) means the device Windows plays on at the moment, and the capture
+    follows it when the operator switches between headphones and speakers."""
+
+    def __init__(
+        self, name: str, rate: int, clock: Callable[[], float] = time.monotonic
+    ) -> None:
         import soundcard  # type: ignore[import-not-found,unused-ignore]
 
-        speaker = next(
-            (s for s in soundcard.all_speakers() if name.lower() in s.name.lower()), None
-        )
+        self.soundcard, self.name, self.rate, self.clock = soundcard, name, rate, clock
+        self.follow = name.strip().casefold() in DEFAULT_OUTPUT
+        self.speaker_id: str | None = None
+        self.recorder: Any = None
+        self.next_look = clock() + FOLLOW_SECONDS
+        self._open()
+
+    def _speaker(self) -> Any:
+        if self.follow:
+            speaker = self.soundcard.default_speaker()
+        else:
+            speaker = next(
+                (s for s in self.soundcard.all_speakers() if self.name.lower() in s.name.lower()),
+                None,
+            )
         if speaker is None:
             raise OSError("no such playback device")
-        microphone = soundcard.get_microphone(speaker.id, include_loopback=True)
-        self.recorder = microphone.recorder(samplerate=rate, channels=1, blocksize=rate // 10)
-        self.recorder.__enter__()
+        return speaker
+
+    def _open(self) -> None:
+        speaker = self._speaker()
+        microphone = self.soundcard.get_microphone(speaker.id, include_loopback=True)
+        recorder = microphone.recorder(
+            samplerate=self.rate, channels=1, blocksize=self.rate // 10
+        )
+        recorder.__enter__()
+        old, self.recorder, self.speaker_id = self.recorder, recorder, speaker.id
+        if old is not None:
+            try:
+                old.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001 - a recorder that cannot be closed is dropped
+                pass
+
+    def _follow_default(self) -> None:
+        self.next_look = self.clock() + FOLLOW_SECONDS
+        try:
+            current = self.soundcard.default_speaker()
+            if current is not None and current.id != self.speaker_id:
+                self._open()  # the default device changed: listen to the new one
+        except Exception:  # noqa: BLE001 - no default device right now: keep the old one
+            pass
 
     def read(self, frames: int) -> bytes:
+        if self.follow and self.clock() >= self.next_look:
+            self._follow_default()
         block = self.recorder.record(numframes=frames)
         return floats_to_pcm16(block[:, 0])
 
@@ -251,8 +298,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--capture-loopback",
-        help="listen to what this PLAYBACK device plays (a part of its name, e.g. 'Динамики'); "
-        "needs: pip install soundcard numpy",
+        help="listen to what this PLAYBACK device plays (a part of its name, e.g. 'Динамики', "
+        "or 'default' for whatever Windows plays on now, following switches between headphones "
+        "and speakers); needs: pip install soundcard numpy",
     )
     parser.add_argument("--capture-rate", type=int, default=16000)
     parser.add_argument(

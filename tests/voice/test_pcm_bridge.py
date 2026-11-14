@@ -283,3 +283,56 @@ def test_loopback_capture_refuses_a_missing_device_with_a_plain_error(monkeypatc
     monkeypatch.setitem(sys.modules, "soundcard", fake)
     with pytest.raises(OSError):
         bridge.LoopbackCapture("Наушники", 16000)
+
+
+def test_loopback_capture_default_follows_the_default_playback_device(monkeypatch):
+    import sys
+    import types
+
+    state = {"default": "buds"}
+    opened, closed = [], []
+
+    class Recorder:
+        def __init__(self, ident):
+            self.ident = ident
+
+        def __enter__(self):
+            opened.append(self.ident)
+            return self
+
+        def __exit__(self, *_):
+            closed.append(self.ident)
+
+        def record(self, numframes):
+            return [[0.0]] * numframes
+
+    def get_microphone(ident, include_loopback):
+        assert include_loopback
+        return types.SimpleNamespace(recorder=lambda **_: Recorder(ident))
+
+    fake = types.ModuleType("soundcard")
+    fake.default_speaker = lambda: types.SimpleNamespace(name="Default", id=state["default"])
+    fake.all_speakers = lambda: [types.SimpleNamespace(name="Наушники (realme)", id="buds")]
+    fake.get_microphone = get_microphone
+    monkeypatch.setitem(sys.modules, "soundcard", fake)
+    monkeypatch.setattr(bridge, "floats_to_pcm16", lambda block: b"pcm")
+    now = [0.0]
+    capture = bridge.LoopbackCapture("default", 16000, clock=lambda: now[0])
+    assert opened == ["buds"] and capture.follow
+    capture.read(1600)
+    assert opened == ["buds"]  # nothing changed
+    state["default"] = "speakers"  # the operator switches to the speakers
+    capture.read(1600)
+    assert opened == ["buds"]  # not looked at yet (a look every two seconds)
+    now[0] += 3
+    capture.read(1600)
+    assert opened == ["buds", "speakers"] and closed == ["buds"]  # now it listens to the speakers
+    state["default"] = None  # no default device for a moment: keep the old one
+    fake.default_speaker = lambda: None
+    now[0] += 3
+    capture.read(1600)
+    assert opened == ["buds", "speakers"]
+    named = bridge.LoopbackCapture("realme", 16000, clock=lambda: now[0])
+    assert not named.follow and opened[-1] == "buds"  # a part of a name keeps to that device
+    for word in ("", "default", "По умолчанию"):
+        assert bridge.LoopbackCapture(word, 16000).follow or word == ""
