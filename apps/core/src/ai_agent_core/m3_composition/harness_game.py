@@ -27,6 +27,11 @@ from .harness_stance import Action, Hostile, Reflex
 LOG = logging.getLogger(__name__)
 
 NEAR = 15.0  # blocks: a player closer than this is "near" (a lobby is full of players further off)
+GREET = (
+    "Greet them: say one short friendly phrase aloud with speak (voice chat carries it to "
+    "players within about 48 blocks) and ask what they are up to or where the good places are; "
+    "do not repeat the same words."
+)
 NEAR_AGAIN = 600.0  # seconds before the same player is reported near again
 MOB_NEAR = 8.0  # blocks: a hostile mob closer than this is a threat worth a line
 STUCK_WINDOW = 45.0  # seconds of trying to walk without getting anywhere = stuck
@@ -536,10 +541,10 @@ class GameSource:
         came.sort(key=lambda pair: pair[1])
         if len(came) == 1:
             name, distance = came[0]
-            text = f"Player {name} is near: {distance:.0f} blocks."
+            text = f"Player {name} is near: {distance:.0f} blocks. {GREET}"
         else:
             names = ", ".join(name for name, _ in came[:4])
-            text = f"{len(came)} players came near: {names}."
+            text = f"{len(came)} players came near: {names}. {GREET}"
         return [Event("game", "player_near", "players", text, Level.NORMAL)]
 
     # --- chat ---------------------------------------------------------------------------

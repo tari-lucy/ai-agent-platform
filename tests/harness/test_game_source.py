@@ -100,6 +100,7 @@ def test_a_crowd_coming_near_is_one_line_and_a_name_repeats_only_after_ten_minut
     src = GameSource("http://x/mcp", None, ["x"], call=call, clock=lambda: now["t"])
     first = [e for e in poll(src) if e.kind == "player_near"]
     assert len(first) == 1 and "3 players came near" in first[0].text
+    assert "speak" in first[0].text  # the greeting goes out loud, not only to the chat
     present["players"] = []
     poll(src)  # they leave
     present["players"] = crowd

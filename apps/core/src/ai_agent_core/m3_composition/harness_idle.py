@@ -26,7 +26,8 @@ PUSH_TEXT = (
     "spawn, ask the players where the best places are, and write the places into the profile. "
     "Otherwise pick a place you have not visited (main places first), go there (tour.py), shoot "
     "the entrance, look around, note it in ideas.md. If players are near or wrote to you, answer "
-    "them in the chat first, briefly and in your own way, and ask what they are doing here. "
+    "them in the chat first, briefly and in your own way, and ask what they are doing here; "
+    "if a player is within about 20 blocks, say it aloud with speak as well. "
     "One concrete action now."
 )
 WORKED = 90.0  # a run of at least this many seconds after a push counts as real work
