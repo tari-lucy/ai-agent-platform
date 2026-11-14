@@ -330,3 +330,11 @@ def test_she_is_addressed_by_her_name_in_any_case_or_by_the_nick_of_her_bot():
     poll(src)
     talk = [e for e in poll(src) if e.kind == "talk"]
     assert [e.text for e in talk] == lines[:3]  # all three address her; the last one does not
+
+
+def test_a_server_line_with_her_name_is_not_a_talk():
+    base = ["<Eve> hi"]
+    src = chat_source([base, base + ["Opechatka присоединился к игре", "[⚡] Опечатка получила награду"]])
+    src.own_nicks.add("opechatka")
+    poll(src)
+    assert [e for e in poll(src) if e.kind == "talk"] == []  # joins and notices are no talk

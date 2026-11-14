@@ -807,14 +807,24 @@ def brain_kit(
     async def ask(messages: list[dict[str, str]]) -> str:
         return await asyncio.to_thread(complete, upstream, key, model, messages)
 
-    def stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    def make_stream(models: list[str]) -> Any:
         from functools import partial
 
         from ai_agent_core.m3_composition.harness_brain import race, stream_complete
 
-        models = [model, *(m for m in settings.fast_models if m != model)][:2]
-        streams = [partial(stream_complete, upstream, key, name) for name in models]
-        return race(streams, messages, wait=5.0)
+        def stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+            streams = [partial(stream_complete, upstream, key, name) for name in models[:2]]
+            return race(streams, messages, wait=5.0)
+
+        return stream
+
+    # Voice: the fastest model first (every second is heard). Game chat is text and can wait a
+    # little: her main model first (the liveliest, it is her own voice), a fast one behind it.
+    main_model = settings.models[0].name if settings.models else model
+    voice_models = [model, *(m for m in settings.fast_models if m != model)]
+    chat_models = [main_model, *(m for m in [model, *settings.fast_models] if m != main_model)]
+    stream = make_stream(voice_models)
+    chat_stream = make_stream(list(dict.fromkeys(chat_models)))
 
     cached: dict[str, Any] = {"at": -1e9, "text": ""}
 
@@ -841,7 +851,10 @@ def brain_kit(
         marker = "Что я помню по теме:"
         return brief.text[brief.text.index(marker) :] if marker in brief.text else ""
 
-    kit = SimpleNamespace(ask=ask, stream=stream, core=core, recall=recall, brains=[], activity=None)
+    kit = SimpleNamespace(
+        ask=ask, stream=stream, chat_stream=chat_stream, core=core, recall=recall, brains=[],
+        activity=None,
+    )
 
     def tell(brain: Any) -> None:
         kit.brains.append(brain)
@@ -971,7 +984,7 @@ def game_brain(
 
     folder = Path(settings.files_dir) / scope.persona_id / "voice"
     brain = VoiceBrain(
-        kit.ask, say, kit.core, folder / "game-talk.log", recall=kit.recall, stream=kit.stream,
+        kit.ask, say, kit.core, folder / "game-talk.log", recall=kit.recall, stream=kit.chat_stream,
         tail=GAME_TAIL, context=scene, needs=re.compile(
             NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE
         ), where="game", clock=time.monotonic, off=folder / "brain.off",

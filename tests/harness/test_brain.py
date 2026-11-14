@@ -579,3 +579,32 @@ def test_a_game_reply_goes_to_the_chat_as_one_message(tmp_path: Path) -> None:
         assert chat == ["Привет, Тайлер. Я тут, осматриваюсь. А ты чем занят?"]
 
     asyncio.run(scenario())
+
+
+def test_the_same_task_is_not_handed_over_again(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        now = [0.0]
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Иду.\nДЕЛО: осмотреть вход в нору"
+
+        async def say(text: str) -> None:
+            return None
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, say, core, tmp_path / "g.log", where="game", clock=lambda: now[0])
+        brain.hear("<Bob> Опечатка, иди к норе")
+        await settle(brain)
+        assert len(brain.take()) == 1
+        now[0] += 5
+        brain.hear("<Bob> Опечатка, ну иди же")
+        await settle(brain)
+        assert brain.take() == []  # the same task a moment later: the slow mind is not woken again
+        now[0] += 200
+        brain.hear("<Bob> Опечатка, ну что, идёшь?")
+        await settle(brain)
+        assert len(brain.take()) == 1  # long after: it may be asked again
+
+    asyncio.run(scenario())

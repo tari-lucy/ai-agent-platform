@@ -344,6 +344,8 @@ class VoiceBrain:
         self._human_at = -1e9  # when a person last spoke to her
         self._handed_at = -1e9  # when the last task went to the slow mind
         self._brief_at = -1e9
+        self._last_task = ""
+        self._last_task_at = -1e9
         self._warmed = False
         self._turn_at = -1e9
         self.turns: deque[tuple[str, str]] = deque(maxlen=TURNS)  # (who, text)
@@ -662,6 +664,12 @@ class VoiceBrain:
     def _hand_over(self, text: str, said: str, task: str) -> None:
         key = f"brain-{self.clock():.3f}"
         if task:
+            now = self.clock()
+            same = task == self._last_task and now - self._last_task_at < 180.0
+            hurry = self.where == "game" and now - self._last_task_at < 20.0
+            if same or hurry:
+                return  # the slow mind already has this task (or one a moment ago): no new wake
+            self._last_task, self._last_task_at = task, now
             self._handed_at = self.clock()
             self._brief_at = max(self._brief_at, self.clock())
             self._note("Дело (медленному уму)", task)

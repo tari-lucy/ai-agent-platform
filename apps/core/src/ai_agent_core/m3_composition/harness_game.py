@@ -604,6 +604,10 @@ class GameSource:
                     self.book.redeem("minecraft", sender, sender, line)
                 except Exception:  # noqa: BLE001 - the book never stops the game watch
                     LOG.warning("People book failed on a game line")
+            if sender is None:  # a server line (joins, leaves, notices): nobody is talking to her
+                talk += 1
+                last = line
+                continue
             named = self._named(line)
             following = sender is not None and self._talk.get(sender, 0.0) > now
             if named or following:
