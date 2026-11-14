@@ -323,7 +323,7 @@ def test_she_is_addressed_by_her_name_in_any_case_or_by_the_nick_of_her_bot():
         "<Bob> Ох, Lucytari, заходи скорее в нору!",
         "<Bob> Опечатку видел кто?",
         "<Bob> привет, Опечатке",
-        "<Bob> просто болтаю про погоду",
+        "<Eve> просто болтаю про погоду",
     ]
     src = chat_source([base, base + lines])
     src.own_nicks.add("lucytari")  # the nick of her bot (told by her notes, or learned)
