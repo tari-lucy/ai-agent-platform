@@ -117,6 +117,10 @@ class GameSource:
         self.people = people  # her notes about players: name and a fact per line
         self.book = book  # the cross-platform book of people (harness_people), or None
         self._talk: dict[str, float] = {}
+        # Her in-game nicknames (her own lines carry them, not her name). Learned: a chat line that
+        # ends with what she just sent is hers; or told by the host (her notes name the bot).
+        self.own_nicks: set[str] = set()
+        self._sent: list[tuple[str, float]] = []
         # Set by the host: a fast voice that answers players in the chat at once. It gets the line
         # and what is known of the player; the slow mind is woken only by its hand-overs.
         self.on_talk: Callable[[str, str], None] | None = None
@@ -145,6 +149,24 @@ class GameSource:
         self._screen_told = -1e9
         self._walk: list[tuple[float, tuple[float, float, float]]] = []
         self._stuck_told = -1e9
+
+    def sent(self, text: str) -> None:
+        """She just wrote ``text`` in the chat (the host tells): her own line will show up in it."""
+        now = self.clock()
+        self._sent = [(t, at) for t, at in self._sent if now - at < 120.0][-20:]
+        self._sent.append((" ".join(text.split()).casefold(), now))
+
+    def _mine(self, line: str, sender: str | None) -> bool:
+        """Is this chat line her own? By a nick she is known by, or by what she just sent."""
+        if sender is not None and sender.casefold() in self.own_nicks:
+            return True
+        flat = " ".join(line.split()).casefold()
+        for text, _at in self._sent:
+            if len(text) >= 8 and flat.endswith(text[-60:]):
+                if sender is not None:
+                    self.own_nicks.add(sender.casefold())  # learned: the nick of her bot
+                return True
+        return False
 
     def fetch(self, tool: str, arguments: dict[str, Any]) -> Any:
         """One tool call for other sources (they run it in a thread): the mod's answer, parsed."""
@@ -564,6 +586,8 @@ class GameSource:
             if self._own(line):
                 continue  # her own words in the chat are not news for her
             sender = self._sender(line)
+            if self._mine(line, sender):
+                continue  # the same, under the nick of her bot
             if self.book is not None and sender is not None:
                 try:  # a proof code may be typed in the game chat by anyone
                     self.book.redeem("minecraft", sender, sender, line)

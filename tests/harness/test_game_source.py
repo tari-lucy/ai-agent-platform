@@ -289,3 +289,29 @@ def test_a_fast_voice_takes_the_players_talk_and_the_slow_mind_is_not_woken():
     events = poll(src)
     assert [e for e in events if e.kind == "talk"] == []  # nobody is woken by the talk itself
     assert got == [("<Bob> Опечатка, ты тут?", "")]  # the mod's own line is no player's talk
+
+
+def test_her_own_lines_under_her_bots_nick_are_never_a_talk():
+    # the bot's nick is not her name: its lines carry her name ("Я Опечатка") and used to count
+    # as somebody talking to her (a loop with herself).
+    base = ["<Eve> hi"]
+    own = "<LucyTari> TylerDurden, привет! Я Опечатка, журналист."
+    src = chat_source([base, base + [own], base + [own, "<Bob> Опечатка, ты тут?"]])
+    src.own_nicks.add("lucytari")  # told by her notes
+    poll(src)
+    assert [e for e in poll(src) if e.kind == "talk"] == []
+    third = poll(src)
+    assert [e.key for e in third if e.kind == "talk"] == ["Bob"]  # a real player still counts
+
+
+def test_the_nick_of_her_bot_is_learned_from_what_she_just_sent():
+    base = ["<Eve> hi"]
+    sent = "Привет, Тайлер. Я Опечатка, кофе в голове кончился."
+    src = chat_source(
+        [base, base + [f"<LucyTari> {sent}"], base + [f"<LucyTari> {sent}", "<LucyTari> Опечатка, да"]]
+    )
+    poll(src)
+    src.sent(sent)  # the host says what she wrote
+    assert [e for e in poll(src) if e.kind == "talk"] == []  # her own line came back
+    assert "lucytari" in src.own_nicks  # and her nick is known now
+    assert [e for e in poll(src) if e.kind == "talk"] == []  # whatever else that nick writes

@@ -523,3 +523,37 @@ def test_the_off_file_switches_the_fast_voice_off(tmp_path: Path) -> None:
         assert said == ["Привет."]  # and back on when the file is gone
 
     asyncio.run(scenario())
+
+
+def test_a_chat_that_goes_round_in_circles_is_not_answered_again(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        now = [0.0]
+        said: list[str] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Привет."
+
+        async def say(text: str) -> None:
+            said.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(
+            ask, say, core, tmp_path / "g.log", clock=lambda: now[0], dedupe=90.0, per_minute=3
+        )
+        brain.hear("<Bob> Опечатка, привет")
+        brain.hear("<Bob> Опечатка, привет")  # the same line: dropped
+        await settle(brain)
+        assert said == ["Привет."]
+        for i in range(5):  # different lines, but only three answers a minute
+            now[0] += 1
+            brain.hear(f"<Bob> Опечатка, вопрос {i}")
+            await settle(brain)
+        assert len(said) == 3 and brain.dropped >= 3
+        now[0] += 120  # a quiet minute later it answers again
+        brain.hear("<Bob> Опечатка, ты тут?")
+        await settle(brain)
+        assert len(said) == 4
+
+    asyncio.run(scenario())

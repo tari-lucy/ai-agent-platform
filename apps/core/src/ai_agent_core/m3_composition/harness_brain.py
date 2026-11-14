@@ -314,6 +314,8 @@ class VoiceBrain:
         needs: re.Pattern[str] = NEEDS_FACTS,
         where: str = "voice",
         off: Path | None = None,
+        dedupe: float = 0.0,
+        per_minute: int = 0,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -321,6 +323,10 @@ class VoiceBrain:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
         self.tail, self.context, self.needs, self.where = tail, context, needs, where
+        self.dedupe, self.per_minute = dedupe, per_minute  # loop guards (0: off)
+        self._seen: dict[str, float] = {}  # lines answered lately: the same line is not answered twice
+        self._answered: list[float] = []
+        self.dropped = 0
         self.off = off  # a file that switches the fast voice off: the slow mind answers as before
         self.peers: list[VoiceBrain] = []  # other brains told about the slow mind's steps
         self._extra = ""  # what is known about the player who is talking
@@ -347,6 +353,8 @@ class VoiceBrain:
     def hear(self, text: str, extra: str = "") -> None:
         """A phrase said to her (called by the listener); answered in the background."""
         self._extra = extra
+        if self._looping(text):
+            return
         if self.off is not None and self.off.exists():
             self._hand_over(text, "", "")  # the switch is on: no fast answer, the slow mind speaks
             return
@@ -412,6 +420,26 @@ class VoiceBrain:
         self.waiting = None
         for peer in self.peers:
             peer.waiting = None
+
+    def _looping(self, text: str) -> bool:
+        """A line answered a moment ago, too many answers in a minute, or a queue already waiting:
+        a chat that goes round in circles (a bot, a loop) is not answered again."""
+        now = self.clock()
+        key = " ".join(text.split()).casefold()
+        if self.dedupe:
+            self._seen = {k: at for k, at in self._seen.items() if now - at < self.dedupe}
+            if key in self._seen:
+                self.dropped += 1
+                return True
+            self._seen[key] = now
+        if self.per_minute:
+            self._answered = [at for at in self._answered if now - at < 60.0]
+            busy = self._lock.locked() and len(self._tasks) >= 2
+            if len(self._answered) >= self.per_minute or busy:
+                self.dropped += 1
+                return True
+            self._answered.append(now)
+        return False
 
     def take(self) -> list[tuple[str, str]]:
         items = list(self.delegated)

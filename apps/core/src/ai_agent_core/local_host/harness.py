@@ -498,6 +498,14 @@ def install(
                 people=Path(settings.files_dir) / persona / "playbook" / "people.md",
                 book=runtime.harness.people,
             )
+            readme = Path(settings.files_dir) / persona / "README.md"
+            try:  # her notes name the bot ("Бот `LucyTari`"): her own lines are known from the start
+                import re as _re
+
+                for nick in _re.findall(r"[Бб]от\s+`([A-Za-z0-9_]{3,16})`", readme.read_text("utf-8")):
+                    game.own_nicks.add(nick.casefold())
+            except OSError:
+                pass
             sources.append(game)
             talker = _safely(
                 "game brain",
@@ -938,6 +946,7 @@ def game_brain(
         if wait > 0:
             await asyncio.sleep(wait)
         last["at"] = time.monotonic()
+        game.sent(text)  # her own line will come back in the chat: it is not somebody's talk
         try:
             sent = await asyncio.to_thread(game.fetch, "ChatMessage", {"msg": text})
         except Exception as error:  # noqa: BLE001 - the game is away: nothing to say it to
@@ -966,6 +975,7 @@ def game_brain(
         tail=GAME_TAIL, context=scene, needs=re.compile(
             NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE
         ), where="game", clock=time.monotonic, off=folder / "brain.off",
+        dedupe=90.0, per_minute=5,
     )  # fmt: skip
     kit.add(brain)
     return brain
