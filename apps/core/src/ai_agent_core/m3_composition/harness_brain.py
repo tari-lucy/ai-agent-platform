@@ -316,6 +316,7 @@ class VoiceBrain:
         off: Path | None = None,
         dedupe: float = 0.0,
         per_minute: int = 0,
+        join: bool = False,
         activity: Callable[[], str] = lambda: "",
         express: Callable[[str], Awaitable[object]] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -323,6 +324,7 @@ class VoiceBrain:
         self.ask, self.speak, self.core, self.log = ask, speak, core, log
         self.activity, self.express, self.mirror = activity, express, mirror
         self.tail, self.context, self.needs, self.where = tail, context, needs, where
+        self.join = join  # one message for the whole reply (a chat has a pause between messages)
         self.dedupe, self.per_minute = dedupe, per_minute  # loop guards (0: off)
         self._seen: dict[str, float] = {}  # lines answered lately: the same line is not answered twice
         self._answered: list[float] = []
@@ -606,7 +608,8 @@ class VoiceBrain:
                         if sentence and sentence != "-":
                             marks.setdefault("first_sentence", self.clock())
                             spoken.append(sentence)
-                            sentences.put_nowait((sentence, self._make(sentence)))
+                            if not self.join:
+                                sentences.put_nowait((sentence, self._make(sentence)))
             except asyncio.CancelledError:
                 voice.cancel()
                 raise
@@ -625,7 +628,11 @@ class VoiceBrain:
             tail_speech, task = parse(buffer)
             if tail_speech and tail_speech != "-" and (task or tail_speech[-1] in TERMINAL):
                 spoken.append(tail_speech)
-                sentences.put_nowait((tail_speech, self._make(tail_speech)))
+                if not self.join:
+                    sentences.put_nowait((tail_speech, self._make(tail_speech)))
+            if self.join and spoken:
+                whole = " ".join(spoken)
+                sentences.put_nowait((whole, self._make(whole)))
             sentences.put_nowait(None)
             await voice
             say = " ".join(spoken)

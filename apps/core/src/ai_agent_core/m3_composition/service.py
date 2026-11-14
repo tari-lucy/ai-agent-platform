@@ -641,6 +641,11 @@ class Runtime:
             return
         self.supervisor.poll()
         now = self.supervisor.clock.elapsed()
+        if now + 43200 >= self.worker.expires_at:
+            # The job worker's authority was a fixed day from the start: a platform that ran a
+            # day without a restart stopped issuing jobs (ACCESS_DENIED) and faulted the run.
+            # It is renewed while the platform lives: always at least twelve hours ahead.
+            self.worker = replace(self.worker, expires_at=now + 86400)
         if self.supervisor.persistence_pending:
             await self.supervisor.flush()
         run = self.supervisor.snapshot

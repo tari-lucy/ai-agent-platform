@@ -942,7 +942,7 @@ def game_brain(
         text = re.sub(r"^[\s@;/.!#]+", "", " ".join(text.split()))[:200]
         if not text:
             return "пусто"
-        wait = 1.3 - (time.monotonic() - last["at"])  # chat servers cut those who write too fast
+        wait = 3.2 - (time.monotonic() - last["at"])  # the server says «Подождите 3 сек.» otherwise
         if wait > 0:
             await asyncio.sleep(wait)
         last["at"] = time.monotonic()
@@ -975,7 +975,7 @@ def game_brain(
         tail=GAME_TAIL, context=scene, needs=re.compile(
             NEEDS_FACTS.pattern + "|" + GAME_ACTION.pattern, re.IGNORECASE
         ), where="game", clock=time.monotonic, off=folder / "brain.off",
-        dedupe=90.0, per_minute=5,
+        dedupe=90.0, per_minute=5, join=True,
     )  # fmt: skip
     kit.add(brain)
     return brain

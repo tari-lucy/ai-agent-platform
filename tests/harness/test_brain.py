@@ -557,3 +557,25 @@ def test_a_chat_that_goes_round_in_circles_is_not_answered_again(tmp_path: Path)
         assert len(said) == 4
 
     asyncio.run(scenario())
+
+
+def test_a_game_reply_goes_to_the_chat_as_one_message(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        chat: list[str] = []
+
+        async def ask(messages: list[dict[str, str]]) -> str:
+            return "Привет, Тайлер. Я тут, осматриваюсь. А ты чем занят?"
+
+        async def say(text: str) -> None:
+            chat.append(text)
+
+        async def core() -> str:
+            return "Ты Опечатка."
+
+        brain = VoiceBrain(ask, say, core, tmp_path / "g.log", join=True)
+        brain.hear("<Tyler> Опечатка, привет")
+        await settle(brain)
+        # three sentences, one chat message: the server makes a pause between messages
+        assert chat == ["Привет, Тайлер. Я тут, осматриваюсь. А ты чем занят?"]
+
+    asyncio.run(scenario())
