@@ -432,21 +432,87 @@ def mine_wait(c, timeout):
     return False
 
 
-def cmd_cleanup(c, blocks, timeout):
-    """Mine out the scaffolding the builder left (it records every block it pillared or bridged with),
-    then compare with the plan and place what the cleanup took from it."""
+# What is not nature: a block with one of these in its name is something a builder put there. A plan's own
+# materials count too, except the natural-looking ones (a plan in oak logs must not take a forest for scaffolding).
+ARTIFICIAL = ("planks", "stone_brick", "cobblestone", "glass", "wool", "glowstone", "stripped_", "_slab", "_stairs",
+              "fence", "_door", "bricks", "concrete", "lantern", "torch", "bookshelf", "crafting_table", "chest",
+              "barrel", "furnace", "carpet", "_sign", "ladder", "scaffolding")
+NATURAL = ("dirt", "grass", "stone", "sand", "gravel", "leaves", "_log", "_wood", "flower", "fern", "water", "lava",
+           "ice", "snow", "deepslate", "andesite", "granite", "diorite", "ore", "clay", "mud", "moss", "bush",
+           "vine", "cactus", "kelp", "seagrass", "coral", "mushroom", "podzol", "mycelium", "terracotta")
+STRAY_MARGIN = 4  # blocks around the plan's box that are looked at for what does not belong
+
+
+def read_box(c, x1, y1, z1, x2, y2, z2):
+    """Non-air blocks of a box as {(x, y, z): name} and the number of unloaded columns; None without scanBox."""
+    cells, unloaded = {}, 0
+    for z in range(z1, z2 + 1, 40):
+        reply = call(c, "scanBox", {"x1": x1, "y1": y1, "z1": z, "x2": x2, "y2": y2, "z2": min(z + 39, z2)})
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            return None
+        palette, flat = reply["palette"], reply["cells"]
+        for i in range(0, len(flat), 4):
+            cells[(flat[i], flat[i + 1], flat[i + 2])] = palette[flat[i + 3]]
+        unloaded += reply.get("unloaded", 0)
+    return cells, unloaded
+
+
+def is_stray(name, plan_names):
+    low = name.split(":")[-1]
+    if any(k in low for k in ARTIFICIAL):
+        return True
+    return name in plan_names and not any(k in low for k in NATURAL)
+
+
+def find_strays(c, plan, margin=STRAY_MARGIN):
+    """Blocks in and around the plan's box that are built things but not in the plan: scaffolding, strays.
+    -> (list of (x, y, z, name), unloaded columns), or None when the mod cannot scan."""
+    wanted = {(x, y, z) for x, y, z, _ in plan}
+    names = {b for _, _, _, b in plan}
+    xs, ys, zs = [b[0] for b in plan], [b[1] for b in plan], [b[2] for b in plan]
+    got = read_box(c, min(xs) - margin, min(ys) - 1, min(zs) - margin, max(xs) + margin, max(ys) + 8, max(zs) + margin)
+    if got is None:
+        return None
+    world, unloaded = got
+    return sorted(((x, y, z, n) for (x, y, z), n in world.items()
+                   if (x, y, z) not in wanted and is_stray(n, names)), key=lambda b: (-b[1], b[2], b[0])), unloaded
+
+
+def cmd_cleanup(c, blocks, timeout, plan=None):
+    """Take away what the builder left behind, then check the plan and put back what the cleanup took.
+
+    1. the mod's own record of the scaffolding it placed (empty after a restart of the mod),
+    2. the world itself: every built block around the plan that is not in the PLAN (the whole plan, not
+       the stage that was just built: a layer built earlier is not scaffolding)."""
+    plan = plan or blocks
     call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
     try:
         reply = call(c, "cleanupScaffold") or {}
         queued = reply.get("queued", 0)
         if queued:
-            print(f"Леса: убираю {queued} блоков...")
+            print(f"Леса из памяти мода: убираю {queued} блоков...")
             if not mine_wait(c, timeout):
                 print("Леса убраны не полностью (не дошла или время вышло): повтори cleanup.")
-        else:
-            print("Лесов в памяти мода нет (уже убраны или это другой запуск игры).")
     finally:
         call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
+    found = find_strays(c, plan)
+    leftover = 0
+    if found is None:
+        print("Мод без scanBox: лишнее по миру найти не могу (только леса из памяти мода). Обнови мод.")
+    else:
+        strays, unloaded = found
+        if unloaded:
+            print(f"Не прогружено {unloaded} столбцов рядом с постройкой: подойди ближе, там может остаться лишнее.")
+        if strays:
+            names = sorted({n.split(":")[-1] for _, _, _, n in strays})
+            print(f"Лишнее вокруг постройки: {len(strays)} блоков ({', '.join(names[:5])}), разбираю сверху вниз.")
+            left = mine_cells(c, [(x, y, z) for x, y, z, _ in strays], timeout)
+            again = find_strays(c, plan)
+            leftover = len(again[0]) if again else len(left)
+            if leftover:
+                print(f"Лишнее осталось ({leftover}): подойди к нему ближе и повтори cleanup.")
+        else:
+            print("Лишнего вокруг постройки нет.")
     missing = verify(c, blocks)
     if missing:
         print(f"После уборки не хватает {len(missing)} блоков плана, достраиваю.")
@@ -456,6 +522,8 @@ def cmd_cleanup(c, blocks, timeout):
     if missing:
         print(f"НЕ ХВАТАЕТ {len(missing)} блоков (первые): {missing[:8]}")
         return 5
+    if leftover:
+        return 13
     print("Постройка чистая и совпадает с планом.")
     return 0
 
@@ -529,7 +597,7 @@ def cmd_preview(blocks):
     print("значки: " + ", ".join(f"{v}={k.split(':')[-1]}" for k, v in keys.items()))
 
 
-def cmd_build(c, blocks, timeout):
+def cmd_build(c, blocks, timeout, plan=None):
     if not show_materials(blocks):
         return 2
     lack = missing_materials(c, blocks)
@@ -573,7 +641,7 @@ def cmd_build(c, blocks, timeout):
         print("Проверь хотбар, досягаемость, чужую защиту; запусти verify, потом build ещё раз.")
         return 5
     print(f"ГОТОВО: все {len(ordered)} блоков на месте")
-    return cmd_cleanup(c, ordered, timeout)
+    return cmd_cleanup(c, ordered, timeout, plan)
 
 
 def terrain():
@@ -820,7 +888,8 @@ def main(argv=None, client=None):
     if a.action == "stock":
         return cmd_stock(c, blocks)
     if a.action == "cleanup":
-        return cmd_cleanup(c, blocks, a.timeout)
+        everything = place(whole, origin)
+        return cmd_cleanup(c, everything, a.timeout, everything)
     if a.action == "review":
         return cmd_review(c, blocks, stem)
     if a.mode == "commands":
@@ -828,7 +897,7 @@ def main(argv=None, client=None):
     if not show_lint(whole) and not a.ignore_lint:
         print("Форма с ошибками: исправь схему (или --ignore-lint, если так и задумано).")
         return 8
-    return cmd_build(c, blocks, a.timeout)
+    return cmd_build(c, blocks, a.timeout, place(whole, origin))
 
 
 if __name__ == "__main__":

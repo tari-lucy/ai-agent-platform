@@ -144,6 +144,18 @@ class FakeWorld:
         if name == "getBlockAt":
             block = self.cells.get((args["x"], args["y"], args["z"]), "minecraft:air")
             return json.dumps({"id": block}), False
+        if name == "scanBox" and getattr(self, "scan", True):
+            palette, flat = [], []
+            for (px, py, pz), block in self.cells.items():
+                if args["x1"] <= px <= args["x2"] and args["y1"] <= py <= args["y2"] and args["z1"] <= pz <= args["z2"]:
+                    if block not in palette:
+                        palette.append(block)
+                    flat += [px, py, pz, palette.index(block)]
+            return json.dumps({"ok": True, "palette": palette, "cells": flat, "unloaded": getattr(self, "unloaded", 0)}), False
+        if name == "mineBlocks":
+            for bx, by, bz in json.loads(args["blocks"]):
+                self.cells.pop((bx, by, bz), None)
+            return json.dumps({"ok": True}), False
         if name == "buildBlocks":
             for x, y, z, b in json.loads(args["blocks"]):
                 self.cells[(x, y, z)] = "minecraft:" + b.split(":")[-1]
@@ -304,3 +316,54 @@ def test_a_non_square_plan_turns_without_losing_or_moving_cells():
     four = dc._rotated(dc._rotated(dc._rotated(dc._rotated(cells, 1), 1), 1), 1)
     assert four == cells                                              # four quarter turns are the identity
     assert [p for p, n in dc._rotated(cells, 1).items() if n == "glowstone"] == [(3, 2, 6)]
+
+
+def house_plan():
+    return [(x, y, z, "minecraft:oak_planks") for x in range(0, 3) for y in range(0, 2) for z in range(0, 3)]
+
+
+def test_cleanup_finds_scaffolding_in_the_world_not_only_in_the_mods_memory(monkeypatch, capsys):
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    plan = house_plan()
+    world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
+    stray = {(-1, 0, 1): "minecraft:oak_planks", (-1, 1, 1): "minecraft:oak_planks", (1, 5, 1): "minecraft:spruce_planks"}
+    world.cells.update(stray)
+    world.cells[(4, 0, 4)] = "minecraft:grass_block"                       # nature next to the house stays
+    world.cells[(5, 0, 5)] = "minecraft:oak_leaves"
+    world.mine_queue = []
+    assert build_plan.cmd_cleanup(world, plan, 5, plan) == 0
+    assert not any(k in world.cells for k in stray)                         # every stray is gone
+    assert world.cells[(4, 0, 4)] == "minecraft:grass_block" and world.cells[(5, 0, 5)] == "minecraft:oak_leaves"
+    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in plan)      # the house is untouched
+    assert "Лишнее вокруг постройки: 3 блоков" in capsys.readouterr().out
+    assert world.break_on is False
+
+
+def test_an_earlier_stage_is_not_scaffolding_when_the_whole_plan_is_given(monkeypatch):
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    whole = house_plan()
+    stage = [b for b in whole if b[1] == 1]                                  # only the upper layer was just built
+    world = FakeWorld({(x, y, z): b for x, y, z, b in whole}, scaffold=[])
+    assert build_plan.cmd_cleanup(world, stage, 5, whole) == 0
+    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in whole)       # layer 0 still stands
+
+
+def test_cleanup_says_so_when_the_mod_cannot_scan_and_when_columns_are_not_loaded(monkeypatch, capsys):
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    plan = house_plan()
+    world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
+    world.scan = False
+    assert build_plan.cmd_cleanup(world, plan, 5, plan) == 0
+    assert "без scanBox" in capsys.readouterr().out
+    world.scan, world.unloaded = True, 7
+    assert build_plan.cmd_cleanup(world, plan, 5, plan) == 0
+    assert "Не прогружено 7 столбцов" in capsys.readouterr().out
+
+
+def test_a_plan_in_logs_does_not_take_the_forest_for_scaffolding():
+    names = {"minecraft:oak_log"}
+    assert build_plan.is_stray("minecraft:oak_planks", names) is True
+    assert build_plan.is_stray("minecraft:oak_log", names) is False          # the plan's own material, but nature-like
+    assert build_plan.is_stray("minecraft:grass_block", names) is False
+    assert build_plan.is_stray("minecraft:stone_bricks", names) is True
+    assert build_plan.is_stray("minecraft:stone", names) is False
