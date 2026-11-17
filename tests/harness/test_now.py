@@ -63,3 +63,56 @@ def test_a_missing_journal_gives_fewer_lines_not_an_error(tmp_path: Path) -> Non
     harness.folders = lambda: None
     picture = build(harness, SCOPE, NOW)
     assert [line.kind for line in picture.lines] == ["heard"] and picture.goals is None
+
+
+def test_activities_are_her_own_list_ordered_by_state(tmp_path: Path) -> None:
+    harness = host(tmp_path, [])
+    folder = harness.folders()
+    (folder / "activities.md").write_text(
+        "# Мои занятия\n\n## Закончила пост [готово]\nВышел в канал.\n\n"
+        "## Строю дом в Minecraft [идёт]\nФундамент 9x7 готов,\nдальше стены.\n\n"
+        "## Стрим [план]\n\n## Без состояния\nтекст\n",
+        encoding="utf-8",
+    )
+    rows = build(harness, SCOPE, NOW).activities
+    assert [row.title for row in rows] == ["Строю дом в Minecraft", "Стрим", "Без состояния", "Закончила пост"]
+    assert rows[0].state == "doing" and "Фундамент" in rows[0].detail and rows[2].state == "planned"
+    assert rows[-1].state == "done"
+
+
+def test_hours_count_only_real_events_of_the_last_day(tmp_path: Path) -> None:
+    harness = host(tmp_path, [])
+    rows = [
+        {"at": "2026-11-14T11:30:00+00:00", "status": "spoken", "text": "раз"},
+        {"at": "2026-11-14T11:40:00+00:00", "status": "failed", "text": "не дошло"},
+        {"at": "2026-11-12T11:40:00+00:00", "status": "spoken", "text": "давно"},
+    ]
+    harness.speaker.journal.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    base = harness.listener.journal.parent
+    (base / "imagine.jsonl").write_text(json.dumps({"at": "2026-11-14T08:05:00+00:00", "status": "made"}) + "\n")
+    hours = build(harness, SCOPE, NOW).hours
+    assert len(hours) == 24 and hours[-1].hour.startswith("2026-11-14T12:00")
+    assert sum(h.said for h in hours) == 1 and hours[-2].said == 1  # 11:30 is the hour before noon
+    assert sum(h.drew for h in hours) == 1 and sum(h.heard for h in hours) == 1
+
+
+def test_pictures_are_listed_from_the_log_and_served_by_listed_name_only(tmp_path: Path) -> None:
+    harness = host(tmp_path, [])
+    folder = harness.folders()
+    (folder / "art").mkdir()
+    (folder / "art" / "a.jpg").write_bytes(b"\xff\xd8jpeg")
+    (folder / "secret.jpg").write_bytes(b"x")
+    log = harness.listener.journal.parent / "imagine.jsonl"
+    log.write_text(
+        json.dumps({"at": "2026-11-14T10:00:00+00:00", "status": "made", "file": "a.jpg", "scene": "обрыв"}) + "\n"
+        + json.dumps({"at": "2026-11-14T10:05:00+00:00", "status": "made", "file": "gone.jpg", "scene": "нет файла"}) + "\n"
+        + json.dumps({"at": "2026-11-14T10:06:00+00:00", "status": "made", "file": "../secret.jpg"}) + "\n",
+        encoding="utf-8",
+    )
+    listed = build(harness, SCOPE, NOW).pictures
+    assert [p.name for p in listed] == ["a.jpg"] and listed[0].caption == "обрыв"
+    from ai_agent_core.m3_composition.harness_now import picture
+
+    assert picture(harness, SCOPE, "a.jpg").media_type == "image/jpeg"  # type: ignore[union-attr]
+    assert picture(harness, SCOPE, "secret.jpg") is None  # exists, but she never drew it
+    assert picture(harness, SCOPE, "../secret.jpg") is None

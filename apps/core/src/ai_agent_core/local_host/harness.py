@@ -26,6 +26,9 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_imagine import Imagine
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
+    files_root = Path(settings.files_dir) if settings.files_dir else None
+    for seed in (seed_minecraft_guide, seed_building_kit, seed_activities):
+        _safely(seed.__name__, lambda seed=seed: seed(files_root, scope_now.persona_id))
     from ai_agent_core.m3_composition.harness_people import PeopleBook
     from ai_agent_core.m3_composition.harness_speech import Speaker
     from ai_agent_core.m3_composition.harness_stage import Stage
@@ -941,6 +944,40 @@ def seed_building_kit(files_dir: Path | None, persona: str) -> bool:
         except OSError:
             LOG.warning("%s not written", name)
     return done
+
+
+ACTIVITIES_TEXT = """# Мои занятия
+
+Этот файл читает панель оператора: по нему видно, чем я занята, на верхнем уровне. Веди его сама.
+Одно занятие, один раздел: `## Название [состояние]`, ниже подробности для того, кто нажмёт.
+Состояния: `идёт`, `ждёт`, `план`, `готово`. Название короткое и по-человечески («Строю дом в
+Minecraft», «Веду стрим», «Пишу пост в Telegram», «Изучаю сервер skybars»), без технических слов.
+Подробности: что уже сделано, что дальше, что мешает. Обновляй, когда занятие меняется, и не
+держи больше десяти разделов: законченное сначала `готово`, потом убери.
+
+## Осмотреться на сервере [план]
+Что уже известно о месте и людях, куда пойти дальше.
+"""
+
+
+def seed_activities(files_dir: Path | None, persona: str) -> bool:
+    """Her list of activities for the panel, once; hers afterwards."""
+    if files_dir is None:
+        return False
+    folder = files_dir / persona
+    target = folder / "activities.md"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        if folder.is_symlink() or target.is_symlink():
+            return False
+        with target.open("x", encoding="utf-8") as stream:
+            stream.write(ACTIVITIES_TEXT)
+    except FileExistsError:
+        return False
+    except OSError:
+        LOG.warning("activities.md not written")
+        return False
+    return True
 
 
 def seed_live_guide(files_dir: Path | None, persona: str) -> bool:

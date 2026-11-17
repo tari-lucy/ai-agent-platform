@@ -456,7 +456,11 @@ class HarnessHost:
             "directly use "
             "`python3 /workspace/projects/unionclef/mcp_client.py call <tool> '<json>'`. To say "
             "something to players in the game chat use platform_game_say (the only way: there is "
-            "no sendChatMessage, and a hand-made ChatMessage talks past your fast voice)."
+            "no sendChatMessage, and a hand-made ChatMessage talks past your fast voice).\n"
+            "Your activities: keep /workspace/activities.md up to date (its first lines say how): "
+            "one short human title per thing you are up to, with a state and the details under "
+            "it. The operator reads it on the panel's home screen; update it when something "
+            "starts, changes or ends."
         )
         live = [
             label

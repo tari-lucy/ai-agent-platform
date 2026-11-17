@@ -3255,6 +3255,14 @@
         "additionalProperties": false,
         "description": "What the persona is doing right now, read from the harness itself (the panel's home).",
         "properties": {
+          "activities": {
+            "items": {
+              "$ref": "#/components/schemas/NowActivity"
+            },
+            "maxItems": 12,
+            "title": "Activities",
+            "type": "array"
+          },
           "checked_at": {
             "maxLength": 40,
             "title": "Checked At",
@@ -3290,12 +3298,28 @@
             "default": null,
             "title": "Goals"
           },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/HourBucket"
+            },
+            "maxItems": 24,
+            "title": "Hours",
+            "type": "array"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/NowLine"
             },
             "maxItems": 40,
             "title": "Lines",
+            "type": "array"
+          },
+          "pictures": {
+            "items": {
+              "$ref": "#/components/schemas/NowPicture"
+            },
+            "maxItems": 8,
+            "title": "Pictures",
             "type": "array"
           },
           "recently": {
@@ -3316,6 +3340,43 @@
           "checked_at"
         ],
         "title": "HarnessNow",
+        "type": "object"
+      },
+      "HarnessPicture": {
+        "additionalProperties": false,
+        "description": "One of her pictures itself, base64 inside JSON (the panel reads JSON only).",
+        "properties": {
+          "data": {
+            "maxLength": 1400000,
+            "minLength": 1,
+            "title": "Data",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "scope",
+          "name",
+          "media_type",
+          "data"
+        ],
+        "title": "HarnessPicture",
         "type": "object"
       },
       "HarnessStatus": {
@@ -3473,6 +3534,46 @@
           "status"
         ],
         "title": "HelperRun",
+        "type": "object"
+      },
+      "HourBucket": {
+        "additionalProperties": false,
+        "description": "What happened in one hour: counts only, taken from her own journals.",
+        "properties": {
+          "drew": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Drew",
+            "type": "integer"
+          },
+          "heard": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Heard",
+            "type": "integer"
+          },
+          "hour": {
+            "maxLength": 40,
+            "title": "Hour",
+            "type": "string"
+          },
+          "posted": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Posted",
+            "type": "integer"
+          },
+          "said": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Said",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hour"
+        ],
+        "title": "HourBucket",
         "type": "object"
       },
       "InitialAccessArguments": {
@@ -5739,6 +5840,40 @@
         "title": "ModerationCheck",
         "type": "object"
       },
+      "NowActivity": {
+        "additionalProperties": false,
+        "description": "One high-level thing she is up to, written by her in activities.md (title, state, details).",
+        "properties": {
+          "detail": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Detail",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "doing",
+              "waiting",
+              "planned",
+              "done"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "state"
+        ],
+        "title": "NowActivity",
+        "type": "object"
+      },
       "NowLine": {
         "additionalProperties": false,
         "description": "One dated line of what the persona does: a step, an event, a phrase said or heard.",
@@ -5770,6 +5905,34 @@
           "text"
         ],
         "title": "NowLine",
+        "type": "object"
+      },
+      "NowPicture": {
+        "additionalProperties": false,
+        "description": "A picture she drew: the name is the key for harness-picture; the caption is her idea.",
+        "properties": {
+          "at": {
+            "maxLength": 40,
+            "title": "At",
+            "type": "string"
+          },
+          "caption": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Caption",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "at"
+        ],
+        "title": "NowPicture",
         "type": "object"
       },
       "OperationProjection": {
@@ -18998,6 +19161,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HarnessNow"
+                }
+              }
+            },
+            "description": "Permitted projection"
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "429": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "OperatorSession": []
+          }
+        ]
+      }
+    },
+    "/api/v1/harness-picture/{name}": {
+      "get": {
+        "operationId": "read_HarnessPicture",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/persona_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_space_id"
+          },
+          {
+            "$ref": "#/components/parameters/memory_mode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarnessPicture"
                 }
               }
             },

@@ -295,7 +295,7 @@ def test_an_evening_on_stream(tmp_path):
             assert "Слушаю" in await tool("listen", mode="on")
             await asyncio.sleep(0.5)
             heard = await ListenSource(listener).poll(None, lambda: None)
-            assert [e.text.split("«")[1] for e in heard] == ["Опечатка, как слышно?»"]
+            assert [e.text.split("«")[1].split("»")[0] for e in heard] == ["Опечатка, как слышно?"]
             assert listener.dropped == 1
             assert "выключено" in await tool("listen", mode="off")
 

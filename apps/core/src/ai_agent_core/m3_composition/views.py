@@ -177,6 +177,13 @@ class Views:
             from .harness_now import build
 
             return build(self.runtime.harness, scope, now)
+        if resource == "harness-picture" and identifier is not None:
+            from .harness_now import picture
+
+            found = picture(self.runtime.harness, scope, identifier)
+            if found is None:
+                raise ContractError(ErrorCode.INVALID_ARGUMENTS)
+            return found
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view
 

@@ -308,6 +308,7 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         ("/api/v1/egress-log/{day}", "EgressLog"),
         ("/api/v1/harness-status", "HarnessStatus"),
         ("/api/v1/harness-now", "HarnessNow"),
+        ("/api/v1/harness-picture/{name}", "HarnessPicture"),
         ("/api/v1/api-limits", "ApiLimits"),
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
         ("/api/v1/laboratory-runs", "LaboratoryRuns"),
