@@ -8,15 +8,12 @@ import { affectedResources, connectEvents, eventsUrl, type ConnectionState } fro
 import { partition, projectionKey, scopeKey, scopeLabel, samePartition } from '../shared/scope.ts';
 import { appendPreview, previewKey, type PrivatePreview } from '../shared/private-preview.ts';
 import { mergeRuns, stopTarget, stopObservation } from '../shared/projections.ts';
-import { Dialogue } from './dialogue/Dialogue.tsx';
 import { Memory } from './memory/Memory.tsx';
 import { WorkspaceScreen } from './workspace/WorkspaceScreen.tsx';
 import { LlmScreen } from './llm/LlmScreen.tsx';
 import { DevelopmentScreen } from './development/DevelopmentScreen.tsx';
-import { LaboratoryScreen } from './laboratory/LaboratoryScreen.tsx';
 import { PersonaScreen } from './persona/PersonaScreen.tsx';
 import { TicketsScreen } from './tickets/TicketsScreen.tsx';
-import { LibraryScreen } from './library/LibraryScreen.tsx';
 import { WorkScreen } from './work/WorkScreen.tsx';
 import { NowScreen } from './now/NowScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
@@ -71,8 +68,8 @@ function EventLink({ api, scope, onState }: { api: PanelApi; scope: Scope; onSta
 type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Scope[]; connection?: ConnectionState };
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
-  dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
-  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, library: LibraryScreen, work: WorkScreen, now: NowScreen,
+  persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
+  workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, work: WorkScreen, now: NowScreen,
 };
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();
@@ -185,7 +182,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
       {groups.map((group) => <div key={group.id} className="nav-group" role="group" aria-label={group.title}>
         <Text className="eyebrow nav-group-title" aria-hidden="true">{group.title}</Text>
         {screens.filter((screen) => screen.group === group.id).map((screen) => <NavLink key={screen.path} to={'/' + screen.path}
-          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{harness?.enabled && screen.path === 'dialogue' ? 'Прежний диалог · чтение' : screen.label}</span></NavLink>)}
+          className={({ isActive }) => `nav-item ${isActive ? 'selected' : ''}`}><span>{screen.label}</span></NavLink>)}
       </div>)}</nav>
       <div className="sidebar-note"><Text size="xs" c="dimmed">Панель — управление и наблюдение. Один активный агент; рабочая и тестовая память разделены.</Text></div>
     </aside>
