@@ -5,11 +5,10 @@ import { Link } from 'react-router';
 import type { RunSession, Scope } from '../../shared/contracts.ts';
 import type { PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
-import { indicators } from '../workspace/model.ts';
 import { useHarnessEntry } from '../opencode.ts';
 import { LaunchCard } from './LaunchCard.tsx';
 import {
-  ago, attention, budgetLine, changeWords, characterNews, gmSummary, headline, plan, planLine, taskLabels, type Tone,
+  ago, attention, budgetLine, changeWords, chips, characterNews, gmSummary, headline, plan, planLine, taskLabels, type Tone,
 } from './model.ts';
 
 const color = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const satisfies Record<Tone, string>;
@@ -60,7 +59,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
         <Title order={1} size="h2">{head.text}</Title>
         <Badge circle size="md" color={color[head.tone]} aria-hidden="true" />
       </Group>
-      {run && <Text size="sm" c="dimmed">{run.scope.persona_id}{run.started_at ? ` · работает ${ago(run.started_at, now).replace(' назад', '')}` : ''}</Text>}
+      {run && <Text size="sm" c="dimmed">{run.scope.persona_id}{run.state === 'ACTIVE' && run.started_at ? ` · работает ${ago(run.started_at, now).replace(' назад', '')}` : ''}</Text>}
     </div>
 
     <Soft><LaunchCard api={api} scope={scope} run={run} settings={settings} harness={harness} /></Soft>
@@ -111,9 +110,9 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
       </Stack> : <Quiet>Пока тихо.</Quiet>}
     </Soft>
 
-    <Group gap="xs" aria-label="Состояние систем">
-      {run && indicators(run).map((item) => <Badge key={item.label} variant="light" color={color[item.tone]} size="md" tt="none" fw={400}>{item.label}: {item.value}</Badge>)}
-      {budget && <Badge variant="light" color={color[budget.tone]} size="md" tt="none" fw={400}>{budget.text}</Badge>}
+    <Group gap="xs" aria-label="Состояние связей">
+      {chips(run, harness).map((item) => <Badge key={item.text} variant="light" color={color[item.tone]} size="md" tt="none" fw={400}>{item.text}</Badge>)}
+      {budget?.tone === 'warn' && <Badge variant="light" color="orange" size="md" tt="none" fw={400}>{budget.text}</Badge>}
     </Group>
   </Stack>;
 }

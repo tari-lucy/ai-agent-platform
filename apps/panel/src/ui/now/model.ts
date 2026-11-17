@@ -49,7 +49,7 @@ export function attention(run: RunSession | undefined, tickets: Ticket[], harnes
   if (run?.state === 'FAULTED') lines.push({ text: 'Состояние запуска неизвестно: сверка ресурсов', tone: 'warn' });
   if (run?.state === 'STOPPING' && run.unconfirmed_resource_ids?.length) lines.push({ text: 'Остановка ещё не подтверждена', tone: 'wait' });
   const asked = tickets.filter((ticket) => ticket.state === 'waiting_reply' && ticket.next_turn === 'operator').length;
-  if (asked) lines.push({ text: `Агент ждёт вашего ответа в обращениях: ${asked}`, tone: 'warn' });
+  if (asked) lines.push({ text: `Агент ждёт вашего ответа в запросах: ${asked}`, tone: 'warn' });
   const decide = changes.filter((change) => change.status === 'AWAITING_APPROVAL').length;
   if (decide) lines.push({ text: `Изменения характера ждут вашего решения: ${decide}`, tone: 'warn' });
   if (harness?.notices?.length) lines.push({ text: 'В открытом разговоре есть удалённое из памяти', tone: 'wait' });
@@ -113,4 +113,19 @@ export function saveAutonomy(storage: Store, mode: Autonomy): void {
 export function planLine(open: WorkTask[]): { now: string | null; next: string | null; more: number } {
   const [first, second] = open;
   return { now: first?.goal ?? null, next: second?.goal ?? null, more: Math.max(0, open.length - 2) };
+}
+
+// ---- the quiet row of chips: only what the cards above do not already say -------------------------------------
+const linkNames: Record<string, string> = { avatar: 'аватар', speech: 'речь', listening: 'слух', obs: 'OBS', twitch: 'Twitch', youtube: 'YouTube' };
+const linkStates: Record<string, { word: string; tone: Tone }> = {
+  on: { word: 'работает', tone: 'ok' }, idle: { word: 'ждёт', tone: 'off' }, down: { word: 'нет связи', tone: 'warn' },
+};
+export function chips(run: RunSession | undefined, harness: HarnessStatus | undefined): Line[] {
+  const rows: Line[] = [];
+  if (run && run.activity !== 'OPEN') rows.push({ text: run.activity === 'PAUSED' ? 'деятельность на паузе' : 'уходит на паузу', tone: 'wait' });
+  for (const link of harness?.live ?? []) {
+    const state = linkStates[link.state] ?? linkStates.idle;
+    rows.push({ text: `${linkNames[link.name] ?? link.name}: ${state.word}`, tone: state.tone });
+  }
+  return rows;
 }

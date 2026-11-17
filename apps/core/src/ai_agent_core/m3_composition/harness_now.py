@@ -17,6 +17,10 @@ from ai_agent_contracts.panel import HarnessNow, NowLine
 MAX_LINES = 40
 PER_SOURCE = 8
 GOALS_CHARS = 1500
+SOURCES = {
+    "game": "игра", "channel": "канал", "operator": "вы", "gm": "гейммастер", "time": "время",
+    "idle": "простой", "server": "сервер", "mail": "почта",
+}
 TAIL_BYTES = 32_768  # a journal can be long; the last lines are all that is read
 
 
@@ -83,7 +87,7 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
         elif isinstance(part, Watch):
             events = sorted(part.queue.events.values(), key=lambda e: e.created, reverse=True)
             for event in events[:PER_SOURCE]:
-                label = f"{event.source}: {_clean(event.text)}"
+                label = f"{SOURCES.get(event.source, event.source)}: {_clean(event.text)}"
                 lines.append(NowLine(at=_iso(event.created), kind="event", text=label[:300]))
     speaker = getattr(harness, "speaker", None)
     for row in _tail(getattr(speaker, "journal", None), PER_SOURCE):
