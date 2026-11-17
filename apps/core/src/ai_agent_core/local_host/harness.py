@@ -26,9 +26,6 @@ if TYPE_CHECKING:
     from ai_agent_core.m3_composition.harness_imagine import Imagine
     from ai_agent_core.m3_composition.harness_listen import Listener
     from ai_agent_core.m3_composition.harness_look import Look
-    files_root = Path(settings.files_dir) if settings.files_dir else None
-    for seed in (seed_minecraft_guide, seed_building_kit, seed_activities):
-        _safely(seed.__name__, lambda seed=seed: seed(files_root, scope_now.persona_id))
     from ai_agent_core.m3_composition.harness_people import PeopleBook
     from ai_agent_core.m3_composition.harness_speech import Speaker
     from ai_agent_core.m3_composition.harness_stage import Stage
@@ -579,6 +576,9 @@ def install(
         seed_art_guide(
             Path(settings.files_dir) if settings.files_dir else None, scope_now.persona_id
         )
+    files_root = Path(settings.files_dir) if settings.files_dir else None
+    for seed in (seed_minecraft_guide, seed_building_kit, seed_activities):
+        _safely(seed.__name__, lambda seed=seed: seed(files_root, scope_now.persona_id))
     from ai_agent_core.m3_composition.harness_people import PeopleBook
 
     if any((settings.avatar_port, settings.speech_port, settings.listen_port, settings.obs_port,
