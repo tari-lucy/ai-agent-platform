@@ -9823,6 +9823,251 @@
       "title": "PersonaCreateArguments",
       "type": "object"
     },
+    "PersonaText": {
+      "additionalProperties": false,
+      "description": "One text with its content, its version key and its history.",
+      "properties": {
+        "content": {
+          "maxLength": 65536,
+          "title": "Content",
+          "type": "string"
+        },
+        "effect": {
+          "maxLength": 200,
+          "title": "Effect",
+          "type": "string"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/PersonaTextRevision"
+          },
+          "maxItems": 30,
+          "title": "History",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\\.(md|txt)|guide:AGENTS\\.md)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "title": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 40,
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^([0-9a-f]{64}|new)$",
+          "title": "Version",
+          "type": "string"
+        },
+        "writable": {
+          "title": "Writable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "id",
+        "title",
+        "content",
+        "version",
+        "updated_at",
+        "writable",
+        "effect"
+      ],
+      "title": "PersonaText",
+      "type": "object"
+    },
+    "PersonaTextEntry": {
+      "additionalProperties": false,
+      "description": "One text that shapes the persona and that the operator may edit in the panel.",
+      "properties": {
+        "group": {
+          "enum": [
+            "rules",
+            "plans",
+            "guides",
+            "servers"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\\.(md|txt)|guide:AGENTS\\.md)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 40,
+          "title": "Updated At",
+          "type": "string"
+        },
+        "writable": {
+          "title": "Writable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "group",
+        "title",
+        "size",
+        "updated_at",
+        "writable"
+      ],
+      "title": "PersonaTextEntry",
+      "type": "object"
+    },
+    "PersonaTextRevision": {
+      "additionalProperties": false,
+      "description": "An earlier version of a text, kept when the panel replaced it.",
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "rev": {
+          "pattern": "^[A-Za-z0-9:._@-]{1,160}$",
+          "title": "Rev",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rev",
+        "at",
+        "size"
+      ],
+      "title": "PersonaTextRevision",
+      "type": "object"
+    },
+    "PersonaTextRevisionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 65536,
+          "title": "Content",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\\.(md|txt)|guide:AGENTS\\.md)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "rev": {
+          "pattern": "^[A-Za-z0-9:._@-]{1,160}$",
+          "title": "Rev",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "rev",
+        "id",
+        "at",
+        "content"
+      ],
+      "title": "PersonaTextRevisionBody",
+      "type": "object"
+    },
+    "PersonaTextWrite": {
+      "additionalProperties": false,
+      "description": "Replace a text. base_version must be the version the operator edited from.",
+      "properties": {
+        "base_version": {
+          "pattern": "^([0-9a-f]{64}|new)$",
+          "title": "Base Version",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 65536,
+          "title": "Content",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\\.(md|txt)|guide:AGENTS\\.md)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "id",
+        "content",
+        "base_version"
+      ],
+      "title": "PersonaTextWrite",
+      "type": "object"
+    },
+    "PersonaTexts": {
+      "additionalProperties": false,
+      "description": "The list of editable texts of the active persona (a whitelist, never a directory listing).",
+      "properties": {
+        "checked_at": {
+          "maxLength": 40,
+          "title": "Checked At",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PersonaTextEntry"
+          },
+          "maxItems": 80,
+          "title": "Items",
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "enabled",
+        "checked_at"
+      ],
+      "title": "PersonaTexts",
+      "type": "object"
+    },
     "PersonaValidateArguments": {
       "additionalProperties": false,
       "properties": {
@@ -16674,6 +16919,24 @@
     },
     "PersonaCreateArguments": {
       "$ref": "#/$defs/PersonaCreateArguments"
+    },
+    "PersonaText": {
+      "$ref": "#/$defs/PersonaText"
+    },
+    "PersonaTextEntry": {
+      "$ref": "#/$defs/PersonaTextEntry"
+    },
+    "PersonaTextRevision": {
+      "$ref": "#/$defs/PersonaTextRevision"
+    },
+    "PersonaTextRevisionBody": {
+      "$ref": "#/$defs/PersonaTextRevisionBody"
+    },
+    "PersonaTextWrite": {
+      "$ref": "#/$defs/PersonaTextWrite"
+    },
+    "PersonaTexts": {
+      "$ref": "#/$defs/PersonaTexts"
     },
     "PersonaValidateArguments": {
       "$ref": "#/$defs/PersonaValidateArguments"

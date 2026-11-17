@@ -531,6 +531,19 @@ class Surface:
                 COOKIE, path="/", httponly=True, secure=self.secure_for(headers), samesite="strict"
             )
             return response
+        if path == "/api/v1/persona-text" and method == "POST":
+            request = from_wire(
+                ADAPTERS["PersonaTextWrite"], await _body(headers, receive, MAX_BODY_BYTES)
+            )
+            self.sessions.check_scope(authority, request.scope)
+            if self.ports.views is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            saved = await self.ports.views.save_text(authority.control.principal_id, request)
+            self.sessions.check_scope(authority, request.scope)  # expiry during the write
+            checked = from_wire(ADAPTERS["PersonaText"], to_wire(saved))
+            if checked.scope.partition != request.scope.partition:
+                raise ContractError(ErrorCode.ACCESS_DENIED)
+            return _json(checked)
         if path == "/api/v1/memory/recall" and method == "POST":
             request = from_wire(ADAPTERS["RecallRequest"], await _body(headers, receive, 16384))
             self.sessions.check_scope(authority, request.scope)
@@ -678,7 +691,7 @@ class Surface:
         custom = re.fullmatch(
             r"/api/v1/(api-limits|private-api-status|laboratory-catalogue|laboratory-runs|"
             r"persona-markdown|settings-transfer-status|workplace-library|workplace-access|"
-            r"work-session-transcript|workplace-file|egress-log|harness-status|harness-now|harness-picture)(?:/([^/]+))?",
+            r"work-session-transcript|workplace-file|egress-log|harness-status|harness-now|harness-picture|persona-texts|persona-text|persona-text-revision)(?:/([^/]+))?",
             path,
         )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
@@ -749,6 +762,9 @@ class Surface:
                 "harness-status": "HarnessStatus",
                 "harness-now": "HarnessNow",
                 "harness-picture": "HarnessPicture",
+                "persona-texts": "PersonaTexts",
+                "persona-text": "PersonaText",
+                "persona-text-revision": "PersonaTextRevisionBody",
             }[resource]
             checked = from_wire(
                 ADAPTERS[expected],

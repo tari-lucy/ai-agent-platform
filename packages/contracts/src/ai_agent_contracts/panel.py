@@ -735,6 +735,68 @@ class HarnessStatus(Contract):
     calls_today: int = Field(default=0, strict=True, ge=0)
 
 
+TEXT_ID = r"^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.(md|txt)|guide:AGENTS\.md)$"
+
+
+class PersonaTextEntry(Contract):
+    """One text that shapes the persona and that the operator may edit in the panel."""
+
+    id: str = Field(pattern=TEXT_ID)
+    group: Literal["rules", "plans", "guides", "servers"]
+    title: str = Field(min_length=1, max_length=80)
+    size: int = Field(strict=True, ge=0)
+    updated_at: str = Field(max_length=40)
+    writable: bool = Field(strict=True)
+
+
+class PersonaTexts(Contract):
+    """The list of editable texts of the active persona (a whitelist, never a directory listing)."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    items: list[PersonaTextEntry] = Field(default_factory=list, max_length=80)
+    checked_at: str = Field(max_length=40)
+
+
+class PersonaTextRevision(Contract):
+    """An earlier version of a text, kept when the panel replaced it."""
+
+    rev: str = Field(pattern=r"^[A-Za-z0-9:._@-]{1,160}$")
+    at: str = Field(max_length=40)
+    size: int = Field(strict=True, ge=0)
+
+
+class PersonaText(Contract):
+    """One text with its content, its version key and its history."""
+
+    scope: Scope
+    id: str = Field(pattern=TEXT_ID)
+    title: str = Field(min_length=1, max_length=80)
+    content: str = Field(max_length=65536)
+    version: str = Field(pattern=r"^([0-9a-f]{64}|new)$")  # sha256 of the content; "new": no file yet
+    updated_at: str = Field(max_length=40)
+    writable: bool = Field(strict=True)
+    effect: str = Field(max_length=200)  # when a change reaches her, in words
+    history: list[PersonaTextRevision] = Field(default_factory=list, max_length=30)
+
+
+class PersonaTextRevisionBody(Contract):
+    scope: Scope
+    rev: str = Field(pattern=r"^[A-Za-z0-9:._@-]{1,160}$")
+    id: str = Field(pattern=TEXT_ID)
+    at: str = Field(max_length=40)
+    content: str = Field(max_length=65536)
+
+
+class PersonaTextWrite(Contract):
+    """Replace a text. base_version must be the version the operator edited from."""
+
+    scope: Scope
+    id: str = Field(pattern=TEXT_ID)
+    content: str = Field(max_length=65536)
+    base_version: str = Field(pattern=r"^([0-9a-f]{64}|new)$")
+
+
 class NowLine(Contract):
     """One dated line of what the persona does: a step, an event, a phrase said or heard."""
 

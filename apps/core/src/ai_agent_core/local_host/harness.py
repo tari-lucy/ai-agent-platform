@@ -539,6 +539,8 @@ def install(
             agent_names=dict(settings.agent_names),
             host_ports=dict(settings.host_ports),
             files_dir=Path(settings.files_dir) if settings.files_dir else None,
+            guide_file=host.guide,
+            history_dir=host.root / "data" / "prompt-history",
         ),
         home=lambda: volume(scope()),
         prompt=prompt,

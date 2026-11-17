@@ -119,6 +119,9 @@ class HarnessSettings:
     agent_names: dict[str, str] = field(default_factory=dict)
     # Base of the workspaces on the host disk: <base>/<persona id> is /workspace.
     files_dir: Path | None = None
+    # The operator rules file and the folder where replaced texts are kept (panel text editor).
+    guide_file: Path | None = None
+    history_dir: Path | None = None
     # Operator-granted connections to host ports (name -> port), e.g. a game mod's server.
     host_ports: dict[str, int] = field(default_factory=dict)
     # Ordered models with their own prices (name, input, output, cached); empty: ``model`` and

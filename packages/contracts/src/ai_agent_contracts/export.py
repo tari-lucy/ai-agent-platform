@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -288,6 +289,17 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
             "application/json": {"schema": {"oneOf": [ref("ServiceLeaseReceipt"), ref("Receipt")]}}
         },
     }
+    paths["/api/v1/persona-text"] = {
+        "post": {
+            "operationId": "writePersonaText",
+            "security": writing,
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": ref("PersonaTextWrite")}},
+            },
+            "responses": {"200": response("PersonaText"), **errors},
+        }
+    }
     paths["/api/v1/recall"] = {
         "post": {
             "operationId": "recall",
@@ -308,6 +320,9 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
         ("/api/v1/egress-log/{day}", "EgressLog"),
         ("/api/v1/harness-status", "HarnessStatus"),
         ("/api/v1/harness-now", "HarnessNow"),
+        ("/api/v1/persona-texts", "PersonaTexts"),
+        ("/api/v1/persona-text/{text_id}", "PersonaText"),
+        ("/api/v1/persona-text-revision/{rev}", "PersonaTextRevisionBody"),
         ("/api/v1/harness-picture/{picture_id}", "HarnessPicture"),
         ("/api/v1/api-limits", "ApiLimits"),
         ("/api/v1/laboratory-catalogue", "LaboratoryCatalogue"),
@@ -361,6 +376,16 @@ def openapi(extensions: ExtensionRegistry | None = None) -> Schema:
                     "schema": {"type": "string", "minLength": 1, "maxLength": 128},
                 }
             )
+        for placeholder in re.findall(r"\{([a-z_]+)\}", route):  # any path key not named above
+            if not any(item.get("name") == placeholder for item in params):
+                params.append(
+                    {
+                        "name": placeholder,
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 160},
+                    }
+                )
         if projection_name == "LaboratoryRuns":
             params.extend(
                 [

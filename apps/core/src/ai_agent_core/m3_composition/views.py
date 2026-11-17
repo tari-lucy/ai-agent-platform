@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import asdict
+from typing import Any
 
 from ai_agent_application.control.ports import ControlAuthority
 from ai_agent_application.laboratory.catalogue import catalogue
@@ -67,6 +68,18 @@ class Views:
                     conflicts.append(identifier)
             fragments.append(item.model_copy(update={"conflicts": conflicts}))
         return result.model_copy(update={"fragments": fragments, "missing_source_ids": []})
+
+    async def save_text(self, principal_id: str, request: Any) -> Contract:
+        """The operator replaces one of the persona's whitelisted texts."""
+        from .persona_texts import TextStore
+
+        if self.runtime.harness is None:
+            raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+        if request.scope.partition not in {s.partition for s in self.runtime.scopes}:
+            raise ContractError(ErrorCode.ACCESS_DENIED)
+        return TextStore(self.runtime.harness).write(
+            request.scope, principal_id, request.id, request.content, request.base_version
+        )
 
     async def profile(self, principal_id: str, scope: Scope, identifier: str) -> Profile:
         if identifier != scope.persona_id:
@@ -184,6 +197,19 @@ class Views:
             if found is None:
                 raise ContractError(ErrorCode.INVALID_ARGUMENTS)
             return found
+        if resource == "persona-texts" and identifier is None:
+            from .persona_texts import TextStore
+
+            return TextStore(self.runtime.harness).listing(scope, self.runtime.supervisor.clock.utc())
+        if resource in ("persona-text", "persona-text-revision") and identifier is not None:
+            from .persona_texts import TextStore
+
+            if self.runtime.harness is None:
+                raise ContractError(ErrorCode.CAPABILITY_UNAVAILABLE)
+            store = TextStore(self.runtime.harness)
+            if resource == "persona-text":
+                return store.read(scope, identifier)
+            return store.revision(scope, identifier)
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view
 
