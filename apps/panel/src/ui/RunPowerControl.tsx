@@ -5,6 +5,7 @@ import type { ControlCommand, Receipt, RunSession } from '../shared/contracts.ts
 import { ApiFailure, failureMessage, type PanelApi } from '../shared/api.ts';
 import { samePartition } from '../shared/scope.ts';
 import { controlCommand } from './workspace/model.ts';
+import { loadAutonomy } from './now/model.ts';
 
 type Attempt = { command: ControlCommand; phase: 'sending' | 'waiting' | 'unknown' };
 type Props = {
@@ -57,7 +58,7 @@ export function RunPowerControl({ api, run, state, ready, stopBusy, stopError, o
       disabled={showStart ? !canStart : !run || stopBusy || stopping}
       onClick={() => {
         if (showStart) {
-          if (canStart && run) void start(controlCommand(run, 'agent.start', 'autonomous', crypto.randomUUID()));
+          if (canStart && run) void start(controlCommand(run, 'agent.start', loadAutonomy(globalThis.localStorage), crypto.randomUUID()));
         } else void stop();
       }}>{showStart ? 'START' : stopBusy || stopping ? 'Останавливаем…' : 'STOP'}</Button>
     {stopping && <Text size="xs" c="dimmed" role="status">STOP принят: убираем контейнер и шлюз, это несколько секунд.</Text>}

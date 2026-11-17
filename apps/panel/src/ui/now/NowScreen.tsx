@@ -1,4 +1,4 @@
-import { Anchor, Badge, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Group, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
@@ -7,30 +7,26 @@ import type { PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { indicators } from '../workspace/model.ts';
 import { useHarnessEntry } from '../opencode.ts';
+import { LaunchCard } from './LaunchCard.tsx';
 import {
-  ago, attention, budgetLine, changeWords, characterNews, gmSummary, headline, plan, taskLabels, type Line, type Tone,
+  ago, attention, budgetLine, changeWords, characterNews, gmSummary, headline, plan, planLine, taskLabels, type Tone,
 } from './model.ts';
 
 const color = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const satisfies Record<Tone, string>;
+const verb = { said: 'сказала', heard: 'услышала', step: 'шаг', event: 'событие' } as const;
 
-function Card({ title, to, children }: { title: string; to?: string; children: React.ReactNode }) {
-  return <Paper withBorder p="md" radius="md">
-    <Stack gap="xs">
-      <Group justify="space-between" align="baseline">
-        <Title order={2} size="h5">{title}</Title>
-        {to && <Anchor component={Link} to={to} size="xs">Подробнее</Anchor>}
-      </Group>
-      {children}
-    </Stack>
-  </Paper>;
+// Soft panels: no borders, a quiet fill, generous air. Details hide behind a click.
+function Soft({ title, to, children }: { title?: string; to?: string; children: React.ReactNode }) {
+  return <section className="soft">
+    {(title || to) && <Group justify="space-between" align="baseline" mb={6}>
+      <Text size="sm" fw={600}>{title}</Text>
+      {to && <Anchor component={Link} to={to} size="xs" c="dimmed">подробнее</Anchor>}
+    </Group>}
+    {children}
+  </section>;
 }
-const Dot = ({ line }: { line: Line }) => <Group gap={8} wrap="nowrap" align="flex-start">
-  <Badge circle size="xs" color={color[line.tone]} mt={7} aria-hidden="true" />
-  <Text size="sm">{line.text}</Text>
-</Group>;
-const Empty = ({ children }: { children: React.ReactNode }) => <Text size="sm" c="dimmed">{children}</Text>;
+const Quiet = ({ children }: { children: React.ReactNode }) => <Text size="sm" c="dimmed">{children}</Text>;
 
-// First page of a projection is enough for a summary; a failed read shows a dash, never an invented value.
 function useFirst<T>(scope: Scope, resource: string, read: (signal: AbortSignal) => Promise<T>) {
   return useQuery({ queryKey: [...projectionKey(resource, scope), 'now'], queryFn: ({ signal }) => read(signal), refetchInterval: 30_000 });
 }
@@ -38,80 +34,86 @@ function useFirst<T>(scope: Scope, resource: string, read: (signal: AbortSignal)
 export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; run?: RunSession }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
+  const [more, setMore] = useState(false);
   const harness = useHarnessEntry() ?? undefined;
   const tasks = useFirst(scope, 'work-tasks', (signal) => api.workTasks(scope, signal));
   const tickets = useFirst(scope, 'tickets', (signal) => api.tickets(scope, signal));
   const changes = useFirst(scope, 'changes', (signal) => api.changes(scope, signal));
   const opportunities = useFirst(scope, 'opportunities', (signal) => api.opportunities(scope, signal));
-  const live = useFirst(scope, 'harness-now', (signal) => api.harnessNow(scope, signal));
   const gm = useFirst(scope, 'gm-settings', (signal) => api.gmSettings(scope, signal));
+  const live = useFirst(scope, 'harness-now', (signal) => api.harnessNow(scope, signal));
 
   const head = headline(run);
   const budget = budgetLine(harness);
   const worry = attention(run, tickets.data?.items ?? [], harness, changes.data?.items ?? []);
   const work = plan(tasks.data?.items ?? []);
-  const news = characterNews(changes.data?.items ?? []);
-  const story = gmSummary(gm.data?.items[0], opportunities.data?.items ?? [], run);
+  const line = planLine(work.open);
+  const news = characterNews(changes.data?.items ?? [], 2);
+  const settings = gm.data?.items[0];
+  const story = gmSummary(settings, opportunities.data?.items ?? [], run);
   const picture = live.data;
-  const doing = work.open.find((task) => task.state === 'active') ?? work.open[0];
+  const feed = picture?.lines ?? [];
 
-  return <Stack gap="lg">
+  return <Stack gap="lg" className="now">
     <div>
-      <Title order={1}>Сейчас</Title>
-      <Group gap="xs" mt={6}>
-        <Badge color={color[head.tone]} size="lg" variant="light">{head.text}</Badge>
-        {run && <Text size="sm" c="dimmed">{run.scope.persona_id} · {run.autonomy === 'observation' ? 'наблюдение' : 'автономно'}
-          {run.started_at ? ` · с ${ago(run.started_at, now)}` : ''}</Text>}
+      <Group gap="sm" align="center">
+        <Title order={1} size="h2">{head.text}</Title>
+        <Badge circle size="md" color={color[head.tone]} aria-hidden="true" />
       </Group>
+      {run && <Text size="sm" c="dimmed">{run.scope.persona_id}{run.started_at ? ` · работает ${ago(run.started_at, now).replace(' назад', '')}` : ''}</Text>}
     </div>
 
-    <Card title={worry.length ? 'Требует внимания' : 'Всё спокойно'}>
-      {worry.length ? worry.map((line) => <Dot key={line.text} line={line} />) : <Empty>Ничего не ждёт вашего решения.</Empty>}
-    </Card>
+    <Soft><LaunchCard api={api} scope={scope} run={run} settings={settings} harness={harness} /></Soft>
 
-    <Card title="Что происходит">
-      {picture?.lines?.length ? picture.lines.slice(0, 14).map((line) => <Group key={line.at + line.kind + line.text} gap={8} wrap="nowrap" align="flex-start">
-        <Badge size="xs" variant="light" color={line.kind === 'said' ? 'teal' : line.kind === 'heard' ? 'blue' : 'gray'} mt={4} w={92}>
-          {line.kind === 'said' ? 'сказала' : line.kind === 'heard' ? 'услышала' : line.kind === 'step' ? 'шаг' : 'событие'}</Badge>
-        <Text size="sm" style={{ flex: 1 }}>{line.text}</Text>
-        <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{ago(line.at, now)}</Text>
-      </Group>) : <Empty>Пока ничего не происходило.</Empty>}
-    </Card>
+    {worry.length > 0 && <Soft title="Нужно ваше внимание">
+      <Stack gap={4}>{worry.map((item) => <Group key={item.text} gap={8} wrap="nowrap">
+        <Badge circle size="xs" color={color[item.tone]} aria-hidden="true" /><Text size="sm">{item.text}</Text></Group>)}</Stack>
+    </Soft>}
 
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-      <Card title="Чем занята">
-        {picture?.doing ? <Text size="sm" fw={600}>Сейчас: {picture.doing}</Text> :
-          <Text size="sm" c="dimmed">{run?.state === 'ACTIVE' ? 'Пауза между шагами' : 'Не работает'}</Text>}
-        {picture?.recently?.length ? <Text size="sm">Недавно: {picture.recently.join(' → ')}</Text> : null}
-        {doing && <Text size="xs" c="dimmed">Поручение: {doing.goal} · {taskLabels[doing.state]}</Text>}
-      </Card>
+    <Soft title="Чем занята">
+      {picture?.doing ? <Text size="lg" fw={500}>{picture.doing}</Text> :
+        <Quiet>{run?.state === 'ACTIVE' ? 'Пауза между шагами' : 'Не работает'}</Quiet>}
+      {picture?.recently?.length ? <Text size="sm" c="dimmed" mt={4}>Недавно: {picture.recently.slice(-3).join(' → ')}</Text> : null}
+      <details className="soft-details">
+        <summary><Text span size="sm" c="dimmed">
+          {line.now ? `План: ${line.now}${line.next ? ` → ${line.next}` : ''}${line.more ? ` (+${line.more})` : ''}` : 'План'}</Text></summary>
+        <Stack gap={4} mt={6}>
+          {work.open.map((task) => <Text key={task.id} size="sm">{task.goal} <Text span c="dimmed" size="xs">· {taskLabels[task.state]}</Text></Text>)}
+          {picture?.goals && <Text size="sm" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{picture.goals}</Text>}
+          {!work.open.length && !picture?.goals && <Quiet>Планов нет.</Quiet>}
+          <Anchor component={Link} to="/work" size="xs">все поручения</Anchor>
+        </Stack>
+      </details>
+    </Soft>
 
-      <Card title="Планы" to="/work">
-        {work.open.length ? work.open.map((task) => <Group key={task.id} gap={8} wrap="nowrap" align="flex-start">
-          <Badge size="xs" variant="light" color={task.state === 'active' ? 'teal' : task.state === 'waiting' ? 'blue' : 'gray'} mt={4}>{taskLabels[task.state]}</Badge>
-          <Text size="sm">{task.goal}</Text>
-        </Group>) : picture?.goals ? null : <Empty>Список пуст.</Empty>}
-        {picture?.goals && <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lineClamp={8}>{picture.goals}</Text>}
-        {work.done && <Text size="xs" c="dimmed">Последнее сделанное: {work.done.goal} · {ago(work.done.updated_at, now)}</Text>}
-      </Card>
-
-      <Card title="Характер" to="/development">
-        {news.length ? news.map((change) => <div key={change.id}>
-          <Text size="sm">{change.interpretation}</Text>
+    <Group grow align="stretch" wrap="wrap" gap="md">
+      <Soft title="Характер" to="/development">
+        {news.length ? news.map((change) => <div key={change.id} style={{ marginBottom: 6 }}>
+          <Text size="sm" lineClamp={3}>{change.interpretation}</Text>
           <Text size="xs" c="dimmed">{changeWords[change.status]} · {ago(change.updated_at, now)}</Text>
-        </div>) : <Empty>Изменений характера пока нет.</Empty>}
-      </Card>
+        </div>) : <Quiet>Изменений пока нет.</Quiet>}
+      </Soft>
+      <Soft title="Гейммастер" to="/development">
+        <Text size="sm">{story.paused ? 'на паузе' : 'работает'} · предложено {story.offered} · пережито {story.lived}{story.blocked ? ` · заблокировано ${story.blocked}` : ''}</Text>
+        {story.latest && <Text size="xs" c="dimmed" lineClamp={2} mt={4}>{story.latest.applicability} · {ago(story.latest.updated_at, now)}</Text>}
+      </Soft>
+    </Group>
 
-      <Card title="Гейммастер" to="/development">
-        <Text size="sm">{story.paused ? 'На паузе' : 'Работает'}{story.intensity != null ? ` · интенсивность ${story.intensity}` : ''}</Text>
-        <Text size="sm">Предложено сюжетов: {story.offered} · пережито: {story.lived}{story.blocked ? ` · заблокировано: ${story.blocked}` : ''}</Text>
-        {story.latest && <Text size="xs" c="dimmed">Последнее: {story.latest.applicability} · {ago(story.latest.updated_at, now)}</Text>}
-      </Card>
-    </SimpleGrid>
+    <Soft title="Что происходит">
+      {feed.length ? <Stack gap={6}>
+        {feed.slice(0, more ? 25 : 5).map((item) => <Group key={item.at + item.kind + item.text} gap={10} wrap="nowrap" align="baseline">
+          <Text size="xs" c={item.kind === 'said' ? 'teal' : item.kind === 'heard' ? 'blue' : 'dimmed'} w={64}>{verb[item.kind]}</Text>
+          <Text size="sm" style={{ flex: 1 }}>{item.text}</Text>
+          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{ago(item.at, now)}</Text>
+        </Group>)}
+        {feed.length > 5 && <Anchor component="button" type="button" size="xs" c="dimmed" ta="left" onClick={() => setMore(!more)}>
+          {more ? 'свернуть' : 'показать ещё'}</Anchor>}
+      </Stack> : <Quiet>Пока тихо.</Quiet>}
+    </Soft>
 
-    <Card title="Состояние систем" to="/workspace">
-      {run ? indicators(run).map((item) => <Dot key={item.label} line={{ text: `${item.label}: ${item.value}`, tone: item.tone }} />) : <Empty>Нет данных.</Empty>}
-      {budget && <Dot line={budget} />}
-    </Card>
+    <Group gap="xs" aria-label="Состояние систем">
+      {run && indicators(run).map((item) => <Badge key={item.label} variant="light" color={color[item.tone]} size="md" tt="none" fw={400}>{item.label}: {item.value}</Badge>)}
+      {budget && <Badge variant="light" color={color[budget.tone]} size="md" tt="none" fw={400}>{budget.text}</Badge>}
+    </Group>
   </Stack>;
 }

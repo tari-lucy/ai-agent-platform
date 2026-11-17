@@ -96,3 +96,21 @@ export function gmSummary(settings: GmRuntimeState | undefined, opportunities: O
     latest: sorted[0] ?? null,
   };
 }
+
+// ---- launch modes ----------------------------------------------------------------------------------------
+export type Autonomy = 'observation' | 'autonomous';
+export const autonomyKey = 'ai-panel.start-autonomy';
+type Store = Pick<Storage, 'getItem' | 'setItem'> | undefined | null;
+// The panel always started the agent autonomously; the choice is kept in the browser and defaults to that.
+export function loadAutonomy(storage: Store): Autonomy {
+  try { return storage?.getItem(autonomyKey) === 'observation' ? 'observation' : 'autonomous'; } catch { return 'autonomous'; }
+}
+export function saveAutonomy(storage: Store, mode: Autonomy): void {
+  try { storage?.setItem(autonomyKey, mode); } catch { /* private window: the choice just is not kept */ }
+}
+
+// ---- plan in one line --------------------------------------------------------------------------------------
+export function planLine(open: WorkTask[]): { now: string | null; next: string | null; more: number } {
+  const [first, second] = open;
+  return { now: first?.goal ?? null, next: second?.goal ?? null, more: Math.max(0, open.length - 2) };
+}

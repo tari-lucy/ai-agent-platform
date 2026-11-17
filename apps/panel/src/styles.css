@@ -88,3 +88,12 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 .panel-guide-links { margin: 0; padding-left: 20px; }
 .panel-guide-links li + li { margin-top: 8px; }
 .panel-guide-links a { color: #6741d9; font-weight: 600; }
+
+/* "Сейчас": soft panels without borders, details behind a click */
+.now { max-width: 880px; }
+.soft { background: #fff; border-radius: 18px; padding: 18px 22px; box-shadow: 0 1px 2px #3530480d, 0 8px 28px #35304806; }
+.soft-details { margin-top: 10px; }
+.soft-details summary { cursor: pointer; list-style: none; }
+.soft-details summary::-webkit-details-marker { display: none; }
+.soft-details summary::before { content: '▸ '; color: #a39cb8; }
+.soft-details[open] summary::before { content: '▾ '; }

@@ -47,3 +47,16 @@ test('the live picture is validated line by line and must belong to the viewed p
   assert.throws(() => harnessNow({ ...good, lines: [{ at: 'a', kind: 'weird', text: 'x' }] }, scope));
   assert.throws(() => harnessNow({ ...good, scope: { ...scope, persona_id: 'other' } }, scope));
 });
+
+test('the launch mode defaults to autonomous (as START always was) and remembers the operator', async () => {
+  const { loadAutonomy, saveAutonomy, planLine } = await import('../src/ui/now/model.ts');
+  const memory = new Map<string, string>();
+  const storage = { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => void memory.set(key, value) };
+  assert.equal(loadAutonomy(storage), 'autonomous');
+  saveAutonomy(storage, 'observation');
+  assert.equal(loadAutonomy(storage), 'observation');
+  assert.equal(loadAutonomy(undefined), 'autonomous');
+  const task = (goal: string) => ({ goal }) as never;
+  assert.deepEqual(planLine([task('a'), task('b'), task('c'), task('d')]), { now: 'a', next: 'b', more: 2 });
+  assert.deepEqual(planLine([]), { now: null, next: null, more: 0 });
+});
