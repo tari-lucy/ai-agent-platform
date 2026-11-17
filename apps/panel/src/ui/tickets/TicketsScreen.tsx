@@ -268,6 +268,7 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
   const cache = useQueryClient();
   const { messages, failed } = useConversation(api, scope, ticket);
   const [result, setResult] = useState<string | null>(null);
+  const [replying, setReplying] = useState(false);
   // Marking as read changes the ticket version: actions wait until the card is read again,
   // so a quick click is not sent against the version just replaced.
   const [reading, setReading] = useState(false);
@@ -294,9 +295,9 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
       <Badge variant="light" color={ticket.next_turn === 'operator' ? 'orange' : terminal(ticket) ? 'gray' : 'blue'}>{statusText(ticket)}</Badge></Group>
     <Title order={2} size="h4" mt="xs" className="plain-text">{ticket.title}</Title>
     <Stack gap={6} mt="sm">
-      <div><Text size="sm" fw={600}>Что случилось</Text><Text size="sm" className="plain-text">{ticket.summary}</Text></div>
-      <div><Text size="sm" fw={600}>Чего агент ждёт от вас</Text><Text size="sm" className="plain-text">{ticket.decision_needed}</Text></div>
-      {access && ticket.request!.constraints && <div><Text size="sm" fw={600}>Зачем и с какими ограничениями</Text>
+      <div><Text size="xs" c="dimmed">Что просит агент</Text><Text size="md" fw={600} className="plain-text">{ticket.decision_needed}</Text></div>
+      <div><Text size="xs" c="dimmed">Почему</Text><Text size="sm" className="plain-text">{ticket.summary}</Text></div>
+      {access && ticket.request!.constraints && <div><Text size="xs" c="dimmed">Ограничения из запроса</Text>
         <Text size="sm" className="plain-text">{ticket.request!.constraints}</Text></div>}
       {ticket.resolution != null && <Text size="sm" className="plain-text">Итог: {ticket.resolution}</Text>}
       {result && <Alert color="teal" role="status">{result}</Alert>}
@@ -310,18 +311,22 @@ function Card({ api, scope, ticket, run }: { api: PanelApi; scope: Scope; ticket
         <Text size="xs" c="dimmed">Идентификатор: {ticket.id}</Text>
       </Details>
     </Stack>
-    <Title order={3} size="h5" mt="md">Переписка ({messages.length})</Title>
-    {(failed || messages.length < ticket.message_count) && <Text size="xs" c="orange.8">Загружены не все сообщения.</Text>}
-    <ol className="memory-list" aria-label="Сообщения обращения">{messages.map((message) => <li key={message.id}>
-      <Paper withBorder p="xs" mb={4}><Text size="xs" c="dimmed">{partyLabels[message.author]} · {when(message.created_at)}</Text>
-        <Text size="sm" className="plain-text">{message.body}</Text></Paper></li>)}</ol>
-    <Answer key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} onResult={setResult} waiting={settling} />
-    {!terminal(ticket) && <Group mt="xs"><Closing api={api} scope={scope} ticket={ticket} onResult={setResult} refuse={access} waiting={settling} /></Group>}
+    {access && !terminal(ticket) && <Group mt="xs"><Closing api={api} scope={scope} ticket={ticket} onResult={setResult} refuse waiting={settling} /></Group>}
+    <Details summary={`Переписка (${messages.length})`}>
+      {(failed || messages.length < ticket.message_count) && <Text size="xs" c="orange.8">Загружены не все сообщения.</Text>}
+      <ol className="memory-list" aria-label="Сообщения обращения">{messages.map((message) => <li key={message.id}>
+        <Paper withBorder p="xs" mb={4}><Text size="xs" c="dimmed">{partyLabels[message.author]} · {when(message.created_at)}</Text>
+          <Text size="sm" className="plain-text">{message.body}</Text></Paper></li>)}</ol>
+    </Details>
+    {replying ? <Answer key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} onResult={(text) => { setResult(text); setReplying(false); }} waiting={settling} /> :
+      <Group mt="xs"><Button size="compact-sm" variant="light" onClick={() => setReplying(true)}>
+        {terminal(ticket) ? 'Вернуть в работу ответом' : 'Ответить текстом'}</Button>
+        {!access && !terminal(ticket) && <Closing api={api} scope={scope} ticket={ticket} onResult={setResult} refuse={false} waiting={settling} />}</Group>}
   </Paper>;
 }
 
 function List({ title, rows, selected, onSelect, empty }: { title: string; rows: Ticket[]; selected: string | null; onSelect: (id: string) => void; empty: string }) {
-  return <div><Title order={2} size="h5" mb={4}>{title} ({rows.length})</Title>
+  return <div>{title && <Title order={2} size="h5" mb={4}>{title} ({rows.length})</Title>}
     {!rows.length ? <Text size="sm" c="dimmed">{empty}</Text> :
       <ul className="memory-list" aria-label={title}>{rows.map((row) => <li key={row.id}>
         <button type="button" className={`memory-item ${row.id === selected ? 'selected' : ''}`} onClick={() => onSelect(row.id)}>
@@ -336,26 +341,28 @@ export function TicketsScreen({ api, scope, run }: { api: PanelApi; scope: Scope
   // A link like #/tickets?ticket=<id> (from a conversation) opens that exact card.
   const [params] = useSearchParams();
   const [selected, setSelected] = useState<string | null>(() => params.get('ticket'));
+  const [chosen, setChosen] = useState<'mine' | 'working' | 'done' | null>(null);
   const rows = tickets.data?.pages.flatMap((page) => page.items) ?? [];
   const { mine, working, done } = groups(rows);
   const ticket = rows.find((row) => row.id === selected) ?? null;
+  // The tab with something to do opens first; the operator's own choice wins afterwards.
+  const tab = chosen ?? (mine.length ? 'mine' : working.length ? 'working' : 'done');
+  const shown = { mine, working, done }[tab];
+  const empty = { mine: 'Ничего не ждёт вашего ответа.', working: 'Нет обращений в работе.', done: 'Завершённых нет.' }[tab];
   const failed = tickets.isError ? tickets : undefined;
   return <Stack gap="md">
-    <div><Title order={1} size="h3">Обращения</Title>
-      <Text size="sm" c="dimmed">Вопросы, проблемы, идеи и запросы доступа от агента. Ответить можно и когда агент остановлен;
-        открытие карточки и ответ сами агента не запускают и модель не вызывают.</Text>
-      <Text size="sm" mt={4} aria-label="Профиль обращений">Профиль: <strong>{scope.persona_id}</strong> ·
-        {scope.memory_mode === 'test' ? ' тестовая память' : ' рабочая память'} ({scope.memory_space_id})</Text></div>
+    <div><Title order={1} size="h3">Запросы агента</Title>
+      <Text size="sm" c="dimmed">Что агент просит: доступ, инструмент, ответ или решение. Ответ агента не запускает.</Text></div>
     {failed && <Alert color="orange" title="Часть данных недоступна">{failureMessage(failed.error)}</Alert>}
     {tickets.isPending ? <Text size="sm">Получаем обращения…</Text> : <Group align="flex-start" grow wrap="wrap">
-      <Stack gap="md" style={{ flex: '1 1 18rem' }}>
-        <List title="Нужен мой ответ" rows={mine} selected={selected} onSelect={setSelected} empty="Ничего не ждёт вашего ответа." />
-        <List title="В работе" rows={working} selected={selected} onSelect={setSelected} empty="Нет обращений в работе." />
-        <List title="Завершённые" rows={done} selected={selected} onSelect={setSelected} empty="Завершённых нет." />
+      <Stack gap="xs" style={{ flex: '1 1 18rem' }}>
+        <SegmentedControl size="xs" fullWidth value={tab} onChange={(value) => setChosen(value as typeof tab)} aria-label="Какие запросы показать"
+          data={[{ value: 'mine', label: `Ждут меня · ${mine.length}` }, { value: 'working', label: `В работе · ${working.length}` }, { value: 'done', label: `Закрыты · ${done.length}` }]} />
+        <List title="" rows={shown} selected={selected} onSelect={setSelected} empty={empty} />
       </Stack>
       <div style={{ flex: '1 1 28rem' }}>{ticket ?
         <Card key={ticket.id} api={api} scope={scope} ticket={ticket} run={run} /> :
-        <Alert color="gray">Выберите обращение, чтобы увидеть переписку и ответить.</Alert>}</div>
+        <Alert color="gray">Выберите запрос слева, чтобы прочитать и решить.</Alert>}</div>
     </Group>}
   </Stack>;
 }
