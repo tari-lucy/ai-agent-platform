@@ -3338,6 +3338,17 @@
             "title": "Pictures",
             "type": "array"
           },
+          "plan_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanUse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "recently": {
             "items": {
               "type": "string"
@@ -3348,6 +3359,17 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
+          },
+          "sleep": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanSleep"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -10225,6 +10247,105 @@
           "version"
         ],
         "title": "PlanDependency",
+        "type": "object"
+      },
+      "PlanSleep": {
+        "additionalProperties": false,
+        "description": "She sleeps because the ChatGPT plan's usage limit is out, until the window opens.",
+        "properties": {
+          "since": {
+            "maxLength": 40,
+            "title": "Since",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "headers",
+              "body",
+              "default"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "until": {
+            "maxLength": 40,
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "until",
+          "since",
+          "source"
+        ],
+        "title": "PlanSleep",
+        "type": "object"
+      },
+      "PlanUse": {
+        "additionalProperties": false,
+        "description": "What her turns have used of the plan, from her own session (the remaining allowance is not readable).",
+        "properties": {
+          "day": {
+            "minimum": 0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "last_limit_at": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Limit At"
+          },
+          "last_limit_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Limit Tokens"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Since"
+          },
+          "week": {
+            "minimum": 0,
+            "title": "Week",
+            "type": "integer"
+          },
+          "window": {
+            "minimum": 0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window",
+          "day",
+          "week"
+        ],
+        "title": "PlanUse",
         "type": "object"
       },
       "PrivateApiStatus": {

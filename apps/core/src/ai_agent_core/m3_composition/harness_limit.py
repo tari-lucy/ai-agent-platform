@@ -135,8 +135,10 @@ class LimitGate:
         clock: Callable[[], datetime],
         every: float = LOOK_EVERY,
         mono: Callable[[], float] = time.monotonic,
+        on_sleep: Callable[[Sleep], None] | None = None,
     ) -> None:
         self.opencode, self.clock, self.every, self.mono = opencode, clock, every, mono
+        self.on_sleep = on_sleep  # told about every new sleep (the plan figures keep a note)
         self.sleep: Sleep | None = None
         self.announced: datetime | None = None  # the `until` a wake was already planned for
         self._looked = float("-inf")
@@ -151,7 +153,10 @@ class LimitGate:
             return None
         self._looked = self.mono()
         rows = await self.opencode("GET", f"/session/{quote(session)}/message?limit={HISTORY}")
-        self.sleep = read_limit(rows, now)
+        found = read_limit(rows, now)
+        if found is not None and self.on_sleep is not None:
+            self.on_sleep(found)
+        self.sleep = found
         return self.sleep
 
     def fresh(self) -> Sleep | None:

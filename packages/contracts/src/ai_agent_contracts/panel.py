@@ -850,6 +850,25 @@ class NowAbility(Contract):
     tools: list[str] = Field(default_factory=list, max_length=12)
 
 
+class PlanSleep(Contract):
+    """She sleeps because the ChatGPT plan's usage limit is out, until the window opens."""
+
+    until: str = Field(max_length=40)
+    since: str = Field(max_length=40)
+    source: Literal["headers", "body", "default"]  # where the reset time came from; default = a guess
+
+
+class PlanUse(Contract):
+    """What her turns have used of the plan, from her own session (the remaining allowance is not readable)."""
+
+    window: int = Field(ge=0, strict=True)  # new tokens in the last five hours
+    day: int = Field(ge=0, strict=True)  # the last 24 hours
+    week: int = Field(ge=0, strict=True)  # the last seven days
+    since: str | None = Field(default=None, max_length=40)  # counting began here; before it nothing is known
+    last_limit_at: str | None = Field(default=None, max_length=40)
+    last_limit_tokens: int | None = Field(default=None, ge=0, strict=True)  # used in the 5 hours before it
+
+
 class HarnessNow(Contract):
     """What the persona is doing right now, read from the harness itself (the panel's home)."""
 
@@ -864,6 +883,8 @@ class HarnessNow(Contract):
     days: list[HourBucket] = Field(default_factory=list, max_length=7)  # the week, oldest first
     pictures: list[NowPicture] = Field(default_factory=list, max_length=12)  # newest first
     abilities: list[NowAbility] = Field(default_factory=list, max_length=16)
+    sleep: PlanSleep | None = None  # asleep until the plan's window opens
+    plan_use: PlanUse | None = None
     checked_at: str = Field(max_length=40)
 
 

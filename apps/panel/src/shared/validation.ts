@@ -786,6 +786,12 @@ export function harnessNow(value: unknown, selected: Scope): import('./contracts
   demand(((value as { lines?: unknown[] }).lines ?? []).every((item) => object(item) &&
     typeof item.at === 'string' && item.at.length <= 40 && typeof item.kind === 'string' && nowKinds.has(item.kind) &&
     typeof item.text === 'string' && item.text.length <= 300));
+  const { sleep, plan_use: use } = value as { sleep?: Record<string, unknown> | null; plan_use?: Record<string, unknown> | null };
+  demand(sleep == null || (object(sleep) && text(sleep.until, 40) && text(sleep.since, 40) &&
+    (sleep.source === 'headers' || sleep.source === 'body' || sleep.source === 'default')));
+  demand(use == null || (object(use) && count(use.window) && count(use.day) && count(use.week) &&
+    (use.since == null || text(use.since, 40)) && (use.last_limit_at == null || text(use.last_limit_at, 40)) &&
+    (use.last_limit_tokens == null || count(use.last_limit_tokens))));
   return value as import('./contracts.ts').HarnessNow;
 }
 

@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import quote
 
 from ai_agent_application.memory import derived_id
@@ -20,6 +20,7 @@ from ai_agent_contracts.common import Scope
 
 from .harness_learning import LearningPart, OpenCode, identifier
 from .harness_limit import LimitGate
+from .harness_planuse import PlanUsage
 from .harness_wakes import MAX_MINUTES
 from .work_session_wake import WakeSettings
 
@@ -338,6 +339,8 @@ class AutonomyPart:
         self.service: HarnessAutonomy | None = None
         self.next_check = 0.0
         # lives as long as this part: the dispatcher is rebuilt every tick
+        self.usage: PlanUsage | None = None  # her use of the plan, counted from her own session
+        self.usage_task: asyncio.Task[None] | None = None
         self.limit: LimitGate | None = None
 
     def sleeping(self):
@@ -355,8 +358,18 @@ class AutonomyPart:
                 # session again
                 self.limit.sleep = None
             return
+        if self.usage is None:
+            where = host.settings.usage_dir / "plan-usage.jsonl"
+            self.usage = PlanUsage(where, self.rt.supervisor.clock.utc)
         if self.limit is None:
-            self.limit = LimitGate(host.opencode, self.rt.supervisor.clock.utc)
+            note = self.usage.note_limit
+            self.limit = LimitGate(
+                host.opencode,
+                self.rt.supervisor.clock.utc,
+                on_sleep=lambda sleep: note(sleep.until),
+            )
+        if self.usage_task is None or self.usage_task.done():
+            self.usage_task = asyncio.create_task(self._count(host))
         if self.task is not None:
             if not self.task.done():
                 return
@@ -407,7 +420,19 @@ class AutonomyPart:
         )
         self.task = asyncio.create_task(self.service.tick())
 
+    async def _count(self, host: Any) -> None:
+        """One look at her session for the plan's figures (cheap, and at most once a minute)."""
+        try:
+            assert self.usage is not None
+            await self.usage.poll(host.opencode)
+        except (OSError, ValueError, TimeoutError, AssertionError) as error:
+            LOG.debug("Plan figures not read: %s", type(error).__name__)
+
     async def close(self) -> None:
+        if self.usage_task is not None:
+            self.usage_task.cancel()
+            await asyncio.gather(self.usage_task, return_exceptions=True)
+            self.usage_task = None
         if self.task is not None:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)

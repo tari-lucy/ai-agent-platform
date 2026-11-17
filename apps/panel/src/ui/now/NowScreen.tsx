@@ -9,7 +9,7 @@ import { useHarnessEntry } from '../opencode.ts';
 import { LaunchCard } from './LaunchCard.tsx';
 import { Abilities, Activities, FunnelBar, HourRibbon, PictureStrip, TraitBars } from './Widgets.tsx';
 import {
-  ago, attention, budgetLine, chips, funnel, gmSummary, headline, ribbon, traits, type Tone,
+  ago, attention, budgetLine, chips, funnel, gmSummary, headline, planCard, ribbon, traits, type Tone,
 } from './model.ts';
 
 const color = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const satisfies Record<Tone, string>;
@@ -54,6 +54,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const activities = picture?.activities ?? [];
   const day = ribbon(span === 'hours' ? picture?.hours : picture?.days);
   const character = traits(states.data?.items[0], changes.data?.items ?? []);
+  const subscription = planCard(picture, now);
 
   return <Stack gap="lg" className="now">
     <div>
@@ -65,6 +66,14 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
     </div>
 
     <Soft><LaunchCard api={api} scope={scope} run={run} settings={settings} harness={harness} /></Soft>
+
+    {subscription && <Soft title="Подписка ChatGPT">
+      <Group gap={8} wrap="nowrap" align="center">
+        <Badge circle size="xs" color={color[subscription.tone]} aria-hidden="true" />
+        <Text size="sm" fw={600}>{subscription.headline}</Text>
+      </Group>
+      <Stack gap={2} mt={6}>{subscription.lines.map((line) => <Text key={line} size="xs" c="dimmed">{line}</Text>)}</Stack>
+    </Soft>}
 
     {worry.length > 0 && <Soft title="Нужно ваше внимание">
       <Stack gap={4}>{worry.map((item) => <Group key={item.text} gap={8} wrap="nowrap">

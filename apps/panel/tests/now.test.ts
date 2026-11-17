@@ -118,3 +118,41 @@ test('persona text answers are validated: whitelisted ids, version keys, and the
   assert.equal(personaTextRevision({ scope, rev, id: 'guide:AGENTS.md', at: 't', content: 'c' }, scope, rev).content, 'c');
   assert.throws(() => personaTextRevision({ scope, rev, id: 'file:x.py', at: 't', content: 'c' }, scope, rev));
 });
+
+test('the plan card says asleep or awake, when the window opens, and what was used', async () => {
+  const { planCard, tokens } = await import('../src/ui/now/model.ts');
+  const now = Date.parse('2026-11-17T22:00:00Z');
+  const base = { scope: { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const, enabled: true, checked_at: 'now' };
+  assert.equal(planCard(undefined, now), null);
+  assert.equal(planCard(base as never, now), null); // nothing known: nothing is invented
+  assert.equal(tokens(950), '950');
+  assert.equal(tokens(48_000), '48 тыс');
+  assert.equal(tokens(3_120_000), '3,1 млн');
+  const use = { window: 3_100_000, day: 5_400_000, week: 21_000_000, since: '2026-11-10T00:00:00Z', last_limit_at: '2026-11-17T19:00:00Z', last_limit_tokens: 3_400_000 };
+  const awake = planCard({ ...base, plan_use: use } as never, now)!;
+  assert.equal(awake.asleep, false);
+  assert.equal(awake.tone, 'ok');
+  assert.match(awake.lines.join(' '), /за 5 часов 3,1 млн, за сутки 5,4 млн, за неделю 21,0 млн/);
+  assert.match(awake.lines.join(' '), /после 3,4 млн за 5 часов/);
+  const asleep = planCard({ ...base, plan_use: use, sleep: { until: '2026-11-18T01:20:00Z', since: '2026-11-17T21:00:00Z', source: 'headers' } } as never, now)!;
+  assert.equal(asleep.asleep, true);
+  assert.equal(asleep.tone, 'wait');
+  assert.match(asleep.headline, /Спит: лимит подписки исчерпан, ещё 3 ч 20 мин/);
+  assert.match(asleep.lines[0], /проснётся сама/);
+  const guess = planCard({ ...base, sleep: { until: '2026-11-17T22:30:00Z', since: '2026-11-17T22:00:00Z', source: 'default' } } as never, now)!;
+  assert.match(guess.lines[0], /не назвал/); // a guess is said to be one
+});
+
+test('the home picture accepts the sleep and the plan use and refuses broken ones', async () => {
+  const { harnessNow } = await import('../src/shared/validation.ts');
+  const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
+  const ok = { scope, enabled: true, checked_at: 'now' };
+  const sleep = { until: '2026-11-18T01:20:00Z', since: '2026-11-17T21:00:00Z', source: 'body' };
+  const use = { window: 1, day: 2, week: 3, since: null, last_limit_at: null, last_limit_tokens: null };
+  assert.equal(harnessNow({ ...ok, sleep, plan_use: use }, scope).enabled, true);
+  assert.equal(harnessNow({ ...ok, sleep: null, plan_use: null }, scope).enabled, true);
+  assert.throws(() => harnessNow({ ...ok, sleep: { ...sleep, source: 'guess' } }, scope));
+  assert.throws(() => harnessNow({ ...ok, sleep: { since: 'x', source: 'body' } }, scope));
+  assert.throws(() => harnessNow({ ...ok, plan_use: { ...use, window: -1 } }, scope));
+  assert.throws(() => harnessNow({ ...ok, plan_use: { ...use, week: 1.5 } }, scope));
+});

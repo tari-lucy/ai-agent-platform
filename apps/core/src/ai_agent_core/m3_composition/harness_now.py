@@ -22,6 +22,8 @@ from ai_agent_contracts.panel import (
     NowActivity,
     NowLine,
     NowPicture,
+    PlanSleep,
+    PlanUse,
 )
 
 MAX_LINES = 40
@@ -309,9 +311,23 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
     from .harness_limit import describe
 
     asleep = None
+    sleep = plan_use = None
     for part in harness.parts:
-        if isinstance(part, AutonomyPart) and part.sleeping() is not None:
-            asleep = describe(part.sleeping(), now)  # the plan ran out: she sleeps until the window opens
+        if isinstance(part, AutonomyPart):
+            found = part.sleeping()
+            if found is not None:  # the plan ran out: she sleeps until the window opens
+                asleep = describe(found, now)
+                sleep = PlanSleep(until=found.until.isoformat(timespec="seconds"),
+                                  since=found.since.isoformat(timespec="seconds"), source=found.source)
+            if part.usage is not None:
+                used = part.usage.totals()
+                if used.since is not None:
+                    plan_use = PlanUse(
+                        window=used.window, day=used.day, week=used.week,
+                        since=used.since.isoformat(timespec="seconds"),
+                        last_limit_at=used.last_limit_at.isoformat(timespec="seconds") if used.last_limit_at else None,
+                        last_limit_tokens=used.last_limit_tokens,
+                    )  # fmt: skip
     for part in harness.parts:
         if isinstance(part, Activity):
             if part.running:
@@ -338,6 +354,8 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
         scope=scope,
         enabled=True,
         doing=doing,
+        sleep=sleep,
+        plan_use=plan_use,
         recently=recently,
         goals=_goals(harness.folders()),
         lines=lines[:MAX_LINES],

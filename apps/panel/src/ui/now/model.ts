@@ -1,5 +1,5 @@
 import type {
-  CharacterState, GmRuntimeState, HourBucket, HarnessStatus, Opportunity, RunSession, StateChange, Ticket, WorkTask,
+  CharacterState, GmRuntimeState, HarnessNow, HourBucket, HarnessStatus, Opportunity, RunSession, StateChange, Ticket, WorkTask,
 } from '../../shared/contracts.ts';
 
 // Pure logic of the "Сейчас" screen: one honest line per question the operator has, no I/O.
@@ -178,4 +178,47 @@ export function ribbon(hours: HourBucket[] | undefined): { rows: Ribbon[]; peak:
     total: (bucket.said ?? 0) + (bucket.heard ?? 0) + (bucket.posted ?? 0) + (bucket.drew ?? 0),
   }));
   return { rows, peak: Math.max(1, ...rows.map((row) => row.total)), busy: rows.filter((row) => row.total > 0).length };
+}
+
+
+// ---- the ChatGPT plan: asleep or awake, and what she has used --------------------------------------
+export function tokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace('.', ',')} млн`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)} тыс`;
+  return String(value);
+}
+
+function left(until: string, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((Date.parse(until) - nowMs) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.ceil((seconds % 3600) / 60);
+  if (hours === 0) return `${Math.max(1, minutes)} мин`;
+  return minutes === 60 ? `${hours + 1} ч` : `${hours} ч ${minutes} мин`;
+}
+
+const clock = (value: string) => new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+export type PlanCard = { asleep: boolean; headline: string; tone: Tone; lines: string[] } | null;
+
+// The remaining allowance is not readable while she works (the provider says it only when it refuses),
+// so this shows what is known: asleep or not, when the window opens, and what her turns have used.
+export function planCard(picture: HarnessNow | undefined, nowMs: number): PlanCard {
+  if (!picture || (!picture.sleep && !picture.plan_use)) return null;
+  const { sleep, plan_use: use } = picture;
+  const lines: string[] = [];
+  if (sleep) {
+    lines.push(sleep.source === 'default'
+      ? 'Время сброса провайдер не назвал: посмотрю ещё раз через полчаса.'
+      : `Окно лимита откроется в ${clock(sleep.until)} (через ${left(sleep.until, nowMs)}), тогда она проснётся сама.`);
+  }
+  if (use) {
+    lines.push(`Потрачено токенов: за 5 часов ${tokens(use.window)}, за сутки ${tokens(use.day)}, за неделю ${tokens(use.week)}.`);
+    if (use.last_limit_at && use.last_limit_tokens) {
+      lines.push(`Прошлый раз лимит наступил ${ago(use.last_limit_at, nowMs)} после ${tokens(use.last_limit_tokens)} за 5 часов.`);
+    }
+    if (use.since && nowMs - Date.parse(use.since) < 7 * day) lines.push(`Считаю с ${clock(use.since)}: раньше данных нет.`);
+  }
+  return sleep
+    ? { asleep: true, headline: `Спит: лимит подписки исчерпан, ещё ${left(sleep.until, nowMs)}`, tone: 'wait', lines }
+    : { asleep: false, headline: 'Бодрствует, лимит подписки не исчерпан', tone: 'ok', lines };
 }
