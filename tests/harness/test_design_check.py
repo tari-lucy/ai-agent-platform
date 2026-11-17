@@ -203,3 +203,90 @@ def test_nothing_is_touched_when_the_game_is_not_in_a_world(tmp_path, monkeypatc
     assert build_plan.main(["cleanup", str(plan), "--origin", "0,0,0"], client=world) == 10
     assert [n for n, _ in world.calls] == ["getGameState"]  # no allowBreak, no verify, no rebuild
     assert "не в мире" in capsys.readouterr().out
+
+
+class Jammed:
+    """A builder that stands inside its own footprint until the body is walked out of it."""
+
+    def __init__(self, free_after):
+        self.moved = 0
+        self.free_after = free_after
+        self.placed = 0
+        self.calls = []
+        self.issued = 0
+
+    def call(self, name, args):
+        self.calls.append(name)
+        if name == "getGameState":
+            return json.dumps({"inGame": True, "self": {"pos": "203.5,71.8,25.6"}}), False
+        if name == "getBlockAt":
+            solid = args["y"] < 71
+            return json.dumps({"id": "minecraft:dirt" if solid else "minecraft:air", "replaceable": "false" if solid else "true"}), False
+        if name in ("stopPathing", "buildQueueClear"):
+            return json.dumps({"ok": True}), False
+        if name == "buildBlocks":
+            self.issued += 1
+            return json.dumps({"ok": True}), False
+        if name == "buildQueue":
+            if self.moved >= self.free_after:
+                return json.dumps({"done": True, "placed": 9}), False
+            self.placed = 0
+            return json.dumps({"queued": 3, "placed": 0, "blockedByOwnBody": self.issued * 100 + len(self.calls)}), False
+        raise AssertionError(name)
+
+
+def fake_clock(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(build_plan.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    return now
+
+
+def test_a_build_that_places_nothing_while_blocking_itself_is_reported_stuck(monkeypatch):
+    fake_clock(monkeypatch)
+    status = build_plan.wait_queue(Jammed(free_after=99), timeout=600)
+    assert status.get("stuck") is True
+
+
+def test_a_build_that_keeps_placing_is_never_stuck(monkeypatch):
+    fake_clock(monkeypatch)
+
+    class Working(Jammed):
+        def call(self, name, args):
+            if name == "buildQueue":
+                self.placed += 1
+                done = self.placed > 40
+                return json.dumps({"done": done, "queued": 3, "placed": self.placed, "blockedByOwnBody": self.placed * 50}), False
+            return super().call(name, args)
+
+    assert build_plan.wait_queue(Working(free_after=99), timeout=600).get("stuck") is None
+
+
+def test_a_jammed_stage_walks_out_of_the_footprint_and_is_given_again(monkeypatch):
+    fake_clock(monkeypatch)
+    world = Jammed(free_after=1)
+    walked = []
+
+    def walk(x, y, z, timeout=60):
+        walked.append((x, y, z))
+        world.moved += 1
+        return "OK"
+
+    monkeypatch.setattr(build_plan, "walk_to", walk)
+    part = [(x, 1, z, "minecraft:stone") for x in range(210, 214) for z in range(20, 24)]
+    status, jammed = build_plan.build_stage(world, part, timeout=600)
+    assert jammed is False and status.get("done")
+    assert world.issued == 2 and len(walked) == 1
+    x, y, z = walked[0]
+    assert not (210 <= x <= 213 and 20 <= z <= 23)          # outside the stage's footprint
+    assert "stopPathing" in world.calls and "buildQueueClear" in world.calls
+
+
+def test_a_builder_that_never_frees_up_is_given_up_on_after_three_tries(monkeypatch, capsys):
+    fake_clock(monkeypatch)
+    world = Jammed(free_after=99)
+    monkeypatch.setattr(build_plan, "walk_to", lambda *a, **k: "OK")
+    part = [(210, 1, 20, "minecraft:stone")]
+    status, jammed = build_plan.build_stage(world, part, timeout=600)
+    assert jammed is True and world.issued == build_plan.UNSTICKS + 1
+    assert "Строитель встал внутри стройки" in capsys.readouterr().out

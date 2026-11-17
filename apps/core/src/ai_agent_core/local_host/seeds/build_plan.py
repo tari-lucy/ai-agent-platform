@@ -190,15 +190,81 @@ def in_world(c):
     return False
 
 
-def wait_queue(c, timeout, sleep=time.sleep, clock=time.monotonic):
-    """Poll buildQueue until it is done; returns the last status."""
+STALL = 25.0     # seconds without a single block placed (and the body blocking itself) before the build counts as stuck
+UNSTICKS = 3     # how many times one stage is freed before the script says it is stuck
+
+
+def wait_queue(c, timeout, sleep=None, clock=None, stall=STALL):
+    """Poll buildQueue until it is done; returns the last status.
+
+    A build that places nothing for `stall` seconds while blockedByOwnBody keeps climbing is stuck (the
+    builder stands inside the very cells it has to fill); the status then carries stuck=True so the
+    caller can walk out of the footprint instead of waiting for ever."""
+    sleep, clock = sleep or time.sleep, clock or time.monotonic  # looked up now, so a test can replace them
     start, status = clock(), {}
+    seen, changed, blocked = None, clock(), 0
     while clock() - start < timeout:
         sleep(2.0)
         status = call(c, "buildQueue") or {}
         if status.get("done") or (not status.get("queued") and not status.get("remaining")):
             return status
+        key = (status.get("placed"), status.get("queued"))
+        grew = (status.get("blockedByOwnBody") or 0) > blocked
+        blocked = status.get("blockedByOwnBody") or 0
+        if key != seen:
+            seen, changed = key, clock()
+        elif grew and clock() - changed >= stall:
+            return dict(status, stuck=True)
     return status
+
+
+def walk_to(x, y, z, timeout=60):
+    """Walk to a point and wait for the arrival (goto_wait.py); the answer line, or '' when it did not run."""
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    done = subprocess.run([sys.executable, os.path.join(here, "goto_wait.py"), str(x), str(y), str(z),
+                           "--tolerance", "3", "--timeout", str(timeout)], capture_output=True, text=True)
+    return done.stdout.strip()
+
+
+def free_point(c, part):
+    """A standable point outside the footprint of this stage, on the side nearest to where the body is."""
+    xs, ys, zs = [b[0] for b in part], [b[1] for b in part], [b[2] for b in part]
+    cx, cz = (min(xs) + max(xs)) // 2, (min(zs) + max(zs)) // 2
+    state = call(c, "getGameState")
+    here = (state.get("self") or {}).get("pos", "") if isinstance(state, dict) else ""
+    try:
+        px, _, pz = (float(v) for v in here.split(","))
+    except ValueError:
+        px, pz = cx, cz
+    margin = 3
+    options = [(min(xs) - margin, cz), (max(xs) + margin, cz), (cx, min(zs) - margin), (cx, max(zs) + margin)]
+    x, z = min(options, key=lambda o: (o[0] - px) ** 2 + (o[1] - pz) ** 2)
+    return x, ground_y(c, x, z, max(ys) + 2), z
+
+
+def unstick(c, part):
+    """Walk out of the stage's footprint and drop the jammed queue; the stage is then given again."""
+    x, y, z = free_point(c, part)
+    call(c, "stopPathing")
+    call(c, "buildQueueClear")
+    print(f"Строитель встал внутри стройки: выхожу на ({x}, {y}, {z}) и начинаю этап заново.")
+    walk_to(x, y, z)
+
+
+def build_stage(c, part, timeout):
+    """Give one stage to the builder; free the body when it jams. -> (status, jammed_for_good)"""
+    status = {}
+    for attempt in range(UNSTICKS + 1):
+        reply = call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in part])})
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            return {"refused": reply}, False
+        status = wait_queue(c, timeout)
+        if not status.get("stuck"):
+            return status, False
+        if attempt < UNSTICKS:
+            unstick(c, part)
+    return status, True
 
 
 def verify(c, blocks):
@@ -470,11 +536,14 @@ def cmd_build(c, blocks, timeout):
         part = ordered[index : index + BATCH]
         cx = sum(b[0] for b in part) / len(part)
         cz = sum(b[2] for b in part) / len(part)
-        reply = call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in part])})
-        if not isinstance(reply, dict) or not reply.get("ok"):
-            print(f"buildBlocks отказал на порции {index // BATCH + 1}: {reply}")
+        status, jammed = build_stage(c, part, timeout)
+        if "refused" in status:
+            print(f"buildBlocks отказал на порции {index // BATCH + 1}: {status['refused']}")
             return 4
-        status = wait_queue(c, timeout)
+        if jammed:
+            print(f"Строитель застрял на порции {index // BATCH + 1}: за {UNSTICKS} попытки не поставил ни одного блока "
+                  "(встаёт внутрь стройки). Для творческого мира с читами: --mode commands.")
+            return 11
         left = status.get("deferred") or status.get("remaining")
         if left:
             call(c, "gotoXYZ", {"x": int(cx), "y": int(part[0][1]), "z": int(cz)})
