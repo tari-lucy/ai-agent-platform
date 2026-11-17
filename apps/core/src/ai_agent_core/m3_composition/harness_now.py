@@ -305,6 +305,13 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
     doing: str | None = None
     recently: list[str] = []
     lines: list[NowLine] = []
+    from .harness_autonomy import AutonomyPart
+    from .harness_limit import describe
+
+    asleep = None
+    for part in harness.parts:
+        if isinstance(part, AutonomyPart) and part.sleeping() is not None:
+            asleep = describe(part.sleeping(), now)  # the plan ran out: she sleeps until the window opens
     for part in harness.parts:
         if isinstance(part, Activity):
             if part.running:
@@ -325,6 +332,8 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
         if row.get("text"):
             lines.append(NowLine(at=str(row.get("at", ""))[:40], kind="heard", text=_clean(row["text"])))
     lines.sort(key=lambda line: line.at, reverse=True)
+    if asleep:
+        doing = asleep
     return HarnessNow(
         scope=scope,
         enabled=True,

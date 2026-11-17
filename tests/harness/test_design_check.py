@@ -1,5 +1,8 @@
-"""design_check.py and the new build_plan.py actions: the shape checks find what is wrong with a plan,
-the picture is a real PNG, and the cleanup after a build mines the scaffolding and repairs the plan."""
+"""design_check.py and the new build_plan.py actions.
+
+The shape checks find what is wrong with a plan, the picture is a real PNG, and the cleanup after a
+build mines the scaffolding and repairs the plan.
+"""
 
 import json
 import struct
@@ -82,9 +85,12 @@ def read_png(data):
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
     pos, chunks = 8, {}
     while pos < len(data):
-        (length,) = struct.unpack(">I", data[pos:pos + 4])
-        kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + length]
-        assert struct.unpack(">I", data[pos + 8 + length:pos + 12 + length])[0] == zlib.crc32(kind + body) & 0xFFFFFFFF
+        (length,) = struct.unpack(">I", data[pos : pos + 4])
+        kind, body = data[pos + 4 : pos + 8], data[pos + 8 : pos + 8 + length]
+        assert (
+            struct.unpack(">I", data[pos + 8 + length : pos + 12 + length])[0]
+            == zlib.crc32(kind + body) & 0xFFFFFFFF
+        )
         chunks[kind] = body
         pos += 12 + length
     width, height = struct.unpack(">II", chunks[b"IHDR"][:8])
@@ -95,10 +101,12 @@ def read_png(data):
 
 def test_the_picture_is_a_valid_png_with_four_distinct_views(tmp_path):
     out = tmp_path / "plan.png"
-    width, height = dc.save_views({(x, y, z): "stone_bricks" for x in range(4) for y in range(3) for z in range(6)}, str(out))
+    width, height = dc.save_views(
+        {(x, y, z): "stone_bricks" for x in range(4) for y in range(3) for z in range(6)}, str(out)
+    )
     w, h, raw = read_png(out.read_bytes())
     assert (w, h) == (width, height) and w > 100 and h > 100
-    colours = {raw[i:i + 3] for i in range(1, len(raw), 3)}
+    colours = {raw[i : i + 3] for i in range(1, len(raw), 3)}
     assert len(colours) > 4  # sky, three shades of the block, edges, the frame
 
 
@@ -108,13 +116,16 @@ def test_the_four_views_of_an_unsymmetric_block_differ():
     sheet = dc.render_views(cells)
     width = sheet.w
     half_w, half_h = width // 2, sheet.h // 2
-    corners = [bytes(sheet.px[((y * width + x) * 3):((y * width + x) * 3) + 3])
-               for y in range(half_h // 2, half_h, 5) for x in range(0, half_w, 7)]
+    corners = [
+        bytes(sheet.px[((y * width + x) * 3) : ((y * width + x) * 3) + 3])
+        for y in range(half_h // 2, half_h, 5)
+        for x in range(0, half_w, 7)
+    ]
     assert len(set(corners)) > 1
 
 
 class FakeWorld:
-    """A mod that answers what build_plan asks, with a block the builder left behind as scaffolding."""
+    """A mod that answers what build_plan asks, with a block left behind as scaffolding."""
 
     def __init__(self, plan, scaffold):
         self.cells = dict(plan)
@@ -130,7 +141,9 @@ class FakeWorld:
         if name == "getGameState":
             return json.dumps({"inGame": getattr(self, "in_game", True)}), False
         if name == "ExecuteCommand":
-            self.break_on = args["cmd"].endswith("true") if "allowBreak" in args["cmd"] else self.break_on
+            self.break_on = (
+                args["cmd"].endswith("true") if "allowBreak" in args["cmd"] else self.break_on
+            )
             return json.dumps({"ok": True}), False
         if name == "cleanupScaffold":
             assert self.break_on, "cleanup needs allowBreak"
@@ -147,11 +160,22 @@ class FakeWorld:
         if name == "scanBox" and getattr(self, "scan", True):
             palette, flat = [], []
             for (px, py, pz), block in self.cells.items():
-                if args["x1"] <= px <= args["x2"] and args["y1"] <= py <= args["y2"] and args["z1"] <= pz <= args["z2"]:
+                if (
+                    args["x1"] <= px <= args["x2"]
+                    and args["y1"] <= py <= args["y2"]
+                    and args["z1"] <= pz <= args["z2"]
+                ):
                     if block not in palette:
                         palette.append(block)
                     flat += [px, py, pz, palette.index(block)]
-            return json.dumps({"ok": True, "palette": palette, "cells": flat, "unloaded": getattr(self, "unloaded", 0)}), False
+            return json.dumps(
+                {
+                    "ok": True,
+                    "palette": palette,
+                    "cells": flat,
+                    "unloaded": getattr(self, "unloaded", 0),
+                }
+            ), False
         if name == "mineBlocks":
             for bx, by, bz in json.loads(args["blocks"]):
                 self.cells.pop((bx, by, bz), None)
@@ -178,7 +202,9 @@ def test_cleanup_mines_the_scaffolding_turns_break_off_again_and_checks_the_plan
 def test_cleanup_that_took_a_plan_block_puts_it_back(monkeypatch):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     plan = [(0, 0, 0, "minecraft:oak_planks"), (1, 0, 0, "minecraft:stone_bricks")]
-    world = FakeWorld({(1, 0, 0): "minecraft:stone_bricks"}, scaffold=[(0, 0, 0)])  # a scaffold stood where the plan wants a block
+    world = FakeWorld(
+        {(1, 0, 0): "minecraft:stone_bricks"}, scaffold=[(0, 0, 0)]
+    )  # a scaffold stood where the plan wants a block
     assert build_plan.cmd_cleanup(world, plan, timeout=5) == 0
     assert world.cells[(0, 0, 0)] == "minecraft:oak_planks"
 
@@ -193,7 +219,10 @@ def test_the_lint_action_reads_a_plan_and_stops_on_errors(tmp_path, capsys):
 def test_the_picture_action_writes_a_png_into_the_shots_folder(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(build_plan, "SHOTS", str(tmp_path))
     plan = tmp_path / "gazebo.txt"
-    plan.write_text("легенда:\nS = stone\nP = oak_planks\n\nслой 0\nSSS\nSSS\n\nслой 1\nPPP\nPPP\n", encoding="utf-8")
+    plan.write_text(
+        "легенда:\nS = stone\nP = oak_planks\n\nслой 0\nSSS\nSSS\n\nслой 1\nPPP\nPPP\n",
+        encoding="utf-8",
+    )
     assert build_plan.main(["picture", str(plan)]) == 0
     assert (tmp_path / "gazebo-plan.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert "platform_look" in capsys.readouterr().out
@@ -233,7 +262,12 @@ class Jammed:
             return json.dumps({"inGame": True, "self": {"pos": "203.5,71.8,25.6"}}), False
         if name == "getBlockAt":
             solid = args["y"] < 71
-            return json.dumps({"id": "minecraft:dirt" if solid else "minecraft:air", "replaceable": "false" if solid else "true"}), False
+            return json.dumps(
+                {
+                    "id": "minecraft:dirt" if solid else "minecraft:air",
+                    "replaceable": "false" if solid else "true",
+                }
+            ), False
         if name in ("stopPathing", "buildQueueClear"):
             return json.dumps({"ok": True}), False
         if name == "buildBlocks":
@@ -243,7 +277,9 @@ class Jammed:
             if self.moved >= self.free_after:
                 return json.dumps({"done": True, "placed": 9}), False
             self.placed = 0
-            return json.dumps({"queued": 3, "placed": 0, "blockedByOwnBody": self.issued * 100 + len(self.calls)}), False
+            return json.dumps(
+                {"queued": 3, "placed": 0, "blockedByOwnBody": self.issued * 100 + len(self.calls)}
+            ), False
         raise AssertionError(name)
 
 
@@ -268,7 +304,14 @@ def test_a_build_that_keeps_placing_is_never_stuck(monkeypatch):
             if name == "buildQueue":
                 self.placed += 1
                 done = self.placed > 40
-                return json.dumps({"done": done, "queued": 3, "placed": self.placed, "blockedByOwnBody": self.placed * 50}), False
+                return json.dumps(
+                    {
+                        "done": done,
+                        "queued": 3,
+                        "placed": self.placed,
+                        "blockedByOwnBody": self.placed * 50,
+                    }
+                ), False
             return super().call(name, args)
 
     assert build_plan.wait_queue(Working(free_after=99), timeout=600).get("stuck") is None
@@ -290,7 +333,7 @@ def test_a_jammed_stage_walks_out_of_the_footprint_and_is_given_again(monkeypatc
     assert jammed is False and status.get("done")
     assert world.issued == 2 and len(walked) == 1
     x, y, z = walked[0]
-    assert not (210 <= x <= 213 and 20 <= z <= 23)          # outside the stage's footprint
+    assert not (210 <= x <= 213 and 20 <= z <= 23)  # outside the stage's footprint
     assert "stopPathing" in world.calls and "buildQueueClear" in world.calls
 
 
@@ -306,35 +349,47 @@ def test_a_builder_that_never_frees_up_is_given_up_on_after_three_tries(monkeypa
 
 def test_a_non_square_plan_turns_without_losing_or_moving_cells():
     cells = {(x, y, z): "stone" for x in range(9) for y in range(2) for z in range(11)}
-    cells[(2, 2, 3)] = "glowstone"                                    # an asymmetric mark to follow
+    cells[(2, 2, 3)] = "glowstone"  # an asymmetric mark to follow
     for turns in range(4):
         turned = dc._rotated(cells, turns)
         assert len(turned) == len(cells)
-        xs, _, zs = zip(*turned)
+        xs, _, zs = zip(*turned, strict=True)
         assert (min(xs), min(zs)) == (0, 0)
         assert (max(xs) + 1, max(zs) + 1) == ((9, 11) if turns % 2 == 0 else (11, 9))
     four = dc._rotated(dc._rotated(dc._rotated(dc._rotated(cells, 1), 1), 1), 1)
-    assert four == cells                                              # four quarter turns are the identity
+    assert four == cells  # four quarter turns are the identity
     assert [p for p, n in dc._rotated(cells, 1).items() if n == "glowstone"] == [(3, 2, 6)]
 
 
 def house_plan():
-    return [(x, y, z, "minecraft:oak_planks") for x in range(0, 3) for y in range(0, 2) for z in range(0, 3)]
+    return [
+        (x, y, z, "minecraft:oak_planks")
+        for x in range(0, 3)
+        for y in range(0, 2)
+        for z in range(0, 3)
+    ]
 
 
 def test_cleanup_finds_scaffolding_in_the_world_not_only_in_the_mods_memory(monkeypatch, capsys):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     plan = house_plan()
     world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
-    stray = {(-1, 0, 1): "minecraft:oak_planks", (-1, 1, 1): "minecraft:oak_planks", (1, 5, 1): "minecraft:spruce_planks"}
+    stray = {
+        (-1, 0, 1): "minecraft:oak_planks",
+        (-1, 1, 1): "minecraft:oak_planks",
+        (1, 5, 1): "minecraft:spruce_planks",
+    }
     world.cells.update(stray)
-    world.cells[(4, 0, 4)] = "minecraft:grass_block"                       # nature next to the house stays
+    world.cells[(4, 0, 4)] = "minecraft:grass_block"  # nature next to the house stays
     world.cells[(5, 0, 5)] = "minecraft:oak_leaves"
     world.mine_queue = []
     assert build_plan.cmd_cleanup(world, plan, 5, plan) == 0
-    assert not any(k in world.cells for k in stray)                         # every stray is gone
-    assert world.cells[(4, 0, 4)] == "minecraft:grass_block" and world.cells[(5, 0, 5)] == "minecraft:oak_leaves"
-    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in plan)      # the house is untouched
+    assert not any(k in world.cells for k in stray)  # every stray is gone
+    assert (
+        world.cells[(4, 0, 4)] == "minecraft:grass_block"
+        and world.cells[(5, 0, 5)] == "minecraft:oak_leaves"
+    )
+    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in plan)  # the house is untouched
     assert "Лишнее вокруг постройки: 3 блоков" in capsys.readouterr().out
     assert world.break_on is False
 
@@ -342,13 +397,15 @@ def test_cleanup_finds_scaffolding_in_the_world_not_only_in_the_mods_memory(monk
 def test_an_earlier_stage_is_not_scaffolding_when_the_whole_plan_is_given(monkeypatch):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     whole = house_plan()
-    stage = [b for b in whole if b[1] == 1]                                  # only the upper layer was just built
+    stage = [b for b in whole if b[1] == 1]  # only the upper layer was just built
     world = FakeWorld({(x, y, z): b for x, y, z, b in whole}, scaffold=[])
     assert build_plan.cmd_cleanup(world, stage, 5, whole) == 0
-    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in whole)       # layer 0 still stands
+    assert all(world.cells.get((x, y, z)) == b for x, y, z, b in whole)  # layer 0 still stands
 
 
-def test_cleanup_says_so_when_the_mod_cannot_scan_and_when_columns_are_not_loaded(monkeypatch, capsys):
+def test_cleanup_says_so_when_the_mod_cannot_scan_and_when_columns_are_not_loaded(
+    monkeypatch, capsys
+):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     plan = house_plan()
     world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
@@ -363,7 +420,9 @@ def test_cleanup_says_so_when_the_mod_cannot_scan_and_when_columns_are_not_loade
 def test_a_plan_in_logs_does_not_take_the_forest_for_scaffolding():
     names = {"minecraft:oak_log"}
     assert build_plan.is_stray("minecraft:oak_planks", names) is True
-    assert build_plan.is_stray("minecraft:oak_log", names) is False          # the plan's own material, but nature-like
+    assert (
+        build_plan.is_stray("minecraft:oak_log", names) is False
+    )  # the plan's own material, but nature-like
     assert build_plan.is_stray("minecraft:grass_block", names) is False
     assert build_plan.is_stray("minecraft:stone_bricks", names) is True
     assert build_plan.is_stray("minecraft:stone", names) is False

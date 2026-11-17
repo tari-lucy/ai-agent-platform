@@ -15,9 +15,12 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import quote
 
 from ai_agent_application.memory import derived_id
+from ai_agent_contracts.codec import ContractError
 from ai_agent_contracts.common import Scope
 
 from .harness_learning import LearningPart, OpenCode, identifier
+from .harness_limit import LimitGate
+from .harness_wakes import MAX_MINUTES
 from .work_session_wake import WakeSettings
 
 if TYPE_CHECKING:
@@ -79,7 +82,10 @@ class HarnessAutonomy:
         clock: Callable[[], datetime],
         remaining: Callable[[], float],
         settings: WakeSettings,
+        limit: LimitGate | None = None,
     ) -> None:
+        # asleep because the plan ran out: no wake goes out until the window opens
+        self.limit = limit
         self.host, self.owner = host, owner
         self.snapshot, self.authorize = snapshot, authorize
         self.clock, self.remaining, self.settings = clock, remaining, settings
@@ -122,6 +128,13 @@ class HarnessAutonomy:
             session = identifier(wake.session_id)
             if not wake.text.strip() or len(wake.text) > 2000:
                 raise ValueError("HARNESS_WAKE_TEXT_LIMIT")
+            if self.limit is not None and wake.state == "new":
+                sleep = await self.limit.check(session)
+                guard()
+                if sleep is not None:
+                    await self._plan_wake(scope, session, now, guard)
+                    # held back, not lost: it goes out when the window opens
+                    return "PROVIDER_LIMIT"
             if (
                 wake.state == "new"
                 and not wake.urgent
@@ -189,8 +202,31 @@ class HarnessAutonomy:
         finally:
             self.busy = False
 
+    async def _plan_wake(
+        self, scope: Scope, session: str, now: datetime, guard: Callable[[], None]
+    ) -> None:
+        """One wake for the end of the sleep, so she picks her work up by herself even when
+        no event comes.
+        """
+        assert self.limit is not None
+        fresh = self.limit.fresh()
+        schedule = getattr(self.owner, "schedule", None)
+        if fresh is None or schedule is None:
+            return
+        minutes = max(1, int((fresh.until - now).total_seconds() // 60) + 1)
+        try:
+            await schedule(scope, minutes, LIMIT_OVER_TEXT, session, guard)
+        except (ValueError, OSError, TimeoutError, ContractError) as error:
+            LOG.warning("Wake for the end of the limit not planned: %s", type(error).__name__)
+
     async def close(self) -> None:
         self.closed = True
+
+
+LIMIT_OVER_TEXT = (
+    "Лимит подписки снова доступен. Продолжай то, что делала до паузы (README, раздел «Сейчас»), "
+    "и посмотри, не накопились ли события."
+)
 
 
 class NativeWakeOwner:
@@ -277,6 +313,21 @@ class NativeWakeOwner:
         if not await host.wakes.delivered(wake.id, fence, scope=scope):
             raise ValueError("HARNESS_WAKE_DELIVERY_CONFLICT")
 
+    async def schedule(
+        self, scope: Scope, minutes: int, text: str, session: str, guard: Callable[[], None]
+    ) -> None:
+        """A wake of her own at a later time (the end of a limit sleep), on the same book
+        as her alarms.
+        """
+        host = self.rt.harness
+        assert host is not None and host.wakes is not None
+
+        def fence() -> bool:
+            guard()
+            return True
+
+        await host.wakes.set(min(minutes, MAX_MINUTES), text, session, scope=scope, guard=fence)
+
 
 class AutonomyPart:
     """Nonblocking HarnessPart; STOP cancels the pending request, never restarts the host."""
@@ -286,11 +337,26 @@ class AutonomyPart:
         self.task: asyncio.Task[str] | None = None
         self.service: HarnessAutonomy | None = None
         self.next_check = 0.0
+        # lives as long as this part: the dispatcher is rebuilt every tick
+        self.limit: LimitGate | None = None
+
+    def sleeping(self):
+        """The limit sleep she is in, for the panel; None when she is not asleep."""
+        gate = self.limit
+        if gate is None or gate.sleep is None:
+            return None
+        return gate.sleep if self.rt.supervisor.clock.utc() < gate.sleep.until else None
 
     def tick(self) -> None:
         host = self.rt.harness
         if host is None or not host.current():
+            if self.limit is not None:
+                # a stopped agent forgets it: the next start looks at the
+                # session again
+                self.limit.sleep = None
             return
+        if self.limit is None:
+            self.limit = LimitGate(host.opencode, self.rt.supervisor.clock.utc)
         if self.task is not None:
             if not self.task.done():
                 return
@@ -337,6 +403,7 @@ class AutonomyPart:
             self.rt.supervisor.clock.utc,
             host.autonomy_left,
             self.settings,
+            self.limit,
         )
         self.task = asyncio.create_task(self.service.tick())
 

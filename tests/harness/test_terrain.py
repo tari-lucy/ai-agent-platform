@@ -13,7 +13,10 @@ import terrain  # noqa: E402
 
 def heightmap(rows, x1=0, z1=0, top=None, palette=None):
     """rows[z][x] = ground height; `top` overrides (name, y) for single columns (trees, water)."""
-    palette = list(palette or ["minecraft:grass_block", "minecraft:oak_leaves", "minecraft:water", "minecraft:lava"])
+    palette = list(
+        palette
+        or ["minecraft:grass_block", "minecraft:oak_leaves", "minecraft:water", "minecraft:lava"]
+    )
     depth, width = len(rows), len(rows[0])
     y, ids, gy, gids = [], [], [], []
     for z in range(depth):
@@ -24,8 +27,18 @@ def heightmap(rows, x1=0, z1=0, top=None, palette=None):
             name, ty = (top or {}).get((x + x1, z + z1), ("minecraft:grass_block", g))
             y.append(ty)
             ids.append(palette.index(name))
-    return {"ok": True, "x1": x1, "z1": z1, "width": width, "depth": depth, "palette": palette,
-            "y": y, "id": ids, "gy": gy, "gid": gids}
+    return {
+        "ok": True,
+        "x1": x1,
+        "z1": z1,
+        "width": width,
+        "depth": depth,
+        "palette": palette,
+        "y": y,
+        "id": ids,
+        "gy": gy,
+        "gid": gids,
+    }
 
 
 def maps(rows, **kw):
@@ -36,7 +49,7 @@ def test_the_flattest_window_wins_over_a_slope():
     rows = [[64] * 12 for _ in range(12)]
     for z in range(12):
         for x in range(6, 12):
-            rows[z][x] = 64 + (x - 5) * 2          # a slope on the east side
+            rows[z][x] = 64 + (x - 5) * 2  # a slope on the east side
     best = terrain.find_sites(maps(rows), 4, 4, margin=1)[0]
     assert best.span == 0 and best.fill == 0 and best.cut == 0 and best.x + 4 <= 6
 
@@ -55,7 +68,7 @@ def test_trees_cost_work_and_are_reported():
     flat = [[64] * 8 for _ in range(8)]
     trees = {(x, z): ("minecraft:oak_leaves", 68) for x in range(8) for z in range(2)}
     site = terrain.find_sites(maps(flat, top=trees), 4, 4, margin=0, near=(2, 2))[0]
-    assert site.cover == 0 or site.z >= 2            # picks the clear half when there is one
+    assert site.cover == 0 or site.z >= 2  # picks the clear half when there is one
 
 
 def test_a_window_with_an_unloaded_column_is_not_a_site():
@@ -71,18 +84,20 @@ def test_the_best_sites_are_not_shifted_copies_of_each_other():
     found = terrain.find_sites(maps([[64] * 14 for _ in range(14)]), 4, 4, margin=0, top=3)
     assert len(found) == 3
     for i, a in enumerate(found):
-        for b in found[i + 1:]:
+        for b in found[i + 1 :]:
             assert abs(a.x - b.x) >= 4 or abs(a.z - b.z) >= 4
 
 
 def test_level_plan_fills_low_columns_and_cuts_high_ones():
     rows = [[64] * 6 for _ in range(6)]
-    rows[2][2] = 62       # a hole of two
-    rows[3][3] = 67       # a mound of three
+    rows[2][2] = 62  # a hole of two
+    rows[3][3] = 67  # a mound of three
     plan = terrain.level_plan(maps(rows), 1, 1, 4, 4, ground=64, margin=0)
     assert sorted((x, y, z) for x, y, z, _ in plan["fill"]) == [(2, 63, 2), (2, 64, 2)]
     assert [(x, y, z) for x, y, z in plan["cut"]] == [(3, 67, 3), (3, 66, 3), (3, 65, 3)]
-    assert dict(((x, y, z), b) for x, y, z, b in plan["fill"])[(2, 64, 2)] == "grass_block"  # a cap on top
+    assert (
+        dict(((x, y, z), b) for x, y, z, b in plan["fill"])[(2, 64, 2)] == "grass_block"
+    )  # a cap on top
 
 
 def test_level_plan_cuts_the_trees_standing_on_the_site():
@@ -120,7 +135,9 @@ class World:
         if name == "getHeightmap":
             return json.dumps(self.height_reply(args)), False
         if name == "getBlockAt":
-            return json.dumps({"id": self.cells.get((args["x"], args["y"], args["z"]), "minecraft:air")}), False
+            return json.dumps(
+                {"id": self.cells.get((args["x"], args["y"], args["z"]), "minecraft:air")}
+            ), False
         if name == "ExecuteCommand":
             if "allowBreak" in args["cmd"]:
                 self.break_on = args["cmd"].endswith("true")
@@ -152,14 +169,20 @@ class World:
 def test_the_site_action_prints_a_ready_origin(monkeypatch, capsys):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     rows = [[64] * 30 for _ in range(30)]
-    assert build_plan.main(["site", "5x6", "--near", "15,15", "--radius", "12"], client=World(rows)) == 0
+    assert (
+        build_plan.main(["site", "5x6", "--near", "15,15", "--radius", "12"], client=World(rows))
+        == 0
+    )
     out = capsys.readouterr().out
     assert "--origin" in out and "5x6" in out and "перепад 0" in out
 
 
 def test_the_site_action_says_so_when_there_is_none(monkeypatch, capsys):
-    rows = [[64 + (x * 3) for x in range(30)] for _ in range(30)]      # one long steep slope
-    assert build_plan.main(["site", "8x8", "--near", "15,15", "--radius", "12"], client=World(rows)) == 7
+    rows = [[64 + (x * 3) for x in range(30)] for _ in range(30)]  # one long steep slope
+    assert (
+        build_plan.main(["site", "8x8", "--near", "15,15", "--radius", "12"], client=World(rows))
+        == 7
+    )
     assert "нет" in capsys.readouterr().out
 
 
@@ -176,9 +199,15 @@ def test_level_in_commands_mode_fills_the_hole_and_cuts_the_mound(tmp_path, monk
     rows[8][8] = 66
     world = World(rows, {(8, 65, 8): "minecraft:dirt", (8, 66, 8): "minecraft:dirt"})
     plan = plan_file(tmp_path, "легенда:\nS = stone\n\nслой 0\nSSSS\nSSSS\nSSSS\nSSSS\n")
-    assert build_plan.main(["level", plan, "--origin", "5,65,5", "--mode", "commands"], client=world) == 0
-    assert (8, 65, 8) not in world.cells and (8, 66, 8) not in world.cells          # the mound is cut
-    assert world.cells[(6, 63, 6)] == "minecraft:dirt" and world.cells[(6, 64, 6)] == "minecraft:grass_block"
+    assert (
+        build_plan.main(["level", plan, "--origin", "5,65,5", "--mode", "commands"], client=world)
+        == 0
+    )
+    assert (8, 65, 8) not in world.cells and (8, 66, 8) not in world.cells  # the mound is cut
+    assert (
+        world.cells[(6, 63, 6)] == "minecraft:dirt"
+        and world.cells[(6, 64, 6)] == "minecraft:grass_block"
+    )
     assert "ГОТОВО" in capsys.readouterr().out
 
 
@@ -196,26 +225,38 @@ DIG_PLAN = "легенда:\nX = выкопать\n. = пропуск\n\nсло�
 
 def test_a_dig_plan_mines_the_cells_top_down_and_turns_break_off(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
-    solid = {(x, y, z): "minecraft:stone" for x in range(10, 13) for y in (60, 61) for z in range(5, 7)}
+    solid = {
+        (x, y, z): "minecraft:stone" for x in range(10, 13) for y in (60, 61) for z in range(5, 7)
+    }
     world = World([[64] * 20 for _ in range(20)], solid)
-    assert build_plan.main(["dig", plan_file(tmp_path, DIG_PLAN), "--origin", "10,60,5"], client=world) == 0
+    assert (
+        build_plan.main(["dig", plan_file(tmp_path, DIG_PLAN), "--origin", "10,60,5"], client=world)
+        == 0
+    )
     assert not any(k in solid for k in world.cells if k[1] in (60, 61) and 10 <= k[0] <= 12)
     mined = json.loads([a for n, a in world.calls if n == "mineBlocks"][0]["blocks"])
-    assert mined[0][1] == 61 and mined[-1][1] == 60            # top layer first
+    assert mined[0][1] == 61 and mined[-1][1] == 60  # top layer first
     assert world.break_on is False and "ГОТОВО" in capsys.readouterr().out
 
 
 def test_a_dig_next_to_water_or_gravel_is_refused(tmp_path, capsys):
-    solid = {(x, y, z): "minecraft:stone" for x in range(10, 13) for y in (60, 61) for z in range(5, 7)}
-    solid[(11, 62, 5)] = "minecraft:gravel"                   # loose gravel over the roof of the room
+    solid = {
+        (x, y, z): "minecraft:stone" for x in range(10, 13) for y in (60, 61) for z in range(5, 7)
+    }
+    solid[(11, 62, 5)] = "minecraft:gravel"  # loose gravel over the roof of the room
     world = World([[64] * 20 for _ in range(20)], solid)
-    assert build_plan.main(["dig", plan_file(tmp_path, DIG_PLAN), "--origin", "10,60,5"], client=world) == 12
+    assert (
+        build_plan.main(["dig", plan_file(tmp_path, DIG_PLAN), "--origin", "10,60,5"], client=world)
+        == 12
+    )
     assert "ОПАСНО" in capsys.readouterr().out
     assert not [n for n, _ in world.calls if n == "mineBlocks"]
 
 
 def test_a_dig_cell_never_leaks_into_the_placement_actions(tmp_path, capsys):
-    plan = plan_file(tmp_path, "легенда:\nS = stone\nX = выкопать\n\nслой 0\nSX\nSS\n\nслой 1\nSS\n")
+    plan = plan_file(
+        tmp_path, "легенда:\nS = stone\nX = выкопать\n\nслой 0\nSX\nSS\n\nслой 1\nSS\n"
+    )
     assert build_plan.main(["lint", plan]) == 0
     _, blocks = build_plan.parse(Path(plan).read_text(encoding="utf-8"))
     assert [b for b in blocks if b[3] == build_plan.DIG] == [(1, 0, 0, build_plan.DIG)]
