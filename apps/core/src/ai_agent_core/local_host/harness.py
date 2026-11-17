@@ -935,7 +935,7 @@ def seed_building_kit(files_dir: Path | None, persona: str) -> bool:
 
     done = _seed_guide(files_dir, persona, "build-from-idea.md", BUILD_GUIDE)
     folder = files_dir / persona / "skills" / "minecraft"
-    for name in ("blueprint.py", "recipes.py", "design_check.py", "build_plan.py"):
+    for name in ("blueprint.py", "recipes.py", "design_check.py", "terrain.py", "build_plan.py"):
         source = Path(__file__).parent / "seeds" / name
         target = folder / name
         try:

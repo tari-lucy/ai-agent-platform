@@ -12,6 +12,13 @@
     python3 /workspace/skills/minecraft/build_plan.py cleanup plan.txt --origin X,Y,Z     (убрать леса, сверить, достроить)
     python3 /workspace/skills/minecraft/build_plan.py review  plan.txt --origin X,Y,Z     (четыре кадра готовой постройки)
 
+    python3 /workspace/skills/minecraft/build_plan.py site   7x9 [--near X,Z] [--radius 24]  (найти ровную площадку под дом 7x9)
+    python3 /workspace/skills/minecraft/build_plan.py level  plan.txt --origin X,Y,Z        (выровнять участок: досыпать, срезать)
+    python3 /workspace/skills/minecraft/build_plan.py dig    plan.txt --origin X,Y,Z        (выкопать: легенда «. = выкопать», нора, подвал)
+
+Площадка: site (карта высот за один вызов, ищет окно с запасом по краям: перепад, вода, лава, деревья,
+расстояние) -> берёшь её --origin -> level (до высоты origin.y - 1) -> дальше обычный порядок ниже.
+
 Порядок, чтобы вышло красиво: lint -> picture (посмотри через platform_look, поправь схему) -> check ->
 build (сам уберёт леса и сверит) -> review (посмотри кадры, исправь замечания вырезами и досыпкой).
 
@@ -54,6 +61,8 @@ import time
 
 SKIP = {".", " "}
 SKIP_NAMES = {"пропуск", "skip", "air", "воздух"}
+DIG_NAMES = {"выкопать", "dig", "убрать", "вынуть"}
+DIG = "minecraft:dig"  # a cell to be mined out, not a block to place
 MAX_TYPES = 9
 BATCH = 60
 
@@ -112,6 +121,9 @@ def parse(text):
                 name = legend.get(ch)
                 if name is None:
                     raise PlanError(f"слой {y}, строка {z + 1}: символа «{ch}» нет в легенде")
+                if name.split()[0].casefold() in DIG_NAMES:
+                    blocks.append((x, y, z, DIG))
+                    continue
                 if name.split()[0].casefold() in SKIP_NAMES:
                     continue
                 blocks.append((x, y, z, norm(name.split()[0])))
@@ -564,22 +576,204 @@ def cmd_build(c, blocks, timeout):
     return cmd_cleanup(c, ordered, timeout)
 
 
+def terrain():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import terrain as module
+    return module
+
+
+def read_heights(c, x1, z1, x2, z2):
+    """Heights of a rectangle, in tiles of 80x80 (what one getHeightmap call returns), joined into one map."""
+    t = terrain()
+    tiles = []
+    for tz in range(z1, z2 + 1, 80):
+        for tx in range(x1, x2 + 1, 80):
+            reply = call(c, "getHeightmap", {"x1": tx, "z1": tz, "x2": min(tx + 79, x2), "z2": min(tz + 79, z2)})
+            tiles.append(t.Heights.from_reply(reply))
+    if len(tiles) == 1:
+        return tiles[0]
+    return t.merge(tiles)
+
+
+def cmd_site(c, width, depth, near, radius, margin):
+    """Find flat, dry, tree-free ground for a width x depth building with margin blocks of room around it."""
+    t = terrain()
+    if near is None:
+        state = call(c, "getGameState")
+        pos = (state.get("self") or {}).get("pos", "") if isinstance(state, dict) else ""
+        try:
+            near = tuple(int(float(v)) for v in pos.split(",")[0::2])
+        except ValueError:
+            print("Не знаю, где ты: укажи --near X,Z.")
+            return 1
+    radius = max(6, min(radius, 39))
+    heights = read_heights(c, near[0] - radius, near[1] - radius, near[0] + radius, near[1] + radius)
+    sites = t.find_sites(heights, width, depth, margin=margin, near=near)
+    if not sites:
+        print(f"Подходящей площадки {width}x{depth} (+{margin} по краям) в радиусе {radius} нет: перепад больше 4, "
+              "вода, лава или чанки не прогружены. Подойди в другое место или увеличь --radius (до 39).")
+        return 7
+    print(f"Лучшие места под {width}x{depth} (запас {margin} блока со всех сторон), первое лучшее:")
+    for index, site in enumerate(sites[:3], 1):
+        print(f"{index}. {t.describe(site, width, depth)}")
+    print("Пол здания (слой 0) встанет на высоте Y из --origin. Перед стройкой: build_plan.py level ... --origin ...")
+    return 0
+
+
+def mine_cells(c, cells, timeout, step=1.0):
+    """Mine the given cells (top-down) and wait; returns the cells that are still not air."""
+    todo = [(x, y, z) for x, y, z in cells if not block_at(c, x, y, z).endswith("air")]
+    if not todo:
+        return []
+    call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
+    try:
+        reply = call(c, "mineBlocks", {"blocks": json.dumps([list(p) for p in todo])}) or {}
+        if not reply.get("ok"):
+            print(f"mineBlocks отказал: {reply}")
+            return todo
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            time.sleep(step)
+            status = call(c, "mineStatus") or {}
+            if not status.get("mining") and not status.get("remaining"):
+                break
+    finally:
+        call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
+    return [(x, y, z) for x, y, z in todo if not block_at(c, x, y, z).endswith("air")]
+
+
+def dig_hazards(c, cells, limit=300):
+    """Water, lava or loose gravel touching the cells to be mined: a flood or a cave-in waits there."""
+    cellset = set(cells)
+    shell = []
+    for x, y, z in cells:
+        for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)):
+            n = (x + dx, y + dy, z + dz)
+            if n not in cellset and n not in shell:
+                shell.append(n)
+    if len(shell) > limit:
+        return None, len(shell)
+    found = []
+    for x, y, z in shell:
+        name = block_at(c, x, y, z).split(":")[-1]
+        if any(k in name for k in ("water", "lava", "sand", "gravel")):
+            found.append(((x, y, z), name))
+    return found, len(shell)
+
+
+def cmd_dig(c, cells, mode, timeout, force=False):
+    """Mine a room, a tunnel or a cellar out of the ground: from a plan whose legend says «выкопать»."""
+    print(f"Выкопать: {len(cells)} клеток.")
+    if mode == "commands":
+        return cmd_commands(c, [(x, y, z, "minecraft:air") for x, y, z in cells])
+    found, checked = dig_hazards(c, cells)
+    if found is None:
+        print(f"Рядом {checked} клеток: слишком много, чтобы проверить воду, лаву и песок. Копай меньшими частями.")
+        return 12
+    if found and not force:
+        print("ОПАСНО: рядом с выработкой " + ", ".join(f"{name} {pos}" for pos, name in found[:6])
+              + (f" и ещё {len(found) - 6}" if len(found) > 6 else "")
+              + ". Затопит или обрушит. Сдвинь выработку или --force, если так и задумано.")
+        return 12
+    left = mine_cells(c, sorted(cells, key=lambda p: (-p[1], p[2], p[0])), timeout)
+    if left:
+        print(f"Не выкопано {len(left)} клеток (первые): {left[:8]}. Подойди ближе и повтори dig.")
+        return 5
+    print("ГОТОВО: всё выкопано")
+    return 0
+
+
+def cmd_level(c, whole, origin, mode, margin, timeout, material):
+    """Make the footprint of the plan (plus margin) level at origin.y - 1: fill what is low, cut what is high."""
+    t = terrain()
+    ox, oy, oz = origin
+    width, depth = max(b[0] for b in whole) + 1, max(b[2] for b in whole) + 1
+    heights = read_heights(c, ox - margin - 1, oz - margin - 1, ox + width + margin, oz + depth + margin)
+    try:
+        plan = t.level_plan(heights, ox, oz, width, depth, ground=oy - 1, margin=margin, material=material)
+    except ValueError as error:
+        print(error)
+        return 7
+    fill, cut = plan["fill"], plan["cut"]
+    print(f"Выровнять до высоты {oy - 1}: досыпать {len(fill)}, срезать {len(cut)} (участок {width}x{depth}, запас {margin}).")
+    if not fill and not cut:
+        print("Уже ровно.")
+        return 0
+    if mode == "commands":
+        return cmd_commands(c, [(x, y, z, "minecraft:air") for x, y, z in cut] + fill)
+    if cut:
+        left = mine_cells(c, cut, timeout)
+        if left:
+            print(f"Не срезано {len(left)} клеток (первые): {left[:8]}. Подойди ближе и повтори level.")
+            return 5
+    if fill:
+        lack = missing_materials(c, fill)
+        if lack:
+            print("НЕ ХВАТАЕТ материала для засыпки: " + ", ".join(f"{b.split(':')[-1]} -{n}" for b, n in lack.items())
+                  + ". Запусти stock по схеме засыпки или добудь.")
+            return 6
+        for index in range(0, len(fill), BATCH):
+            status, jammed = build_stage(c, fill[index:index + BATCH], timeout)
+            if "refused" in status or jammed:
+                print("Засыпка не пошла (строитель отказал или застрял). Для творческого мира: --mode commands.")
+                return 11
+        missing = verify(c, fill)
+        if missing:
+            print(f"Не досыпано {len(missing)} клеток (первые): {missing[:8]}")
+            return 5
+    print("ГОТОВО: участок ровный")
+    return 0
+
+
 def main(argv=None, client=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review"))
+    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig"))
     ap.add_argument("--mode", choices=("physical", "commands"), default="physical")
     ap.add_argument("--ignore-lint", action="store_true")
     ap.add_argument("--name", default="")
+    ap.add_argument("--near", default="")
+    ap.add_argument("--radius", type=int, default=24)
+    ap.add_argument("--margin", type=int, default=-1)
+    ap.add_argument("--material", default="dirt")
+    ap.add_argument("--force", action="store_true")
     ap.add_argument("plan")
     ap.add_argument("--origin", default="")
     ap.add_argument("--rotate", type=int, default=0)
     ap.add_argument("--layers", default="")
     ap.add_argument("--timeout", type=float, default=240.0)
     a = ap.parse_args(argv)
+    if a.action == "site":
+        import re
+        size = re.fullmatch(r"(\d+)[xх×](\d+)", a.plan.strip())
+        try:
+            if size:
+                width, depth = int(size[1]), int(size[2])
+            else:
+                with open(a.plan, encoding="utf-8") as stream:
+                    _, found = parse(stream.read())
+                found = [b for b in found if b[3] != DIG]
+                width, depth = max(b[0] for b in found) + 1, max(b[2] for b in found) + 1
+            near = tuple(int(v) for v in a.near.split(",")) if a.near else None
+            assert near is None or len(near) == 2
+        except (OSError, PlanError, ValueError, AssertionError, ValueError):
+            print("site: размер как 7x9 или файл схемы; --near X,Z (два числа).")
+            return 1
+        c = client or make_client()
+        if not in_world(c):
+            return 10
+        return cmd_site(c, width, depth, near, a.radius, 2 if a.margin < 0 else a.margin)
     try:
         with open(a.plan, encoding="utf-8") as stream:
             _, blocks = parse(stream.read())
         blocks = rotate(blocks, a.rotate)
+        digs = [b for b in blocks if b[3] == DIG]
+        blocks = [b for b in blocks if b[3] != DIG]
+        if a.action == "dig":
+            if not digs:
+                raise PlanError("в схеме нет клеток «выкопать» (в легенде: . = выкопать)")
+            blocks = digs
+        elif not blocks:
+            raise PlanError("в схеме нет блоков для постановки")
         whole = blocks  # the form is judged on the whole plan, not on the layers picked for this stage
         low, high = parse_range(a.layers, max(y for _, y, _, _ in blocks))
         blocks = [b for b in blocks if low <= b[1] <= high]
@@ -615,6 +809,10 @@ def main(argv=None, client=None):
     c = client or make_client()
     if not in_world(c):
         return 10
+    if a.action == "level":
+        return cmd_level(c, whole, origin, a.mode, 1 if a.margin < 0 else a.margin, a.timeout, a.material)
+    if a.action == "dig":
+        return cmd_dig(c, [(x, y, z) for x, y, z, _ in blocks], a.mode, a.timeout, a.force)
     if a.action == "verify":
         missing = verify(c, blocks)
         print("ВСЁ НА МЕСТЕ" if not missing else f"Не хватает {len(missing)}: {missing[:8]}")
