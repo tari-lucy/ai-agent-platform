@@ -1,4 +1,4 @@
-import { Anchor, Badge, Group, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Group, SegmentedControl, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
@@ -7,7 +7,7 @@ import type { PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { useHarnessEntry } from '../opencode.ts';
 import { LaunchCard } from './LaunchCard.tsx';
-import { Activities, FunnelBar, HourRibbon, PictureStrip, TraitBars } from './Widgets.tsx';
+import { Abilities, Activities, FunnelBar, HourRibbon, PictureStrip, TraitBars } from './Widgets.tsx';
 import {
   ago, attention, budgetLine, chips, funnel, gmSummary, headline, ribbon, traits, type Tone,
 } from './model.ts';
@@ -35,6 +35,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
   const [more, setMore] = useState(false);
+  const [span, setSpan] = useState<'hours' | 'days'>('hours');
   const harness = useHarnessEntry() ?? undefined;
   const tickets = useFirst(scope, 'tickets', (signal) => api.tickets(scope, signal));
   const changes = useFirst(scope, 'changes', (signal) => api.changes(scope, signal));
@@ -51,7 +52,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const picture = live.data;
   const feed = picture?.lines ?? [];
   const activities = picture?.activities ?? [];
-  const day = ribbon(picture?.hours);
+  const day = ribbon(span === 'hours' ? picture?.hours : picture?.days);
   const character = traits(states.data?.items[0], changes.data?.items ?? []);
 
   return <Stack gap="lg" className="now">
@@ -75,11 +76,19 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
         <Quiet>{run?.state === 'ACTIVE' ? 'Занятия появятся, когда она запишет их в свой список.' : 'Не работает.'}</Quiet>}
     </Soft>
 
-    <Soft title="Активность за сутки">
-      {day.busy ? <HourRibbon rows={day.rows} peak={day.peak} /> : <Quiet>За последние сутки тихо.</Quiet>}
+    <Soft title="Активность">
+      <Stack gap="sm">
+        <SegmentedControl size="xs" w={190} value={span} onChange={(value) => setSpan(value as 'hours' | 'days')}
+          data={[{ value: 'hours', label: 'Сутки' }, { value: 'days', label: 'Неделя' }]} aria-label="Период" />
+        <HourRibbon rows={day.rows} peak={day.peak} mode={span} />
+        {!day.busy && <Quiet>{span === 'hours' ? 'За последние сутки тихо.' : 'За неделю тихо.'}</Quiet>}
+      </Stack>
     </Soft>
 
-    {!!picture?.pictures?.length && <Soft title="Нарисовала"><PictureStrip api={api} scope={scope} pictures={picture.pictures} now={now} /></Soft>}
+    <Soft title="Картинки">
+      {picture?.pictures?.length ? <PictureStrip api={api} scope={scope} pictures={picture.pictures} now={now} /> :
+        <Quiet>Пока ни рисунков, ни снимков.</Quiet>}
+    </Soft>
 
     <Group grow align="stretch" wrap="wrap" gap="md">
       <Soft title="Характер" to="/development">
@@ -88,9 +97,13 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
       <Soft title="Гейммастер" to="/development">
         <FunnelBar funnel={funnel(opportunities.data?.items ?? [])} />
         <Text size="xs" c="dimmed" mt={10}>{story.paused ? 'на паузе' : 'работает'}
-          {story.latest ? ` · последнее: ${story.latest.applicability} · ${ago(story.latest.updated_at, now)}` : ''}</Text>
+          {story.latest?.applicability ? ` · последнее: ${story.latest.applicability} · ${ago(story.latest.updated_at, now)}` : ''}</Text>
       </Soft>
     </Group>
+
+    <Soft title="Что умеет">
+      {picture?.abilities?.length ? <Abilities rows={picture.abilities} /> : <Quiet>Запустите агента, чтобы увидеть, какие инструменты у неё в руках.</Quiet>}
+    </Soft>
 
     <Soft title="Что происходит">
       {feed.length ? <Stack gap={6}>

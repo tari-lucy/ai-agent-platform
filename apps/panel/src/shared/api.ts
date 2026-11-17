@@ -214,8 +214,8 @@ export class PanelApi {
   async workplaceFile(scope: Scope, fileId: string, signal?: AbortSignal): Promise<import('./contracts.ts').WorkplaceFileContent> {
     return workplaceFileContent(await this.#read('workplace-file', scope, signal, undefined, fileId), scope, fileId);
   }
-  async harnessPicture(scope: Scope, name: string, signal?: AbortSignal): Promise<import('./contracts.ts').HarnessPicture> {
-    return harnessPicture(await this.#read('harness-picture', scope, signal, undefined, name), scope, name);
+  async harnessPicture(scope: Scope, id: string, signal?: AbortSignal): Promise<import('./contracts.ts').HarnessPicture> {
+    return harnessPicture(await this.#read('harness-picture', scope, signal, undefined, id), scope, id);
   }
   async harnessNow(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').HarnessNow> {
     return harnessNow(await this.#read('harness-now', scope, signal), scope);

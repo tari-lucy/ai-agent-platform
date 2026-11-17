@@ -1,7 +1,7 @@
 import { Group, Image, Modal, Skeleton, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { NowActivity, NowPicture, Scope } from '../../shared/contracts.ts';
+import type { NowAbility, NowActivity, NowPicture, Scope } from '../../shared/contracts.ts';
 import type { PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { ago, type Funnel, type Ribbon, type Trait } from './model.ts';
@@ -30,23 +30,25 @@ const kinds = [
 ] as const;
 
 // Twenty-four bars, one per hour, stacked by what she did; empty hours stay as thin ticks.
-export function HourRibbon({ rows, peak }: { rows: Ribbon[]; peak: number }) {
-  const width = 24 * 28; const height = 84;
+export function HourRibbon({ rows, peak, mode = 'hours' }: { rows: Ribbon[]; peak: number; mode?: 'hours' | 'days' }) {
+  const slot = mode === 'hours' ? 28 : 96; const bar = mode === 'hours' ? 20 : 64;
+  const width = rows.length * slot; const height = 84;
   return <div>
-    <svg viewBox={`0 0 ${width} ${height + 20}`} role="img" width="100%" aria-label="Активность по часам за последние сутки">
+    <svg viewBox={`0 0 ${width} ${height + 20}`} role="img" width="100%" aria-label={mode === 'hours' ? 'Активность по часам за последние сутки' : 'Активность по дням за неделю'}>
       {rows.map((row, index) => {
         let top = height;
-        const x = index * 28 + 4;
+        const x = index * slot + 4;
         const stacks = kinds.map((kind) => {
           const size = (row[kind.key] / peak) * (height - 4);
           top -= size;
-          return size > 0 ? <rect key={kind.key} x={x} y={top} width={20} height={size} rx={4} fill={kind.color}><title>{`${kind.label}: ${row[kind.key]}`}</title></rect> : null;
+          return size > 0 ? <rect key={kind.key} x={x} y={top} width={bar} height={size} rx={4} fill={kind.color}><title>{`${kind.label}: ${row[kind.key]}`}</title></rect> : null;
         });
-        const hour = new Date(row.hour).getHours();
+        const moment = new Date(row.hour);
+        const label = mode === 'hours' ? `${String(moment.getHours()).padStart(2, '0')}:00` : moment.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric' });
         return <g key={row.hour}>
-          {row.total === 0 && <rect x={x} y={height - 3} width={20} height={3} rx={1.5} fill="#e9e6f2" />}
+          {row.total === 0 && <rect x={x} y={height - 3} width={bar} height={3} rx={1.5} fill="#e9e6f2" />}
           {stacks}
-          {index % 6 === 0 && <text x={x} y={height + 15} fontSize="11" fill="#8a84a0">{String(hour).padStart(2, '0')}:00</text>}
+          {(mode === 'days' || index % 6 === 0) && <text x={x} y={height + 15} fontSize="11" fill="#8a84a0">{label}</text>}
         </g>;
       })}
     </svg>
@@ -87,27 +89,49 @@ export function TraitBars({ rows, now }: { rows: Trait[]; now: number }) {
 
 function Thumb({ api, scope, picture, onOpen }: { api: PanelApi; scope: Scope; picture: NowPicture; onOpen: (src: string) => void }) {
   const query = useQuery({
-    queryKey: [...projectionKey('harness-picture', scope), picture.name], queryFn: ({ signal }) => api.harnessPicture(scope, picture.name, signal),
+    queryKey: [...projectionKey('harness-picture', scope), picture.id], queryFn: ({ signal }) => api.harnessPicture(scope, picture.id, signal),
     staleTime: Infinity, retry: 1,
   });
   if (query.isPending) return <Skeleton h={110} w={150} radius="md" />;
   if (!query.data) return <div className="thumb-empty"><Text size="xs" c="dimmed">не загрузилась</Text></div>;
   const src = `data:${query.data.media_type};base64,${query.data.data}`;
-  return <button type="button" className="thumb" onClick={() => onOpen(src)} aria-label={`Открыть: ${picture.caption || picture.name}`}>
-    <Image src={src} alt={picture.caption || 'Рисунок'} h={110} w={150} fit="cover" radius="md" />
+  return <button type="button" className="thumb" onClick={() => onOpen(src)} aria-label={`Открыть: ${picture.caption || picture.id}`}>
+    <Image src={src} alt={picture.caption || 'Картинка'} h={110} w={150} fit="cover" radius="md" />
   </button>;
 }
 
+const kindWord = { art: 'нарисовала', shot: 'снимок' } as const;
+
+// Her shelf: drawings and game shots together, newest first, however old they are.
 export function PictureStrip({ api, scope, pictures, now }: { api: PanelApi; scope: Scope; pictures: NowPicture[]; now: number }) {
   const [open, setOpen] = useState<{ src: string; caption: string; at: string } | null>(null);
   return <>
-    <div className="strip">{pictures.map((picture) => <figure key={picture.name} style={{ margin: 0 }}>
+    <div className="strip">{pictures.map((picture) => <figure key={picture.id} style={{ margin: 0 }}>
       <Thumb api={api} scope={scope} picture={picture} onOpen={(src) => setOpen({ src, caption: picture.caption ?? '', at: picture.at })} />
       <Text size="xs" c="dimmed" mt={4} w={150} lineClamp={2}>{picture.caption || ' '}</Text>
-      <Text size="xs" c="dimmed">{ago(picture.at, now)}</Text>
+      <Text size="xs" c="dimmed">{kindWord[picture.kind]} · {ago(picture.at, now)}</Text>
     </figure>)}</div>
-    <Modal opened={!!open} onClose={() => setOpen(null)} size="xl" centered title={open?.caption || 'Рисунок'}>
-      {open && <Image src={open.src} alt={open.caption || 'Рисунок'} radius="md" />}
+    <Modal opened={!!open} onClose={() => setOpen(null)} size="xl" centered title={open?.caption || 'Картинка'}>
+      {open && <Image src={open.src} alt={open.caption || 'Картинка'} radius="md" />}
     </Modal>
+  </>;
+}
+
+const abilityColor = { on: '#12b886', idle: '#4c6ef5', off: '#ced4da' } as const;
+const abilityWord = { on: 'работает', idle: 'подключено, ждёт', off: 'не подключено' } as const;
+
+// What she can do, as a row of chips; the tools behind each one open on a click.
+export function Abilities({ rows }: { rows: NowAbility[] }) {
+  return <>
+    <Group gap={8}>{rows.map((row) => <span key={row.title} className={`ability ${row.state}`} title={`${row.title}: ${abilityWord[row.state]}`}>
+      <span className="activity-dot" style={{ background: abilityColor[row.state], marginRight: 6 }} aria-hidden="true" />{row.title}</span>)}</Group>
+    <details className="soft-details">
+      <summary><Text span size="sm" c="dimmed">Инструменты подробно</Text></summary>
+      <Stack gap={8} mt={8}>{rows.map((row) => <div key={row.title}>
+        <Text size="sm" fw={500}>{row.title} <Text span size="xs" c="dimmed">· {abilityWord[row.state]}</Text></Text>
+        <Text size="xs" c="dimmed">{row.detail}</Text>
+        {!!row.tools?.length && <Text size="xs" c="dimmed">Инструменты: {row.tools.join(', ')}</Text>}
+      </div>)}</Stack>
+    </details>
   </>;
 }

@@ -108,3 +108,5 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 .thumb { border: 0; padding: 0; background: none; cursor: zoom-in; display: block; border-radius: 12px; }
 .thumb:hover img { filter: brightness(1.05); }
 .thumb-empty { width: 150px; height: 110px; border-radius: 12px; background: #eeecf5; display: grid; place-items: center; }
+.ability { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: #f1effa; font-size: 13px; }
+.ability.off { background: #f4f3f7; color: #9a94ad; }

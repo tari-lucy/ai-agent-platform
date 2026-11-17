@@ -84,15 +84,19 @@ test('the live picture validates activities, hours and picture names', async () 
   const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
   const base = { scope, enabled: true, checked_at: 'now' };
   const ok = { ...base, activities: [{ title: 'Строю дом', state: 'doing', detail: 'д' }], hours: [{ hour: 'h', said: 1 }],
-    pictures: [{ name: 'a.jpg', at: 't', caption: 'c' }] };
+    pictures: [{ id: 'art--a.jpg', kind: 'art', at: 't', caption: 'c' }], days: [{ hour: 'd', said: 2 }],
+    abilities: [{ title: 'Говорить', state: 'on', detail: 'д', tools: ['speak'] }] };
   assert.equal(harnessNow(ok, scope).activities?.length, 1);
   assert.throws(() => harnessNow({ ...ok, activities: [{ title: 'x', state: 'weird' }] }, scope));
   assert.throws(() => harnessNow({ ...ok, activities: [{ title: '', state: 'doing' }] }, scope));
   assert.throws(() => harnessNow({ ...ok, hours: [{ hour: 'h', said: -1 }] }, scope));
-  assert.throws(() => harnessNow({ ...ok, pictures: [{ name: '../a.jpg', at: 't' }] }, scope));
-  const picture = { scope, name: 'a.jpg', media_type: 'image/jpeg', data: 'AAAA' };
-  assert.equal(harnessPicture(picture, scope, 'a.jpg').name, 'a.jpg');
-  assert.throws(() => harnessPicture({ ...picture, data: 'not base64!' }, scope, 'a.jpg'));
-  assert.throws(() => harnessPicture(picture, scope, 'b.jpg')); // the answer must be the picture asked for
-  assert.throws(() => harnessPicture({ ...picture, media_type: 'text/html' }, scope, 'a.jpg'));
+  assert.throws(() => harnessNow({ ...ok, pictures: [{ id: '../a.jpg', kind: 'art', at: 't' }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, pictures: [{ id: 'art--a.jpg', kind: 'other', at: 't' }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, abilities: [{ title: 'x', state: 'maybe' }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, days: [{ hour: 'd', said: -3 }] }, scope));
+  const picture = { scope, id: 'shot--a.jpg', media_type: 'image/jpeg', data: 'AAAA' };
+  assert.equal(harnessPicture(picture, scope, 'shot--a.jpg').id, 'shot--a.jpg');
+  assert.throws(() => harnessPicture({ ...picture, data: 'not base64!' }, scope, 'shot--a.jpg'));
+  assert.throws(() => harnessPicture(picture, scope, 'shot--b.jpg')); // the answer must be the picture asked for
+  assert.throws(() => harnessPicture({ ...picture, media_type: 'text/html' }, scope, 'shot--a.jpg'));
 });
