@@ -762,9 +762,10 @@ class HourBucket(Contract):
 
 
 class NowPicture(Contract):
-    """A picture she drew: the name is the key for harness-picture; the caption is her idea."""
+    """A picture of hers: drawn (art) or taken in the game (shot). The id is the key for harness-picture."""
 
-    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(jpg|jpeg|png|webp)$")
+    id: str = Field(pattern=r"^(art|shot)--[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(jpg|jpeg|png|webp)$")
+    kind: Literal["art", "shot"]
     at: str = Field(max_length=40)
     caption: str = Field(default="", max_length=200)
 
@@ -773,9 +774,18 @@ class HarnessPicture(Contract):
     """One of her pictures itself, base64 inside JSON (the panel reads JSON only)."""
 
     scope: Scope
-    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(jpg|jpeg|png|webp)$")
+    id: str = Field(pattern=r"^(art|shot)--[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(jpg|jpeg|png|webp)$")
     media_type: Literal["image/jpeg", "image/png", "image/webp"]
     data: str = Field(min_length=1, max_length=1_400_000)
+
+
+class NowAbility(Contract):
+    """One thing she can do now, and the tools she holds for it; state is what is true at this moment."""
+
+    title: str = Field(min_length=1, max_length=60)
+    state: Literal["on", "idle", "off"]  # on: works now; idle: wired but waiting; off: not connected
+    detail: str = Field(default="", max_length=300)
+    tools: list[str] = Field(default_factory=list, max_length=12)
 
 
 class HarnessNow(Contract):
@@ -789,7 +799,9 @@ class HarnessNow(Contract):
     lines: list[NowLine] = Field(default_factory=list, max_length=40)  # newest first
     activities: list[NowActivity] = Field(default_factory=list, max_length=12)
     hours: list[HourBucket] = Field(default_factory=list, max_length=24)  # oldest first
-    pictures: list[NowPicture] = Field(default_factory=list, max_length=8)  # newest first
+    days: list[HourBucket] = Field(default_factory=list, max_length=7)  # the week, oldest first
+    pictures: list[NowPicture] = Field(default_factory=list, max_length=12)  # newest first
+    abilities: list[NowAbility] = Field(default_factory=list, max_length=16)
     checked_at: str = Field(max_length=40)
 
 

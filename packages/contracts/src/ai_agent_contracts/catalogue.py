@@ -49,6 +49,7 @@ MODELS = (
     panel.NowActivity,
     panel.HourBucket,
     panel.NowPicture,
+    panel.NowAbility,
     panel.HarnessPicture,
     panel.HarnessNow,
     panel.PersonaCreateArguments,

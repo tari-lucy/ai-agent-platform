@@ -32,6 +32,8 @@ def host(tmp_path: Path, parts: list[object]) -> SimpleNamespace:
         speaker=SimpleNamespace(journal=speech),
         listener=SimpleNamespace(journal=heard),
         folders=lambda: folder,
+        brain=None, look=None, imagine=None, hear=None, avatar=None, stage=None, chats=None,
+        channel=None, people=None,
     )
 
 
@@ -96,23 +98,55 @@ def test_hours_count_only_real_events_of_the_last_day(tmp_path: Path) -> None:
     assert sum(h.drew for h in hours) == 1 and sum(h.heard for h in hours) == 1
 
 
-def test_pictures_are_listed_from_the_log_and_served_by_listed_name_only(tmp_path: Path) -> None:
+def test_the_shelf_holds_drawings_and_game_shots_and_serves_only_listed_ids(tmp_path: Path) -> None:
+    import os
+
     harness = host(tmp_path, [])
     folder = harness.folders()
     (folder / "art").mkdir()
+    (folder / "shots").mkdir()
     (folder / "art" / "a.jpg").write_bytes(b"\xff\xd8jpeg")
+    (folder / "shots" / "tabl_z148.jpg").write_bytes(b"\xff\xd8shot")
+    (folder / "shots" / "notes.txt").write_text("not a picture")
     (folder / "secret.jpg").write_bytes(b"x")
+    os.utime(folder / "art" / "a.jpg", (1_700_000_000, 1_700_000_000))  # old: still on the shelf
     log = harness.listener.journal.parent / "imagine.jsonl"
-    log.write_text(
-        json.dumps({"at": "2026-11-14T10:00:00+00:00", "status": "made", "file": "a.jpg", "scene": "обрыв"}) + "\n"
-        + json.dumps({"at": "2026-11-14T10:05:00+00:00", "status": "made", "file": "gone.jpg", "scene": "нет файла"}) + "\n"
-        + json.dumps({"at": "2026-11-14T10:06:00+00:00", "status": "made", "file": "../secret.jpg"}) + "\n",
-        encoding="utf-8",
-    )
-    listed = build(harness, SCOPE, NOW).pictures
-    assert [p.name for p in listed] == ["a.jpg"] and listed[0].caption == "обрыв"
+    log.write_text(json.dumps({"at": "x", "status": "made", "file": "a.jpg", "scene": "обрыв"}) + "\n")
+    shelf = build(harness, SCOPE, NOW).pictures
+    assert [p.id for p in shelf] == ["shot--tabl_z148.jpg", "art--a.jpg"]  # newest first
+    assert shelf[1].caption == "обрыв" and shelf[0].kind == "shot" and shelf[0].caption == "tabl z148"
     from ai_agent_core.m3_composition.harness_now import picture
 
-    assert picture(harness, SCOPE, "a.jpg").media_type == "image/jpeg"  # type: ignore[union-attr]
-    assert picture(harness, SCOPE, "secret.jpg") is None  # exists, but she never drew it
-    assert picture(harness, SCOPE, "../secret.jpg") is None
+    assert picture(harness, SCOPE, "art--a.jpg").media_type == "image/jpeg"  # type: ignore[union-attr]
+    assert picture(harness, SCOPE, "shot--tabl_z148.jpg") is not None
+    assert picture(harness, SCOPE, "art--secret.jpg") is None  # not on the shelf
+    assert picture(harness, SCOPE, "shot--notes.txt") is None
+    assert picture(harness, SCOPE, "a.jpg") is None and picture(harness, SCOPE, "art--../secret.jpg") is None
+
+
+def test_the_week_counts_per_day(tmp_path: Path) -> None:
+    harness = host(tmp_path, [])
+    rows = [
+        {"at": "2026-11-14T11:30:00+00:00", "status": "spoken", "text": "сегодня"},
+        {"at": "2026-11-10T09:00:00+00:00", "status": "spoken", "text": "четыре дня назад"},
+        {"at": "2026-11-01T09:00:00+00:00", "status": "spoken", "text": "давно"},
+    ]
+    harness.speaker.journal.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    days = build(harness, SCOPE, NOW).days
+    assert len(days) == 7 and days[-1].hour.startswith("2026-11-14T00:00")
+    assert [d.said for d in days] == [0, 0, 1, 0, 0, 0, 1]  # 8..14 November
+
+
+def test_abilities_show_what_is_wired_and_what_is_not(tmp_path: Path) -> None:
+    harness = host(tmp_path, [])
+    harness.imagine = object()
+    harness.avatar = SimpleNamespace(state="on")
+    scripts = harness.folders() / "skills" / "minecraft"
+    scripts.mkdir(parents=True)
+    (scripts / "orient.py").write_text("x")
+    rows = {a.title: a for a in build(harness, SCOPE, NOW).abilities}
+    assert rows["Рисовать"].state == "on" and "imagine" in rows["Рисовать"].tools
+    assert rows["Аватар"].state == "on" and rows["Видеть картинки"].state == "off"
+    assert rows["Слушать"].state == "idle"  # wired, but not listening at this moment
+    assert rows["Играть в Minecraft"].state == "off"  # no game source in this host
+    assert rows["Память и запросы"].state == "on"

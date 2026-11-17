@@ -3195,6 +3195,14 @@
       "additionalProperties": false,
       "description": "What the persona is doing right now, read from the harness itself (the panel's home).",
       "properties": {
+        "abilities": {
+          "items": {
+            "$ref": "#/$defs/NowAbility"
+          },
+          "maxItems": 16,
+          "title": "Abilities",
+          "type": "array"
+        },
         "activities": {
           "items": {
             "$ref": "#/$defs/NowActivity"
@@ -3207,6 +3215,14 @@
           "maxLength": 40,
           "title": "Checked At",
           "type": "string"
+        },
+        "days": {
+          "items": {
+            "$ref": "#/$defs/HourBucket"
+          },
+          "maxItems": 7,
+          "title": "Days",
+          "type": "array"
         },
         "doing": {
           "anyOf": [
@@ -3258,7 +3274,7 @@
           "items": {
             "$ref": "#/$defs/NowPicture"
           },
-          "maxItems": 8,
+          "maxItems": 12,
           "title": "Pictures",
           "type": "array"
         },
@@ -3292,6 +3308,11 @@
           "title": "Data",
           "type": "string"
         },
+        "id": {
+          "pattern": "^(art|shot)--[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
+          "title": "Id",
+          "type": "string"
+        },
         "media_type": {
           "enum": [
             "image/jpeg",
@@ -3301,18 +3322,13 @@
           "title": "Media Type",
           "type": "string"
         },
-        "name": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
-          "title": "Name",
-          "type": "string"
-        },
         "scope": {
           "$ref": "#/$defs/Scope"
         }
       },
       "required": [
         "scope",
-        "name",
+        "id",
         "media_type",
         "data"
       ],
@@ -5780,6 +5796,47 @@
       "title": "ModerationCheck",
       "type": "object"
     },
+    "NowAbility": {
+      "additionalProperties": false,
+      "description": "One thing she can do now, and the tools she holds for it; state is what is true at this moment.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Detail",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "on",
+            "idle",
+            "off"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "state"
+      ],
+      "title": "NowAbility",
+      "type": "object"
+    },
     "NowActivity": {
       "additionalProperties": false,
       "description": "One high-level thing she is up to, written by her in activities.md (title, state, details).",
@@ -5849,7 +5906,7 @@
     },
     "NowPicture": {
       "additionalProperties": false,
-      "description": "A picture she drew: the name is the key for harness-picture; the caption is her idea.",
+      "description": "A picture of hers: drawn (art) or taken in the game (shot). The id is the key for harness-picture.",
       "properties": {
         "at": {
           "maxLength": 40,
@@ -5862,14 +5919,23 @@
           "title": "Caption",
           "type": "string"
         },
-        "name": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
-          "title": "Name",
+        "id": {
+          "pattern": "^(art|shot)--[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\.(jpg|jpeg|png|webp)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "art",
+            "shot"
+          ],
+          "title": "Kind",
           "type": "string"
         }
       },
       "required": [
-        "name",
+        "id",
+        "kind",
         "at"
       ],
       "title": "NowPicture",
@@ -16530,6 +16596,9 @@
     },
     "ModerationCheck": {
       "$ref": "#/$defs/ModerationCheck"
+    },
+    "NowAbility": {
+      "$ref": "#/$defs/NowAbility"
     },
     "NowActivity": {
       "$ref": "#/$defs/NowActivity"
