@@ -791,7 +791,11 @@ export function harnessNow(value: unknown, selected: Scope): import('./contracts
     (sleep.source === 'headers' || sleep.source === 'body' || sleep.source === 'default')));
   demand(use == null || (object(use) && count(use.window) && count(use.day) && count(use.week) &&
     (use.since == null || text(use.since, 40)) && (use.last_limit_at == null || text(use.last_limit_at, 40)) &&
-    (use.last_limit_tokens == null || count(use.last_limit_tokens))));
+    (use.last_limit_tokens == null || count(use.last_limit_tokens)) &&
+    (use.last_limit_windows == null || (Array.isArray(use.last_limit_windows) && use.last_limit_windows.length <= 4 &&
+      use.last_limit_windows.every((win) => object(win) && (win.minutes == null || (count(win.minutes) && Number(win.minutes) > 0)) &&
+        (win.used_percent == null || (typeof win.used_percent === 'number' && win.used_percent >= 0 && win.used_percent <= 100)) &&
+        (win.resets_at == null || text(win.resets_at, 40)))))));
   return value as import('./contracts.ts').HarnessNow;
 }
 

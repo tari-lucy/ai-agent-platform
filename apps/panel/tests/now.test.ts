@@ -156,3 +156,34 @@ test('the home picture accepts the sleep and the plan use and refuses broken one
   assert.throws(() => harnessNow({ ...ok, plan_use: { ...use, window: -1 } }, scope));
   assert.throws(() => harnessNow({ ...ok, plan_use: { ...use, week: 1.5 } }, scope));
 });
+
+test('the plan card quotes the provider\'s own figures from the last refusal', async () => {
+  const { planCard } = await import('../src/ui/now/model.ts');
+  const now = Date.parse('2026-11-17T21:30:00Z');
+  const base = { scope: { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const, enabled: true, checked_at: 'now' };
+  const use = {
+    window: 1, day: 2, week: 3, since: '2026-11-10T00:00:00Z', last_limit_at: '2026-11-17T20:56:00Z', last_limit_tokens: 3_000_000,
+    last_limit_windows: [
+      { minutes: 300, used_percent: 100, resets_at: '2026-11-17T21:48:41Z' },
+      { minutes: 10080, used_percent: 33, resets_at: '2026-11-20T12:23:21Z' },
+    ],
+  };
+  const card = planCard({ ...base, plan_use: use } as never, now)!;
+  const text = card.lines.join(' ');
+  assert.match(text, /окно 5 часов израсходовано на 100 %/);
+  assert.match(text, /окно недели израсходовано на 33 %/);
+  assert.match(text, /откроется 20 ноября в/);          // another day: the date is said
+  const over = planCard({ ...base, plan_use: { ...use, last_limit_windows: [{ minutes: 300, used_percent: 100, resets_at: '2026-11-17T20:00:00Z' }] } } as never, now)!;
+  assert.doesNotMatch(over.lines.join(' '), /откроется/); // a window that has opened since is not announced
+  const none = planCard({ ...base, plan_use: { ...use, last_limit_windows: [] } } as never, now)!;
+  assert.doesNotMatch(none.lines.join(' '), /провайдера/); // no figures, none claimed
+});
+
+test('plan windows in the home picture are validated', async () => {
+  const { harnessNow } = await import('../src/shared/validation.ts');
+  const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
+  const use = { window: 1, day: 2, week: 3, last_limit_windows: [{ minutes: 300, used_percent: 100, resets_at: 'x' }] };
+  assert.equal(harnessNow({ scope, enabled: true, checked_at: 'now', plan_use: use }, scope).enabled, true);
+  assert.throws(() => harnessNow({ scope, enabled: true, checked_at: 'now', plan_use: { ...use, last_limit_windows: [{ used_percent: 140 }] } }, scope));
+  assert.throws(() => harnessNow({ scope, enabled: true, checked_at: 'now', plan_use: { ...use, last_limit_windows: [{ minutes: 0 }] } }, scope));
+});

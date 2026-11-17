@@ -10256,6 +10256,14 @@
           "default": null,
           "title": "Last Limit Tokens"
         },
+        "last_limit_windows": {
+          "items": {
+            "$ref": "#/$defs/PlanWindow"
+          },
+          "maxItems": 4,
+          "title": "Last Limit Windows",
+          "type": "array"
+        },
         "since": {
           "anyOf": [
             {
@@ -10286,6 +10294,54 @@
         "week"
       ],
       "title": "PlanUse",
+      "type": "object"
+    },
+    "PlanWindow": {
+      "additionalProperties": false,
+      "description": "One window of the plan as the provider reported it when it refused a turn.",
+      "properties": {
+        "minutes": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minutes"
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resets At"
+        },
+        "used_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used Percent"
+        }
+      },
+      "title": "PlanWindow",
       "type": "object"
     },
     "PrivateApiStatus": {
@@ -17073,6 +17129,9 @@
     },
     "PlanUse": {
       "$ref": "#/$defs/PlanUse"
+    },
+    "PlanWindow": {
+      "$ref": "#/$defs/PlanWindow"
     },
     "PrivateApiStatus": {
       "$ref": "#/$defs/PrivateApiStatus"

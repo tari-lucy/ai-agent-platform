@@ -264,3 +264,24 @@ def test_the_home_screen_shows_the_sleep_and_the_use(tmp_path: Path) -> None:
         )  # no figures yet: nothing is invented
 
     asyncio.run(scenario())
+
+
+def test_the_windows_of_a_limit_hit_are_kept_and_survive_a_restart(tmp_path: Path) -> None:
+    clock, where = Clock(), tmp_path / "plan.jsonl"
+    windows = (
+        hl.Window(300, 100.0, NOW + timedelta(minutes=50)),
+        hl.Window(10080, 33.0, NOW + timedelta(hours=15)),
+    )
+    usage = PlanUsage(where, clock.utc, clock.monotonic)
+    usage.note_limit(NOW + timedelta(minutes=50), windows)
+    assert usage.totals().last_limit_windows == windows
+    again = PlanUsage(where, clock.utc, clock.monotonic).totals()
+    assert again.last_limit_windows == windows  # read back from the journal
+    old = tmp_path / "old.jsonl"
+    old.write_text(
+        json.dumps({"kind": "limit", "at": NOW.isoformat(), "until": NOW.isoformat(), "tokens": 5})
+        + "\n"
+    )
+    assert (
+        PlanUsage(old, clock.utc).totals().last_limit_windows == ()
+    )  # a hit written before windows existed

@@ -198,6 +198,16 @@ function left(until: string, nowMs: number): string {
 
 const clock = (value: string) => new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
+// A time of day, with the date when it is not today.
+function when(value: string, nowMs: number): string {
+  const at = new Date(value);
+  const time = at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return at.toDateString() === new Date(nowMs).toDateString() ? time : `${at.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} в ${time}`;
+}
+
+const windowName = (minutes: number | null | undefined) =>
+  minutes === 300 ? 'окно 5 часов' : minutes === 10080 ? 'окно недели' : minutes ? `окно ${minutes} мин` : 'окно';
+
 export type PlanCard = { asleep: boolean; headline: string; tone: Tone; lines: string[] } | null;
 
 // The remaining allowance is not readable while she works (the provider says it only when it refuses),
@@ -215,6 +225,13 @@ export function planCard(picture: HarnessNow | undefined, nowMs: number): PlanCa
     lines.push(`Потрачено токенов: за 5 часов ${tokens(use.window)}, за сутки ${tokens(use.day)}, за неделю ${tokens(use.week)}.`);
     if (use.last_limit_at && use.last_limit_tokens) {
       lines.push(`Прошлый раз лимит наступил ${ago(use.last_limit_at, nowMs)} после ${tokens(use.last_limit_tokens)} за 5 часов.`);
+    }
+    // The provider's own figures from the moment it refused: the only exact reading of the allowance there is.
+    const known = (use.last_limit_windows ?? []).filter((win) => win.used_percent != null);
+    if (known.length && use.last_limit_at) {
+      const parts = known.map((win) => `${windowName(win.minutes)} израсходовано на ${Math.round(win.used_percent ?? 0)} %` +
+        (win.resets_at && Date.parse(win.resets_at) > nowMs ? `, откроется ${when(win.resets_at, nowMs)}` : ''));
+      lines.push(`По данным провайдера на момент отказа (${ago(use.last_limit_at, nowMs)}): ${parts.join('; ')}.`);
     }
     if (use.since && nowMs - Date.parse(use.since) < 7 * day) lines.push(`Считаю с ${clock(use.since)}: раньше данных нет.`);
   }

@@ -24,6 +24,7 @@ from ai_agent_contracts.panel import (
     NowPicture,
     PlanSleep,
     PlanUse,
+    PlanWindow,
 )
 
 MAX_LINES = 40
@@ -327,6 +328,11 @@ def build(harness: Any, scope: Scope, now: datetime) -> HarnessNow:
                         since=used.since.isoformat(timespec="seconds"),
                         last_limit_at=used.last_limit_at.isoformat(timespec="seconds") if used.last_limit_at else None,
                         last_limit_tokens=used.last_limit_tokens,
+                        last_limit_windows=[
+                            PlanWindow(minutes=win.minutes, used_percent=win.used,
+                                       resets_at=win.resets_at.isoformat(timespec="seconds") if win.resets_at else None)
+                            for win in used.last_limit_windows
+                        ],
                     )  # fmt: skip
     for part in harness.parts:
         if isinstance(part, Activity):

@@ -28,10 +28,20 @@ HISTORY = 4  # messages read per look: the newest assistant one is what matters
 
 
 @dataclass(frozen=True)
+class Window:
+    """One of the plan's windows as the provider reported it at the moment of the refusal."""
+
+    minutes: int | None  # 300 = the five-hour window, 10080 = the week
+    used: float | None  # percent used
+    resets_at: datetime | None
+
+
+@dataclass(frozen=True)
 class Sleep:
     until: datetime
     since: datetime
     source: str  # "headers" | "body" | "default": where the reset time came from
+    windows: tuple[Window, ...] = ()  # what the provider said of each window at that moment
 
 
 def _num(value: Any) -> float | None:
@@ -97,6 +107,27 @@ def reset_after(error: dict[str, Any], base: datetime) -> tuple[timedelta | None
     return None, "default"
 
 
+def windows_of(error: dict[str, Any], base: datetime) -> tuple[Window, ...]:
+    """Both windows as the refusal's headers describe them (the provider names them primary and secondary)."""
+    data = error.get("data") or {}
+    headers = {str(k).lower(): v for k, v in (data.get("responseHeaders") or {}).items()}
+    found: list[Window] = []
+    for name in ("primary", "secondary"):
+        used = _num(headers.get(f"x-codex-{name}-used-percent"))
+        minutes = _num(headers.get(f"x-codex-{name}-window-minutes"))
+        after = _num(headers.get(f"x-codex-{name}-reset-after-seconds"))
+        at = _num(headers.get(f"x-codex-{name}-reset-at"))
+        if used is None and minutes is None and after is None and at is None:
+            continue
+        when = None
+        if at is not None:
+            when = datetime.fromtimestamp(at, UTC)
+        elif after is not None:
+            when = base + timedelta(seconds=after)
+        found.append(Window(int(minutes) if minutes else None, used, when))
+    return tuple(found)
+
+
 def read_limit(rows: Any, now: datetime) -> Sleep | None:
     """The sleep the newest assistant message of the session calls for, or None (it answered
     fine, or the limit it reported is already over).
@@ -120,7 +151,8 @@ def read_limit(rows: Any, now: datetime) -> Sleep | None:
     wait, source = reset_after(newest["error"], base)
     until = base + (wait if wait is not None else DEFAULT_SLEEP) + MARGIN
     until = min(until, now + MAX_SLEEP)
-    return Sleep(until=until, since=base, source=source) if until > now else None
+    windows = windows_of(newest["error"], base)
+    return Sleep(until=until, since=base, source=source, windows=windows) if until > now else None
 
 
 class LimitGate:

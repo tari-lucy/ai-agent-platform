@@ -7,6 +7,7 @@ reset, and she wakes by herself.
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from ai_agent_contracts.common import Scope
 
@@ -326,3 +327,21 @@ def test_urgent_wakes_are_held_too_and_a_dispatcher_without_a_gate_behaves_as_be
         )  # no gate, no look, no hold
 
     asyncio.run(scenario())
+
+
+REAL = Path(__file__).parent / "fixtures" / "chatgpt_usage_limit.json"
+
+
+def test_the_real_refusal_of_the_plus_plan_is_read_right() -> None:
+    """A recorded 429 of a ChatGPT Plus plan: the 5-hour window used up, the week at 33 percent."""
+    error = json.loads(REAL.read_text(encoding="utf-8"))
+    base = datetime.fromtimestamp(1794949064, UTC)
+    assert hl.is_limit(error)
+    after, source = hl.reset_after(error, base)
+    assert source == "headers" and after == timedelta(seconds=3058)  # the five-hour window decides
+    sleep = hl.read_limit([row(error=error, at=base)], base + timedelta(minutes=1))
+    assert sleep is not None and sleep.until == base + timedelta(seconds=3058) + hl.MARGIN
+    five, week = sleep.windows
+    assert (five.minutes, five.used) == (300, 100.0)
+    assert (week.minutes, week.used) == (10080, 33.0)
+    assert week.resets_at == datetime.fromtimestamp(1795004601, UTC)

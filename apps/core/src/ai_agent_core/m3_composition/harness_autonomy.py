@@ -366,7 +366,7 @@ class AutonomyPart:
             self.limit = LimitGate(
                 host.opencode,
                 self.rt.supervisor.clock.utc,
-                on_sleep=lambda sleep: note(sleep.until),
+                on_sleep=lambda sleep: note(sleep.until, sleep.windows),
             )
         if self.usage_task is None or self.usage_task.done():
             self.usage_task = asyncio.create_task(self._count(host))

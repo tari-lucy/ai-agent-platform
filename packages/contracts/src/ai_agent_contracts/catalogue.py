@@ -58,6 +58,7 @@ MODELS = (
     panel.NowAbility,
     panel.HarnessPicture,
     panel.PlanSleep,
+    panel.PlanWindow,
     panel.PlanUse,
     panel.HarnessNow,
     panel.PersonaCreateArguments,

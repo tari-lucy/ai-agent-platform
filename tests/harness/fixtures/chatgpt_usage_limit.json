@@ -1,0 +1,20 @@
+{
+  "name": "APIError",
+  "data": {
+    "message": "The usage limit has been reached",
+    "statusCode": 429,
+    "isRetryable": true,
+    "responseHeaders": {
+      "x-codex-primary-over-secondary-limit-percent": "0",
+      "x-codex-primary-reset-after-seconds": "3058",
+      "x-codex-primary-reset-at": "1794952121",
+      "x-codex-primary-used-percent": "100",
+      "x-codex-primary-window-minutes": "300",
+      "x-codex-secondary-reset-after-seconds": "55537",
+      "x-codex-secondary-reset-at": "1795004601",
+      "x-codex-secondary-used-percent": "33",
+      "x-codex-secondary-window-minutes": "10080"
+    },
+    "responseBody": "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"The usage limit has been reached\",\"plan_type\":\"plus\",\"resets_at\":1794952121,\"eligible_promo\":null,\"limit_window_minutes\":300,\"resets_in_seconds\":3057}}"
+  }
+}

@@ -17,6 +17,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .harness_limit import Window
+
 WINDOW = timedelta(hours=5)  # the plan's short window
 WEEK = timedelta(days=7)
 POLL_EVERY = 60.0  # seconds between two looks at the session
@@ -32,6 +34,7 @@ class Totals:
     since: datetime | None  # when the counting began: before it, nothing is known
     last_limit_at: datetime | None
     last_limit_tokens: int | None  # used in the five hours before that limit
+    last_limit_windows: tuple[Any, ...] = ()  # the provider's own figures at that moment (harness_limit.Window)
 
 
 def _num(value: Any) -> int:
@@ -39,6 +42,25 @@ def _num(value: Any) -> int:
         return max(0, int(value))
     except TypeError, ValueError:
         return 0
+
+
+def _windows_from(rows: Any) -> tuple[Window, ...]:
+    out: list[Window] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            when = datetime.fromisoformat(row["resets_at"]) if row.get("resets_at") else None
+        except ValueError:
+            when = None
+        minutes = row.get("minutes")
+        used = row.get("used")
+        out.append(Window(
+            minutes if isinstance(minutes, int) else None,
+            float(used) if isinstance(used, int | float) else None,
+            when,
+        ))
+    return tuple(out)
 
 
 def turn_tokens(info: dict[str, Any]) -> int:
@@ -58,6 +80,7 @@ class PlanUsage:
         self.path, self.clock, self.mono = path, clock, mono
         self.turns: dict[str, tuple[datetime, int]] = {}
         self.limits: list[tuple[datetime, datetime, int]] = []  # (when, until, tokens before)
+        self.windows: dict[datetime, tuple[Window, ...]] = {}  # by the time of the hit
         self._next = 0.0
         self._loaded = False
 
@@ -86,6 +109,7 @@ class PlanUsage:
                     )
                 except ValueError, KeyError:
                     continue
+                self.windows[at] = _windows_from(row.get("windows"))
 
     def _append(self, row: dict[str, Any]) -> None:
         if self.path is None:
@@ -154,7 +178,7 @@ class PlanUsage:
 
     # ------------------------------------------------------------ the limit
 
-    def note_limit(self, until: datetime) -> None:
+    def note_limit(self, until: datetime, windows: tuple[Window, ...] = ()) -> None:
         """A limit hit that ends at `until`: keep what the five hours before it had used (once)."""
         if not self._loaded:
             self._load()
@@ -163,8 +187,22 @@ class PlanUsage:
         now = self.clock()
         used = self._since(now - WINDOW, now)
         self.limits.append((now, until, used))
+        self.windows[now] = windows
         self._append(
-            {"kind": "limit", "at": now.isoformat(), "until": until.isoformat(), "tokens": used}
+            {
+                "kind": "limit",
+                "at": now.isoformat(),
+                "until": until.isoformat(),
+                "tokens": used,
+                "windows": [
+                    {
+                        "minutes": w.minutes,
+                        "used": w.used,
+                        "resets_at": w.resets_at.isoformat() if w.resets_at else None,
+                    }
+                    for w in windows
+                ],
+            }
         )
 
     # ------------------------------------------------------------ the figures
@@ -185,4 +223,5 @@ class PlanUsage:
             since=first,
             last_limit_at=last[0] if last else None,
             last_limit_tokens=last[2] if last else None,
+            last_limit_windows=self.windows.get(last[0], ()) if last else (),
         )

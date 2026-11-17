@@ -858,6 +858,14 @@ class PlanSleep(Contract):
     source: Literal["headers", "body", "default"]  # where the reset time came from; default = a guess
 
 
+class PlanWindow(Contract):
+    """One window of the plan as the provider reported it when it refused a turn."""
+
+    minutes: int | None = Field(default=None, ge=1, strict=True)  # 300 = five hours, 10080 = the week
+    used_percent: float | None = Field(default=None, ge=0, le=100)
+    resets_at: str | None = Field(default=None, max_length=40)
+
+
 class PlanUse(Contract):
     """What her turns have used of the plan, from her own session (the remaining allowance is not readable)."""
 
@@ -867,6 +875,7 @@ class PlanUse(Contract):
     since: str | None = Field(default=None, max_length=40)  # counting began here; before it nothing is known
     last_limit_at: str | None = Field(default=None, max_length=40)
     last_limit_tokens: int | None = Field(default=None, ge=0, strict=True)  # used in the 5 hours before it
+    last_limit_windows: list[PlanWindow] = Field(default_factory=list, max_length=4)  # the provider's figures then
 
 
 class HarnessNow(Contract):
