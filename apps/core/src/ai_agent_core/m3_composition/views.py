@@ -176,7 +176,7 @@ class Views:
         if resource == "harness-now" and identifier is None:
             from .harness_now import build
 
-            return build(self.runtime.harness, scope, now)
+            return build(self.runtime.harness, scope, self.runtime.supervisor.clock.utc())
         if resource == "harness-picture" and identifier is not None:
             from .harness_now import picture
 
