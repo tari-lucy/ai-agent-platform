@@ -100,3 +100,21 @@ test('the live picture validates activities, hours and picture names', async () 
   assert.throws(() => harnessPicture(picture, scope, 'shot--b.jpg')); // the answer must be the picture asked for
   assert.throws(() => harnessPicture({ ...picture, media_type: 'text/html' }, scope, 'shot--a.jpg'));
 });
+
+test('persona text answers are validated: whitelisted ids, version keys, and the id asked for', async () => {
+  const { personaTexts, personaText, personaTextRevision } = await import('../src/shared/validation.ts');
+  const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
+  const list = { scope, enabled: true, checked_at: 'now', items: [{ id: 'file:GOALS.md', group: 'plans', title: 'Цели', size: 10, updated_at: 't', writable: true }] };
+  assert.equal(personaTexts(list, scope).items.length, 1);
+  assert.throws(() => personaTexts({ ...list, items: [{ ...list.items[0], id: 'file:../x.md' }] }, scope));
+  assert.throws(() => personaTexts({ ...list, items: [{ ...list.items[0], group: 'other' }] }, scope));
+  const body = { scope, id: 'file:playbook:live.md', title: 'live', content: 'x', version: 'a'.repeat(64), updated_at: 't', writable: true, effect: 'e', history: [{ rev: 'file:playbook:live.md@20261114T120000Z', at: 't', size: 3 }] };
+  assert.equal(personaText(body, scope, 'file:playbook:live.md').version.length, 64);
+  assert.equal(personaText({ ...body, version: 'new' }, scope, 'file:playbook:live.md').version, 'new');
+  assert.throws(() => personaText({ ...body, version: 'zzz' }, scope, 'file:playbook:live.md'));
+  assert.throws(() => personaText(body, scope, 'file:GOALS.md')); // the answer must be the text asked for
+  assert.throws(() => personaText({ ...body, history: [{ rev: 'bad rev!', at: 't', size: 1 }] }, scope, 'file:playbook:live.md'));
+  const rev = 'guide:AGENTS.md@20261114T120000Z';
+  assert.equal(personaTextRevision({ scope, rev, id: 'guide:AGENTS.md', at: 't', content: 'c' }, scope, rev).content, 'c');
+  assert.throws(() => personaTextRevision({ scope, rev, id: 'file:x.py', at: 't', content: 'c' }, scope, rev));
+});

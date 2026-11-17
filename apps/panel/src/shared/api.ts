@@ -10,7 +10,7 @@ import {
   laboratoryDownload, profileMarkdown, profileValidation, laboratoryCatalogue, gmSettings,
   artifact, briefings, capabilities, claims, connections, deliveries, episodes, inbound, memorySources, object, operation, operations, plan,
   permissions, profiles, receipt, workspaces,
-  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent, egressLog, harnessStatus, harnessNow, harnessPicture,
+  ticketMessages, tickets, capabilityManifests, capabilityBindings, workplaceLibrary, initialAccessStatus, workTasks, workAttempts, workSessions, workSessionTranscript, workplaceFileContent, egressLog, harnessStatus, harnessNow, harnessPicture, personaTexts, personaText, personaTextRevision,
   characterStates, costCalculations, encounters, laboratoryReports, people, promises, relationships, topics, llmAssignments, llmAttempts, opportunities, stateChanges, storyArcs, tariffs, runs, session, stopReceipt, summaries, utterances,
 } from './validation.ts';
 import { partition } from './scope.ts';
@@ -41,7 +41,7 @@ export const failureMessage = (error: unknown) =>
 type Fetcher = typeof fetch;
 type ReadResource = 'api-limits' | 'memory-cycles' | 'private-api-status' | 'owner-operations' | 'laboratory-runs' | 'settings-transfers' | 'settings-transfer-status' | 'gm-settings' | 'laboratory-catalogue' | 'persona-markdown' | 'sessions' | 'personas' | 'utterances' | 'deliveries' | 'briefings' | 'sources' | 'operations' |
   'episodes' | 'claims' | 'summaries' | 'plans' | 'artifacts' | 'connections' | 'capabilities' | 'permissions' | 'workspaces' |
-  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises' | 'tickets' | 'ticket-messages' | 'capability-manifests' | 'capability-bindings' | 'workplace-library' | 'workplace-access' | 'work-tasks' | 'work-attempts' | 'work-sessions' | 'work-session-transcript' | 'workplace-file' | 'egress-log' | 'harness-status' | 'harness-now' | 'harness-picture';
+  'llm-attempts' | 'cost-calculations' | 'tariffs' | 'llm-assignments' | 'arcs' | 'opportunities' | 'changes' | 'character-states' | 'laboratory-reports' | 'people' | 'encounters' | 'relationships' | 'topics' | 'promises' | 'tickets' | 'ticket-messages' | 'capability-manifests' | 'capability-bindings' | 'workplace-library' | 'workplace-access' | 'work-tasks' | 'work-attempts' | 'work-sessions' | 'work-session-transcript' | 'workplace-file' | 'egress-log' | 'harness-status' | 'harness-now' | 'harness-picture' | 'persona-texts' | 'persona-text' | 'persona-text-revision';
 
 export class PanelApi {
   #auth: OperatorSession | null = null;
@@ -216,6 +216,19 @@ export class PanelApi {
   }
   async harnessPicture(scope: Scope, id: string, signal?: AbortSignal): Promise<import('./contracts.ts').HarnessPicture> {
     return harnessPicture(await this.#read('harness-picture', scope, signal, undefined, id), scope, id);
+  }
+  async personaTexts(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').PersonaTexts> {
+    return personaTexts(await this.#read('persona-texts', scope, signal), scope);
+  }
+  async personaText(scope: Scope, id: string, signal?: AbortSignal): Promise<import('./contracts.ts').PersonaText> {
+    return personaText(await this.#read('persona-text', scope, signal, undefined, id), scope, id);
+  }
+  async personaTextRevision(scope: Scope, rev: string, signal?: AbortSignal): Promise<import('./contracts.ts').PersonaTextRevisionBody> {
+    return personaTextRevision(await this.#read('persona-text-revision', scope, signal, undefined, rev), scope, rev);
+  }
+  // A save is one POST; it is never retried by the panel: after an unknown outcome the text is read again.
+  async savePersonaText(scope: Scope, id: string, content: string, baseVersion: string): Promise<import('./contracts.ts').PersonaText> {
+    return personaText(await this.#request('/api/v1/persona-text', { scope: partition(scope), id, content, base_version: baseVersion }), scope, id);
   }
   async harnessNow(scope: Scope, signal?: AbortSignal): Promise<import('./contracts.ts').HarnessNow> {
     return harnessNow(await this.#read('harness-now', scope, signal), scope);

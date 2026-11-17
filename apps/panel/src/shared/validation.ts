@@ -795,3 +795,29 @@ export function harnessPicture(value: unknown, selected: Scope, id: string): imp
     typeof value.data === 'string' && value.data.length > 0 && value.data.length <= 1_400_000 && /^[A-Za-z0-9+/]+={0,2}$/.test(value.data));
   return value as import('./contracts.ts').HarnessPicture;
 }
+
+const textId = /^(file:((playbook|servers):)?[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.(md|txt)|guide:AGENTS\.md)$/;
+const textVersion = /^([0-9a-f]{64}|new)$/;
+const revisionKey = /^[A-Za-z0-9:._@-]{1,160}$/;
+
+export function personaTexts(value: unknown, selected: Scope): import('./contracts.ts').PersonaTexts {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && typeof value.enabled === 'boolean' &&
+    text(value.checked_at, 40) && Array.isArray(value.items) && value.items.length <= 80 && value.items.every((item) => object(item) &&
+      typeof item.id === 'string' && textId.test(item.id) && (item.group === 'rules' || item.group === 'plans' || item.group === 'guides' || item.group === 'servers') &&
+      typeof item.title === 'string' && item.title.length > 0 && item.title.length <= 80 && count(item.size) && text(item.updated_at, 40) &&
+      typeof item.writable === 'boolean'));
+  return value as import('./contracts.ts').PersonaTexts;
+}
+export function personaText(value: unknown, selected: Scope, id: string): import('./contracts.ts').PersonaText {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.id === id && textId.test(id) &&
+    typeof value.title === 'string' && text(value.content, 65536) && typeof value.version === 'string' && textVersion.test(value.version) &&
+    text(value.updated_at, 40) && typeof value.writable === 'boolean' && text(value.effect, 200) &&
+    (value.history == null || (Array.isArray(value.history) && value.history.length <= 30 && value.history.every((item) => object(item) &&
+      typeof item.rev === 'string' && revisionKey.test(item.rev) && text(item.at, 40) && count(item.size)))));
+  return value as import('./contracts.ts').PersonaText;
+}
+export function personaTextRevision(value: unknown, selected: Scope, rev: string): import('./contracts.ts').PersonaTextRevisionBody {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.rev === rev && revisionKey.test(rev) &&
+    typeof value.id === 'string' && textId.test(value.id) && text(value.at, 40) && text(value.content, 65536));
+  return value as import('./contracts.ts').PersonaTextRevisionBody;
+}

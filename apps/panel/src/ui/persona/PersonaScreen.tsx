@@ -1,5 +1,6 @@
+import { TextsTab } from './TextsTab.tsx';
 import { formatTime } from '../time.ts';
-import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Table, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Table, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { Profile, Scope } from '../../shared/contracts.ts';
@@ -108,9 +109,17 @@ export function PersonaScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
   const note = stateNote(profile, state);
   const reload = () => { void cache.invalidateQueries({ queryKey: projectionKey('personas', scope) }); void cache.invalidateQueries({ queryKey: projectionKey('character-states', scope) }); };
   return <Stack gap="lg">
-    <div><Text className="eyebrow">02 / Персонаж</Text><Title order={1}>Персонаж</Title></div>
+    <div><Title order={1}>Персонаж</Title><Text size="sm" c="dimmed">Её тексты и инструкции, профиль и развитие, новые личности.</Text></div>
     {scope.memory_mode === 'test' && <Alert color="violet" title="Тестовая память">Профиль и состояние этой области изолированы от рабочей биографии.</Alert>}
     {(profiles.isError || states.isError) && <Alert color="orange" title="Часть данных недоступна">{failureMessage(profiles.error ?? states.error)} Показанное может быть неполным.</Alert>}
+    <Tabs defaultValue="texts" keepMounted={false}>
+      <Tabs.List>
+        <Tabs.Tab value="texts">Тексты и инструкции</Tabs.Tab>
+        <Tabs.Tab value="profile">Профиль и развитие</Tabs.Tab>
+        <Tabs.Tab value="new">Новая личность</Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="texts" pt="md"><TextsTab api={api} scope={scope} /></Tabs.Panel>
+      <Tabs.Panel value="profile" pt="md"><Stack gap="lg">
     {profiles.isPending ? <Text>Получаем профиль…</Text> : !profile ? <Paper withBorder p="md" radius="lg"><Title order={2} size="h4">Профиля нет</Title>
       <Text size="sm">Создайте первую личность ниже: без профиля у агента нет канона, а фиктивные воспоминания не создаются.</Text></Paper> : <>
       <Paper withBorder p="md" radius="lg" aria-label="Принятый профиль"><Group justify="space-between"><Title order={2} size="h4">Принятый профиль {profile.persona_id}</Title>
@@ -125,6 +134,10 @@ export function PersonaScreen({ api, scope }: { api: PanelApi; scope: Scope }) {
             <Table.Td>{row.initial ?? '—'}</Table.Td><Table.Td>{row.live ?? 'нет данных'}{row.drifted && <Badge ml="xs" size="xs" color="blue" variant="light">отличается от начального</Badge>}</Table.Td></Table.Tr>)}</Table.Tbody></Table>}
         <details><summary>Пределы развития</summary><Text size="xs" component="pre" className="plain-text">{JSON.stringify(profile.development_bounds.data, null, 2)}</Text></details></Paper>
       <Editor key={profile.id + profile.version} api={api} scope={scope} profile={profile} onReload={reload} /></>}
+      </Stack></Tabs.Panel>
+      <Tabs.Panel value="new" pt="md">
     <NewProfile api={api} scope={scope} source={profile} existing={(profiles.data?.items ?? []).map((item) => item.persona_id)} />
+      </Tabs.Panel>
+    </Tabs>
   </Stack>;
 }
