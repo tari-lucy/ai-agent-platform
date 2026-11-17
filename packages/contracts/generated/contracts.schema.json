@@ -3191,6 +3191,73 @@
       "title": "HarnessNotice",
       "type": "object"
     },
+    "HarnessNow": {
+      "additionalProperties": false,
+      "description": "What the persona is doing right now, read from the harness itself (the panel's home).",
+      "properties": {
+        "checked_at": {
+          "maxLength": 40,
+          "title": "Checked At",
+          "type": "string"
+        },
+        "doing": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doing"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "goals": {
+          "anyOf": [
+            {
+              "maxLength": 1500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Goals"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/NowLine"
+          },
+          "maxItems": 40,
+          "title": "Lines",
+          "type": "array"
+        },
+        "recently": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Recently",
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "enabled",
+        "checked_at"
+      ],
+      "title": "HarnessNow",
+      "type": "object"
+    },
     "HarnessStatus": {
       "additionalProperties": false,
       "description": "doc33: the persona's own OpenCode window on this host, for the panel's button.",
@@ -5610,6 +5677,39 @@
         "reason_code"
       ],
       "title": "ModerationCheck",
+      "type": "object"
+    },
+    "NowLine": {
+      "additionalProperties": false,
+      "description": "One dated line of what the persona does: a step, an event, a phrase said or heard.",
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "event",
+            "said",
+            "heard",
+            "step"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 300,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "kind",
+        "text"
+      ],
+      "title": "NowLine",
       "type": "object"
     },
     "OperationProjection": {
@@ -16151,6 +16251,9 @@
     "HarnessNotice": {
       "$ref": "#/$defs/HarnessNotice"
     },
+    "HarnessNow": {
+      "$ref": "#/$defs/HarnessNow"
+    },
     "HarnessStatus": {
       "$ref": "#/$defs/HarnessStatus"
     },
@@ -16258,6 +16361,9 @@
     },
     "ModerationCheck": {
       "$ref": "#/$defs/ModerationCheck"
+    },
+    "NowLine": {
+      "$ref": "#/$defs/NowLine"
     },
     "OperationProjection": {
       "$ref": "#/$defs/OperationProjection"

@@ -678,7 +678,7 @@ class Surface:
         custom = re.fullmatch(
             r"/api/v1/(api-limits|private-api-status|laboratory-catalogue|laboratory-runs|"
             r"persona-markdown|settings-transfer-status|workplace-library|workplace-access|"
-            r"work-session-transcript|workplace-file|egress-log|harness-status)(?:/([^/]+))?",
+            r"work-session-transcript|workplace-file|egress-log|harness-status|harness-now)(?:/([^/]+))?",
             path,
         )
         match = re.fullmatch(r"/api/v1/([^/]+)(?:/([^/]+))?", path)
@@ -747,6 +747,7 @@ class Surface:
                 "workplace-file": "WorkplaceFileContent",
                 "egress-log": "EgressLog",
                 "harness-status": "HarnessStatus",
+                "harness-now": "HarnessNow",
             }[resource]
             checked = from_wire(
                 ADAPTERS[expected],

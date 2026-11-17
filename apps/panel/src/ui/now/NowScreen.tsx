@@ -8,7 +8,7 @@ import { projectionKey } from '../../shared/scope.ts';
 import { indicators } from '../workspace/model.ts';
 import { useHarnessEntry } from '../opencode.ts';
 import {
-  ago, attention, budgetLine, changeWords, characterNews, gmSummary, headline, lastStep, plan, taskLabels, type Line, type Tone,
+  ago, attention, budgetLine, changeWords, characterNews, gmSummary, headline, plan, taskLabels, type Line, type Tone,
 } from './model.ts';
 
 const color = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const satisfies Record<Tone, string>;
@@ -43,6 +43,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const tickets = useFirst(scope, 'tickets', (signal) => api.tickets(scope, signal));
   const changes = useFirst(scope, 'changes', (signal) => api.changes(scope, signal));
   const opportunities = useFirst(scope, 'opportunities', (signal) => api.opportunities(scope, signal));
+  const live = useFirst(scope, 'harness-now', (signal) => api.harnessNow(scope, signal));
   const gm = useFirst(scope, 'gm-settings', (signal) => api.gmSettings(scope, signal));
 
   const head = headline(run);
@@ -51,6 +52,7 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const work = plan(tasks.data?.items ?? []);
   const news = characterNews(changes.data?.items ?? []);
   const story = gmSummary(gm.data?.items[0], opportunities.data?.items ?? [], run);
+  const picture = live.data;
   const doing = work.open.find((task) => task.state === 'active') ?? work.open[0];
 
   return <Stack gap="lg">
@@ -67,20 +69,29 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
       {worry.length ? worry.map((line) => <Dot key={line.text} line={line} />) : <Empty>Ничего не ждёт вашего решения.</Empty>}
     </Card>
 
+    <Card title="Что происходит">
+      {picture?.lines?.length ? picture.lines.slice(0, 14).map((line) => <Group key={line.at + line.kind + line.text} gap={8} wrap="nowrap" align="flex-start">
+        <Badge size="xs" variant="light" color={line.kind === 'said' ? 'teal' : line.kind === 'heard' ? 'blue' : 'gray'} mt={4} w={92}>
+          {line.kind === 'said' ? 'сказала' : line.kind === 'heard' ? 'услышала' : line.kind === 'step' ? 'шаг' : 'событие'}</Badge>
+        <Text size="sm" style={{ flex: 1 }}>{line.text}</Text>
+        <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{ago(line.at, now)}</Text>
+      </Group>) : <Empty>Пока ничего не происходило.</Empty>}
+    </Card>
+
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-      <Card title="Чем занята" to="/work">
-        {doing ? <>
-          <Text size="sm" fw={600}>{doing.goal}</Text>
-          <Text size="xs" c="dimmed">{taskLabels[doing.state]} · {ago(doing.updated_at, now)}</Text>
-          {lastStep(doing) && <Text size="sm">Последний шаг: {lastStep(doing)}</Text>}
-        </> : <Empty>Явных поручений нет. Что она делает в игре, смотри в окне OpenCode.</Empty>}
+      <Card title="Чем занята">
+        {picture?.doing ? <Text size="sm" fw={600}>Сейчас: {picture.doing}</Text> :
+          <Text size="sm" c="dimmed">{run?.state === 'ACTIVE' ? 'Пауза между шагами' : 'Не работает'}</Text>}
+        {picture?.recently?.length ? <Text size="sm">Недавно: {picture.recently.join(' → ')}</Text> : null}
+        {doing && <Text size="xs" c="dimmed">Поручение: {doing.goal} · {taskLabels[doing.state]}</Text>}
       </Card>
 
       <Card title="Планы" to="/work">
         {work.open.length ? work.open.map((task) => <Group key={task.id} gap={8} wrap="nowrap" align="flex-start">
           <Badge size="xs" variant="light" color={task.state === 'active' ? 'teal' : task.state === 'waiting' ? 'blue' : 'gray'} mt={4}>{taskLabels[task.state]}</Badge>
           <Text size="sm">{task.goal}</Text>
-        </Group>) : <Empty>Список пуст.</Empty>}
+        </Group>) : picture?.goals ? null : <Empty>Список пуст.</Empty>}
+        {picture?.goals && <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lineClamp={8}>{picture.goals}</Text>}
         {work.done && <Text size="xs" c="dimmed">Последнее сделанное: {work.done.goal} · {ago(work.done.updated_at, now)}</Text>}
       </Card>
 

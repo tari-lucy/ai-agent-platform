@@ -735,6 +735,26 @@ class HarnessStatus(Contract):
     calls_today: int = Field(default=0, strict=True, ge=0)
 
 
+class NowLine(Contract):
+    """One dated line of what the persona does: a step, an event, a phrase said or heard."""
+
+    at: str = Field(max_length=40)
+    kind: Literal["event", "said", "heard", "step"]
+    text: str = Field(max_length=300)
+
+
+class HarnessNow(Contract):
+    """What the persona is doing right now, read from the harness itself (the panel's home)."""
+
+    scope: Scope
+    enabled: bool = Field(strict=True)
+    doing: str | None = Field(default=None, max_length=300)  # the tool she is using this second
+    recently: list[str] = Field(default_factory=list, max_length=8)  # her last finished steps
+    goals: str | None = Field(default=None, max_length=1500)  # the head of her own plan file
+    lines: list[NowLine] = Field(default_factory=list, max_length=40)  # newest first
+    checked_at: str = Field(max_length=40)
+
+
 class EgressLog(Contract):
     """The persona's internet traffic of one UTC day, newest first (W3b)."""
 

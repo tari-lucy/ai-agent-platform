@@ -38,3 +38,12 @@ test('budget and time lines never invent a value', () => {
   assert.equal(ago(at(90), Date.UTC(2026, 10, 14, 12, 0)), '2 ч назад');
   assert.equal(gmSummary(undefined, [], undefined).latest, null);
 });
+
+test('the live picture is validated line by line and must belong to the viewed partition', async () => {
+  const { harnessNow } = await import('../src/shared/validation.ts');
+  const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
+  const good = { scope, enabled: true, checked_at: 'now', doing: 'идёт', lines: [{ at: 'a', kind: 'said', text: 'привет' }] };
+  assert.equal(harnessNow(good, scope).lines?.length, 1);
+  assert.throws(() => harnessNow({ ...good, lines: [{ at: 'a', kind: 'weird', text: 'x' }] }, scope));
+  assert.throws(() => harnessNow({ ...good, scope: { ...scope, persona_id: 'other' } }, scope));
+});

@@ -173,6 +173,10 @@ class Views:
                 else round(harness.usage.spent(), 2),
                 calls_today=harness.usage.calls(),
             )
+        if resource == "harness-now" and identifier is None:
+            from .harness_now import build
+
+            return build(self.runtime.harness, scope, now)
         if resource == "egress-log" and identifier is not None:
             from .work_session_egress import log_view
 

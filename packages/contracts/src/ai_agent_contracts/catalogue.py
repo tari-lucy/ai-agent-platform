@@ -45,6 +45,8 @@ MODELS = (
     panel.HarnessNotice,
     panel.LiveLink,
     panel.HarnessStatus,
+    panel.NowLine,
+    panel.HarnessNow,
     panel.PersonaCreateArguments,
     panel.PersonaValidateArguments,
     panel.PersonaApplyArguments,

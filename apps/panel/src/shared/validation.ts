@@ -753,3 +753,17 @@ export function harnessStatus(value: unknown, selected: Scope): import('./contra
     (item.detail == null || text(item.detail, 120))));
   return value as import('./contracts.ts').HarnessStatus;
 }
+
+const nowKinds = new Set(['event', 'said', 'heard', 'step']);
+export function harnessNow(value: unknown, selected: Scope): import('./contracts.ts').HarnessNow {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
+    typeof value.enabled === 'boolean' && text(value.checked_at, 40) &&
+    (value.doing == null || text(value.doing, 300)) && (value.goals == null || text(value.goals, 1500)) &&
+    (value.recently == null || (Array.isArray(value.recently) && value.recently.length <= 8 &&
+      value.recently.every((item) => text(item, 300)))) &&
+    (value.lines == null || (Array.isArray(value.lines) && value.lines.length <= 40)));
+  demand(((value as { lines?: unknown[] }).lines ?? []).every((item) => object(item) &&
+    typeof item.at === 'string' && item.at.length <= 40 && typeof item.kind === 'string' && nowKinds.has(item.kind) &&
+    typeof item.text === 'string' && item.text.length <= 300));
+  return value as import('./contracts.ts').HarnessNow;
+}
