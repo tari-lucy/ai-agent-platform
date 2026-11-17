@@ -60,3 +60,39 @@ test('the launch mode defaults to autonomous (as START always was) and remembers
   assert.deepEqual(planLine([task('a'), task('b'), task('c'), task('d')]), { now: 'a', next: 'b', more: 2 });
   assert.deepEqual(planLine([]), { now: null, next: null, more: 0 });
 });
+
+test('traits carry the last applied movement; the funnel and the ribbon count honestly', async () => {
+  const { traits, funnel, ribbon } = await import('../src/ui/now/model.ts');
+  const state = { values: { schema_id: 's', schema_version: '1', data: { values: { display_name: 'Опечатка', curiosity: 0.75, caution: 0.6 } } } } as never;
+  const change = (property: string, before: number, after: number, status: string, updated_at: string) =>
+    ({ status, updated_at, patch: { data: { property, before, after } } }) as never;
+  const rows = traits(state, [change('curiosity', 0.7, 0.75, 'APPLIED', '2026-11-10T00:00:00Z'), change('caution', 0.5, 0.6, 'REJECTED', '2026-11-11T00:00:00Z')]);
+  assert.deepEqual(rows.map((row) => row.key), ['curiosity', 'caution']); // the name is text: not a trait
+  assert.equal(rows[0].delta, 0.05);
+  assert.equal(rows[1].delta, null); // a rejected change moved nothing
+  assert.deepEqual(traits(undefined, []), []);
+  const opp = (status: string) => ({ status }) as never;
+  assert.deepEqual(funnel([opp('OFFERED'), opp('SCREENED'), opp('ACCEPTED'), opp('RESOLVED'), opp('BLOCKED'), opp('EXPIRED')]),
+    { proposed: 2, accepted: 1, lived: 1, stopped: 2 });
+  const view = ribbon([{ hour: 'a', said: 2, heard: 1 }, { hour: 'b' }] as never);
+  assert.equal(view.peak, 3); assert.equal(view.busy, 1);
+  assert.equal(ribbon(undefined).peak, 1);
+});
+
+test('the live picture validates activities, hours and picture names', async () => {
+  const { harnessNow, harnessPicture } = await import('../src/shared/validation.ts');
+  const scope = { workspace_id: 'w', persona_id: 'p', memory_space_id: 'p-work', memory_mode: 'work' } as const;
+  const base = { scope, enabled: true, checked_at: 'now' };
+  const ok = { ...base, activities: [{ title: 'Строю дом', state: 'doing', detail: 'д' }], hours: [{ hour: 'h', said: 1 }],
+    pictures: [{ name: 'a.jpg', at: 't', caption: 'c' }] };
+  assert.equal(harnessNow(ok, scope).activities?.length, 1);
+  assert.throws(() => harnessNow({ ...ok, activities: [{ title: 'x', state: 'weird' }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, activities: [{ title: '', state: 'doing' }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, hours: [{ hour: 'h', said: -1 }] }, scope));
+  assert.throws(() => harnessNow({ ...ok, pictures: [{ name: '../a.jpg', at: 't' }] }, scope));
+  const picture = { scope, name: 'a.jpg', media_type: 'image/jpeg', data: 'AAAA' };
+  assert.equal(harnessPicture(picture, scope, 'a.jpg').name, 'a.jpg');
+  assert.throws(() => harnessPicture({ ...picture, data: 'not base64!' }, scope, 'a.jpg'));
+  assert.throws(() => harnessPicture(picture, scope, 'b.jpg')); // the answer must be the picture asked for
+  assert.throws(() => harnessPicture({ ...picture, media_type: 'text/html' }, scope, 'a.jpg'));
+});

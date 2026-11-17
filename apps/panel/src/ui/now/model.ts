@@ -1,5 +1,5 @@
 import type {
-  GmRuntimeState, HarnessStatus, Opportunity, RunSession, StateChange, Ticket, WorkTask,
+  CharacterState, GmRuntimeState, HourBucket, HarnessStatus, Opportunity, RunSession, StateChange, Ticket, WorkTask,
 } from '../../shared/contracts.ts';
 
 // Pure logic of the "Сейчас" screen: one honest line per question the operator has, no I/O.
@@ -128,4 +128,54 @@ export function chips(run: RunSession | undefined, harness: HarnessStatus | unde
     rows.push({ text: `${linkNames[link.name] ?? link.name}: ${state.word}`, tone: state.tone });
   }
   return rows;
+}
+
+// ---- character: traits with their last movement -----------------------------------------------------------
+export const traitNames: Record<string, string> = {
+  curiosity: 'любопытство', initiative: 'инициативность', openness_to_revision: 'открытость к пересмотру',
+  caution: 'осторожность', perseverance: 'настойчивость', editorial_theatricality: 'театральность',
+};
+export type Trait = { key: string; label: string; value: number; delta: number | null; when: string | null };
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+export function traits(state: CharacterState | undefined, changes: StateChange[]): Trait[] {
+  const data = isRecord(state?.values) && isRecord(state.values.data) ? state.values.data : undefined;
+  const values = data && isRecord(data.values) ? data.values : {};
+  const applied = newest(changes.filter((change) => change.status === 'APPLIED'));
+  const rows: Trait[] = [];
+  for (const [key, raw] of Object.entries(values)) {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+    const last = applied.find((change) => {
+      const patch = isRecord(change.patch) && isRecord(change.patch.data) ? change.patch.data : undefined;
+      return patch?.property === key;
+    });
+    const patch = last && isRecord(last.patch) && isRecord(last.patch.data) ? last.patch.data : undefined;
+    const before = typeof patch?.before === 'number' ? patch.before : null;
+    const after = typeof patch?.after === 'number' ? patch.after : null;
+    rows.push({
+      key, label: traitNames[key] ?? key.replaceAll('_', ' '), value: Math.min(1, Math.max(0, raw)),
+      delta: before !== null && after !== null ? Math.round((after - before) * 100) / 100 : null, when: last?.updated_at ?? null,
+    });
+  }
+  return rows;
+}
+
+// ---- game master funnel ------------------------------------------------------------------------------------
+export type Funnel = { proposed: number; accepted: number; lived: number; stopped: number };
+export function funnel(opportunities: Opportunity[]): Funnel {
+  const count = (...states: Opportunity['status'][]) => opportunities.filter((opp) => states.includes(opp.status)).length;
+  return {
+    proposed: count('DRAFT', 'SCREENED', 'OFFERED'), accepted: count('ACCEPTED', 'REALIZING'), lived: count('RESOLVED'),
+    stopped: count('BLOCKED', 'DECLINED', 'EXPIRED', 'CANCELLED'),
+  };
+}
+
+// ---- hours ----------------------------------------------------------------------------------------------------
+export type Ribbon = { hour: string; total: number; said: number; heard: number; posted: number; drew: number };
+export function ribbon(hours: HourBucket[] | undefined): { rows: Ribbon[]; peak: number; busy: number } {
+  const rows = (hours ?? []).map((bucket) => ({
+    hour: bucket.hour, said: bucket.said ?? 0, heard: bucket.heard ?? 0, posted: bucket.posted ?? 0, drew: bucket.drew ?? 0,
+    total: (bucket.said ?? 0) + (bucket.heard ?? 0) + (bucket.posted ?? 0) + (bucket.drew ?? 0),
+  }));
+  return { rows, peak: Math.max(1, ...rows.map((row) => row.total)), busy: rows.filter((row) => row.total > 0).length };
 }

@@ -7,8 +7,9 @@ import type { PanelApi } from '../../shared/api.ts';
 import { projectionKey } from '../../shared/scope.ts';
 import { useHarnessEntry } from '../opencode.ts';
 import { LaunchCard } from './LaunchCard.tsx';
+import { Activities, FunnelBar, HourRibbon, PictureStrip, TraitBars } from './Widgets.tsx';
 import {
-  ago, attention, budgetLine, changeWords, chips, characterNews, gmSummary, headline, plan, planLine, taskLabels, type Tone,
+  ago, attention, budgetLine, chips, funnel, gmSummary, headline, ribbon, traits, type Tone,
 } from './model.ts';
 
 const color = { ok: 'teal', wait: 'blue', warn: 'orange', off: 'gray' } as const satisfies Record<Tone, string>;
@@ -35,9 +36,9 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
   const [more, setMore] = useState(false);
   const harness = useHarnessEntry() ?? undefined;
-  const tasks = useFirst(scope, 'work-tasks', (signal) => api.workTasks(scope, signal));
   const tickets = useFirst(scope, 'tickets', (signal) => api.tickets(scope, signal));
   const changes = useFirst(scope, 'changes', (signal) => api.changes(scope, signal));
+  const states = useFirst(scope, 'character-states', (signal) => api.characterStates(scope, signal));
   const opportunities = useFirst(scope, 'opportunities', (signal) => api.opportunities(scope, signal));
   const gm = useFirst(scope, 'gm-settings', (signal) => api.gmSettings(scope, signal));
   const live = useFirst(scope, 'harness-now', (signal) => api.harnessNow(scope, signal));
@@ -45,13 +46,13 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
   const head = headline(run);
   const budget = budgetLine(harness);
   const worry = attention(run, tickets.data?.items ?? [], harness, changes.data?.items ?? []);
-  const work = plan(tasks.data?.items ?? []);
-  const line = planLine(work.open);
-  const news = characterNews(changes.data?.items ?? [], 2);
   const settings = gm.data?.items[0];
   const story = gmSummary(settings, opportunities.data?.items ?? [], run);
   const picture = live.data;
   const feed = picture?.lines ?? [];
+  const activities = picture?.activities ?? [];
+  const day = ribbon(picture?.hours);
+  const character = traits(states.data?.items[0], changes.data?.items ?? []);
 
   return <Stack gap="lg" className="now">
     <div>
@@ -70,31 +71,24 @@ export function NowScreen({ api, scope, run }: { api: PanelApi; scope: Scope; ru
     </Soft>}
 
     <Soft title="Чем занята">
-      {picture?.doing ? <Text size="lg" fw={500}>{picture.doing}</Text> :
-        <Quiet>{run?.state === 'ACTIVE' ? 'Пауза между шагами' : 'Не работает'}</Quiet>}
-      {picture?.recently?.length ? <Text size="sm" c="dimmed" mt={4}>Недавно: {picture.recently.slice(-3).join(' → ')}</Text> : null}
-      <details className="soft-details">
-        <summary><Text span size="sm" c="dimmed">
-          {line.now ? `План: ${line.now}${line.next ? ` → ${line.next}` : ''}${line.more ? ` (+${line.more})` : ''}` : 'План'}</Text></summary>
-        <Stack gap={4} mt={6}>
-          {work.open.map((task) => <Text key={task.id} size="sm">{task.goal} <Text span c="dimmed" size="xs">· {taskLabels[task.state]}</Text></Text>)}
-          {picture?.goals && <Text size="sm" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{picture.goals}</Text>}
-          {!work.open.length && !picture?.goals && <Quiet>Планов нет.</Quiet>}
-          <Anchor component={Link} to="/work" size="xs">все поручения</Anchor>
-        </Stack>
-      </details>
+      {activities.length || picture?.doing ? <Activities rows={activities} doing={picture?.doing} /> :
+        <Quiet>{run?.state === 'ACTIVE' ? 'Занятия появятся, когда она запишет их в свой список.' : 'Не работает.'}</Quiet>}
     </Soft>
+
+    <Soft title="Активность за сутки">
+      {day.busy ? <HourRibbon rows={day.rows} peak={day.peak} /> : <Quiet>За последние сутки тихо.</Quiet>}
+    </Soft>
+
+    {!!picture?.pictures?.length && <Soft title="Нарисовала"><PictureStrip api={api} scope={scope} pictures={picture.pictures} now={now} /></Soft>}
 
     <Group grow align="stretch" wrap="wrap" gap="md">
       <Soft title="Характер" to="/development">
-        {news.length ? news.map((change) => <div key={change.id} style={{ marginBottom: 6 }}>
-          <Text size="sm" lineClamp={3}>{change.interpretation}</Text>
-          <Text size="xs" c="dimmed">{changeWords[change.status]} · {ago(change.updated_at, now)}</Text>
-        </div>) : <Quiet>Изменений пока нет.</Quiet>}
+        {character.length ? <TraitBars rows={character} now={now} /> : <Quiet>Черты пока не записаны.</Quiet>}
       </Soft>
       <Soft title="Гейммастер" to="/development">
-        <Text size="sm">{story.paused ? 'на паузе' : 'работает'} · предложено {story.offered} · пережито {story.lived}{story.blocked ? ` · заблокировано ${story.blocked}` : ''}</Text>
-        {story.latest && <Text size="xs" c="dimmed" lineClamp={2} mt={4}>{story.latest.applicability} · {ago(story.latest.updated_at, now)}</Text>}
+        <FunnelBar funnel={funnel(opportunities.data?.items ?? [])} />
+        <Text size="xs" c="dimmed" mt={10}>{story.paused ? 'на паузе' : 'работает'}
+          {story.latest ? ` · последнее: ${story.latest.applicability} · ${ago(story.latest.updated_at, now)}` : ''}</Text>
       </Soft>
     </Group>
 

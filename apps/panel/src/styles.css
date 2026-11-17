@@ -97,3 +97,14 @@ summary { cursor: pointer; font-size: 13px; color: #696179; }
 .soft-details summary::-webkit-details-marker { display: none; }
 .soft-details summary::before { content: '▸ '; color: #a39cb8; }
 .soft-details[open] summary::before { content: '▾ '; }
+.activity { padding: 6px 0; }
+.activity summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; }
+.activity summary::-webkit-details-marker { display: none; }
+.activity-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; flex: none; }
+.funnel { display: flex; gap: 3px; height: 14px; border-radius: 7px; overflow: hidden; }
+.trait { height: 8px; border-radius: 4px; background: #eeecf5; overflow: hidden; margin-top: 4px; }
+.trait span { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #b197fc, #7950f2); }
+.strip { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; }
+.thumb { border: 0; padding: 0; background: none; cursor: zoom-in; display: block; border-radius: 12px; }
+.thumb:hover img { filter: brightness(1.05); }
+.thumb-empty { width: 150px; height: 110px; border-radius: 12px; background: #eeecf5; display: grid; place-items: center; }

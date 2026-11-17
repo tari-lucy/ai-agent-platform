@@ -754,6 +754,7 @@ export function harnessStatus(value: unknown, selected: Scope): import('./contra
   return value as import('./contracts.ts').HarnessStatus;
 }
 
+const pictureName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(jpg|jpeg|png|webp)$/;
 const nowKinds = new Set(['event', 'said', 'heard', 'step']);
 export function harnessNow(value: unknown, selected: Scope): import('./contracts.ts').HarnessNow {
   demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) &&
@@ -761,9 +762,27 @@ export function harnessNow(value: unknown, selected: Scope): import('./contracts
     (value.doing == null || text(value.doing, 300)) && (value.goals == null || text(value.goals, 1500)) &&
     (value.recently == null || (Array.isArray(value.recently) && value.recently.length <= 8 &&
       value.recently.every((item) => text(item, 300)))) &&
-    (value.lines == null || (Array.isArray(value.lines) && value.lines.length <= 40)));
+    (value.lines == null || (Array.isArray(value.lines) && value.lines.length <= 40)) &&
+    (value.activities == null || (Array.isArray(value.activities) && value.activities.length <= 12)) &&
+    (value.hours == null || (Array.isArray(value.hours) && value.hours.length <= 24)) &&
+    (value.pictures == null || (Array.isArray(value.pictures) && value.pictures.length <= 8)));
+  demand(((value as { activities?: unknown[] }).activities ?? []).every((item) => object(item) &&
+    text(item.title, 80) && typeof item.title === 'string' && item.title.length > 0 &&
+    (item.state === 'doing' || item.state === 'waiting' || item.state === 'planned' || item.state === 'done') &&
+    (item.detail == null || text(item.detail, 1200))));
+  demand(((value as { hours?: unknown[] }).hours ?? []).every((item) => object(item) && text(item.hour, 40) &&
+    ['said', 'heard', 'posted', 'drew'].every((key) => item[key] == null || count(item[key]))));
+  demand(((value as { pictures?: unknown[] }).pictures ?? []).every((item) => object(item) && typeof item.name === 'string' &&
+    pictureName.test(item.name) && text(item.at, 40) && (item.caption == null || text(item.caption, 200))));
   demand(((value as { lines?: unknown[] }).lines ?? []).every((item) => object(item) &&
     typeof item.at === 'string' && item.at.length <= 40 && typeof item.kind === 'string' && nowKinds.has(item.kind) &&
     typeof item.text === 'string' && item.text.length <= 300));
   return value as import('./contracts.ts').HarnessNow;
+}
+
+export function harnessPicture(value: unknown, selected: Scope, name: string): import('./contracts.ts').HarnessPicture {
+  demand(object(value) && isScope(value.scope) && samePartition(selected, value.scope) && value.name === name &&
+    pictureName.test(name) && (value.media_type === 'image/jpeg' || value.media_type === 'image/png' || value.media_type === 'image/webp') &&
+    typeof value.data === 'string' && value.data.length > 0 && value.data.length <= 1_400_000 && /^[A-Za-z0-9+/]+={0,2}$/.test(value.data));
+  return value as import('./contracts.ts').HarnessPicture;
 }
