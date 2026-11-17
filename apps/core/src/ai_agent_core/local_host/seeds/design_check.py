@@ -243,12 +243,15 @@ class Canvas:
 
 
 def _rotated(cells, turns):
+    """The plan turned by `turns` quarter turns about the vertical axis, moved back to start at 0.
+    (A quarter turn maps (x, z) to (z, width - 1 - x) and swaps width and depth; the sizes are tracked
+    per cell, not shared between cells, or a non-square plan comes out wrong.)"""
     xs, _, zs = zip(*cells)
     x1, z1 = min(xs), min(zs)
-    width, depth = max(xs) - x1 + 1, max(zs) - z1 + 1
     out = {}
     for (x, y, z), name in cells.items():
         nx, nz = x - x1, z - z1
+        width, depth = max(xs) - x1 + 1, max(zs) - z1 + 1
         for _ in range(turns):
             nx, nz, width, depth = nz, width - 1 - nx, depth, width
         out[(nx, y, nz)] = name

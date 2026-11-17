@@ -290,3 +290,17 @@ def test_a_builder_that_never_frees_up_is_given_up_on_after_three_tries(monkeypa
     status, jammed = build_plan.build_stage(world, part, timeout=600)
     assert jammed is True and world.issued == build_plan.UNSTICKS + 1
     assert "Строитель встал внутри стройки" in capsys.readouterr().out
+
+
+def test_a_non_square_plan_turns_without_losing_or_moving_cells():
+    cells = {(x, y, z): "stone" for x in range(9) for y in range(2) for z in range(11)}
+    cells[(2, 2, 3)] = "glowstone"                                    # an asymmetric mark to follow
+    for turns in range(4):
+        turned = dc._rotated(cells, turns)
+        assert len(turned) == len(cells)
+        xs, _, zs = zip(*turned)
+        assert (min(xs), min(zs)) == (0, 0)
+        assert (max(xs) + 1, max(zs) + 1) == ((9, 11) if turns % 2 == 0 else (11, 9))
+    four = dc._rotated(dc._rotated(dc._rotated(dc._rotated(cells, 1), 1), 1), 1)
+    assert four == cells                                              # four quarter turns are the identity
+    assert [p for p, n in dc._rotated(cells, 1).items() if n == "glowstone"] == [(3, 2, 6)]
