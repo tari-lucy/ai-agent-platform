@@ -18,6 +18,7 @@ import { PersonaScreen } from './persona/PersonaScreen.tsx';
 import { TicketsScreen } from './tickets/TicketsScreen.tsx';
 import { LibraryScreen } from './library/LibraryScreen.tsx';
 import { WorkScreen } from './work/WorkScreen.tsx';
+import { NowScreen } from './now/NowScreen.tsx';
 import { RunPowerControl } from './RunPowerControl.tsx';
 import { LiveLinks } from './LiveLinks.tsx';
 import { PanelGuide } from './help/PanelGuide.tsx';
@@ -71,7 +72,7 @@ type ScreenProps = { api: PanelApi; scope: Scope; run?: RunSession; scopes?: Sco
 // Every area has its own owner-built screen; a missing one would be a compile error, not a silent placeholder.
 const screenComponents: Record<typeof screens[number]['path'], (props: ScreenProps) => React.JSX.Element> = {
   dialogue: Dialogue, persona: PersonaScreen, memory: Memory, development: DevelopmentScreen,
-  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, library: LibraryScreen, work: WorkScreen,
+  laboratory: LaboratoryScreen, workspace: WorkspaceScreen, llm: LlmScreen, tickets: TicketsScreen, library: LibraryScreen, work: WorkScreen, now: NowScreen,
 };
 export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: OperatorSession; onLogout: () => Promise<void> }) {
   const cache = useQueryClient();
@@ -215,7 +216,7 @@ export function Workspace({ api, auth, onLogout }: { api: PanelApi; auth: Operat
         const Screen = screenComponents[screen.path];
         return <Route key={screen.path} path={'/' + screen.path} element={<Screen key={selected + screen.path} api={api} scope={scope} run={target ?? undefined} scopes={auth.scopes} connection={connections[scopeKey(scope)] ?? 'connecting'} />} />;
       })}
-        <Route path="*" element={<Navigate to="/workspace" replace />} /></Routes>
+        <Route path="*" element={<Navigate to="/now" replace />} /></Routes>
     </main>
   </div></HarnessEntry.Provider>;
 }
