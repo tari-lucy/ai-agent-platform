@@ -5,7 +5,7 @@
     python3 /workspace/skills/minecraft/build_plan.py check   plan.txt --origin X,Y,Z
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z [--layers 0-2]
     python3 /workspace/skills/minecraft/build_plan.py verify  plan.txt --origin X,Y,Z
-    python3 /workspace/skills/minecraft/build_plan.py stock   plan.txt --origin X,Y,Z   (выдать недостающие материалы)
+    python3 /workspace/skills/minecraft/build_plan.py stock   plan.txt --origin X,Y,Z   (взять недостающее из творческого меню, без /give; в выживании - /give)
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z --mode commands
     python3 /workspace/skills/minecraft/build_plan.py lint    plan.txt                    (форма: висящие блоки, асимметрия, дыры...)
     python3 /workspace/skills/minecraft/build_plan.py picture plan.txt                    (картинка чертежа с четырёх сторон, ДО стройки)
@@ -336,8 +336,39 @@ def missing_materials(c, blocks):
     return {b: n - have.get(norm(b), 0) for b, n in materials(blocks).items() if have.get(norm(b), 0) < n}
 
 
+STACK = 64  # the mod cuts a stack to the item's own limit and says how many it put
+
+
+def free_slots(listing):
+    """Empty slots a stack can go to: the hotbar first, then the main inventory (the builder pulls from the pack
+    into the hotbar itself). An old mod does not list the pack's empty slots: then only the hotbar."""
+    hot = [int(s["slot"]) for s in listing.get("hotbar") or [] if s.get("item") == "empty"]
+    return hot + [int(i) for i in listing.get("packEmpty") or []]
+
+
+def creative_stock(c, lack):
+    """Take what is lacking from the creative menu with creativeTakeBlock: no /give, no command rights, so it works
+    on a server where commands are off. -> (True, '') or (False, why). Fills only empty slots."""
+    listing = call(c, "getHotbar")
+    if not isinstance(listing, dict) or not listing.get("ok"):
+        return False, "мод не отвечает на getHotbar"
+    if listing.get("creative") is False:
+        return False, "не творческий режим"
+    slots = free_slots(listing)
+    for block, need in lack.items():
+        while need > 0:
+            if not slots:
+                return False, f"нет свободных ячеек для {block.split(':')[-1]} (осталось {need}): освободи место в рюкзаке"
+            reply = call(c, "creativeTakeBlock", {"item": norm(block), "count": min(need, STACK), "hotbarSlot": slots.pop(0)})
+            if not isinstance(reply, dict) or not reply.get("ok"):
+                why = reply.get("error") if isinstance(reply, dict) else "мод не знает creativeTakeBlock"
+                return False, f"{block.split(':')[-1]}: {why}"
+            need -= int(reply.get("count") or STACK)
+    return True, ""
+
+
 def cmd_stock(c, blocks):
-    """Hand out what is lacking with /give (needs command rights), then re-read what the client sees."""
+    """Get what is lacking: the creative menu first (no commands needed), /give only when not in creative mode."""
     lack = missing_materials(c, blocks)
     if lack is None:
         print("Мод без getHotbar: проверить материалы нечем. Попроси оператора обновить мод.")
@@ -345,6 +376,18 @@ def cmd_stock(c, blocks):
     if not lack:
         print("Все материалы уже у тебя на руках.")
         return 0
+    taken, why = creative_stock(c, lack)
+    if taken:
+        time.sleep(1.0)
+        lack = missing_materials(c, blocks)
+        if lack:
+            print("Взято из творческого меню, но клиент не видит: " + ", ".join(f"{b.split(':')[-1]} -{n}" for b, n in lack.items()))
+            print("Сервер мог не принять стек (запрет на предметы). Не строй вслепую.")
+            return 6
+        print("Материалы взяты из творческого меню (команды не нужны) и видны клиенту.")
+        return 0
+    if why != "не творческий режим":
+        print(f"Творческое меню не помогло ({why}); пробую /give.")
     for b, n in lack.items():
         reply = call(c, "sendGameCommand", {"command": f"give @s {norm(b)} {n}"})
         if not isinstance(reply, dict) or not reply.get("ok"):
@@ -644,9 +687,14 @@ def cmd_build(c, blocks, timeout, plan=None):
         return 2
     lack = missing_materials(c, blocks)
     if lack:
+        taken, _ = creative_stock(c, lack)  # in creative mode the stacks come from the menu, with no command at all
+        if taken:
+            time.sleep(1.0)
+            lack = missing_materials(c, blocks)
+    if lack:
         print("НЕ ХВАТАЕТ МАТЕРИАЛОВ у тебя на руках (хотбар и рюкзак): "
               + ", ".join(f"{b.split(':')[-1]} -{n}" for b, n in lack.items()))
-        print("Запусти stock (выдаст, если есть права на команды) или добудь/попроси; вслепую не строю.")
+        print("Запусти stock (творческое меню, а в выживании /give, если есть права) или добудь/попроси; вслепую не строю.")
         return 6
     shown = call(c, "getOpenScreen")
     if isinstance(shown, dict) and shown.get("open"):
