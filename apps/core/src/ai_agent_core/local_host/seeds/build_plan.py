@@ -212,15 +212,31 @@ STALL = 25.0     # seconds without a single block placed (and the body blocking 
 UNSTICKS = 3     # how many times one stage is freed before the script says it is stuck
 
 
+STILL_RADIUS = 1.5  # blocks: a body that stays inside this circle for the whole stall time is standing still
+
+
+def bot_xz(c):
+    """Where the body is on the ground plane, or None when the mod does not say."""
+    state = call(c, "getGameState")
+    try:
+        x, _, z = (float(v) for v in state["self"]["pos"].split(","))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    return x, z
+
+
 def wait_queue(c, timeout, sleep=None, clock=None, stall=STALL):
     """Poll buildQueue until it is done; returns the last status.
 
-    A build that places nothing for `stall` seconds while blockedByOwnBody keeps climbing is stuck (the
-    builder stands inside the very cells it has to fill); the status then carries stuck=True so the
-    caller can walk out of the footprint instead of waiting for ever."""
+    A build is stuck when it places nothing for `stall` seconds and either the body keeps blocking itself
+    (blockedByOwnBody climbs) or the body does not leave its spot (jumping on the spot in a pillar that
+    never gets its block is this: nothing climbs, nothing is placed). The status then carries stuck=True so
+    the caller can walk out of the footprint instead of waiting for ever. A body that is walking to a cell
+    is never stuck, however long the walk."""
     sleep, clock = sleep or time.sleep, clock or time.monotonic  # looked up now, so a test can replace them
     start, status = clock(), {}
     seen, changed, blocked = None, clock(), 0
+    anchor = bot_xz(c)
     while clock() - start < timeout:
         sleep(2.0)
         status = call(c, "buildQueue") or {}
@@ -229,9 +245,15 @@ def wait_queue(c, timeout, sleep=None, clock=None, stall=STALL):
         key = (status.get("placed"), status.get("queued"))
         grew = (status.get("blockedByOwnBody") or 0) > blocked
         blocked = status.get("blockedByOwnBody") or 0
-        if key != seen:
+        here = bot_xz(c)
+        walking = here is not None and anchor is not None and math.dist(here, anchor) > STILL_RADIUS
+        if walking:
+            anchor = here
+        elif anchor is None:
+            anchor = here
+        if key != seen or walking:
             seen, changed = key, clock()
-        elif grew and clock() - changed >= stall:
+        elif (grew or here is not None) and clock() - changed >= stall:
             return dict(status, stuck=True)
     return status
 

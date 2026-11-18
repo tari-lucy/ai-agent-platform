@@ -433,10 +433,10 @@ def test_a_repair_that_leaves_scaffolding_is_swept_again(monkeypatch):
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     plan = house_plan()
     world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
-    del world.cells[(1, 1, 1)]                                       # the cleanup took a plan block ...
+    del world.cells[(1, 1, 1)]  # the cleanup took a plan block ...
     original = world.call
 
-    def leaving(name, args):                                         # ... and placing it again leaves a plank behind
+    def leaving(name, args):  # ... and placing it again leaves a plank behind
         if name == "buildBlocks":
             world.cells[(-2, 1, 1)] = "minecraft:oak_planks"
         return original(name, args)
@@ -452,7 +452,7 @@ def test_cleanup_gives_up_after_the_rounds_and_says_what_is_missing(monkeypatch,
     world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
     original = world.call
 
-    def refusing(name, args):                                        # the block never stays
+    def refusing(name, args):  # the block never stays
         if name == "buildBlocks":
             return json.dumps({"ok": True}), False
         return original(name, args)
@@ -461,3 +461,54 @@ def test_cleanup_gives_up_after_the_rounds_and_says_what_is_missing(monkeypatch,
     del world.cells[(1, 1, 1)]
     assert build_plan.cmd_cleanup(world, plan, 5, plan) == 5
     assert "НЕ ХВАТАЕТ 1 блоков" in capsys.readouterr().out
+
+
+class Pillar(Jammed):
+    """The pillar that never gets its block: the body jumps on the spot, nothing is placed, nothing is counted."""
+
+    def call(self, name, args):
+        if name == "buildQueue":
+            return json.dumps(
+                {"queued": 5, "placed": 51, "blockedByOwnBody": 69}
+            ), False  # not a counter that climbs
+        return super().call(name, args)
+
+
+def test_a_body_that_jumps_on_the_spot_with_a_flat_counter_is_reported_stuck(monkeypatch):
+    fake_clock(monkeypatch)
+    assert build_plan.wait_queue(Pillar(free_after=99), timeout=600).get("stuck") is True
+
+
+def test_a_body_that_walks_a_long_way_without_placing_is_not_stuck(monkeypatch):
+    fake_clock(monkeypatch)
+
+    class Walking(Pillar):
+        steps = 0
+
+        def call(self, name, args):
+            if name == "getGameState":
+                Walking.steps += 1
+                return json.dumps(
+                    {"inGame": True, "self": {"pos": f"{Walking.steps * 3.0},66.0,40.0"}}
+                ), False
+            if name == "buildQueue" and Walking.steps > 60:
+                return json.dumps({"done": True, "placed": 52}), False
+            return super().call(name, args)
+
+    status = build_plan.wait_queue(Walking(free_after=99), timeout=600)
+    assert status.get("stuck") is None and status.get(
+        "done"
+    )  # it walked the whole time: never "still"
+
+
+def test_without_a_position_only_the_climbing_counter_counts(monkeypatch):
+    fake_clock(monkeypatch)
+
+    class Blind(Pillar):
+        def call(self, name, args):
+            if name == "getGameState":
+                return json.dumps({"inGame": True}), False  # no position in the answer
+            return super().call(name, args)
+
+    status = build_plan.wait_queue(Blind(free_after=99), timeout=100)
+    assert status.get("stuck") is None  # a flat counter and no position: no reason to call it stuck
