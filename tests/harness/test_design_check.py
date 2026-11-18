@@ -512,3 +512,15 @@ def test_without_a_position_only_the_climbing_counter_counts(monkeypatch):
 
     status = build_plan.wait_queue(Blind(free_after=99), timeout=100)
     assert status.get("stuck") is None  # a flat counter and no position: no reason to call it stuck
+
+
+def test_a_lantern_behind_glass_is_not_walled_in_but_one_in_stone_is():
+    stone = {(x, y, z): "stone" for x in range(3) for y in range(3) for z in range(3)}
+    stone[(1, 1, 1)] = "glowstone"
+    assert any("замурован" in t for t in texts(dc.lint(stone)))
+    glass = {(x, y, z): "glass" for x in range(3) for y in range(3) for z in range(3)}
+    glass[(1, 1, 1)] = "glowstone"  # a lamp in a glass room shines
+    assert not any("замурован" in t for t in texts(dc.lint(glass)))
+    mixed = dict(stone)
+    mixed[(1, 1, 2)] = "glass"       # one glass side is enough for the light to get out
+    assert not any("замурован" in t for t in texts(dc.lint(mixed)))

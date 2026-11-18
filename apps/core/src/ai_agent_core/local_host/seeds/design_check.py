@@ -19,6 +19,7 @@ Finding = namedtuple("Finding", "level text")
 AIR = {None, "", "air", "воздух", "пропуск", "skip"}
 LIGHT = ("glowstone", "sea_lantern", "lantern", "torch", "shroomlight", "redstone_lamp",
          "jack_o_lantern", "froglight", "campfire", "beacon")
+TRANSPARENT = ("glass", "ice", "glowstone", "sea_lantern")  # the light of a lamp passes through these
 NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
 SHOW = 5  # how many examples one finding lists
@@ -101,8 +102,15 @@ def lint(cells):
                                         "окно это или пропуск, который надо заделать?"))
 
     # Light that is walled in does not light anything.
-    shut = [p for p, n in cells.items() if any(k in _short(n) for k in LIGHT)
-            and all((p[0] + dx, p[1] + dy, p[2] + dz) in cells for dx, dy, dz in NEIGHBOURS)]
+    # Glass lets the light through: a lantern behind glass shines, so glass is not a wall for this check.
+    def walled(p):
+        for dx, dy, dz in NEIGHBOURS:
+            around = cells.get((p[0] + dx, p[1] + dy, p[2] + dz))
+            if around is None or any(k in _short(around) for k in TRANSPARENT):
+                return False
+        return True
+
+    shut = [p for p, n in cells.items() if any(k in _short(n) for k in LIGHT) and walled(p)]
     if shut:
         out.append(Finding("замечание", f"светильник замурован со всех сторон: {_near(shut)}; "
                                         "он не светит, перенеси под крышу или на столб"))
