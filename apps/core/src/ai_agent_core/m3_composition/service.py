@@ -312,6 +312,23 @@ class SessionPrewarmer(Protocol):
     async def close(self) -> None: ...
 
 
+
+TIME_SAVE_EVERY = 60.0  # seconds between two saves of the active time (a crash loses at most this much of it)
+
+
+class Every:
+    """True at most once per `seconds` of the clock it is asked with; the first question is a yes."""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds, self._at = seconds, float("-inf")
+
+    def due(self, now: float) -> bool:
+        if now < self._at:
+            return False
+        self._at = now + self.seconds
+        return True
+
+
 class Runtime:
     def __init__(
         self,
@@ -435,6 +452,7 @@ class Runtime:
         self._active: asyncio.Task[Job] | None = None
         self._lock = asyncio.Lock()
         self._checkpoint_at = self._refresh_at = self._reconcile_at = 0.0
+        self._time_save = Every(TIME_SAVE_EVERY)
         self._opened = False
         self._work_ready = asyncio.Event()
         self._activity_key: tuple[object, ...] | None = None
@@ -650,7 +668,8 @@ class Runtime:
             await self.supervisor.flush()
         run = self.supervisor.snapshot
         if now >= self._checkpoint_at:
-            await self.state.checkpoint_time(run.scope, self.active_seconds())
+            if self._time_save.due(now):  # every write is a new version, an event and an operation
+                await self.state.checkpoint_time(run.scope, self.active_seconds())
             if self.reports is not None:
                 self.reports.sweep()
             self._checkpoint_at = now + 5
