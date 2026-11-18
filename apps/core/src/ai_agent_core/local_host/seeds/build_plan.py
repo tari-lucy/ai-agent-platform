@@ -478,13 +478,12 @@ def find_strays(c, plan, margin=STRAY_MARGIN):
                    if (x, y, z) not in wanted and is_stray(n, names)), key=lambda b: (-b[1], b[2], b[0])), unloaded
 
 
-def cmd_cleanup(c, blocks, timeout, plan=None):
-    """Take away what the builder left behind, then check the plan and put back what the cleanup took.
+CLEAN_ROUNDS = 3  # sweep, check, repair: how many times round before it is said that it did not come clean
 
-    1. the mod's own record of the scaffolding it placed (empty after a restart of the mod),
-    2. the world itself: every built block around the plan that is not in the PLAN (the whole plan, not
-       the stage that was just built: a layer built earlier is not scaffolding)."""
-    plan = plan or blocks
+
+def sweep(c, plan, timeout):
+    """One sweep: the mod's own record of its scaffolding, then every built block around the plan that
+    is not in the PLAN. -> how many strays are still there (0 when clean or when the mod cannot scan)."""
     call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
     try:
         reply = call(c, "cleanupScaffold") or {}
@@ -496,29 +495,44 @@ def cmd_cleanup(c, blocks, timeout, plan=None):
     finally:
         call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
     found = find_strays(c, plan)
-    leftover = 0
     if found is None:
         print("Мод без scanBox: лишнее по миру найти не могу (только леса из памяти мода). Обнови мод.")
-    else:
-        strays, unloaded = found
-        if unloaded:
-            print(f"Не прогружено {unloaded} столбцов рядом с постройкой: подойди ближе, там может остаться лишнее.")
-        if strays:
-            names = sorted({n.split(":")[-1] for _, _, _, n in strays})
-            print(f"Лишнее вокруг постройки: {len(strays)} блоков ({', '.join(names[:5])}), разбираю сверху вниз.")
-            left = mine_cells(c, [(x, y, z) for x, y, z, _ in strays], timeout)
-            again = find_strays(c, plan)
-            leftover = len(again[0]) if again else len(left)
-            if leftover:
-                print(f"Лишнее осталось ({leftover}): подойди к нему ближе и повтори cleanup.")
-        else:
-            print("Лишнего вокруг постройки нет.")
-    missing = verify(c, blocks)
-    if missing:
+        return 0
+    strays, unloaded = found
+    if unloaded:
+        print(f"Не прогружено {unloaded} столбцов рядом с постройкой: подойди ближе, там может остаться лишнее.")
+    if not strays:
+        print("Лишнего вокруг постройки нет.")
+        return 0
+    names = sorted({n.split(":")[-1] for _, _, _, n in strays})
+    print(f"Лишнее вокруг постройки: {len(strays)} блоков ({', '.join(names[:5])}), разбираю сверху вниз.")
+    left = mine_cells(c, [(x, y, z) for x, y, z, _ in strays], timeout)
+    again = find_strays(c, plan)
+    leftover = len(again[0]) if again else len(left)
+    if leftover:
+        print(f"Лишнее осталось ({leftover}): подойди к нему ближе и повтори cleanup.")
+    return leftover
+
+
+def cmd_cleanup(c, blocks, timeout, plan=None):
+    """Take away what the builder left behind, then check the plan and put back what the cleanup took.
+
+    The sweep goes by the world, against the WHOLE plan (a layer built earlier is not scaffolding). A repair
+    can leave scaffolding of its own, so after a repair the sweep is made again: sweep, check, repair, until
+    the plan stands and nothing is left over (CLEAN_ROUNDS times at most)."""
+    plan = plan or blocks
+    leftover, missing = 0, []
+    for _ in range(CLEAN_ROUNDS):
+        leftover = sweep(c, plan, timeout)
+        missing = verify(c, blocks)
+        if not missing:
+            break
         print(f"После уборки не хватает {len(missing)} блоков плана, достраиваю.")
         call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in missing][:BATCH])})
         wait_queue(c, timeout)
-        missing = verify(c, missing)
+    else:  # the last round ended with a repair: sweep once more and look again
+        leftover = sweep(c, plan, timeout)
+        missing = verify(c, blocks)
     if missing:
         print(f"НЕ ХВАТАЕТ {len(missing)} блоков (первые): {missing[:8]}")
         return 5
@@ -823,7 +837,7 @@ def main(argv=None, client=None):
                 width, depth = max(b[0] for b in found) + 1, max(b[2] for b in found) + 1
             near = tuple(int(v) for v in a.near.split(",")) if a.near else None
             assert near is None or len(near) == 2
-        except (OSError, PlanError, ValueError, AssertionError, ValueError):
+        except (OSError, PlanError, ValueError, AssertionError):
             print("site: размер как 7x9 или файл схемы; --near X,Z (два числа).")
             return 1
         c = client or make_client()
@@ -871,7 +885,7 @@ def main(argv=None, client=None):
     if a.action == "check":
         ok = show_materials(blocks)
         show_lint(whole)
-        xs, ys, zs = zip(*[(b[0], b[1], b[2]) for b in blocks])
+        xs, ys, zs = zip(*[(b[0], b[1], b[2]) for b in blocks], strict=True)
         print(f"Занимает X {min(xs)}..{max(xs)}, Y {min(ys)}..{max(ys)}, Z {min(zs)}..{max(zs)}")
         return 0 if ok else 2
     c = client or make_client()

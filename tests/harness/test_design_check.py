@@ -150,6 +150,7 @@ class FakeWorld:
             for p in self.scaffold:
                 self.cells.pop(p, None)
             self.queue = len(self.scaffold)
+            self.scaffold = []  # the mod forgets what it has handed to the break queue
             return json.dumps({"ok": True, "queued": self.queue}), False
         if name == "mineStatus":
             left, self.queue = self.queue, 0
@@ -426,3 +427,37 @@ def test_a_plan_in_logs_does_not_take_the_forest_for_scaffolding():
     assert build_plan.is_stray("minecraft:grass_block", names) is False
     assert build_plan.is_stray("minecraft:stone_bricks", names) is True
     assert build_plan.is_stray("minecraft:stone", names) is False
+
+
+def test_a_repair_that_leaves_scaffolding_is_swept_again(monkeypatch):
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    plan = house_plan()
+    world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
+    del world.cells[(1, 1, 1)]                                       # the cleanup took a plan block ...
+    original = world.call
+
+    def leaving(name, args):                                         # ... and placing it again leaves a plank behind
+        if name == "buildBlocks":
+            world.cells[(-2, 1, 1)] = "minecraft:oak_planks"
+        return original(name, args)
+
+    world.call = leaving
+    assert build_plan.cmd_cleanup(world, plan, 5, plan) == 0
+    assert (-2, 1, 1) not in world.cells and world.cells[(1, 1, 1)] == "minecraft:oak_planks"
+
+
+def test_cleanup_gives_up_after_the_rounds_and_says_what_is_missing(monkeypatch, capsys):
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    plan = house_plan()
+    world = FakeWorld({(x, y, z): b for x, y, z, b in plan}, scaffold=[])
+    original = world.call
+
+    def refusing(name, args):                                        # the block never stays
+        if name == "buildBlocks":
+            return json.dumps({"ok": True}), False
+        return original(name, args)
+
+    world.call = refusing
+    del world.cells[(1, 1, 1)]
+    assert build_plan.cmd_cleanup(world, plan, 5, plan) == 5
+    assert "НЕ ХВАТАЕТ 1 блоков" in capsys.readouterr().out
