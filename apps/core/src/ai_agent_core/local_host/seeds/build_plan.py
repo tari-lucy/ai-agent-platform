@@ -11,6 +11,8 @@
     python3 /workspace/skills/minecraft/build_plan.py picture plan.txt                    (картинка чертежа с четырёх сторон, ДО стройки)
     python3 /workspace/skills/minecraft/build_plan.py cleanup plan.txt --origin X,Y,Z     (убрать леса, сверить, достроить)
     python3 /workspace/skills/minecraft/build_plan.py review  plan.txt --origin X,Y,Z     (четыре кадра готовой постройки)
+    python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z --timelapse   (+ таймлапс: кадры и видео)
+    python3 /workspace/skills/minecraft/build_plan.py timelapse имя                        (склеить кадры в видео, если не склеились)
 
     python3 /workspace/skills/minecraft/build_plan.py site   7x9 [--near X,Z] [--radius 24]  (найти ровную площадку под дом 7x9)
     python3 /workspace/skills/minecraft/build_plan.py level  plan.txt --origin X,Y,Z        (выровнять участок: досыпать, срезать)
@@ -53,10 +55,14 @@ build (сам уберёт леса и сверит) -> review (посмотри
 девяти, режь стройку по слоям (--layers 0-1) и меняй хотбар между этапами.
 """
 import argparse
+import base64
 import json
 import math
 import os
+import shutil
+import subprocess
 import sys
+import threading
 import time
 
 SKIP = {".", " "}
@@ -807,9 +813,135 @@ def cmd_level(c, whole, origin, mode, margin, timeout, material):
     return 0
 
 
+# ----------------------------------------------------------------------------------- timelapse ---
+# While a build runs, a background thread asks the mod for a frame every few seconds and keeps them in
+# <shots>/timelapse-<name>/frame_00001.jpg ...; at the end ffmpeg (when there is one) makes an mp4 of them.
+
+TL_EVERY = 3.0  # seconds between two frames
+TL_WIDTH = 1280  # takeScreenshot maxWidth
+TL_MAX = 6000  # frames kept at most: a runaway build must not fill the disk
+TL_FAILS = 5  # frames missed in a row before the capture stops by itself
+TL_FPS = 24
+
+
+class Timelapse:
+    """Frames of the game while something is built. shoot() -> JPEG bytes, or None when no frame came."""
+
+    def __init__(self, folder, shoot, every=TL_EVERY, hide_hud=None, show_hud=None, view=None):
+        self.folder, self.shoot, self.every = folder, shoot, every
+        self.hide_hud, self.show_hud, self.view = hide_hud, show_hud, view
+        self.frames, self.misses = 0, 0
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _take(self):
+        try:
+            data = self.shoot()
+        except Exception:  # noqa: BLE001 - a missed frame is not a failed build
+            data = None
+        if not data:
+            self.misses += 1
+            return
+        self.misses = 0
+        self.frames += 1
+        with open(os.path.join(self.folder, f"frame_{self.frames:05d}.jpg"), "wb") as stream:
+            stream.write(data)
+
+    def _run(self):
+        while not self._stop.wait(self.every):
+            if self.frames >= TL_MAX or self.misses >= TL_FAILS:
+                return
+            self._take()
+
+    def start(self):
+        os.makedirs(self.folder, exist_ok=True)
+        for old in os.listdir(self.folder):  # a new recording replaces the old one of the same name
+            if old.startswith("frame_") and old.endswith(".jpg"):
+                os.remove(os.path.join(self.folder, old))
+        if self.hide_hud:
+            self.hide_hud()
+        if self.view:
+            self.view(self.view_number)
+        self._take()  # the first frame is the empty plot
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=30)
+        self._take()  # the last frame is the finished build
+        if self.view:
+            self.view(0)
+        if self.show_hud:
+            self.show_hud()
+        return self.frames
+
+
+def stitch(folder, out, fps=TL_FPS):
+    """Make an mp4 of the frames of a folder with ffmpeg. -> (path or None, what to tell)"""
+    if not [f for f in os.listdir(folder) if f.startswith("frame_")]:
+        return None, "кадров нет"
+    command = ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", os.path.join(folder, "frame_%05d.jpg"),
+               "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p", out]
+    if shutil.which("ffmpeg") is None:
+        return None, "ffmpeg здесь нет; склей там, где он есть: " + " ".join(command)
+    done = subprocess.run(command, capture_output=True, text=True)
+    if done.returncode != 0 or not os.path.isfile(out):
+        return None, "ffmpeg не справился: " + (done.stderr.strip().splitlines() or ["?"])[-1][:160]
+    return out, f"видео: {out}"
+
+
+def timelapse_paths(name):
+    folder = os.path.join(SHOTS, f"timelapse-{name}")
+    return folder, os.path.join(SHOTS, f"timelapse-{name}.mp4")
+
+
+def frame_shooter(c):
+    """A function that asks the mod for one frame and gives back its JPEG bytes (None when none came)."""
+    def shoot():
+        text, error = c.call("takeScreenshot", {"maxWidth": TL_WIDTH})
+        if error:
+            return None
+        return base64.b64decode(json.loads(text)["base64"])
+    return shoot
+
+
+def make_timelapse(c, name, every, hud, view):
+    folder, _ = timelapse_paths(name)
+
+    def hidden(flag):
+        return lambda: call(c, "setHudHidden", {"hidden": flag})
+
+    recorder = Timelapse(folder, frame_shooter(c), every, hidden(True) if not hud else None,
+                         hidden(False) if not hud else None, (lambda number: call(c, "setCameraView", {"view": number})) if view else None)
+    recorder.view_number = view
+    return recorder
+
+
+def finish_timelapse(recorder, name, fps=TL_FPS):
+    frames = recorder.stop()
+    folder, out = timelapse_paths(name)
+    print(f"Таймлапс: {frames} кадров в {folder}")
+    path, note = stitch(folder, out, fps)
+    print("Таймлапс: " + note)
+    return path
+
+
+def cmd_timelapse(name, fps):
+    folder, out = timelapse_paths(name)
+    if not os.path.isdir(folder):
+        print(f"Нет кадров: {folder}")
+        return 1
+    path, note = stitch(folder, out, fps)
+    print(note)
+    return 0 if path else 1
+
+
 def main(argv=None, client=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig"))
+    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig", "timelapse"))
     ap.add_argument("--mode", choices=("physical", "commands"), default="physical")
     ap.add_argument("--ignore-lint", action="store_true")
     ap.add_argument("--name", default="")
@@ -818,12 +950,20 @@ def main(argv=None, client=None):
     ap.add_argument("--margin", type=int, default=-1)
     ap.add_argument("--material", default="dirt")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--timelapse", action="store_true", help="build: record frames and make a video")
+    ap.add_argument("--timelapse-every", type=float, default=TL_EVERY, help="seconds between frames")
+    ap.add_argument("--timelapse-view", type=int, choices=(0, 1, 2), default=0,
+                    help="camera for the recording: 1 third person from behind, 2 from the front, 0 as it is")
+    ap.add_argument("--timelapse-hud", action="store_true", help="leave the interface (chat, hotbar) in the frames")
+    ap.add_argument("--fps", type=int, default=TL_FPS)
     ap.add_argument("plan")
     ap.add_argument("--origin", default="")
     ap.add_argument("--rotate", type=int, default=0)
     ap.add_argument("--layers", default="")
     ap.add_argument("--timeout", type=float, default=240.0)
     a = ap.parse_args(argv)
+    if a.action == "timelapse":
+        return cmd_timelapse(a.plan, a.fps)
     if a.action == "site":
         import re
         size = re.fullmatch(r"(\d+)[xх×](\d+)", a.plan.strip())
@@ -911,6 +1051,14 @@ def main(argv=None, client=None):
     if not show_lint(whole) and not a.ignore_lint:
         print("Форма с ошибками: исправь схему (или --ignore-lint, если так и задумано).")
         return 8
+    if a.timelapse:
+        recorder = make_timelapse(
+            client or make_client(), stem, max(0.5, a.timelapse_every), a.timelapse_hud, a.timelapse_view
+        ).start()
+        try:
+            return cmd_build(c, blocks, a.timeout, place(whole, origin))
+        finally:
+            finish_timelapse(recorder, stem, a.fps)
     return cmd_build(c, blocks, a.timeout, place(whole, origin))
 
 

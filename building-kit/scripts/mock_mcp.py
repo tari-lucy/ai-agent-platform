@@ -43,6 +43,7 @@ TOOLS = [
     "closeOpenScreen",
     "getRecentChat",
     "selectHotbar",
+    "setCameraView",
 ]
 REPLACEABLE = ("air", "short_grass", "tall_grass", "dandelion")
 
@@ -260,6 +261,9 @@ class World:
         return {"ok": True}
 
     def t_setHudHidden(self, a):
+        return {"ok": True}
+
+    def t_setCameraView(self, a):
         return {"ok": True}
 
     def t_takeScreenshot(self, a):
