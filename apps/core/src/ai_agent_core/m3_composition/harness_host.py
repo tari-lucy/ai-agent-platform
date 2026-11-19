@@ -96,6 +96,10 @@ def persona_core(prompt: str) -> str:
     return prompt.split("\n## ", 1)[0].rstrip()
 
 
+# OpenCode's cap on one reply (packages/opencode/src/provider/transform.ts OUTPUT_TOKEN_MAX).
+NATIVE_OUTPUT = 32000
+
+
 @dataclass(frozen=True)
 class HarnessSettings:
     image_id: str
@@ -676,8 +680,11 @@ class HarnessHost:
         return {
             provider: {
                 "models": {
-                    # output stays OpenCode's own: the platform's output_tokens would cut long replies
-                    model: {"limit": {"context": window, "input": window}}
+                    # OpenCode's schema wants all of limit when any of it is given (a limit without
+                    # output made the whole config invalid and OpenCode would not start). 32000 is
+                    # OpenCode's own cap on a reply (OUTPUT_TOKEN_MAX), so nothing is cut shorter;
+                    # the platform's output_tokens (8192) would cut long replies.
+                    model: {"limit": {"context": window, "input": window, "output": NATIVE_OUTPUT}}
                 }
             }
         }

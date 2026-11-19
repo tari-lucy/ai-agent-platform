@@ -160,7 +160,8 @@ def test_the_session_is_compacted_and_the_plan_window_is_ours(tmp_path):
     on = build(True, "openai/gpt-6.1-sol-fast", 120000)
     assert on["compaction"] == {"auto": True, "prune": True}
     limit = on["provider"]["openai"]["models"]["gpt-6.1-sol-fast"]["limit"]
-    assert limit == {"context": 120000, "input": 120000}  # output left to OpenCode: no cut replies
+    # all three keys: OpenCode rejects a limit without output; 32000 is its own reply cap
+    assert limit == {"context": 120000, "input": 120000, "output": 32000}
     assert on["provider"]["platform"]["models"]["bound"]["limit"]["context"] == 128000
     assert build(True, "openai/gpt-6.1-sol-fast")["provider"]["openai"]["models"]["gpt-6.1-sol-fast"]["limit"][
         "context"] == 160000
