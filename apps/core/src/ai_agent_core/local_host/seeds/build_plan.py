@@ -6,6 +6,8 @@
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z [--layers 0-2]
     python3 /workspace/skills/minecraft/build_plan.py verify  plan.txt --origin X,Y,Z
     python3 /workspace/skills/minecraft/build_plan.py rebuild plan.txt --origin X,Y,Z [--layers 0-2]
+    (клетки, которые строитель дважды не поставил, дальше пропускаются: scratch/build-stubborn.json;
+     --retry-stubborn пробует их снова)
                                                   (переделать готовое: снять лишнее и не тот материал, достроить)
     python3 /workspace/skills/minecraft/build_plan.py stock   plan.txt --origin X,Y,Z   (взять недостающее из творческого меню, без /give; в выживании - /give)
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z --mode commands
@@ -297,8 +299,76 @@ def unstick(c, part):
     walk_to(x, y, z)
 
 
+# Cells the builder has already handed back twice (NOSTAND, no face) are not given to it again for a
+# while: on 2026-11-19 the same three wall cells went back to the builder in stage after stage, 61
+# NOSTAND lines in half an hour. They are listed instead, for a temporary support or the operator.
+# skills/minecraft/build_plan.py -> scratch/build-stubborn.json two folders up (her workspace layout)
+STUBBORN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scratch", "build-stubborn.json")
+STUBBORN_TRIES = 2
+STUBBORN_TTL = 3 * 3600  # a newer mod or a changed site deserves a fresh try: entries expire
+
+
+def _cell_key(b):
+    return f"{b[0]},{b[1]},{b[2]}"
+
+
+def stubborn_load():
+    try:
+        with open(STUBBORN_FILE, encoding="utf-8") as stream:
+            data = json.load(stream)
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    return {k: v for k, v in data.items() if isinstance(v, dict) and now - v.get("at", 0) < STUBBORN_TTL}
+
+
+def stubborn_save(data):
+    try:
+        os.makedirs(os.path.dirname(STUBBORN_FILE), exist_ok=True)
+        with open(STUBBORN_FILE, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, ensure_ascii=False, indent=1)
+    except OSError:
+        pass  # a list that cannot be saved only costs a retry; never a reason to stop building
+
+
+def stubborn_split(part):
+    """-> (cells to give the builder, cells it already handed back STUBBORN_TRIES times)."""
+    known = stubborn_load()
+    keep, skip = [], []
+    for b in part:
+        entry = known.get(_cell_key(b))
+        (skip if entry and entry.get("tries", 0) >= STUBBORN_TRIES else keep).append(b)
+    return keep, skip
+
+
+def stubborn_note(part, status):
+    """Count the cells the builder handed back; forget the ones that now stand."""
+    deferred = set(status.get("deferred") or [])
+    known = stubborn_load()
+    now = time.time()
+    for b in part:
+        key = _cell_key(b)
+        if key in deferred:
+            entry = known.get(key, {"tries": 0, "block": b[3]})
+            entry["tries"] = entry.get("tries", 0) + 1
+            entry["at"] = now
+            entry["debug"] = str(status.get("walkDebug", ""))[-160:]
+            known[key] = entry
+        else:
+            known.pop(key, None)
+    stubborn_save(known)
+
+
 def build_stage(c, part, timeout):
     """Give one stage to the builder; free the body when it jams. -> (status, jammed_for_good)"""
+    part, skipped = stubborn_split(part)
+    if skipped:
+        print(f"Пропускаю {len(skipped)} клеток: строитель уже дважды их не поставил "
+              f"({', '.join(_cell_key(b) for b in skipped[:6])}{' …' if len(skipped) > 6 else ''}). "
+              f"Список: {STUBBORN_FILE}. Поставь их с временной опоры или отдай оператору; "
+              "build_plan.py ... --retry-stubborn пробует их снова.")
+    if not part:
+        return {"deferred": [_cell_key(b) for b in skipped], "skipped": len(skipped)}, False
     status = {}
     for attempt in range(UNSTICKS + 1):
         reply = call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in part])})
@@ -306,6 +376,9 @@ def build_stage(c, part, timeout):
             return {"refused": reply}, False
         status = wait_queue(c, timeout)
         if not status.get("stuck"):
+            stubborn_note(part, status)
+            if skipped:
+                status = dict(status, deferred=list(status.get("deferred") or []) + [_cell_key(b) for b in skipped])
             return status, False
         if attempt < UNSTICKS:
             unstick(c, part)
@@ -1082,7 +1155,11 @@ def main(argv=None, client=None):
     ap.add_argument("--rotate", type=int, default=0)
     ap.add_argument("--layers", default="")
     ap.add_argument("--timeout", type=float, default=240.0)
+    ap.add_argument("--retry-stubborn", action="store_true",
+                    help="give the builder again the cells it handed back twice (after a new mod, a support)")
     a = ap.parse_args(argv)
+    if a.retry_stubborn:
+        stubborn_save({})
     if a.action == "timelapse":
         return cmd_timelapse(a.plan, a.fps)
     if a.action == "site":

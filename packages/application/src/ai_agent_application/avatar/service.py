@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from .model import AvatarError, AvatarPort, Emotion, Look, ModelInfo, Profile
 
 LOG = logging.getLogger(__name__)
+# How often a still-missing avatar program is written to the log again.
+WARN_EVERY = 600.0
 MIN_INTERVAL = 1.5  # seconds between accepted emotion changes
 MOUTH_HZ = 14.0  # at most this many mouth frames per second (a busy rig handles a few per frame)
 HOLD_GAP = 0.25  # the resting face is re-sent only when nothing was sent for this long
@@ -59,6 +61,7 @@ class Avatar:
         self._mouth = 0.0
         self._mouth_at = -1e9
         self._sent_at = -1e9  # when anything was last injected: a mouth frame holds the face too
+        self._warned_at: float | None = None  # last "unavailable" line; None = not warned since a success
 
     @property
     def available(self) -> bool:
@@ -84,9 +87,17 @@ class Avatar:
         try:
             info = await self.port.connect()
         except (AvatarError, OSError, TimeoutError) as error:
-            LOG.warning("Avatar unavailable: %s", getattr(error, "code", type(error).__name__))
-            self._down_until = self.clock() + self.retry_after
+            # The attempts stay frequent (VTube Studio started later is picked up at once), the log
+            # line does not: VTS closed on purpose wrote one every six seconds all evening.
+            now = self.clock()
+            if self._warned_at is None or now - self._warned_at >= WARN_EVERY:
+                LOG.warning("Avatar unavailable: %s", getattr(error, "code", type(error).__name__))
+                self._warned_at = now
+            self._down_until = now + self.retry_after
             return False
+        if self._warned_at is not None:
+            LOG.info("Avatar connected")
+        self._warned_at = None
         self._info = info
         self.problems = self.profile.validate(info)
         # A new session starts from neutral and replays nothing from before the loss.

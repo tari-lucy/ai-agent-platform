@@ -311,3 +311,28 @@ def test_hold_is_skipped_while_a_frame_that_carried_the_face_just_went_out():
     clock.now += 0.3
     run(avatar.hold())  # a quarter of a second later it is sent again
     assert sum(1 for c in rig.calls if c[0] == "inject") == sent + 1
+
+
+def test_a_missing_program_is_logged_once_then_every_ten_minutes(caplog):
+    """VTube Studio closed on purpose wrote 'Avatar unavailable' every six seconds all evening."""
+    import logging
+
+    async def scenario():
+        rig = Rig()
+        rig.down = True
+        avatar, _, clock = make(rig)
+        with caplog.at_level(logging.INFO, logger="ai_agent_application.avatar.service"):
+            for _ in range(20):  # twenty attempts over ten minutes minus a bit
+                await avatar.express(Emotion.HAPPY)
+                clock.now += 29
+            lines = [r for r in caplog.records if "unavailable" in r.getMessage()]
+            assert len(lines) == 1
+            clock.now += 31  # past ten minutes since the first line
+            await avatar.express(Emotion.HAPPY)
+            assert len([r for r in caplog.records if "unavailable" in r.getMessage()]) == 2
+            rig.down = False
+            clock.now += 31
+            assert (await avatar.express(Emotion.HAPPY)).applied
+            assert any("connected" in r.getMessage() for r in caplog.records)
+
+    run(scenario())
