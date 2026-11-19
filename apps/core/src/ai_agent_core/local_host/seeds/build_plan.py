@@ -5,6 +5,8 @@
     python3 /workspace/skills/minecraft/build_plan.py check   plan.txt --origin X,Y,Z
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z [--layers 0-2]
     python3 /workspace/skills/minecraft/build_plan.py verify  plan.txt --origin X,Y,Z
+    python3 /workspace/skills/minecraft/build_plan.py rebuild plan.txt --origin X,Y,Z [--layers 0-2]
+                                                  (переделать готовое: снять лишнее и не тот материал, достроить)
     python3 /workspace/skills/minecraft/build_plan.py stock   plan.txt --origin X,Y,Z   (взять недостающее из творческого меню, без /give; в выживании - /give)
     python3 /workspace/skills/minecraft/build_plan.py build   plan.txt --origin X,Y,Z --mode commands
     python3 /workspace/skills/minecraft/build_plan.py lint    plan.txt                    (форма: висящие блоки, асимметрия, дыры...)
@@ -803,6 +805,52 @@ def mine_cells(c, cells, timeout, step=1.0):
     return [(x, y, z) for x, y, z in todo if not block_at(c, x, y, z).endswith("air")]
 
 
+def rebuild_removals(world, plan, box_plan=None):
+    """What must come off before the new plan goes up: inside the plan's box (of box_plan, the layers of this stage)
+    the plan is the whole truth, so a block it does not list there, or a different block, is taken off.
+    -> cells top-down, so nothing is mined out from under what is still to be mined."""
+    want = {(x, y, z): norm(b).split(":")[-1] for x, y, z, b in plan}
+    box = box_plan or plan
+    xs, ys, zs = [b[0] for b in box], [b[1] for b in box], [b[2] for b in box]
+    out = []
+    for (x, y, z), name in world.items():
+        if not (min(xs) <= x <= max(xs) and min(ys) <= y <= max(ys) and min(zs) <= z <= max(zs)):
+            continue
+        low = name.split(":")[-1]
+        if low.endswith("air"):
+            continue
+        if want.get((x, y, z)) != low:
+            out.append((x, y, z))
+    return sorted(out, key=lambda p: (-p[1], p[2], p[0]))
+
+
+def cmd_rebuild(c, blocks, whole, timeout, mode):
+    """Clear what the new plan does not want inside its box; the caller then builds the plan as usual.
+    -> None to go on building, or an exit code."""
+    xs, ys, zs = [b[0] for b in blocks], [b[1] for b in blocks], [b[2] for b in blocks]
+    got = read_box(c, min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+    if got is None:
+        print("Мод без scanBox: не вижу, что снимать. Обнови мод.")
+        return 13
+    world, unloaded = got
+    if unloaded:
+        print(f"Не прогружено {unloaded} столбцов постройки: подойди ближе и повтори rebuild.")
+        return 7
+    remove = rebuild_removals(world, whole, blocks)
+    print(f"Переделка: снять {len(remove)} (лишнее и не тот материал), потом достроить по схеме.")
+    if not remove:
+        return None
+    if mode == "commands":
+        code = cmd_commands(c, [(x, y, z, "minecraft:air") for x, y, z in remove])
+        return code or None
+    left = mine_cells(c, remove, timeout)
+    if left:
+        print(f"Не снято {len(left)} клеток (первые): {left[:8]}. Подойди ближе и повтори rebuild.")
+        return 5
+    print(f"Снято {len(remove)}. Достраиваю.")
+    return None
+
+
 def dig_hazards(c, cells, limit=300):
     """Water, lava or loose gravel touching the cells to be mined: a flood or a cave-in waits there."""
     cellset = set(cells)
@@ -1014,7 +1062,7 @@ def cmd_timelapse(name, fps):
 
 def main(argv=None, client=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig", "timelapse"))
+    ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig", "timelapse", "rebuild"))
     ap.add_argument("--mode", choices=("physical", "commands"), default="physical")
     ap.add_argument("--ignore-lint", action="store_true")
     ap.add_argument("--name", default="")
@@ -1119,6 +1167,10 @@ def main(argv=None, client=None):
         return cmd_cleanup(c, everything, a.timeout, everything)
     if a.action == "review":
         return cmd_review(c, blocks, stem)
+    if a.action == "rebuild":
+        code = cmd_rebuild(c, blocks, place(whole, origin), a.timeout, a.mode)
+        if code is not None:
+            return code
     if a.mode == "commands":
         return cmd_commands(c, blocks)
     if not show_lint(whole) and not a.ignore_lint:
