@@ -79,9 +79,19 @@ class Reflex:
         # --- a player who hit her ------------------------------------------------------------
         attacker = ""
         if s.pvp == "retaliate" and now - self.hurt_at <= s.hurt_window and threat:
-            low = threat.casefold()
+            # ⛔ ONLY A PLAYER THE MOD MARKED HIT_ME (2026-11-19). The old test was "his name
+            # appears anywhere in the threat text" -- and the mod's table lists every player it has
+            # seen, PEACEFUL ones too. After drowning (hurt, a player standing near) the reflex beat
+            # an innocent player. The mod now marks HIT_ME only the player the server's damage packet
+            # named as the attacker; the name must match that line exactly. An older mod without the
+            # mark gives no attacker at all: never hit back on a guess.
+            marked = {
+                line.split(":", 1)[0].strip().casefold()
+                for line in threat.splitlines()
+                if ":" in line and "HIT_ME" in line
+            }
             for name, distance in players_near:
-                if distance <= s.player_near and name.casefold() in low:
+                if distance <= s.player_near and name.casefold() in marked:
                     attacker = name
                     break
         if attacker:

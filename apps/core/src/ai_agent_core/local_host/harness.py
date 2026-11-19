@@ -1068,6 +1068,15 @@ def wire_ack(
     listener.on_addressed = addressed
 
 
+
+def game_chat_text(text: str) -> str:
+    """What may go into the game chat. '@' (altoclef), ';' (tungsten), '/' (the server), '.' and '#'
+    are commands: never first. '!' is kept: many servers read a leading '!' as "global chat"
+    (VanillaBox, 2026-11-19), and stripping it left every line in the local chat where nobody heard her."""
+    import re
+
+    return re.sub(r"^[\s@;/.#]+", "", " ".join(text.split()))[:200]
+
 def brain_kit(
     settings: HarnessConfig, providers: LocalProviders, owner: Any, host: HostPaths, runtime: Any
 ) -> Any:
@@ -1233,8 +1242,7 @@ def game_brain(
     last = {"at": 0.0}
 
     async def say(text: str, synth: Any = None) -> object:
-        # '@' (altoclef), ';' (tungsten) and '/' are commands to the mod and the server: never first
-        text = re.sub(r"^[\s@;/.!#]+", "", " ".join(text.split()))[:200]
+        text = game_chat_text(text)
         if not text:
             return "пусто"
         wait = 3.2 - (time.monotonic() - last["at"])  # the server says «Подождите 3 сек.» otherwise

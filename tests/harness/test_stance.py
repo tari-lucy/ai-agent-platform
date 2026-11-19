@@ -38,19 +38,42 @@ def test_a_far_hostile_is_not_a_reason_and_the_fight_ends_when_it_is_calm():
 
 
 def test_a_player_who_hit_her_is_hit_back_but_only_with_evidence():
+    """Evidence is the mod's HIT_ME mark: the server's damage packet named that player."""
+    hit = "=== Player Threat Table Status ===\nOpechatka: health=14 IN COMBAT\nBob: health=20 IN COMBAT HIT_ME\n"
     r = Reflex()
     near = [("Bob", 3.0)]
     # No evidence of who hit her: nothing, even with a player right there.
     assert r.decide(0, 18, ME, [], True, near, "") == []
-    act = r.decide(1, 18, ME, [], True, near, "Bob hit you for 4")
+    act = r.decide(1, 18, ME, [], True, near, hit)
     assert kinds(act) == ["stop", "punk"] and act[1].target == "Bob"
     low = Reflex()
-    act = low.decide(0, 8, ME, [], True, near, "bob attacked you")
+    act = low.decide(0, 8, ME, [], True, near, hit)
     assert kinds(act) == ["stop", "run_away"] and act[1].target == "Bob" and act[1].distance == 25
     never = Reflex(Stance(pvp="never"))
-    assert never.decide(0, 18, ME, [], True, near, "Bob hit you") == []
+    assert never.decide(0, 18, ME, [], True, near, hit) == []
     far = Reflex()
-    assert far.decide(0, 18, ME, [], True, [("Bob", 30.0)], "Bob hit you") == []
+    assert far.decide(0, 18, ME, [], True, [("Bob", 30.0)], hit) == []
+
+
+def test_a_peaceful_player_in_the_table_is_never_hit():
+    """2026-11-19: she drowned (hurt) next to an innocent player, whose name sat in the threat table
+    as PEACEFUL; the old substring test made him the attacker and she beat him after respawning."""
+    table = "=== Player Threat Table Status ===\nOpechatka: health=0 IN COMBAT\nInnocent: health=20 PEACEFUL\n"
+    r = Reflex()
+    assert r.decide(0, 18, ME, [], True, [("Innocent", 2.0)], table) == []
+    # IN COMBAT is not evidence either: he may have been fighting a mob
+    busy = table.replace("Innocent: health=20 PEACEFUL", "Innocent: health=12 IN COMBAT")
+    assert r.decide(1, 18, ME, [], True, [("Innocent", 2.0)], busy) == []
+    # an older mod without the mark, or free text mentioning him: no attacker
+    assert r.decide(2, 18, ME, [], True, [("Innocent", 2.0)], "Innocent hit you for 4") == []
+
+
+def test_the_mark_must_be_on_that_players_own_line_and_match_exactly():
+    table = "Bobby: health=20 IN COMBAT HIT_ME\nBob: health=20 PEACEFUL\n"
+    r = Reflex()
+    assert r.decide(0, 18, ME, [], True, [("Bob", 2.0)], table) == []  # Bobby hit her, not Bob
+    act = r.decide(1, 18, ME, [], True, [("Bob", 2.0), ("Bobby", 4.0)], table)
+    assert kinds(act) == ["stop", "punk"] and act[1].target == "Bobby"
 
 
 class Mod:
@@ -274,3 +297,15 @@ def test_a_screen_left_open_is_reported_once_after_a_while_and_not_when_closed()
         now["t"] = float(second)
         quiet += [e for e in poll(src) if e.kind == "screen_open"]
     assert quiet == []  # the clock restarted when it was closed
+
+
+def test_game_chat_keeps_the_global_bang_and_drops_command_prefixes():
+    from ai_agent_core.local_host.harness import game_chat_text
+
+    assert game_chat_text("!Всем привет") == "!Всем привет"  # VanillaBox: '!' = global chat
+    assert game_chat_text("! Привет") == "! Привет"
+    assert game_chat_text("/give @s stone") == "give @s stone"
+    assert game_chat_text(";stop") == "stop"
+    assert game_chat_text("@stop") == "stop"
+    assert game_chat_text("  обычный   текст ") == "обычный текст"
+    assert len(game_chat_text("а" * 500)) == 200
