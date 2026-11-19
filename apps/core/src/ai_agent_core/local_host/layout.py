@@ -404,6 +404,10 @@ class HarnessConfig(BaseModel):
     image_daily: int = Field(default=10, strict=True, ge=1, le=200)
     image_price: float = Field(default=0.05, ge=0, le=100)
     context_tokens: int = Field(default=128000, strict=True, ge=8000, le=2_000_000)
+    # The plan model's (native ChatGPT) window as OpenCode sees it. OpenCode summarises the session
+    # when it nears this, so a smaller number keeps every step cheaper; its own catalogue value let
+    # one building session grow to 260k tokens a step and spend the plan's limit in an hour.
+    native_context_tokens: int = Field(default=160000, strict=True, ge=16000, le=2_000_000)
     output_tokens: int = Field(default=8192, strict=True, ge=256, le=200_000)
     memory_mb: int = Field(default=4096, strict=True, ge=512, le=65536)
     # Operator-granted connections to this computer's own ports (name -> port): the agent

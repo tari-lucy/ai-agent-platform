@@ -111,6 +111,7 @@ class HarnessSettings:
     cached_rate: float | None = None  # per 1M cached input tokens; None = the input rate
     currency: str = "RUB"
     context_tokens: int = 128000
+    native_context_tokens: int = 160000
     output_tokens: int = 8192
     memory_mb: int = 4096
     pids: int = 1024
@@ -614,7 +615,11 @@ class HarnessHost:
             "enabled_providers": ["platform", "openai"] if s.native_chatgpt else ["platform"],
             "autoupdate": False,
             "share": "disabled",
+            # Drop the outputs of old tool calls (all but the last ~40k tokens of them) and summarise
+            # the session near the model's window, so one long session stays cheap per step.
+            "compaction": {"auto": True, "prune": True},
             "provider": {
+                **self._native_limit(),
                 "platform": {
                     "npm": "@ai-sdk/openai-compatible",
                     "name": "Platform",
@@ -658,6 +663,23 @@ class HarnessHost:
                 **{helper: {"prompt": core + tail} for helper, tail in HELPER_ROLES.items()},
             },
             "permission": free,
+        }
+
+    def _native_limit(self) -> dict[str, Any]:
+        """The plan model's window, overriding OpenCode's catalogue (context AND input: with an input
+        limit in the catalogue, OpenCode measures the overflow by that one)."""
+        s = self.settings
+        if not (s.native_chatgpt and s.native_chatgpt_model and "/" in s.native_chatgpt_model):
+            return {}
+        provider, model = s.native_chatgpt_model.split("/", 1)
+        window = s.native_context_tokens
+        return {
+            provider: {
+                "models": {
+                    # output stays OpenCode's own: the platform's output_tokens would cut long replies
+                    model: {"limit": {"context": window, "input": window}}
+                }
+            }
         }
 
     async def _run(self) -> None:

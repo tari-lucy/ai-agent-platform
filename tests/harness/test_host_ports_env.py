@@ -140,6 +140,35 @@ def test_with_a_chosen_plan_model_everything_defaults_to_it_and_off_clears_it(tm
     assert build(True, None)["model"] == "platform/bound"
 
 
+def test_the_session_is_compacted_and_the_plan_window_is_ours(tmp_path):
+    """One long session stays cheap per step: old tool outputs are pruned, and the plan model's window is the
+    operator's setting (context and input), so OpenCode summarises before a step costs 260k tokens."""
+
+    def build(native, model, window=None):
+        extra = {} if window is None else {"native_context_tokens": window}
+        settings = HarnessSettings(
+            image_id="i", port=4096, password="p", upstream="https://x/v1", key="k", model="m",
+            usage_dir=tmp_path, daily_budget=1.0, input_rate=0.1, output_rate=0.1,
+            native_chatgpt=native, native_chatgpt_model=model, **extra,
+        )
+        host = HarnessHost.__new__(HarnessHost)
+        host.settings = settings
+        scope = SimpleNamespace(persona_id="p")
+        host.rt = SimpleNamespace(supervisor=SimpleNamespace(snapshot=SimpleNamespace(scope=scope)))
+        return host.config("http://x:8080/v1", "base", False)
+
+    on = build(True, "openai/gpt-6.1-sol-fast", 120000)
+    assert on["compaction"] == {"auto": True, "prune": True}
+    limit = on["provider"]["openai"]["models"]["gpt-6.1-sol-fast"]["limit"]
+    assert limit == {"context": 120000, "input": 120000}  # output left to OpenCode: no cut replies
+    assert on["provider"]["platform"]["models"]["bound"]["limit"]["context"] == 128000
+    assert build(True, "openai/gpt-6.1-sol-fast")["provider"]["openai"]["models"]["gpt-6.1-sol-fast"]["limit"][
+        "context"] == 160000
+    # without the plan there is nothing to override, but pruning still holds
+    off = build(False, "openai/gpt-6.1-sol-fast")
+    assert "openai" not in off["provider"] and off["compaction"]["prune"] is True
+
+
 def test_a_repeated_call_is_allowed_not_asked_about():
     """doom_loop would make OpenCode ask a human and wait for ever: answer it in advance."""
     import inspect

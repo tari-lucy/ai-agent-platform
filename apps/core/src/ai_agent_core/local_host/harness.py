@@ -534,6 +534,7 @@ def install(
             output_rate=settings.output_rate,
             cached_rate=settings.cached_rate,
             context_tokens=settings.context_tokens,
+            native_context_tokens=settings.native_context_tokens,
             output_tokens=settings.output_tokens,
             memory_mb=settings.memory_mb,
             agent_names=dict(settings.agent_names),

@@ -268,6 +268,8 @@ def parser() -> argparse.ArgumentParser:
     harness.add_argument("--chat-daily-messages", type=int, help="lines she may write a day")
     harness.add_argument("--remove-chats", action="store_true", help="leave both chats")
     harness.add_argument("--context-tokens", type=int)
+    harness.add_argument("--native-context-tokens", type=int,
+                         help="the plan model's window; OpenCode summarises the session near it")
     harness.add_argument("--output-tokens", type=int)
     harness.add_argument("--memory-mb", type=int)
     harness.add_argument("--disable", action="store_true")
@@ -840,6 +842,7 @@ def main(argv: list[str] | None = None) -> int:
                     avatar_profile=arguments.avatar_profile,
                     remove_avatar=arguments.remove_avatar,
                     context_tokens=arguments.context_tokens,
+                    native_context_tokens=arguments.native_context_tokens,
                     output_tokens=arguments.output_tokens,
                     memory_mb=arguments.memory_mb,
                 )
