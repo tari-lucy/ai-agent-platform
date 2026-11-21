@@ -590,6 +590,13 @@ NATURAL = ("dirt", "grass", "stone", "sand", "gravel", "leaves", "_log", "_wood"
            "ice", "snow", "deepslate", "andesite", "granite", "diorite", "ore", "clay", "mud", "moss", "bush",
            "vine", "cactus", "kelp", "seagrass", "coral", "mushroom", "podzol", "mycelium", "terracotta")
 STRAY_MARGIN = 4  # blocks around the plan's box that are looked at for what does not belong
+# Throwaway the builder pillars with when it is what the hotbar holds: natural, so the test above lets it
+# stand. Next to the build and above its base it is a leftover pillar, not terrain (2026-11-21: a stone
+# column came out "crooked outside", stone and grass pillar bits stuck to it, the mod's scaffold memory
+# having let go of the ones it could not reach).
+PILLAR_NATURAL = {"dirt", "grass_block", "coarse_dirt", "stone", "cobbled_deepslate", "netherrack",
+                  "andesite", "diorite", "granite", "tuff", "deepslate"}
+PILLAR_NEAR = 2  # how far from the build's footprint such a block counts as a leftover pillar
 
 
 def read_box(c, x1, y1, z1, x2, y2, z2):
@@ -623,8 +630,19 @@ def find_strays(c, plan, margin=STRAY_MARGIN):
     if got is None:
         return None
     world, unloaded = got
-    return sorted(((x, y, z, n) for (x, y, z), n in world.items()
-                   if (x, y, z) not in wanted and is_stray(n, names)), key=lambda b: (-b[1], b[2], b[0])), unloaded
+    base = min(ys)
+    def pillar_leftover(x, y, z, n):
+        if n.split(":")[-1] not in PILLAR_NATURAL or y < base + 1:
+            return False
+        dx = max(min(xs) - x, 0, x - max(xs))
+        dz = max(min(zs) - z, 0, z - max(zs))
+        return max(dx, dz) <= PILLAR_NEAR
+    found = {(x, y, z): n for (x, y, z), n in world.items()
+             if (x, y, z) not in wanted and (is_stray(n, names) or pillar_leftover(x, y, z, n))}
+    for (x, y, z), n in world.items():   # the foot of such a pillar, at base level, goes with it
+        if y == base and (x, y, z) not in wanted and (x, y + 1, z) in found and n.split(":")[-1] in PILLAR_NATURAL:
+            found[(x, y, z)] = n
+    return sorted(((x, y, z, n) for (x, y, z), n in found.items()), key=lambda b: (-b[1], b[2], b[0])), unloaded
 
 
 CLEAN_ROUNDS = 3  # sweep, check, repair: how many times round before it is said that it did not come clean

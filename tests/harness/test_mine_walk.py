@@ -144,3 +144,19 @@ def test_she_steps_off_the_column_before_reopening_it(monkeypatch):
     left = build_plan.reopen_from_above(world, [(0, 65, 0, "minecraft:stone")], plan, 5)
     assert walks and (walks[0][0], walks[0][2]) != (0, 0)   # stepped off the centre column first
     assert left == [] and world.blocks[(0, 66, 0)] == "minecraft:stone"
+
+
+def test_a_stone_pillar_stuck_to_a_stone_build_is_a_stray_but_the_ground_is_not():
+    blocks = {}
+    ground(blocks, -6, 6, -6, 6, 64)                       # natural ground under the base
+    plan = [(0, y, 0, "minecraft:stone") for y in range(65, 70)]
+    for x, y, z, b in plan:
+        blocks[(x, y, z)] = b
+    for y in range(65, 69):                                # the builder's throwaway pillar beside it
+        blocks[(1, y, 0)] = "minecraft:stone"
+    blocks[(5, 65, 5)] = "minecraft:grass_block"           # a bump far off: not ours
+    blocks[(-1, 65, 0)] = "minecraft:dirt"                  # a bump at base level next to it: terrain
+    world = ReachWorld(blocks, (3.5, 65.0, 3.5))
+    strays, _ = build_plan.find_strays(world, plan)
+    got = {(x, y, z) for x, y, z, _ in strays}
+    assert got == {(1, 65, 0), (1, 66, 0), (1, 67, 0), (1, 68, 0)}   # the pillar and its foot; not the bumps
