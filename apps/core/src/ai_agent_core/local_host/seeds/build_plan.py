@@ -1329,6 +1329,12 @@ def cmd_timelapse(name, fps):
 
 
 def main(argv=None, client=None):
+    # Line by line even into a pipe (| tee build-log.txt): a stage that runs for minutes must be readable
+    # while it runs, not all at once at the end (2026-11-21, an empty log for a whole build).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig", "timelapse", "rebuild"))
     ap.add_argument("--mode", choices=("physical", "commands"), default="physical")
