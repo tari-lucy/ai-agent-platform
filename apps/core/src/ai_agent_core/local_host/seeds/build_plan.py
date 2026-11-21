@@ -836,8 +836,10 @@ def sight_stand(world, cell, here=None, reach=4.4):
                     dist = math.dist(eye, face)
                     if dist > reach or not _ray_reaches(world, eye, face, cell, open_):
                         continue
+                    # Nearest to HER first: a stand on the far side of a wall is in sight of the face but
+                    # means a walk out of the house and round it, hopping on the way (2026-11-21).
                     far = math.dist((x, y, z), here) if here else 0.0
-                    key = (round(dist, 1), far)
+                    key = (round(far), round(dist, 1))
                     if best is None or key < best[2]:
                         best = ((x, y, z), dist, key)
     return (best[0], best[1]) if best else None

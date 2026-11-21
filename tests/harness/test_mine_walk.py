@@ -256,3 +256,18 @@ def test_sight_stand_steps_back_from_a_wall_top_under_a_ceiling():
     (sx, sy, sz), dist = found
     assert dist <= 4.4
     assert sz >= -200   # not the stand right against the wall (z -201): it steps back so the ray clears the wall
+
+
+def test_sight_stand_prefers_her_side_of_the_wall():
+    world = {}
+    for x in range(-592, -580):
+        for z in range(-208, -194):
+            world[(x, 115, z)] = "minecraft:stone"
+            if z >= -202:
+                world[(x, 121, z)] = "minecraft:spruce_planks"
+        for y in range(116, 120):
+            world[(x, y, -202)] = "minecraft:white_concrete"
+        if x != -588:
+            world[(x, 120, -202)] = "minecraft:light_blue_stained_glass"
+    (sx, sy, sz), _ = build_plan.sight_stand(world, (-588, 120, -202), (-584.5, 116.0, -199.5))  # she is inside
+    assert sz > -202                      # a stand inside the house, not out beyond the wall
