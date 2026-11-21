@@ -805,11 +805,39 @@ def cmd_build(c, blocks, timeout, plan=None):
         wait_queue(c, timeout)
         missing = verify(c, missing)
     if missing:
+        missing = reopen_from_above(c, missing, plan or ordered, timeout)
+    if missing:
         print(f"НЕ ХВАТАЕТ {len(missing)} блоков (первые): {missing[:8]}")
         print("Проверь хотбар, досягаемость, чужую защиту; запусти verify, потом build ещё раз.")
         return 5
     print(f"ГОТОВО: все {len(ordered)} блоков на месте")
     return cmd_cleanup(c, ordered, timeout, plan)
+
+
+def reopen_from_above(c, missing, plan, timeout):
+    """A cell skipped early and then sealed by the layer above it has no face left to click: take the
+    plan block above it away for a moment, place the cell, put the block back. 2026-11-21: a base cell
+    of the striped lighthouse, the builder standing right next to it and finding no face, while she
+    did exactly this by hand with a separate repair plan. -> the cells still missing."""
+    want = {(x, y, z): b for x, y, z, b in plan}
+    left = []
+    for x, y, z, b in missing:
+        above = (x, y + 1, z)
+        top = want.get(above)
+        if top is None or block_at(c, *above).split(":")[-1] != norm(top).split(":")[-1]:
+            left.append((x, y, z, b))
+            continue
+        print(f"Клетка {(x, y, z)} закрыта сверху: снимаю {top.split(':')[-1]} над ней, ставлю и возвращаю.")
+        if mine_cells(c, [above], timeout):
+            left.append((x, y, z, b))
+            continue
+        call(c, "buildBlocks", {"blocks": json.dumps([[x, y, z, b], [x, y + 1, z, top]])})
+        wait_queue(c, timeout)
+        if verify(c, [(x, y, z, b)]):
+            left.append((x, y, z, b))
+        if verify(c, [(x, y + 1, z, top)]):
+            print(f"Блок {above} не вернулся на место: верни его (build ещё раз по этому плану).")
+    return left
 
 
 def terrain():
@@ -856,26 +884,118 @@ def cmd_site(c, width, depth, near, radius, margin):
     return 0
 
 
+MINE_REACH = 4.3       # eye to block centre the miner works at (the mod gives up beyond 4.5)
+MINE_WALK_ROUNDS = 8   # walks to a closer stand before the rest is handed back
+PASS_THROUGH = ("air", "grass", "fern", "flower", "poppy", "dandelion", "torch", "vine", "sapling",
+                "tulip", "bush", "carpet", "snow")
+
+
+def _open(name):
+    low = name.split(":")[-1]
+    return low.endswith("air") or (low != "grass_block" and any(k in low for k in PASS_THROUGH))
+
+
+def reach_stand(c, cell, here=None, reach=MINE_REACH, avoid=()):
+    """A place to stand (air at feet and head, something solid under the feet) from which the eye is
+    within ``reach`` of ``cell``; the nearest to ``here`` among the closest. None without scanBox or
+    when there is none. A stand whose floor is one of ``avoid`` (cells still to be mined) is not one:
+    mining it would drop her."""
+    x0, y0, z0 = cell
+    avoid = set(avoid)
+    got = read_box(c, x0 - 5, y0 - 6, z0 - 5, x0 + 5, y0 + 5, z0 + 5)
+    if got is None:
+        return None
+    world = got[0]
+    def open_(p):
+        return _open(world.get(p, "minecraft:air"))
+    best, key = None, None
+    for x in range(x0 - 5, x0 + 6):
+        for y in range(y0 - 5, y0 + 5):
+            for z in range(z0 - 5, z0 + 6):
+                if not (open_((x, y, z)) and open_((x, y + 1, z)) and not open_((x, y - 1, z))):
+                    continue
+                if (x, y - 1, z) in avoid:
+                    continue
+                d = math.dist((x + 0.5, y + 1.62, z + 0.5), (x0 + 0.5, y0 + 0.5, z0 + 0.5))
+                if d > reach:
+                    continue
+                far = math.dist((x, y, z), here) if here else 0.0
+                k = (round(d), far)
+                if key is None or k < key:
+                    best, key = (x, y, z), k
+    return best
+
+
+def _here(c):
+    state = call(c, "getGameState")
+    pos = (state.get("self") or {}).get("pos", "") if isinstance(state, dict) else ""
+    try:
+        return tuple(float(v) for v in pos.split(","))
+    except ValueError:
+        return None
+
+
+def _mine_pass(c, todo, timeout, step):
+    reply = call(c, "mineBlocks", {"blocks": json.dumps([list(p) for p in todo])}) or {}
+    if not reply.get("ok"):
+        print(f"mineBlocks отказал: {reply}")
+        return False
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        time.sleep(step)
+        status = call(c, "mineStatus") or {}
+        if not status.get("mining") and not status.get("remaining"):
+            break
+    return True
+
+
+def walk_close(x, y, z, timeout=60):
+    """Walk to a stand and wait (goto_wait.py, tight tolerance: the point is to be in reach)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    done = subprocess.run([sys.executable, os.path.join(here, "goto_wait.py"), str(x), str(y), str(z),
+                           "--tolerance", "1.2", "--timeout", str(timeout)], capture_output=True, text=True)
+    return done.stdout.strip()
+
+
 def mine_cells(c, cells, timeout, step=1.0):
-    """Mine the given cells (top-down) and wait; returns the cells that are still not air."""
+    """Mine the given cells (top-down) and wait; returns the cells that are still not air.
+
+    The mod's miner breaks only what is in reach from where the body stands, so what is left after the
+    first pass is walked to: the highest cell first, from the nearest stand with that cell in reach
+    (the navigator climbs there if it must; its pillar is the next sweep's scaffolding). Measured on
+    2026-11-21: a 10-high lighthouse kept 27 scaffold planks and 28 cells at y 72-75, "подойди ближе"
+    every time, because nobody walked her up to them."""
     todo = [(x, y, z) for x, y, z in cells if not block_at(c, x, y, z).endswith("air")]
     if not todo:
         return []
     call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
     try:
-        reply = call(c, "mineBlocks", {"blocks": json.dumps([list(p) for p in todo])}) or {}
-        if not reply.get("ok"):
-            print(f"mineBlocks отказал: {reply}")
+        if not _mine_pass(c, todo, timeout, step):
             return todo
-        start = time.monotonic()
-        while time.monotonic() - start < timeout:
-            time.sleep(step)
-            status = call(c, "mineStatus") or {}
-            if not status.get("mining") and not status.get("remaining"):
+        left = [p for p in todo if not block_at(c, *p).endswith("air")]
+        for _ in range(MINE_WALK_ROUNDS):
+            if not left:
                 break
+            target = max(left, key=lambda p: p[1])
+            stand = reach_stand(c, target, _here(c), avoid=left)
+            if stand is None:
+                print(f"Не нашла, где встать, чтобы дотянуться до {target}: оставляю {len(left)} клеток.")
+                break
+            print(f"Подхожу к ({stand[0]}, {stand[1]}, {stand[2]}), чтобы достать {target} и соседние.")
+            walk_close(*stand)
+            eye = (stand[0] + 0.5, stand[1] + 1.62, stand[2] + 0.5)
+            near = [p for p in left if math.dist(eye, (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)) <= MINE_REACH + 0.2]
+            if not _mine_pass(c, sorted(near, key=lambda p: -p[1]), timeout, step):
+                break
+            still = [p for p in left if not block_at(c, *p).endswith("air")]
+            if len(still) >= len(left):
+                print(f"С ({stand[0]}, {stand[1]}, {stand[2]}) ничего не снялось: оставляю {len(still)} клеток.")
+                left = still
+                break
+            left = still
+        return left
     finally:
         call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
-    return [(x, y, z) for x, y, z in todo if not block_at(c, x, y, z).endswith("air")]
 
 
 def rebuild_removals(world, plan, box_plan=None):
