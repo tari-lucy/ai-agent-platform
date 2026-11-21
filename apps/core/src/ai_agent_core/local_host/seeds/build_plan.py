@@ -688,15 +688,20 @@ def cmd_cleanup(c, blocks, timeout, plan=None):
     can leave scaffolding of its own, so after a repair the sweep is made again: sweep, check, repair, until
     the plan stands and nothing is left over (CLEAN_ROUNDS times at most)."""
     plan = plan or blocks
-    leftover, missing = 0, []
+    leftover, missing, before = 0, [], None
     for _ in range(CLEAN_ROUNDS):
         leftover = sweep(c, plan, timeout)
         missing = verify(c, blocks)
         if not missing:
             break
+        if before is not None and sorted(missing) == sorted(before):
+            # The same cells as last round: another repair only spins (2026-11-21, eight minutes of cleanup
+            # round and round over three cells the builder cannot reach). Say so and stop.
+            print(f"Те же {len(missing)} блоков не встают второй круг подряд: дальше уборкой не достроить.")
+            break
+        before = missing
         print(f"После уборки не хватает {len(missing)} блоков плана, достраиваю.")
-        call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in missing][:BATCH])})
-        wait_queue(c, timeout)
+        build_stage(c, missing[:BATCH], timeout)   # skips the cells the builder already gave back twice
     else:  # the last round ended with a repair: sweep once more and look again
         leftover = sweep(c, plan, timeout)
         missing = verify(c, blocks)
