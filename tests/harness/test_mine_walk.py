@@ -61,7 +61,18 @@ def test_a_scaffold_out_of_reach_is_walked_up_to(monkeypatch):
     world = ReachWorld(blocks, (-4.5, 65.0, 0.5))   # far away on the ground
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
 
+    breaking = []
+    real_call = world.call
+
+    def spy(name, args):
+        if name == "ExecuteCommand":
+            breaking.append(args["cmd"].endswith("true"))
+        return real_call(name, args)
+
+    world.call = spy
+
     def walk(x, y, z, timeout=60):
+        assert breaking and breaking[-1] is False, "walking with breaking on digs through the build"
         world.walks.append((x, y, z))
         world.pos = (x + 0.5, float(y), z + 0.5)
         return "OK"

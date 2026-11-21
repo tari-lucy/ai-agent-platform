@@ -982,7 +982,12 @@ def mine_cells(c, cells, timeout, step=1.0):
                 print(f"Не нашла, где встать, чтобы дотянуться до {target}: оставляю {len(left)} клеток.")
                 break
             print(f"Подхожу к ({stand[0]}, {stand[1]}, {stand[2]}), чтобы достать {target} и соседние.")
+            # ⛔ NEVER WALK WITH BREAKING ON (2026-11-21). allowBreak stayed true through the walk, so
+            # the navigator dug its own road through the lighthouse to reach the stand. Breaking is
+            # for the listed cells only: off for the walk, back on for the mining.
+            call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
             walk_close(*stand)
+            call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
             eye = (stand[0] + 0.5, stand[1] + 1.62, stand[2] + 0.5)
             near = [p for p in left if math.dist(eye, (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)) <= MINE_REACH + 0.2]
             if not _mine_pass(c, sorted(near, key=lambda p: -p[1]), timeout, step):
