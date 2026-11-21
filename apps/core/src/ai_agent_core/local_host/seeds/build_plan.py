@@ -1354,6 +1354,10 @@ def main(argv=None, client=None):
     c = client or make_client()
     if not in_world(c):
         return 10
+    # A run that was interrupted (STOP, «стой», a killed shell) never reached its finally: allowBreak may
+    # still be on, and then every walk of this run digs its own road (2026-11-21, the lighthouse). Each run
+    # starts with breaking off; only mine_cells turns it on, for the listed cells.
+    call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
     if a.action == "level":
         return cmd_level(c, whole, origin, a.mode, 1 if a.margin < 0 else a.margin, a.timeout, a.material)
     if a.action == "dig":
