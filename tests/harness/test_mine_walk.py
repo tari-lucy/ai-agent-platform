@@ -237,3 +237,22 @@ def test_a_stand_she_cannot_reach_is_skipped_for_the_next_one(monkeypatch):
 
     monkeypatch.setattr(build_plan, "walk_close", walk)
     assert build_plan.mine_cells(world, scaffold, 5) == []
+
+
+def test_sight_stand_steps_back_from_a_wall_top_under_a_ceiling():
+    """The house glass strip: target at y 120 in a wall (z = -202) under a ceiling at y 121, floor at 115."""
+    world = {}
+    for x in range(-592, -580):
+        for z in range(-206, -194):
+            world[(x, 115, z)] = "minecraft:stone"                      # the floor: she stands at y 116
+            if z >= -202:
+                world[(x, 121, z)] = "minecraft:spruce_planks"          # the ceiling over the room and wall
+        for y in range(116, 120):
+            world[(x, y, -202)] = "minecraft:white_concrete"            # the wall up to y 119
+        if x != -588:
+            world[(x, 120, -202)] = "minecraft:light_blue_stained_glass"  # the strip, one cell missing
+    found = build_plan.sight_stand(world, (-588, 120, -202), (-588.5, 116.0, -200.5))
+    assert found is not None
+    (sx, sy, sz), dist = found
+    assert dist <= 4.4
+    assert sz >= -200   # not the stand right against the wall (z -201): it steps back so the ray clears the wall

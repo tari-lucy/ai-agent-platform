@@ -97,7 +97,7 @@ def test_main_rebuild_clears_then_builds(tmp_path, monkeypatch):
                     encoding="utf-8")
     world = StandingWorld({(10, 64, 10): PLANKS, (11, 65, 10): CONCRETE})
     built = []
-    monkeypatch.setattr(build_plan, "cmd_build", lambda c, blocks, timeout, whole: built.append(blocks) or 0)
+    monkeypatch.setattr(build_plan, "cmd_build", lambda c, blocks, timeout, whole, **k: built.append(blocks) or 0)
     code = build_plan.main(["rebuild", str(plan), "--origin", "10,64,10", "--ignore-lint"], client=world)
     assert code == 0
     assert set(world.mined) == {(10, 64, 10), (11, 65, 10)}

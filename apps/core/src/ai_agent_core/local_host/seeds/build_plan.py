@@ -783,6 +783,94 @@ def cmd_preview(blocks):
     print("значки: " + ", ".join(f"{v}={k.split(':')[-1]}" for k, v in keys.items()))
 
 
+def _ray_reaches(world, eye, point, target, open_):
+    """Walk the voxels from the eye towards ``point`` (Amanatides-Woo); True when the target cell is entered
+    before any closed voxel. ``point`` lies on a face of the target, so entering the target means the face
+    is in sight."""
+    pos = [int(math.floor(v)) for v in eye]
+    d = [point[i] - eye[i] for i in range(3)]
+    step = [1 if v > 0 else -1 if v < 0 else 0 for v in d]
+    t_max, t_delta = [], []
+    for i in range(3):
+        if d[i] == 0:
+            t_max.append(float("inf")); t_delta.append(float("inf"))
+        else:
+            edge = pos[i] + (1 if step[i] > 0 else 0)
+            t_max.append((edge - eye[i]) / d[i]); t_delta.append(abs(1.0 / d[i]))
+    for _ in range(40):
+        axis = t_max.index(min(t_max))
+        if t_max[axis] > 1.0001:
+            return False
+        pos[axis] += step[axis]
+        t_max[axis] += t_delta[axis]
+        cell = tuple(pos)
+        if cell == target:
+            return True
+        if not open_(cell):
+            return False
+    return False
+
+
+def sight_stand(world, cell, here=None, reach=4.4):
+    """Where to stand so that a face to click for ``cell`` is really in sight, not only near: the top row of a
+    wall right under a ceiling is 3.5 blocks from the floor straight in front of it, and hidden there behind
+    the wall's own top (2026-11-21: the house glass strip, eight walks to the same stand, EXHAUSTED). Two
+    blocks back the ray clears the wall. -> (stand, distance) or None."""
+    def open_(p):
+        return _open(world.get(p, "minecraft:air"))
+    x0, y0, z0 = cell
+    faces = []
+    for dx, dy, dz in ((0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)):
+        if not open_((x0 + dx, y0 + dy, z0 + dz)):
+            faces.append((x0 + 0.5 + 0.5 * dx, y0 + 0.5 + 0.5 * dy, z0 + 0.5 + 0.5 * dz))
+    best = None
+    for x in range(x0 - 4, x0 + 5):
+        for y in range(y0 - 5, y0 + 2):
+            for z in range(z0 - 4, z0 + 5):
+                if (x, y, z) == cell or (x, y + 1, z) == cell:
+                    continue
+                if not (open_((x, y, z)) and open_((x, y + 1, z)) and not open_((x, y - 1, z))):
+                    continue
+                eye = (x + 0.5, y + 1.62, z + 0.5)
+                for face in faces:
+                    dist = math.dist(eye, face)
+                    if dist > reach or not _ray_reaches(world, eye, face, cell, open_):
+                        continue
+                    far = math.dist((x, y, z), here) if here else 0.0
+                    key = (round(dist, 1), far)
+                    if best is None or key < best[2]:
+                        best = ((x, y, z), dist, key)
+    return (best[0], best[1]) if best else None
+
+
+def place_in_sight(c, missing, timeout):
+    """For the cells the builder handed back, walk to a stand with a face really in sight and let the builder
+    place from there, its own walking off (it would walk back to its own stand). -> cells still missing."""
+    left = []
+    for m in missing:
+        x, y, z, b = m
+        if not _open(block_at(c, x, y, z) or "minecraft:air"):
+            left.append(m)
+            continue
+        got = read_box(c, x - 5, y - 6, z - 5, x + 5, y + 3, z + 5)
+        found = sight_stand(got[0], (x, y, z), _here(c)) if got else None
+        if found is None:
+            left.append(m)
+            continue
+        (sx, sy, sz), dist = found
+        print(f"Клетка {(x, y, z)}: встану на ({sx}, {sy}, {sz}), оттуда грань видна ({dist:.1f} бл.).")
+        call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
+        walk_close(sx, sy, sz)
+        call(c, "setBuilderWalks", {"on": False})
+        try:
+            call(c, "buildBlocks", {"blocks": json.dumps([[x, y, z, b]])})
+            wait_queue(c, timeout)
+        finally:
+            call(c, "setBuilderWalks", {"on": True})
+        left += verify(c, [m])
+    return left
+
+
 def inside_out(blocks):
     """Bottom-up, and within a layer the innermost cells first. A cell left for last inside its ring has no
     face to click once the ring stands (2026-11-21: the sea-lantern core of the lighthouse lamp, closed in
@@ -802,7 +890,17 @@ def inside_out(blocks):
     return out
 
 
-def cmd_build(c, blocks, timeout, plan=None):
+def cmd_build(c, blocks, timeout, plan=None, add_only=False):
+    if add_only:
+        # A repair beside other people's builds must never turn into demolition.
+        occupied = []
+        for x, y, z, name in blocks:
+            have = block_at(c, x, y, z).split(":")[-1]
+            if have not in ("air", "cave_air", "void_air", name.split(":")[-1]):
+                occupied.append((x, y, z, have))
+        if occupied:
+            print(f"ТОЛЬКО ДОБАВЛЕНИЕ: занятые/непроверенные клетки не трогаю: {occupied[:8]}")
+            return 5
     if not show_materials(blocks):
         return 2
     lack = missing_materials(c, blocks)
@@ -852,14 +950,19 @@ def cmd_build(c, blocks, timeout, plan=None):
         wait_queue(c, timeout)
         missing = verify(c, missing)
     if missing:
+        missing = place_in_sight(c, missing, timeout)   # only adds: fine with --add-only too
+    if missing and not add_only:
         missing = clear_occupied(c, missing, timeout)
-    if missing:
+    if missing and not add_only:
         missing = reopen_from_above(c, missing, plan or ordered, timeout)
     if missing:
         print(f"НЕ ХВАТАЕТ {len(missing)} блоков (первые): {missing[:8]}")
         print("Проверь хотбар, досягаемость, чужую защиту; запусти verify, потом build ещё раз.")
         return 5
     print(f"ГОТОВО: все {len(ordered)} блоков на месте")
+    if add_only:
+        print("ТОЛЬКО ДОБАВЛЕНИЕ: демонтаж и общая уборка не запускались; временные опоры проверить отдельно.")
+        return 0
     return cmd_cleanup(c, ordered, timeout, plan)
 
 
@@ -1396,6 +1499,8 @@ def main(argv=None, client=None):
     ap.add_argument("action", choices=("preview", "check", "build", "verify", "stock", "lint", "picture", "cleanup", "review", "site", "level", "dig", "timelapse", "rebuild"))
     ap.add_argument("--mode", choices=("physical", "commands"), default="physical")
     ap.add_argument("--ignore-lint", action="store_true")
+    ap.add_argument("--add-only", action="store_true",
+                    help="physical build only: refuse occupied cells; no demolition or automatic cleanup")
     ap.add_argument("--name", default="")
     ap.add_argument("--near", default="")
     ap.add_argument("--radius", type=int, default=24)
@@ -1416,6 +1521,9 @@ def main(argv=None, client=None):
     ap.add_argument("--retry-stubborn", action="store_true",
                     help="give the builder again the cells it handed back twice (after a new mod, a support)")
     a = ap.parse_args(argv)
+    if a.add_only and (a.action != "build" or a.mode != "physical"):
+        print("--add-only допустим только для build --mode physical")
+        return 2
     if a.retry_stubborn:
         stubborn_save({})
     if a.action == "timelapse":
@@ -1520,10 +1628,10 @@ def main(argv=None, client=None):
             client or make_client(), stem, max(0.5, a.timelapse_every), a.timelapse_hud, a.timelapse_view
         ).start()
         try:
-            return cmd_build(c, blocks, a.timeout, place(whole, origin))
+            return cmd_build(c, blocks, a.timeout, place(whole, origin), add_only=a.add_only)
         finally:
             finish_timelapse(recorder, stem, a.fps)
-    return cmd_build(c, blocks, a.timeout, place(whole, origin))
+    return cmd_build(c, blocks, a.timeout, place(whole, origin), add_only=a.add_only)
 
 
 if __name__ == "__main__":
