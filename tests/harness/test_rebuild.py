@@ -23,8 +23,10 @@ class StandingWorld:
 
     def call(self, name, args):
         self.calls.append(name)
-        if name == "getGameState":
-            return json.dumps({"inGame": True}), False
+        if name == "getGameState":   # standing right next to the cells: everything is in reach
+            near = min(self.blocks) if self.blocks else (0, 64, 0)
+            pos = "%.1f,%.1f,%.1f" % (near[0] + 0.5, near[1], near[2] + 1.5)
+            return json.dumps({"inGame": True, "self": {"pos": pos}}), False
         if name == "scanBox":
             cells, palette = [], []
             for (x, y, z), b in sorted(self.blocks.items()):

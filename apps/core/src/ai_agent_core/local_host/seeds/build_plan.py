@@ -1065,22 +1065,36 @@ def walk_close(x, y, z, timeout=60):
     return done.stdout.strip()
 
 
+def in_reach(here, cells, reach=4.2):
+    """The cells the eye at ``here`` (feet position) reaches, top-down. The mod's miner drops its WHOLE queue
+    the moment the cell it is on lies beyond 4.5 (PathExecutor: "Mining aborted ... breakQueue = null"), so a
+    list that starts with one far cell breaks nothing at all: hand it only what is in reach."""
+    if not here:
+        return []
+    eye = (here[0], here[1] + 1.62, here[2])
+    near = [p for p in cells if math.dist(eye, (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)) <= reach]
+    return sorted(near, key=lambda p: -p[1])
+
+
 def mine_cells(c, cells, timeout, step=1.0):
     """Mine the given cells (top-down) and wait; returns the cells that are still not air.
 
-    The mod's miner breaks only what is in reach from where the body stands, so what is left after the
-    first pass is walked to: the highest cell first, from the nearest stand with that cell in reach
-    (the navigator climbs there if it must; its pillar is the next sweep's scaffolding). Measured on
-    2026-11-21: a 10-high lighthouse kept 27 scaffold planks and 28 cells at y 72-75, "подойди ближе"
-    every time, because nobody walked her up to them."""
+    The mod's miner breaks only what is in reach from where the body stands, and gives the whole list up on
+    the first far cell, so it is handed only the cells in reach of where she actually stands; the rest is
+    walked to: the highest cell first, from the nearest stand with that cell in reach (breaking off for the
+    walk). Measured on 2026-11-21: a lantern dig of 39 cells broke none, cleanup left 27 planks and 28
+    cells at y 72-75, "подойди ближе" every time."""
     todo = [(x, y, z) for x, y, z in cells if not block_at(c, x, y, z).endswith("air")]
     if not todo:
         return []
     call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
     try:
-        if not _mine_pass(c, todo, timeout, step):
-            return todo
-        left = [p for p in todo if not block_at(c, *p).endswith("air")]
+        left = todo
+        near = in_reach(_here(c), left)
+        if near:
+            if not _mine_pass(c, near, timeout, step):
+                return left
+            left = [p for p in left if not block_at(c, *p).endswith("air")]
         for _ in range(MINE_WALK_ROUNDS):
             if not left:
                 break
@@ -1096,9 +1110,11 @@ def mine_cells(c, cells, timeout, step=1.0):
             call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
             walk_close(*stand)
             call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
-            eye = (stand[0] + 0.5, stand[1] + 1.62, stand[2] + 0.5)
-            near = [p for p in left if math.dist(eye, (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)) <= MINE_REACH + 0.2]
-            if not _mine_pass(c, sorted(near, key=lambda p: -p[1]), timeout, step):
+            near = in_reach(_here(c), left)
+            if not near:
+                print(f"С ({stand[0]}, {stand[1]}, {stand[2]}) не дотягиваюсь: оставляю {len(left)} клеток.")
+                break
+            if not _mine_pass(c, near, timeout, step):
                 break
             still = [p for p in left if not block_at(c, *p).endswith("air")]
             if len(still) >= len(left):
@@ -1109,7 +1125,6 @@ def mine_cells(c, cells, timeout, step=1.0):
         return left
     finally:
         call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
-
 
 def rebuild_removals(world, plan, box_plan=None):
     """What must come off before the new plan goes up: inside the plan's box (of box_plan, the layers of this stage)
