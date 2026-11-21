@@ -202,3 +202,13 @@ def test_a_cell_with_an_open_side_is_not_reopened(monkeypatch):
     plan = [(0, 65, 0, "minecraft:stone"), (0, 66, 0, "minecraft:white_concrete")]
     assert build_plan.reopen_from_above(world, [plan[0]], plan, 5) == [plan[0]]
     assert world.blocks[(0, 66, 0)] == "minecraft:white_concrete"   # the lid was never lifted
+
+
+def test_inside_out_puts_the_core_before_its_ring_in_every_layer():
+    ring = [(x, 74, z, "minecraft:glass") for x in range(-1, 2) for z in range(-1, 2) if (x, z) != (0, 0)]
+    core = (0, 74, 0, "minecraft:sea_lantern")
+    floor = [(x, 73, z, "minecraft:stone") for x in range(-1, 2) for z in range(-1, 2)]
+    order = build_plan.inside_out(ring + [core] + floor)
+    assert [b[1] for b in order] == sorted(b[1] for b in order)          # still bottom-up
+    layer74 = [b for b in order if b[1] == 74]
+    assert layer74[0] == core                                             # the core goes in first

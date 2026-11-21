@@ -783,6 +783,25 @@ def cmd_preview(blocks):
     print("значки: " + ", ".join(f"{v}={k.split(':')[-1]}" for k, v in keys.items()))
 
 
+def inside_out(blocks):
+    """Bottom-up, and within a layer the innermost cells first. A cell left for last inside its ring has no
+    face to click once the ring stands (2026-11-21: the sea-lantern core of the lighthouse lamp, closed in
+    by glass, then roof, and unreachable even with the top opened: a one-wide shaft too deep to reach). The
+    mod sorts its queue by height only and keeps this order within a layer."""
+    by_layer = {}
+    for b in blocks:
+        by_layer.setdefault(b[1], []).append(b)
+    out = []
+    for y in sorted(by_layer):
+        cells = by_layer[y]
+        xs, zs = [b[0] for b in cells], [b[2] for b in cells]
+        x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+        def depth(b):
+            return min(b[0] - x0, x1 - b[0], b[2] - z0, z1 - b[2])
+        out += sorted(cells, key=lambda b: (-depth(b), b[0], b[2]))
+    return out
+
+
 def cmd_build(c, blocks, timeout, plan=None):
     if not show_materials(blocks):
         return 2
@@ -802,7 +821,7 @@ def cmd_build(c, blocks, timeout, plan=None):
         if call(c, "closeOpenScreen") is None:
             print("ОТКРЫТО ОКНО: закрыть нечем, попроси оператора нажать Esc")
             return 3
-    ordered = sorted(blocks, key=lambda b: (b[1], b[0], b[2]))
+    ordered = inside_out(blocks)
     for index in range(0, len(ordered), BATCH):
         part = ordered[index : index + BATCH]
         cx = sum(b[0] for b in part) / len(part)
