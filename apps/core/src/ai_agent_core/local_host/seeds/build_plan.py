@@ -877,6 +877,15 @@ def reopen_from_above(c, missing, plan, timeout):
         if not all(_open(block_at(c, *m[:3]) or "minecraft:air") for m in run):
             left += run   # taken by something else, not sealed: clear_occupied's job, never lift a lid for it
             continue
+        # Only a cell closed on all four sides is sealed. One open side and the builder can reach it from
+        # there: lifting the lid only sent her up the roof and down again (2026-11-21, a base cell open to
+        # the outside got its wall lifted while she bounced between the lantern and the ground).
+        def side_open(m):
+            return any(_open(block_at(c, m[0] + dx, m[1], m[2] + dz) or "minecraft:air")
+                       for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        if any(side_open(m) for m in run):
+            left += run
+            continue
         above = (x, top_y + 1, z)
         top = want.get(above)
         if top is None or block_at(c, *above).split(":")[-1] != norm(top).split(":")[-1]:

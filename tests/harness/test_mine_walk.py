@@ -106,7 +106,9 @@ class SealWorld(ReachWorld):
 
 def test_a_cell_sealed_from_above_is_reopened_placed_and_closed(monkeypatch):
     blocks = {(0, 64, 0): "minecraft:stone", (0, 66, 0): "minecraft:white_concrete"}
-    world = SealWorld(blocks, (1.5, 65.0, 0.5))
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):      # closed on all four sides: truly sealed
+        blocks[(dx, 65, dz)] = "minecraft:stone"
+    world = SealWorld(blocks, (2.5, 65.0, 0.5))
     monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
     monkeypatch.setattr(build_plan, "wait_queue", lambda c, t, **k: {})
     plan = [(0, 65, 0, "minecraft:polished_deepslate"), (0, 66, 0, "minecraft:white_concrete")]
@@ -190,3 +192,13 @@ def test_a_cell_taken_by_earth_is_cleared_and_filled_not_reopened(monkeypatch):
     left = build_plan.clear_occupied(world, [plan[0]], 5)
     assert (0, 65, 0) not in world.blocks or world.blocks[(0, 65, 0)] == "minecraft:polished_deepslate"
     assert world.blocks[(0, 66, 0)] == "minecraft:white_concrete"
+
+
+def test_a_cell_with_an_open_side_is_not_reopened(monkeypatch):
+    blocks = {(0, 64, 0): "minecraft:stone", (0, 66, 0): "minecraft:white_concrete",
+              (1, 65, 0): "minecraft:stone", (0, 65, 1): "minecraft:stone", (0, 65, -1): "minecraft:stone"}
+    world = SealWorld(blocks, (-2.5, 65.0, 0.5))           # (-1, 65, 0) is open: the way in
+    monkeypatch.setattr(build_plan, "walk_close", lambda *a, **k: (_ for _ in ()).throw(AssertionError("walked")))
+    plan = [(0, 65, 0, "minecraft:stone"), (0, 66, 0, "minecraft:white_concrete")]
+    assert build_plan.reopen_from_above(world, [plan[0]], plan, 5) == [plan[0]]
+    assert world.blocks[(0, 66, 0)] == "minecraft:white_concrete"   # the lid was never lifted
