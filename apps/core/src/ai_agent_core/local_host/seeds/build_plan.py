@@ -1003,13 +1003,14 @@ def _open(name):
     return low.endswith("air") or (low != "grass_block" and any(k in low for k in PASS_THROUGH))
 
 
-def reach_stand(c, cell, here=None, reach=MINE_REACH, avoid=()):
+def reach_stand(c, cell, here=None, reach=MINE_REACH, avoid=(), exclude=()):
     """A place to stand (air at feet and head, something solid under the feet) from which the eye is
     within ``reach`` of ``cell``; the nearest to ``here`` among the closest. None without scanBox or
     when there is none. A stand whose floor is one of ``avoid`` (cells still to be mined) is not one:
     mining it would drop her."""
     x0, y0, z0 = cell
     avoid = set(avoid)
+    exclude = set(exclude)
     got = read_box(c, x0 - 5, y0 - 6, z0 - 5, x0 + 5, y0 + 5, z0 + 5)
     if got is None:
         return None
@@ -1022,7 +1023,7 @@ def reach_stand(c, cell, here=None, reach=MINE_REACH, avoid=()):
             for z in range(z0 - 5, z0 + 6):
                 if not (open_((x, y, z)) and open_((x, y + 1, z)) and not open_((x, y - 1, z))):
                     continue
-                if (x, y - 1, z) in avoid or (x, y, z) in avoid:
+                if (x, y - 1, z) in avoid or (x, y, z) in avoid or (x, y, z) in exclude:
                     continue
                 d = math.dist((x + 0.5, y + 1.62, z + 0.5), (x0 + 0.5, y0 + 0.5, z0 + 0.5))
                 if d > reach:
@@ -1095,11 +1096,12 @@ def mine_cells(c, cells, timeout, step=1.0):
             if not _mine_pass(c, near, timeout, step):
                 return left
             left = [p for p in left if not block_at(c, *p).endswith("air")]
+        tried = set()
         for _ in range(MINE_WALK_ROUNDS):
             if not left:
                 break
             target = max(left, key=lambda p: p[1])
-            stand = reach_stand(c, target, _here(c), avoid=left)
+            stand = reach_stand(c, target, _here(c), avoid=left, exclude=tried)
             if stand is None:
                 print(f"Не нашла, где встать, чтобы дотянуться до {target}: оставляю {len(left)} клеток.")
                 break
@@ -1112,8 +1114,10 @@ def mine_cells(c, cells, timeout, step=1.0):
             call(c, "ExecuteCommand", {"cmd": "@set allowBreak true"})
             near = in_reach(_here(c), left)
             if not near:
-                print(f"С ({stand[0]}, {stand[1]}, {stand[2]}) не дотягиваюсь: оставляю {len(left)} клеток.")
-                break
+                # she did not get there (a stand inside the lamp, no way in): try the next stand, not give up
+                print(f"До ({stand[0]}, {stand[1]}, {stand[2]}) не дошла или не дотягиваюсь: пробую другое место.")
+                tried.add(stand)
+                continue
             if not _mine_pass(c, near, timeout, step):
                 break
             still = [p for p in left if not block_at(c, *p).endswith("air")]

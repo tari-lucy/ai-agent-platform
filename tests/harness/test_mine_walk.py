@@ -212,3 +212,28 @@ def test_inside_out_puts_the_core_before_its_ring_in_every_layer():
     assert [b[1] for b in order] == sorted(b[1] for b in order)          # still bottom-up
     layer74 = [b for b in order if b[1] == 74]
     assert layer74[0] == core                                             # the core goes in first
+
+
+def test_a_stand_she_cannot_reach_is_skipped_for_the_next_one(monkeypatch):
+    blocks = {}
+    ground(blocks, -6, 12, -6, 6, 64)
+    for x in range(6, 9):
+        for z in range(-1, 2):
+            for y in range(65, 71):
+                blocks[(x, y, z)] = "minecraft:stone"
+    scaffold = [(5, y, 0) for y in range(65, 74)]
+    for p in scaffold:
+        blocks[p] = "minecraft:spruce_planks"
+    world = ReachWorld(blocks, (-4.5, 65.0, 0.5))
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    first = []
+
+    def walk(x, y, z, timeout=60):
+        if not first:            # the first stand chosen cannot be reached: she stays where she is
+            first.append((x, y, z))
+            return "STUCK"
+        world.pos = (x + 0.5, float(y), z + 0.5)
+        return "OK"
+
+    monkeypatch.setattr(build_plan, "walk_close", walk)
+    assert build_plan.mine_cells(world, scaffold, 5) == []
