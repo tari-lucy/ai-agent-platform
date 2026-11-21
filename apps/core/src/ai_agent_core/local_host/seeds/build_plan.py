@@ -828,6 +828,17 @@ def reopen_from_above(c, missing, plan, timeout):
             left.append((x, y, z, b))
             continue
         print(f"Клетка {(x, y, z)} закрыта сверху: снимаю {top.split(':')[-1]} над ней, ставлю и возвращаю.")
+        # Not from on top of it: a column built by pillaring leaves her standing on that very column,
+        # and taking the block away drops her into the cell she is about to fill (2026-11-21, the
+        # rehearsal column: two centre cells, her body in the way). Step aside first, to a stand
+        # outside the column with the cell in reach.
+        here = _here(c)
+        if here and int(math.floor(here[0])) == x and int(math.floor(here[2])) == z:
+            column = [(x, yy, z) for yy in range(y - 1, y + 8)]
+            aside = reach_stand(c, above, here, avoid=column)
+            if aside is not None and (aside[0], aside[2]) != (x, z):
+                call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
+                walk_close(*aside)
         if mine_cells(c, [above], timeout):
             left.append((x, y, z, b))
             continue
@@ -914,7 +925,7 @@ def reach_stand(c, cell, here=None, reach=MINE_REACH, avoid=()):
             for z in range(z0 - 5, z0 + 6):
                 if not (open_((x, y, z)) and open_((x, y + 1, z)) and not open_((x, y - 1, z))):
                     continue
-                if (x, y - 1, z) in avoid:
+                if (x, y - 1, z) in avoid or (x, y, z) in avoid:
                     continue
                 d = math.dist((x + 0.5, y + 1.62, z + 0.5), (x0 + 0.5, y0 + 0.5, z0 + 0.5))
                 if d > reach:

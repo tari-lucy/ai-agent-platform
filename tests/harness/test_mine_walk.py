@@ -120,3 +120,27 @@ def test_a_missing_cell_with_nothing_of_the_plan_above_is_left(monkeypatch):
     world = SealWorld({(0, 64, 0): "minecraft:stone"}, (1.5, 65.0, 0.5))
     plan = [(0, 65, 0, "minecraft:polished_deepslate")]
     assert build_plan.reopen_from_above(world, plan, plan, 5) == plan
+
+
+def test_she_steps_off_the_column_before_reopening_it(monkeypatch):
+    blocks = {}
+    ground(blocks, -4, 4, -4, 4, 64)
+    for x in range(-1, 2):          # a 3x3 column two high, its centre cell at y 65 missing
+        for z in range(-1, 2):
+            for y in (65, 66):
+                if (x, y, z) != (0, 65, 0):
+                    blocks[(x, y, z)] = "minecraft:stone"
+    world = SealWorld(blocks, (0.5, 67.0, 0.5))    # standing on top of the centre
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    monkeypatch.setattr(build_plan, "wait_queue", lambda c, t, **k: {})
+    walks = []
+
+    def walk(x, y, z, timeout=60):
+        walks.append((x, y, z))
+        world.pos = (x + 0.5, float(y), z + 0.5)
+
+    monkeypatch.setattr(build_plan, "walk_close", walk)
+    plan = [(x, y, z, "minecraft:stone") for x in range(-1, 2) for z in range(-1, 2) for y in (65, 66)]
+    left = build_plan.reopen_from_above(world, [(0, 65, 0, "minecraft:stone")], plan, 5)
+    assert walks and (walks[0][0], walks[0][2]) != (0, 0)   # stepped off the centre column first
+    assert left == [] and world.blocks[(0, 66, 0)] == "minecraft:stone"
