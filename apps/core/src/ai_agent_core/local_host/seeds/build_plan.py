@@ -840,6 +840,11 @@ def cmd_build(c, blocks, timeout, plan=None):
             time.sleep(6)
             call(c, "buildBlocks", {"blocks": json.dumps([list(b) for b in part])})
             wait_queue(c, timeout)
+        why = str(status.get("walkDebug") or "").strip()
+        if status.get("deferred") and why:
+            # the builder's own reason (NOSTAND, SEALED, EXHAUSTED, PILLAR-GAVE-UP ...), so a refusal is
+            # not a guess (2026-11-21: five roof cells refused with nothing printed)
+            print(f"Строитель отложил {len(status['deferred'])}: {why[-300:]}")
         print(f"порция {index // BATCH + 1}/{math.ceil(len(ordered) / BATCH)} готова")
     missing = verify(c, ordered)
     if missing:
