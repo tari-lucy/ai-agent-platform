@@ -174,3 +174,19 @@ def test_a_sealed_run_of_two_is_reopened_top_down(monkeypatch):
     plan = [(0, y, 0, "minecraft:stone") for y in (65, 66, 67)]
     left = build_plan.reopen_from_above(world, plan[:2], plan, 5)
     assert left == [] and all(world.blocks.get((0, y, 0)) == "minecraft:stone" for y in (65, 66, 67))
+
+
+def test_a_cell_taken_by_earth_is_cleared_and_filled_not_reopened(monkeypatch):
+    blocks = {(0, 64, 0): "minecraft:stone", (0, 65, 0): "minecraft:dirt", (0, 66, 0): "minecraft:white_concrete"}
+    world = SealWorld(blocks, (2.5, 65.0, 0.5))
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    monkeypatch.setattr(build_plan, "wait_queue", lambda c, t, **k: {})
+    plan = [(0, 65, 0, "minecraft:polished_deepslate"), (0, 66, 0, "minecraft:white_concrete")]
+    # reopen never lifts the wall for a taken cell
+    assert build_plan.reopen_from_above(world, [plan[0]], plan, 5) == [plan[0]]
+    assert world.blocks[(0, 66, 0)] == "minecraft:white_concrete"
+    # clear_occupied mines the earth; the cell is sealed by the wall in this fake, so it stays missing,
+    # but the earth is gone and the wall stands
+    left = build_plan.clear_occupied(world, [plan[0]], 5)
+    assert (0, 65, 0) not in world.blocks or world.blocks[(0, 65, 0)] == "minecraft:polished_deepslate"
+    assert world.blocks[(0, 66, 0)] == "minecraft:white_concrete"

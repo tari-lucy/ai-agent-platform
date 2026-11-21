@@ -823,6 +823,8 @@ def cmd_build(c, blocks, timeout, plan=None):
         wait_queue(c, timeout)
         missing = verify(c, missing)
     if missing:
+        missing = clear_occupied(c, missing, timeout)
+    if missing:
         missing = reopen_from_above(c, missing, plan or ordered, timeout)
     if missing:
         print(f"НЕ ХВАТАЕТ {len(missing)} блоков (первые): {missing[:8]}")
@@ -830,6 +832,22 @@ def cmd_build(c, blocks, timeout, plan=None):
         return 5
     print(f"ГОТОВО: все {len(ordered)} блоков на месте")
     return cmd_cleanup(c, ordered, timeout, plan)
+
+
+def clear_occupied(c, missing, timeout):
+    """A cell the plan wants that holds some other block (earth left by levelling, grass, a stray) is not
+    missing a face, it is taken: the builder only places into air. Mine what is there and place the
+    plan's block (2026-11-21: two base cells of the second lighthouse, earth from levelling in them).
+    -> the cells still missing (air ones go on to reopen_from_above)."""
+    taken = [m for m in missing if not _open(block_at(c, m[0], m[1], m[2]) or "minecraft:air")]
+    if not taken:
+        return missing
+    names = sorted({block_at(c, *m[:3]).split(":")[-1] for m in taken})
+    print(f"Заняты чужим ({', '.join(names[:4])}): {len(taken)} клеток плана. Освобождаю и ставлю нужное.")
+    mine_cells(c, [m[:3] for m in taken], timeout)
+    call(c, "buildBlocks", {"blocks": json.dumps([list(m) for m in taken])})
+    wait_queue(c, timeout)
+    return verify(c, missing)
 
 
 def reopen_from_above(c, missing, plan, timeout):
@@ -856,6 +874,9 @@ def reopen_from_above(c, missing, plan, timeout):
     left = []
     for run in sorted(runs, key=lambda r: -r[-1][1]):
         x, top_y, z, _ = run[-1]
+        if not all(_open(block_at(c, *m[:3]) or "minecraft:air") for m in run):
+            left += run   # taken by something else, not sealed: clear_occupied's job, never lift a lid for it
+            continue
         above = (x, top_y + 1, z)
         top = want.get(above)
         if top is None or block_at(c, *above).split(":")[-1] != norm(top).split(":")[-1]:
@@ -880,7 +901,12 @@ def reopen_from_above(c, missing, plan, timeout):
         wait_queue(c, timeout)
         left += verify(c, run)
         if verify(c, [(x, top_y + 1, z, top)]):
+            # the batch can stall on a cell below that still did not go in: give the lid back alone
+            call(c, "buildBlocks", {"blocks": json.dumps([[x, top_y + 1, z, top]])})
+            wait_queue(c, timeout)
+        if verify(c, [(x, top_y + 1, z, top)]):
             print(f"Блок {above} не вернулся на место: верни его (build ещё раз по этому плану).")
+            left.append((x, top_y + 1, z, top))
     return left
 
 
