@@ -862,14 +862,29 @@ def place_in_sight(c, missing, timeout):
         (sx, sy, sz), dist = found
         print(f"Клетка {(x, y, z)}: встану на ({sx}, {sy}, {sz}), оттуда грань видна ({dist:.1f} бл.).")
         call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
-        walk_close(sx, sy, sz)
+        # The sight test holds for THAT stand: arriving "within 1.2" is not there. Check where she is and come
+        # closer once more if she stopped short (2026-11-21: a partition cell, stand 1.4 from the face, the
+        # block still air after the try).
+        for tolerance in ("1.2", "0.6"):
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "goto_wait.py"),
+                            str(sx), str(sy), str(sz), "--tolerance", tolerance, "--timeout", "60"],
+                           capture_output=True, text=True)
+            here = _here(c)
+            if here and math.dist((here[0], here[2]), (sx + 0.5, sz + 0.5)) <= 0.7 and abs(here[1] - sy) < 0.6:
+                break
+        here = _here(c)
+        print(f"   стою на {tuple(round(v, 1) for v in here) if here else '?'}")
         call(c, "setBuilderWalks", {"on": False})
         try:
             call(c, "buildBlocks", {"blocks": json.dumps([[x, y, z, b]])})
-            wait_queue(c, timeout)
+            status = wait_queue(c, timeout)
         finally:
             call(c, "setBuilderWalks", {"on": True})
-        left += verify(c, [m])
+        still = verify(c, [m])
+        if still:
+            why = str((status or {}).get("walkDebug") or "").strip()
+            print(f"   не встала; строитель: deferred={(status or {}).get('deferred')} {why[-200:]}")
+        left += still
     return left
 
 
