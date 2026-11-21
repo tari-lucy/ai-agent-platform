@@ -142,7 +142,7 @@ def test_she_steps_off_the_column_before_reopening_it(monkeypatch):
     monkeypatch.setattr(build_plan, "walk_close", walk)
     plan = [(x, y, z, "minecraft:stone") for x in range(-1, 2) for z in range(-1, 2) for y in (65, 66)]
     left = build_plan.reopen_from_above(world, [(0, 65, 0, "minecraft:stone")], plan, 5)
-    assert walks and (walks[0][0], walks[0][2]) != (0, 0)   # stepped off the centre column first
+    assert walks and (walks[0][0], walks[0][2]) != (0, 0)  # stepped off the centre column first
     assert left == [] and world.blocks[(0, 66, 0)] == "minecraft:stone"
 
 
@@ -160,3 +160,17 @@ def test_a_stone_pillar_stuck_to_a_stone_build_is_a_stray_but_the_ground_is_not(
     strays, _ = build_plan.find_strays(world, plan)
     got = {(x, y, z) for x, y, z, _ in strays}
     assert got == {(1, 65, 0), (1, 66, 0), (1, 67, 0), (1, 68, 0)}   # the pillar and its foot; not the bumps
+
+
+def test_a_sealed_run_of_two_is_reopened_top_down(monkeypatch):
+    blocks = {(0, 64, 0): "minecraft:stone", (0, 67, 0): "minecraft:stone"}
+    for x, z in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for y in (65, 66, 67):
+            blocks[(x, y, z)] = "minecraft:stone"
+    world = SealWorld(blocks, (3.5, 65.0, 0.5))
+    monkeypatch.setattr(build_plan.time, "sleep", lambda s: None)
+    monkeypatch.setattr(build_plan, "wait_queue", lambda c, t, **k: {})
+    monkeypatch.setattr(build_plan, "walk_close", lambda *a, **k: "OK")
+    plan = [(0, y, 0, "minecraft:stone") for y in (65, 66, 67)]
+    left = build_plan.reopen_from_above(world, plan[:2], plan, 5)
+    assert left == [] and all(world.blocks.get((0, y, 0)) == "minecraft:stone" for y in (65, 66, 67))

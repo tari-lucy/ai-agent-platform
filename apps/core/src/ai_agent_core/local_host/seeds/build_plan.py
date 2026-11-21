@@ -834,37 +834,52 @@ def cmd_build(c, blocks, timeout, plan=None):
 
 def reopen_from_above(c, missing, plan, timeout):
     """A cell skipped early and then sealed by the layer above it has no face left to click: take the
-    plan block above it away for a moment, place the cell, put the block back. 2026-11-21: a base cell
-    of the striped lighthouse, the builder standing right next to it and finding no face, while she
-    did exactly this by hand with a separate repair plan. -> the cells still missing."""
+    plan block above it away for a moment, place the cell, put the block back. A vertical run of such
+    cells is one shaft: the block above its top comes off, the run goes in bottom-up while the shaft is
+    open, then the block goes back. 2026-11-21: a base cell of the striped lighthouse and the centre of a
+    solid rehearsal column, the builder next to them finding no face. -> the cells still missing."""
     want = {(x, y, z): b for x, y, z, b in plan}
+    by_column = {}
+    for m in missing:
+        by_column.setdefault((m[0], m[2]), []).append(m)
+    runs = []
+    for cells in by_column.values():
+        cells.sort(key=lambda m: m[1])
+        run = [cells[0]]
+        for m in cells[1:]:
+            if m[1] == run[-1][1] + 1:
+                run.append(m)
+            else:
+                runs.append(run)
+                run = [m]
+        runs.append(run)
     left = []
-    for x, y, z, b in missing:
-        above = (x, y + 1, z)
+    for run in sorted(runs, key=lambda r: -r[-1][1]):
+        x, top_y, z, _ = run[-1]
+        above = (x, top_y + 1, z)
         top = want.get(above)
         if top is None or block_at(c, *above).split(":")[-1] != norm(top).split(":")[-1]:
-            left.append((x, y, z, b))
+            left += run
             continue
-        print(f"Клетка {(x, y, z)} закрыта сверху: снимаю {top.split(':')[-1]} над ней, ставлю и возвращаю.")
+        cells = ", ".join(str((m[0], m[1], m[2])) for m in run)
+        print(f"Закрыто сверху: {cells}. Снимаю {top.split(':')[-1]} над ними, ставлю и возвращаю.")
         # Not from on top of it: a column built by pillaring leaves her standing on that very column,
-        # and taking the block away drops her into the cell she is about to fill (2026-11-21, the
-        # rehearsal column: two centre cells, her body in the way). Step aside first, to a stand
-        # outside the column with the cell in reach.
+        # and taking the block away drops her into the cells she is about to fill (2026-11-21, the
+        # rehearsal column). Step aside first, to a stand outside the column with the cells in reach.
         here = _here(c)
         if here and int(math.floor(here[0])) == x and int(math.floor(here[2])) == z:
-            column = [(x, yy, z) for yy in range(y - 1, y + 8)]
+            column = [(x, yy, z) for yy in range(run[0][1] - 1, top_y + 8)]
             aside = reach_stand(c, above, here, avoid=column)
             if aside is not None and (aside[0], aside[2]) != (x, z):
                 call(c, "ExecuteCommand", {"cmd": "@set allowBreak false"})
                 walk_close(*aside)
         if mine_cells(c, [above], timeout):
-            left.append((x, y, z, b))
+            left += run
             continue
-        call(c, "buildBlocks", {"blocks": json.dumps([[x, y, z, b], [x, y + 1, z, top]])})
+        call(c, "buildBlocks", {"blocks": json.dumps([[m[0], m[1], m[2], m[3]] for m in run] + [[x, top_y + 1, z, top]])})
         wait_queue(c, timeout)
-        if verify(c, [(x, y, z, b)]):
-            left.append((x, y, z, b))
-        if verify(c, [(x, y + 1, z, top)]):
+        left += verify(c, run)
+        if verify(c, [(x, top_y + 1, z, top)]):
             print(f"Блок {above} не вернулся на место: верни его (build ещё раз по этому плану).")
     return left
 
