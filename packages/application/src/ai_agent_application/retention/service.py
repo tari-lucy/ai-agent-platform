@@ -6,10 +6,11 @@ A failure after (1) leaves the source blocked and pending: it is never served an
 ``apply_ledger`` finishes the job. Nothing here starts an agent or calls a model.
 """
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ai_agent_contracts.api import MessageArguments, MessageCommand, Receipt
@@ -33,6 +34,7 @@ from .policy import RetentionPolicy
 from .ports import DeletionLedger, DerivedPurger, LedgerPurger, PhysicalStore
 
 MAX_BATCH = 500
+RETAIN_RECHECK = timedelta(hours=6)  # how long a looked-at upcoming source is left alone
 
 
 class RetentionService:
@@ -54,6 +56,9 @@ class RetentionService:
         self.storage, self.principal, self.memory = storage, principal, memory
         self.physical, self.ledger, self.index = physical, ledger, index
         self.purgers, self.policy, self.clock = tuple(purgers), policy or RetentionPolicy(), clock
+        # (source, version) -> when to look at it again. Every sweep (each five minutes) went over
+        # the same 500 upcoming sources and rebuilt the same excerpts: seconds of CPU each time.
+        self._retained: dict[tuple[str, int], datetime] = {}
 
     # ---- deletion ------------------------------------------------------------------------
 
@@ -254,9 +259,16 @@ class RetentionService:
         upcoming = await self.physical.due_sources(
             scope, now=now + self.policy.retain_lead, test_cutoff=None
         )
+        seen: set[tuple[str, int]] = set()
         for stub in upcoming[:MAX_BATCH]:
             if stub.protected or not stub.has_content:
                 continue
+            key = (stub.source_id, stub.version)
+            seen.add(key)
+            if now < self._retained.get(key, now):
+                continue  # looked at lately; a claim citing it since then is caught next round
+            self._retained[key] = now + RETAIN_RECHECK
+            await asyncio.sleep(0)  # a long sweep must not hold the event loop in one piece
             sole, shared = await self.physical.dependents(scope, [stub.source_id])
             if not sole and not shared:
                 continue
@@ -273,6 +285,8 @@ class RetentionService:
                 )
             except ContractError:
                 continue
+        if len(self._retained) > 4 * MAX_BATCH:  # bounded: forget what is no longer upcoming
+            self._retained = {k: v for k, v in self._retained.items() if k in seen}
 
     # ---- restore gate ---------------------------------------------------------------------
 

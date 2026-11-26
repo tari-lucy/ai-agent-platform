@@ -96,3 +96,35 @@ def test_deleting_or_closing_the_conversation_takes_its_excerpt_along(tmp_path):
     assert not out["gone"].has_content and out["lamp"] is None
     assert residue(out["world"].paths, "бирюзовый фонарик бабушки") == []
     run(out["world"].store.close())
+
+
+def test_back_to_back_sweeps_do_not_redo_the_same_upcoming_sources(tmp_path):
+    """Each sweep (every five minutes) rebuilt the same excerpts: seconds of CPU every time."""
+
+    async def scenario():
+        world = await new_world(tmp_path, [A])
+        talk = await world.add(A, TALK, external_id="t-1")
+        await claim(world, A, "claim-lamp", [talk], text="Её талисман — бирюзовый фонарик.")
+        world.clock.advance(days=25)  # inside the 7-day lead
+        looked: list[str] = []
+        physical = world.retention.physical
+        original = physical.dependents
+
+        async def counting(scope, ids):
+            looked.extend(ids)
+            return await original(scope, ids)
+
+        physical.dependents = counting
+        await world.retention.sweep(A)
+        first = len(looked)
+        await world.retention.sweep(A)  # five minutes later in real life: nothing to redo
+        second = len(looked)
+        world.clock.advance(hours=7)  # past the recheck: looked at again (a new claim may cite it)
+        await world.retention.sweep(A)
+        excerpt = await world.memory.get_source(A, world.memory.excerpt_id(A, talk.source_id))
+        return first, second, len(looked), excerpt, world
+
+    first, second, third, excerpt, world = run(scenario())
+    assert first >= 1 and second == first and third > second
+    assert excerpt is not None  # the excerpt itself was made on the first sweep
+    run(world.store.close())

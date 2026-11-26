@@ -44,6 +44,32 @@ def where(frames: list[traceback.FrameSummary], depth: int = 6) -> str:
     )
 
 
+CENSUS_SECONDS = 3600.0
+
+
+def loop_census(loop: asyncio.AbstractEventLoop, top: int = 6) -> str:
+    """What the event loop carries: live tasks and timers grouped by code location (file:function:
+    line where a task waits; a timer's callback name). No values. A platform that grew from 40 to
+    560 wake-ups a second over six days showed nothing else; this names what piles up."""
+    from collections import Counter
+
+    tasks: Counter[str] = Counter()
+    for task in asyncio.all_tasks(loop):
+        coro = task.get_coro()
+        frame = getattr(coro, "cr_frame", None)
+        code = getattr(coro, "cr_code", None)
+        name = getattr(code, "co_qualname", type(coro).__name__)
+        file = getattr(code, "co_filename", "?").replace(chr(92), "/").rsplit("/", 1)[-1]
+        tasks[f"{file}:{name}:{frame.f_lineno if frame is not None else '-'}"] += 1
+    timers: Counter[str] = Counter()
+    for handle in list(getattr(loop, "_scheduled", ())):
+        callback = getattr(handle, "_callback", None)
+        timers[getattr(callback, "__qualname__", type(callback).__name__)] += 1
+    head = ", ".join(f"{k} x{n}" for k, n in tasks.most_common(top))
+    clocks = ", ".join(f"{k} x{n}" for k, n in timers.most_common(3))
+    return f"tasks={sum(tasks.values())} timers={sum(timers.values())} top: {head} | {clocks}"
+
+
 SLOW_REQUEST_SECONDS = 0.5
 
 
@@ -207,6 +233,14 @@ def create_app(
             telemetry.update_health("control", HealthState.READY)
             await asyncio.sleep(0.05)
 
+    async def census() -> None:
+        while True:
+            await asyncio.sleep(CENSUS_SECONDS)
+            try:
+                LOG.info("Loop census: %s", loop_census(asyncio.get_running_loop()))
+            except Exception:  # noqa: BLE001 - diagnostics never stop the platform
+                LOG.warning("Loop census failed")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if runtime is not None:
@@ -215,6 +249,7 @@ def create_app(
         worker = asyncio.create_task(runtime_watchdog())
         watchdog = asyncio.create_task(supervisor.watchdog())
         operations = asyncio.create_task(operational_watchdog())
+        counting = asyncio.create_task(census())
         try:
             yield
         finally:
@@ -225,7 +260,8 @@ def create_app(
             worker.cancel()
             watchdog.cancel()
             operations.cancel()
-            for task in (worker, watchdog, operations):
+            counting.cancel()
+            for task in (worker, watchdog, operations, counting):
                 with suppress(asyncio.CancelledError):
                     await task
             if runtime is not None:

@@ -185,6 +185,22 @@ def test_quota_warns_at_eighty_and_ninety_percent_and_stops_when_full(tmp_path):
     assert [m.backup_id for m in left] == [first.manifest.backup_id]  # nothing erased to make room
 
 
+def test_a_full_store_still_rotates_out_expired_copies_and_then_copies_again(tmp_path):
+    """A store full of copies past their term made no new copy and so never rotated: stuck."""
+
+    async def scenario():
+        bw = await new_bworld(tmp_path, [A])
+        old = await bw.service.create("daily")
+        bw.service.policy = BackupPolicy(quota_bytes=bw.store.used_bytes())
+        bw.world.clock.advance(days=31)
+        fresh = await bw.service.create("daily")
+        return old, fresh, await bw.service.copies()
+
+    old, fresh, left = run(scenario())
+    assert fresh.pruned == (old.manifest.backup_id,)
+    assert [m.backup_id for m in left] == [fresh.manifest.backup_id]
+
+
 def test_policy_is_validated():
     for bad in (
         dict(keep_daily=0),

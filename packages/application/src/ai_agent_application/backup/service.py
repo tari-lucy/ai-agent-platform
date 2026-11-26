@@ -97,9 +97,13 @@ class BackupService:
         self, kind: Kind = "daily", *, keep: frozenset[str] = frozenset()
     ) -> BackupResult:
         now = self.clock()
+        # Rotation first: a copy past its term or beyond the kept count goes even when no new copy
+        # can be made. Pruning only after a successful copy deadlocked a full store: no copy, so
+        # no rotation, so still full, while the old copies outlived the text term.
+        early = await self._prune(keep)
         quota = self.policy.quota_bytes
         if quota is not None and self.store.used_bytes() >= quota:
-            raise ContractError(ErrorCode.RESOURCE_BUSY)  # full: no new copy, nothing is erased
+            raise ContractError(ErrorCode.RESOURCE_BUSY)  # full: no new copy, nothing else erased
         existing = {m.backup_id for m in await self.store.manifests()}
         stem = f"bk-{now.strftime('%Y%m%dT%H%M%S')}-{kind}"
         backup_id, number = stem, 1
@@ -141,7 +145,7 @@ class BackupService:
                 await self.ledger.snapshot_to(self.ledger_dir / f"{backup_id}.ledger.sqlite")
         finally:
             shutil.rmtree(stage, ignore_errors=True)
-        pruned = await self._prune(keep)
+        pruned = [*early, *await self._prune(keep)]
         return BackupResult(manifest, tuple(pruned), tuple(self._quota_warnings()))
 
     def _quota_warnings(self) -> list[str]:

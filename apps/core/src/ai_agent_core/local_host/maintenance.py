@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 import tempfile
+import traceback
 from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime
@@ -17,6 +19,7 @@ from ai_agent_application.memory import MemoryService
 from ai_agent_application.memory.ports import RecallIndex
 from ai_agent_application.retention import RetentionService
 from ai_agent_application.storage import Owner
+from ai_agent_contracts.codec import ContractError
 
 from ai_agent_core.local_artifacts import (
     ReportBinding,
@@ -30,6 +33,16 @@ from ai_agent_core.m3_composition.state import PRINCIPALS
 from .layout import HostConfig, HostError, HostPaths, restrict
 from .process import exclusive_host
 from .recovery import HostLedger
+
+LOG = logging.getLogger(__name__)
+
+
+def where(frames: traceback.StackSummary, depth: int = 6) -> str:
+    """Code locations only (file:function:line), innermost first: no values or host paths."""
+    return " < ".join(
+        f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.name}:{f.lineno}"
+        for f in reversed(frames[-depth:])
+    )
 
 if TYPE_CHECKING:
     from ai_agent_core.m3_composition.service import Runtime
@@ -50,6 +63,7 @@ class HostMaintenance:
         self.attempted_day = ""
         self.pending = 0
         self.retention: RetentionService | None = None
+        self._last_failure: tuple[str, str, str] | None = None
 
     async def open(self) -> None:
         await self.ledger.identity()  # a missing/rolled-back ledger closes startup before HTTP
@@ -152,6 +166,15 @@ class HostMaintenance:
                 # Fixed class/code only. Never stringify IO/provider exceptions or memory text.
                 code = error.code if isinstance(error, HostError) else "MAINTENANCE_FAILED"
                 self._status(code)
+                # It failed every five minutes for two weeks (the backup store was full) and the
+                # log said nothing: the type, a fixed code and code locations, once per change.
+                fixed = error.error.code.value if isinstance(error, ContractError) else "-"
+                at = where(traceback.extract_tb(error.__traceback__))
+                if (type(error).__name__, fixed, at) != self._last_failure:
+                    self._last_failure = (type(error).__name__, fixed, at)
+                    LOG.warning("Maintenance failed: %s %s at %s", type(error).__name__, fixed, at)
+            else:
+                self._last_failure = None
             try:
                 await asyncio.wait_for(self.stop.wait(), self.config.recovery.interval_seconds)
             except TimeoutError:
